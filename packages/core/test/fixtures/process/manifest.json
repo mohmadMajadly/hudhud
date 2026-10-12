@@ -1,0 +1,38 @@
+{
+  "description": "Provenance of the process-table fixtures used by packages/core/test/process/tree. Bytes are stored exactly as produced (see .gitattributes).",
+  "fixtures": [
+    {
+      "path": "linux/proc/<pid>/stat",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-12",
+      "host": "Linux container node:22-bookworm@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d with --init (pid 1 is docker-init); CLK_TCK 100",
+      "how": "bash (pid 8) with job control started copies of /bin/sleep named 'a) (b c' (16), 'x) R 1 1 1 0' (17), 'nl<LF>9 1 9 Z' (18), bytes FF FE '-bad' (19), and bash -c (20, own group) running two 'plain' sleeps (22, 23); every /proc/<pid>/stat was copied byte for byte with cat. The processes ended on their own (sleep 6); nothing was signalled."
+    },
+    {
+      "path": "linux/ps.out",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-12",
+      "host": "same container and moment as linux/proc",
+      "how": "LC_ALL=C TZ=UTC0 ps -A -o pid=,ppid=,pgid=,lstart=,comm= (procps-ng; same column specification as the macOS command). procps prints the newline of pid 18 as '.' and the invalid bytes of pid 19 as '?'."
+    },
+    {
+      "path": "win32/cim-array.out",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-12",
+      "host": "Windows 11 (10.0.26200), Windows PowerShell 5.1",
+      "how": "Get-CimInstance Win32_Process mapped to {p, pp, t = CreationDate.ToFileTimeUtc() as a string, n} and ConvertTo-Json -Compress, as specified on Win32CimTableCalls; filtered to pids 0 and 4, the recording PowerShell, its ancestors and its children so no unrelated process names are stored. The parent of explorer.exe had exited, so its ppid names a pid that is absent."
+    },
+    {
+      "path": "win32/cim-single.out",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-12",
+      "host": "same as win32/cim-array.out",
+      "how": "the single-object form that PowerShell 5.1 produces when the pipeline holds one object"
+    },
+    {
+      "path": "darwin/ps.synthesized.out",
+      "provenance": "synthesized",
+      "how": "Written by hand from the documented BSD ps format of '/bin/ps -A -o pid=,ppid=,pgid=,lstart=,comm=' under LC_ALL=C and TZ=UTC0 (numbers right-aligned, lstart '%a %b %e %H:%M:%S %Y', comm is the executable path). NOT recorded on macOS: the macOS gate must replace or confirm it. It also contains hostile cases: a name with spaces and parentheses, a forged line (pid 480 repeated, as a newline in a name could produce if ps did not escape it), an empty name, a wrong weekday and a malformed line."
+    }
+  ]
+}
