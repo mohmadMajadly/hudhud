@@ -109,6 +109,29 @@ describe('ci-classify.mjs', () => {
     expect(classify('push', {}, { GITHUB_REF: 'refs/heads/main' }).output).toContain('tier=FULL');
   });
 
+  it('classifies pushes to main from the before..after diff, FULL when it is unknowable', () => {
+    git('init', '--quiet');
+    const base = commit('packages/core/src/x.ts');
+    const docsHead = commit('docs/a.md');
+    const main = { GITHUB_REF: 'refs/heads/main' };
+    const push = (before: unknown, after: string, env = main) =>
+      classify('push', before === undefined ? {} : { before }, { ...env, GITHUB_SHA: after })
+        .output;
+
+    expect(push(base, docsHead)).toBe('tier=LIGHT\nlinux-node=[]\n');
+    const codeHead = commit('scripts/y.mjs');
+    expect(push(docsHead, codeHead)).toContain('tier=FULL');
+    // multi-commit push: everything since `before` counts
+    expect(push(base, codeHead)).toContain('tier=FULL');
+    // new branch, missing, malformed or unfetchable (force push) before
+    expect(push('0'.repeat(40), docsHead)).toContain('tier=FULL');
+    expect(push(undefined, docsHead)).toContain('tier=FULL');
+    expect(push('not-a-sha', docsHead)).toContain('tier=FULL');
+    expect(push('f'.repeat(40), docsHead)).toContain('tier=FULL');
+    // tags are always FULL, even docs-only
+    expect(push(base, docsHead, { GITHUB_REF: 'refs/tags/v1.0.0' })).toContain('tier=FULL');
+  });
+
   it('classifies a local file list', () => {
     const result = node('ci-classify.mjs', ['--files', 'docs/a.md', 'README.md'], {});
     expect(result.stdout).toContain('tier=LIGHT');

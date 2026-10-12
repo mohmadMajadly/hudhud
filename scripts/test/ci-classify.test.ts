@@ -7,6 +7,7 @@ import {
   classify,
   classifyPaths,
   isDocsOnlyPath,
+  isDiffableSha,
   isWellFormedPath,
   parseNameList,
 } from '../lib/ci-classify.mjs';
@@ -101,8 +102,51 @@ describe('classify (event + paths)', () => {
       { event: 'pull_request', files: docs, draft: true, labels: ['bug', FULL_LABEL] },
       'FULL',
     ],
-    ['push to main', { event: 'push', files: null, ref: 'refs/heads/main' }, 'FULL'],
+    // ADR-0014 amendment 1: docs-only pushes to main are LIGHT, all else FULL.
+    ['docs-only push to main', { event: 'push', files: docs, ref: 'refs/heads/main' }, 'LIGHT'],
+    [
+      'root-docs push to main',
+      { event: 'push', files: ['README.md', 'CHANGELOG.md', 'LICENSE'], ref: 'refs/heads/main' },
+      'LIGHT',
+    ],
+    ['code push to main', { event: 'push', files: code, ref: 'refs/heads/main' }, 'FULL'],
+    [
+      'mixed push to main',
+      { event: 'push', files: [...docs, ...code], ref: 'refs/heads/main' },
+      'FULL',
+    ],
+    [
+      'push to main with unknown diff (new branch, force push, unfetchable before)',
+      { event: 'push', files: null, ref: 'refs/heads/main' },
+      'FULL',
+    ],
+    ['empty push to main', { event: 'push', files: [], ref: 'refs/heads/main' }, 'FULL'],
+    [
+      'oversized docs push to main',
+      {
+        event: 'push',
+        files: Array.from({ length: MAX_FILES + 1 }, (_, i) => `docs/${String(i)}.md`),
+        ref: 'refs/heads/main',
+      },
+      'FULL',
+    ],
+    [
+      'odd-path push to main',
+      { event: 'push', files: ['docs/../package.json'], ref: 'refs/heads/main' },
+      'FULL',
+    ],
+    [
+      'case-variant push to main',
+      { event: 'push', files: ['Docs/a.md'], ref: 'refs/heads/main' },
+      'FULL',
+    ],
     ['release tag', { event: 'push', files: null, ref: 'refs/tags/v1.0.0' }, 'FULL'],
+    ['docs-only release tag', { event: 'push', files: docs, ref: 'refs/tags/v1.0.0' }, 'FULL'],
+    [
+      'docs-only push to another branch',
+      { event: 'push', files: docs, ref: 'refs/heads/topic' },
+      'FULL',
+    ],
     ['push to another branch', { event: 'push', files: null, ref: 'refs/heads/topic' }, 'FULL'],
     ['push without ref', { event: 'push', files: null }, 'FULL'],
     ['merge queue', { event: 'merge_group', files: null }, 'FULL'],
@@ -122,6 +166,23 @@ describe('classify (event + paths)', () => {
     expect(classify({ event: 'pull_request', files: code, draft: true }).reason).toContain(
       'packages/core/src/index.ts',
     );
+  });
+});
+
+describe('isDiffableSha (push base)', () => {
+  it.each([
+    ['a'.repeat(40), true],
+    ['0123456789abcdef0123456789abcdef01234567', true],
+    ['0'.repeat(40), false], // new branch
+    ['A'.repeat(40), false],
+    ['a'.repeat(39), false],
+    ['a'.repeat(41), false],
+    ['', false],
+    [undefined, false],
+    [null, false],
+    [42, false],
+  ])('%j -> %s', (sha, expected) => {
+    expect(isDiffableSha(sha)).toBe(expected);
   });
 });
 

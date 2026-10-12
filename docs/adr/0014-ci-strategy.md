@@ -1,6 +1,6 @@
 # ADR-0014: CI strategy
 
-- Status: Accepted — pending the one-off macOS spike (G3). Billing multipliers and merge-queue availability are UNVERIFIED (see Context); the budget must be recomputed once real job durations are known.
+- Status: Accepted — pending the one-off macOS spike (G3). Billing multipliers and merge-queue availability are UNVERIFIED (see Context); the budget must be recomputed once real job durations are known. Amended 2026-10-12 (see [Amendments](#amendments)).
 - Date: 2026-10-12
 - Negotiation log items: R7, A16 (Windows CI mandatory), G3, F (macOS gate list) (06 header, §A, §F, §G)
 - Related: [ADR-0013](0013-testing-strategy.md), [ADR-0010](0010-process-layer-posix.md), [ADR-0017](0017-toolchain.md)
@@ -23,10 +23,10 @@ Facts from 04 (researched 2026-10-12):
 
 | Tier | Trigger | Jobs |
 |---|---|---|
-| LIGHT (docs only) | pull request touching only allowlisted docs paths (`docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE`) | classify, Linux markdown/link lint, gate |
+| LIGHT (docs only) | pull request or push to main (amendment 1) touching only allowlisted docs paths (`docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE`) | classify, Linux markdown/link lint, gate |
 | STANDARD | any other pull request push (draft or not ready) | classify, one Linux job (install, lint, typecheck, build, all tests with coverage), gate |
-| FULL | PR ready for review or label `full-ci`; merge queue if available; push to main; manual dispatch with `full=true`; release tags | Linux first, then Windows and macOS (`needs: linux`), each one consolidated job; gate |
-| Scheduled safety net | see G3 below | full matrix |
+| FULL | PR ready for review or label `full-ci`; merge queue if available; push to main (except docs-only, amendment 1); manual dispatch with `full=true`; release tags | Linux first, then Windows and macOS (`needs: linux`), each one consolidated job; gate |
+| Scheduled safety net | new CLI version published (G3, amendment 2) | full matrix |
 
 Classifier rules: default-deny (anything not matched by a SAFE rule is FULL); pure function of the changed-file list; table-tested (safe path to LIGHT, risky path to FULL, unknown to FULL, empty list to FULL, renames and deletes count old and new paths, odd paths to FULL, diff failure or very large diff to FULL); the classifier and its tests are themselves FULL; a mixed PR takes the maximum tier. Always FULL: `src/**`, `.github/**`, `scripts/**`, lockfiles, package manifests, tsconfig, bundler and test config, node version files, tests and fixtures, native/binary files, anything unmatched (04 §3).
 
@@ -34,7 +34,7 @@ Classifier rules: default-deny (anything not matched by a SAFE rule is FULL); pu
 
 - macOS runs only on the FULL tier.
 - One-off macOS spike through `workflow_dispatch` before v1 (the macOS gate; see list below and [ADR-0018](0018-scope-and-roadmap.md)).
-- A scheduled full run (nightly) happens when main changed OR a new CLI version was published. A cheap Linux registry check gates the fan-out to Windows and macOS. (G3 says "nightly"; 04 §2/§5 proposed weekly. G overrides 04.)
+- A scheduled full run (nightly) happens when a new CLI version was published (amendment 2 removed the original "main changed" trigger). A cheap Linux registry check gates the fan-out to Windows and macOS. (G3 says "nightly"; 04 §2/§5 proposed weekly. G overrides 04.)
 
 ### Windows
 
@@ -77,10 +77,17 @@ The one-off macOS spike must cover these seven items:
 
 ## Consequences
 
-- Budget risk: 04 estimated at most 4-5 scheduled full runs per month (about 56 Linux-equivalent minutes each). A nightly run that triggers whenever main changed or a new CLI version appears could run far more often (the SDK has seen 20-30 releases per month, 02 §11); each such run costs about 56 equivalents. The estimate in 04 §5 must be recomputed with measured durations, and the cron/trigger may need a rate limit. The log does not define one.
-- Classification mistakes are caught by the post-merge full run on main (04 §3).
+- Budget risk: 04 estimated at most 4-5 scheduled full runs per month (about 56 Linux-equivalent minutes each). A nightly run that triggers whenever a new CLI version appears (amendment 2) could run far more often (the SDK has seen 20-30 releases per month, 02 §11); each such run costs about 56 equivalents. The estimate in 04 §5 must be recomputed with measured durations, and the cron/trigger may need a rate limit. The log does not define one.
+- Classification mistakes are caught by the post-merge full run on main (04 §3); after amendment 1 that holds for every non-docs push, and a docs-only push cannot affect code.
 - The gate job name is a contract with branch protection; renaming it is a breaking CI change.
 - Recompute the budget after the first month of real job durations (the 04 estimates use assumed ~4 minute jobs).
+
+## Amendments
+
+Lead resolutions, 2026-10-12. Both reduce minutes without reducing what is tested before code reaches users.
+
+1. **Docs-only push to main is LIGHT.** A push to `main` whose change set passes the same strict LIGHT allowlist and the same well-formedness rules as a pull request runs the LIGHT tier instead of FULL. Rationale: the allowlist cannot affect code, so FULL with macOS (10x) on a documentation push is pure waste. The change set is the diff `github.event.before..github.sha`; the classify job fetches the `before` commit alone at depth 1 (no full history). Every other push to main stays FULL: any non-docs, unknown, empty, oversized or odd path, an all-zero or missing `before` (new branch), and a `before` that cannot be fetched or diffed (force push). Release tags are always FULL. All cases are table-tested.
+2. **Nightly runs only for a new CLI release.** The scheduled full matrix runs only when a new Claude Code CLI version was published in the look-back window (26 h), or on manual dispatch. The "main changed" trigger is dropped: every non-docs push to main already runs FULL, so a nightly run would repeat it. When the registry cannot be read, the cheap check job fails visibly instead of either skipping silently or spending a full matrix on an outage.
 
 ## Evidence
 

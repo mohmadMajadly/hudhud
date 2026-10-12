@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // CI tier classifier entry point (ADR-0014). Reads the GitHub Actions
-// context, computes the changed files for pull requests and writes `tier`
+// context, computes the changed files for pull requests and pushes to main
+// (the workflow fetches the push's `before` commit at depth 1) and writes `tier`
 // and `linux-node` to $GITHUB_OUTPUT. Any error yields FULL.
 //
 // Local use: node scripts/ci-classify.mjs --files <path>...
@@ -9,7 +10,13 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 
-import { LINUX_NODE_VERSIONS, classify, classifyPaths, parseNameList } from './lib/ci-classify.mjs';
+import {
+  LINUX_NODE_VERSIONS,
+  classify,
+  classifyPaths,
+  isDiffableSha,
+  parseNameList,
+} from './lib/ci-classify.mjs';
 
 /**
  * @param {unknown} value
@@ -34,23 +41,18 @@ function dig(root, keys) {
 }
 
 /**
- * @param {string} base
- * @param {string} head
+ * Changed paths between two commits; null when git cannot compute the diff
+ * (for example a commit that was never fetched).
+ *
+ * @param {string} range `base...head` (pull request: since the merge base)
+ *   or `before..after` (push: exactly what the push changed).
  * @returns {string[] | null}
  */
-function changedFiles(base, head) {
+function changedFiles(range) {
   try {
     const output = execFileSync(
       'git',
-      [
-        '-c',
-        'core.quotePath=false',
-        'diff',
-        '--name-only',
-        '-z',
-        '--no-renames',
-        `${base}...${head}`,
-      ],
+      ['-c', 'core.quotePath=false', 'diff', '--name-only', '-z', '--no-renames', range],
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] },
     );
     return parseNameList(output);
@@ -68,6 +70,15 @@ function classifyFromGitHub() {
   const fullRequested = process.env['CI_FULL_REQUESTED'] === 'true';
   const ref = process.env['GITHUB_REF'] ?? '';
 
+  if (event === 'push') {
+    // New branch (all-zero `before`), missing or malformed ids, and a
+    // `before` that could not be fetched (force push) all yield null: FULL.
+    const before = dig(payload, ['before']);
+    const after = process.env['GITHUB_SHA'] ?? dig(payload, ['after']);
+    const files =
+      isDiffableSha(before) && isDiffableSha(after) ? changedFiles(`${before}..${after}`) : null;
+    return classify({ event, files, ref, fullRequested });
+  }
   if (event !== 'pull_request') {
     return classify({ event, files: null, ref, fullRequested });
   }
@@ -76,7 +87,7 @@ function classifyFromGitHub() {
   const draft = dig(payload, ['pull_request', 'draft']);
   const labels = dig(payload, ['pull_request', 'labels']);
   const files =
-    typeof base === 'string' && typeof head === 'string' ? changedFiles(base, head) : null;
+    typeof base === 'string' && typeof head === 'string' ? changedFiles(`${base}...${head}`) : null;
   return classify({
     event,
     files,

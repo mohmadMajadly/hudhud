@@ -58,6 +58,25 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
+      # Docs-only pushes to main are LIGHT (ADR-0014 amendment 1). The push's
+      # `before` commit is fetched alone at depth 1 (a tree diff needs no
+      # history). The read-only job token is passed for this one command and
+      # not persisted. A new branch (all-zero id) or an unfetchable `before`
+      # (force push) leaves the diff uncomputable, and the classifier picks FULL.
+      - name: Fetch the commit before the push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          BEFORE: ${{ github.event.before }}
+          TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]]; then
+            auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+            echo "::add-mask::${auth}"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+              fetch --no-tags --depth=1 origin "$BEFORE" \
+              || echo "::warning::could not fetch the push base; the classifier will choose FULL"
+          fi
+
       - name: Classify the change set
         id: classify
         env:

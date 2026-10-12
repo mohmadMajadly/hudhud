@@ -348,7 +348,7 @@ Detail: [ADR-0013](adr/0013-testing-strategy.md).
 
 ## CI
 
-Detail: [ADR-0014](adr/0014-ci-strategy.md). Tiers decided by a unit-tested default-FULL classifier: LIGHT (docs only), STANDARD (one Linux job), FULL (Linux, then Windows and macOS). The only required check is the `ci-gate` job. macOS runs on the FULL tier only; a one-off macOS `workflow_dispatch` spike runs before v1; nightly full runs happen when main changed or a new CLI version was published, gated by a cheap Linux registry check (G3). Billing multipliers (1/2/10) and merge-queue availability are UNVERIFIED (04 §1, §2).
+Detail: [ADR-0014](adr/0014-ci-strategy.md). Tiers decided by a unit-tested default-FULL classifier: LIGHT (docs only, for pull requests and pushes to main), STANDARD (one Linux job), FULL (Linux, then Windows and macOS). The only required check is the `ci-gate` job. macOS runs on the FULL tier only; a one-off macOS `workflow_dispatch` spike runs before v1; nightly full runs happen only when a new CLI version was published, gated by a cheap Linux registry check (G3; ADR-0014 amendment 2). Billing multipliers (1/2/10) and merge-queue availability are UNVERIFIED (04 §1, §2).
 
 ## Scope: v1, v1.1, later
 

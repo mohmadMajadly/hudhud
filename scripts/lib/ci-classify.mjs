@@ -55,6 +55,17 @@ export function isWellFormedPath(path) {
 }
 
 /**
+ * Whether `sha` names a real commit to diff a push against: a full 40-hex
+ * object id that is not the all-zero id GitHub sends for a new branch.
+ *
+ * @param {unknown} sha
+ * @returns {sha is string}
+ */
+export function isDiffableSha(sha) {
+  return typeof sha === 'string' && /^[0-9a-f]{40}$/u.test(sha) && !/^0+$/u.test(sha);
+}
+
+/**
  * @param {string} path
  * @returns {boolean}
  */
@@ -106,8 +117,14 @@ export function classify(input) {
     case 'workflow_dispatch':
       return { tier: 'STANDARD', reason: 'manual run without full=true' };
     case 'push':
-      if (input.ref === 'refs/heads/main') return { tier: 'FULL', reason: 'push to main' };
       if (input.ref?.startsWith('refs/tags/') === true) return { tier: 'FULL', reason: 'tag push' };
+      if (input.ref === 'refs/heads/main') {
+        // ADR-0014 amendment 1: a docs-only push to main is LIGHT; every
+        // other, unknown, empty, oversized or undiffable change set is FULL.
+        const paths = classifyPaths(input.files);
+        if (paths.tier === 'LIGHT') return { tier: 'LIGHT', reason: 'docs-only push to main' };
+        return { tier: 'FULL', reason: `push to main; ${paths.reason}` };
+      }
       return { tier: 'FULL', reason: `push to unexpected ref ${String(input.ref)}` };
     case 'merge_group':
       return { tier: 'FULL', reason: 'merge queue' };

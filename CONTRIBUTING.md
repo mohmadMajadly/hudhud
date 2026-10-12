@@ -80,10 +80,10 @@ Changes to a package's behaviour or API need a changeset (`pnpm changeset`). All
 
 CI follows [ADR-0014](docs/adr/0014-ci-strategy.md). A unit-tested classifier ([scripts/lib/ci-classify.mjs](scripts/lib/ci-classify.mjs)) picks the tier; anything it cannot prove safe is FULL:
 
-| Tier     | When                                                                                   | Jobs                                                                           |
-| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| LIGHT    | pull request touching only `docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE`           | Markdown and link check, privacy scan                                          |
-| STANDARD | other draft pull requests, manual runs                                                 | `pnpm check` on Linux, Node 22                                                 |
-| FULL     | ready pull requests, label `full-ci`, pushes to `main`, tags, merge queue, `full=true` | `pnpm check` on Linux (Node 22, 24, 26), then Windows and macOS (darwin-arm64) |
+| Tier     | When                                                                                           | Jobs                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| LIGHT    | pull request or push to `main` touching only `docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE` | Markdown and link check, privacy scan                                          |
+| STANDARD | other draft pull requests, manual runs                                                         | `pnpm check` on Linux, Node 22                                                 |
+| FULL     | ready pull requests, label `full-ci`, other pushes to `main`, tags, merge queue, `full=true`   | `pnpm check` on Linux (Node 22, 24, 26), then Windows and macOS (darwin-arm64) |
 
-Keep pull requests in draft while iterating to save minutes, and mark them ready for review to get the full matrix. The `full-ci` label takes effect on the next push. `ci-gate` is the only required check. A nightly run repeats FULL only when `main` changed or a new Claude Code CLI version was published.
+Keep pull requests in draft while iterating to save minutes, and mark them ready for review to get the full matrix. The `full-ci` label takes effect on the next push. `ci-gate` is the only required check. A nightly run repeats FULL only when a new Claude Code CLI version was published.

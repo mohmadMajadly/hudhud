@@ -1,6 +1,8 @@
-# Nightly safety net (ADR-0014, G3): the full matrix runs only when main
-# changed or a new Claude Code CLI version was published in the last window.
-# A cheap Linux job decides; Windows and macOS are reached only through it.
+# Nightly safety net (ADR-0014, G3, amendment 2): the full matrix runs only
+# when a new Claude Code CLI version was published in the last window, or on
+# manual dispatch. Changes to main are not a trigger: every non-docs push to
+# main already runs FULL in ci.yml. A cheap Linux job decides; Windows and
+# macOS are reached only through it. An unreadable registry fails that job.
 name: Nightly
 
 on:
@@ -35,7 +37,7 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
-      - name: Did main or the CLI change?
+      - name: Was a new CLI version published?
         id: check
         shell: bash
         env:
