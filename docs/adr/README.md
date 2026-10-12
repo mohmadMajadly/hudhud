@@ -27,4 +27,4 @@ Status vocabulary: "Accepted" is decided; "Accepted — pending X" is decided bu
 
 ## Precedence used when reading the negotiation log
 
-Section G overrides F; F overrides E, B and A where they conflict; B's round-3 resolutions override B's options; A12 is replaced by the E1 ladder as amended in F. Full details: [../research/06-architecture-negotiation.md](../research/06-architecture-negotiation.md).
+Section G overrides F; F overrides E, B and A where they conflict; B's round-3 resolutions override B's options; A12 is replaced by the E1 ladder as amended in F. Section K (implementation-plan rulings K1-K23, 2026-10-12) overrides every earlier section where they conflict; it amends ADR-0004 to ADR-0014 and ADR-0017, each amendment citing its K number. Full details: [../research/06-architecture-negotiation.md](../research/06-architecture-negotiation.md).

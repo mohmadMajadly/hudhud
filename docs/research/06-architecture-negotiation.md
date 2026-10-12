@@ -145,3 +145,30 @@ J9 pid resolved (07 §4): `initialize.pid` equals the spawned pid only for the d
 J10 Long paths resolved (07 §6): a Windows cwd of 259 characters or more fails with a misleading ENOENT; a `\?\` prefix makes the CLI use the 8.3 short name (splits transcripts, Bash refuses writes). hudhud validates cwd length on Windows before spawn and throws a named error (`CwdTooLong`, illustrative); it never auto-prefixes.
 J11 Concurrency resolved (07 §5): concurrent sessions sharing one config dir are safe in steady state; a first-write race exists only on a fresh config dir. Test fixtures pre-initialize config dirs; production is unaffected (the real config dir exists).
 J12 Test mock (07 §0.2, §11.5): hudhud's own test mock must survive reset CONNECT sockets (a bug found in the spike mock); a test for it is required.
+
+## K. Implementation-plan rulings (2026-10-12)
+
+Lead rulings on the open points of the v1 implementation plan (docs/plan/v1-implementation.md, section 8). One line each.
+K1 POSIX SIGTERM targets `initialize.pid` only when it is in snapshot S1 as a descendant of the spawned pid with a matching start time, otherwise the spawned pid; containment and sweep stay rooted at the spawned pid.
+K2 `processContainment` on the Harness is what it can provide; `Session.info.containment` is what the session got; job-assignment failure falls back to 'best-effort' with a diagnostic; no new enum value in v1.
+K3 Claude Code wire types, Claude schemas and the Claude protocol machines (control, permission, turn/interrupt gating, session) move to @hudhud/claude-code (src/protocol/, under the sans-IO lint and depcruise rules); @hudhud/core keeps only harness-neutral pieces (event vocabulary, public types, NDJSON framer and encoder, queues, error taxonomy, schema tooling, generic machine contract and handles, process layer, securityPosture model); core `/protocol` means the neutral protocol.
+K4 One `claude --version` probe at connect (no network); per-session version drift is reported.
+K5 The project credential guard applies whenever effective setting sources include project or local (also via claudeCode.settingSources); it reads cwd, every ancestor to the filesystem root and every --add-dir directory, fail closed; a Wave-0 spike pins down the CLI's lookup and the guard may only be narrowed by that evidence.
+K6 `continue` is not in v1.
+K7 Binary discovery: explicit option, native installer launcher, sanitized PATH; no node_modules probing.
+K8 Verification uses a committed digest table for the tested window (updated by the bump PR) plus application digests, never fetched at run time; the OS-signature check runs only in strict mode.
+K9 Option `binaryVerification: 'advisory' | 'strict'`, default 'advisory'.
+K10 Auth fail-fast triggers: first `system/api_retry` with authentication_failed, `assistant.error` authentication_failed, or `result.api_error_status` 401; 403 is not a trigger; applies to apiKeySource ANTHROPIC_API_KEY only until the ANTHROPIC_AUTH_TOKEN string is observed in a fixture.
+K11 Permission modes in v1: default, acceptEdits, plan, dontAsk, auto, and bypassPermissions only with dangerouslyAllowBypassPermissions; no `manual`.
+K12 A pending permission gets a non-interrupting deny on drain (close) and no answer on abort.
+K13 `close()` has a single deadline measured from the call, default 30 s.
+K14 `allowBuilds: { esbuild: false }` is an explicit deny, not a weakening; Wave 0 verifies esbuild works without its postinstall on Windows and Linux, else stop and report.
+K15 CI timeouts are re-sized from Wave-6 measurements (p95 x 2, documented); before the macOS gate passes the macOS job runs static checks, unit and conformance only.
+K16 No write tokens in scheduled jobs; the nightly tests the newest published CLI on Linux (registry integrity recorded and pinned for the run) and goes red with a job summary on failure; the lead makes bump PRs locally. Amended: a weekly canary also runs Windows, and macOS once its gate has passed, against the newest version when one newer than the pin appeared since the last weekly run, still without write tokens; cost basis 02 §11 (20-30 releases a month), durations re-measured after Wave 6.
+K17 While private: Windows addon x64 built and tested on windows-2025; arm64 cross-compiled if the MSVC ARM64 tools exist (else stop and report) but not shipped first-class until tested on a real arm64 runner, so arm64 Windows is 'best-effort'; provenance now is committed sha256 and toolchain manifests, attestations and npm provenance at open-sourcing.
+K18 The transport seam stays internal; no public custom spawner in v1.
+K19 `env` adds the form `{ preset: 'harness' | 'inherit', add?, remove? }`; added names are reported; adding credential or routing variables is allowed and listed in securityPosture.
+K20 Compat is exposed as `harness.compat` and replayed as the first event of every session stream.
+K21 `ask()` and `turn.done` resolve for error results and reject only for session-level failures.
+K22 hudhud installs no signal handlers; a terminal Ctrl+C on POSIX ends as outcome unknown with PROCESS_EXITED; documented.
+K23 For posture, hudhud parses the user's settings files read-only for ANTHROPIC_BASE_URL and provider switches only; values are never logged or stored; nothing is written.

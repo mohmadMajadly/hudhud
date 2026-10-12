@@ -38,6 +38,8 @@ The event firehose (`Session.events()`) is opt-in. Each subscriber has its own b
 
 Permission handlers have no default timeout because a human may answer; the application owns any timeout it wants. The application is responsible for answering or cancelling; hudhud guarantees that a pending permission can always be cancelled.
 
+What the CLI receives when hudhud cancels a pending permission (K12, 06 §K): on drain (`close()`), hudhud answers the CLI with a non-interrupting deny (`behavior: 'deny'`, `interrupt: false`, message "hudhud session closing"), because an unanswered `can_use_tool` blocks the CLI forever (05 §6) and the session could never reach `idle`; on abort (dispose, `AbortSignal`) hudhud writes no answer, because its `interrupt` makes the CLI withdraw the request with `control_cancel_request` (05 §6). In both cases the application's handler sees its `AbortSignal` fire and the request resolves `cancelled` on the application side.
+
 ### Hook timeout failure policy (B6)
 
 When a hook handler times out: fail-closed for `PreToolUse` and `PermissionRequest` (the tool call is denied), continue for informational events. A uniform error response was rejected.

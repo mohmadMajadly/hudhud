@@ -26,7 +26,7 @@ Facts from 04 (researched 2026-10-12):
 | LIGHT (docs only) | pull request or push to main (amendment 1) touching only allowlisted docs paths (`docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE`) | classify, Linux markdown/link lint, gate |
 | STANDARD | any other pull request push (draft or not ready) | classify, one Linux job (install, lint, typecheck, build, all tests with coverage), gate |
 | FULL | PR ready for review or label `full-ci`; merge queue if available; push to main (except docs-only, amendment 1); manual dispatch with `full=true`; release tags | Linux first, then Windows and macOS (`needs: linux`), each one consolidated job; gate |
-| Scheduled safety net | new CLI version published (G3, amendment 2) | full matrix |
+| Scheduled safety net | new CLI version published (G3, amendments 2 and 3) | nightly: integration suite against the newest CLI on Linux; weekly: the same on Windows and (after the macOS gate) macOS when a newer version appeared since the last weekly run; no write tokens (amendment 3) |
 
 Classifier rules: default-deny (anything not matched by a SAFE rule is FULL); pure function of the changed-file list; table-tested (safe path to LIGHT, risky path to FULL, unknown to FULL, empty list to FULL, renames and deletes count old and new paths, odd paths to FULL, diff failure or very large diff to FULL); the classifier and its tests are themselves FULL; a mixed PR takes the maximum tier. Always FULL: `src/**`, `.github/**`, `scripts/**`, lockfiles, package manifests, tsconfig, bundler and test config, node version files, tests and fixtures, native/binary files, anything unmatched (04 §3).
 
@@ -34,7 +34,8 @@ Classifier rules: default-deny (anything not matched by a SAFE rule is FULL); pu
 
 - macOS runs only on the FULL tier.
 - One-off macOS spike through `workflow_dispatch` before v1 (the macOS gate; see list below and [ADR-0018](0018-scope-and-roadmap.md)).
-- A scheduled full run (nightly) happens when a new CLI version was published (amendment 2 removed the original "main changed" trigger). A cheap Linux registry check gates the fan-out to Windows and macOS. (G3 says "nightly"; 04 §2/§5 proposed weekly. G overrides 04.)
+- A scheduled nightly run happens when a new CLI version was published (amendment 2 removed the original "main changed" trigger); since amendment 3 it tests the newest CLI on Linux only; a weekly canary covers Windows and, after the macOS gate, macOS (amendment 3). (G3 says "nightly"; 04 §2/§5 proposed weekly. G overrides 04.)
+- Until the macOS gate passes, the macOS job runs static checks, unit and conformance tests only (amendment 4).
 
 ### Windows
 
@@ -45,7 +46,7 @@ Windows CI is mandatory (A16). It runs on FULL tier, after Linux is green (04 §
 - Single always-triggered `ci.yml` without a workflow-level path filter; jobs: `classify`, `linux`, `windows`, `macos`, `ci-gate`. The `ci-gate` job (`if: always()`) fails on any failed or cancelled need, or when a FULL-required OS job was skipped. It is the only required check.
 - Staged: cheap Linux gate first; Windows and macOS `needs:` it.
 - Concurrency group `ci-${{ github.ref }}` with cancel-in-progress for PRs only; never cancel on main or schedule.
-- `timeout-minutes` on every job (10 for Linux, 15 for Windows/macOS in 04).
+- `timeout-minutes` on every job (initially 10 for Linux, 15 for Windows/macOS from 04; re-sized as measured p95 x 2 once the integration suite exists, amendment 4).
 - Consolidated one job per OS; never split macOS jobs.
 - Top-level `permissions: contents: read`, elevated per job; `persist-credentials: false`; third-party actions pinned to full commit SHAs and updated by Dependabot.
 - Caches keyed by lockfile hash, OS and Node version; only main writes caches used by release jobs; releases build from a clean install.
@@ -87,7 +88,9 @@ The one-off macOS spike must cover these seven items:
 Lead resolutions, 2026-10-12. Both reduce minutes without reducing what is tested before code reaches users.
 
 1. **Docs-only push to main is LIGHT.** A push to `main` whose change set passes the same strict LIGHT allowlist and the same well-formedness rules as a pull request runs the LIGHT tier instead of FULL. Rationale: the allowlist cannot affect code, so FULL with macOS (10x) on a documentation push is pure waste. The change set is the diff `github.event.before..github.sha`; the classify job fetches the `before` commit alone at depth 1 (no full history). Every other push to main stays FULL: any non-docs, unknown, empty, oversized or odd path, an all-zero or missing `before` (new branch), and a `before` that cannot be fetched or diffed (force push). Release tags are always FULL. All cases are table-tested.
-2. **Nightly runs only for a new CLI release.** The scheduled full matrix runs only when a new Claude Code CLI version was published in the look-back window (26 h), or on manual dispatch. The "main changed" trigger is dropped: every non-docs push to main already runs FULL, so a nightly run would repeat it. When the registry cannot be read, the cheap check job fails visibly instead of either skipping silently or spending a full matrix on an outage.
+2. **Nightly runs only for a new CLI release.** The scheduled full matrix runs only when a new Claude Code CLI version was published in the look-back window (26 h), or on manual dispatch. The "main changed" trigger is dropped: every non-docs push to main already runs FULL, so a nightly run would repeat it. When the registry cannot be read, the cheap check job fails visibly instead of either skipping silently or spending a full matrix on an outage. (Superseded in part by amendment 3.)
+3. **The nightly tests the new CLI, on Linux, without write tokens** (K16, 06 §K). When a newer CLI version exists, the nightly downloads the newest published version (registry integrity recorded and pinned for that run) and runs the integration suite against it on Linux; it never re-runs the pinned version. On failure the run goes red with a job summary. Scheduled jobs hold no write tokens; the lead prepares version-bump PRs locally. In addition, a weekly scheduled canary runs the integration suite on Windows, and on macOS once the macOS gate has passed (Windows only before that), against the newest version whenever a version newer than the pinned one was published since the last weekly run, also without write tokens; every OS therefore sees a new CLI within a week, and the bump PR's FULL run covers it again. Cost basis: about 20-30 CLI releases per month (02 §11) gives at most about 30 nightly Linux runs and at most about 4.3 weekly runs per OS per month; with the planning multipliers of 04 §1 (Linux 1x, Windows 2x, macOS 10x) the monthly cost is about 30 x D_linux + 4.3 x 2 x D_windows + 4.3 x 10 x D_macos Linux-equivalent minutes, where D is the measured integration-suite duration per OS; the durations are re-measured after Wave 6 and the estimate recomputed.
+4. **Timeouts and macOS before its gate** (K15, 06 §K). `timeout-minutes` per job is re-sized from the measured integration-suite durations: measured p95 times 2, with the measurement and the formula documented next to the value. Until the macOS gate passes, the macOS job runs static checks, unit and conformance tests only; integration tests on macOS start after the macOS gate results land.
 
 ## Evidence
 

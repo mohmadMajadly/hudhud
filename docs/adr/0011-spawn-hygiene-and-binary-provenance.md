@@ -21,7 +21,7 @@ Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integr
 2. Explicit binary resolution, preferring a real `.exe`. Refuse `.cmd` and `.bat` anywhere in the resolved path. Never `shell: true`.
 3. All flags in the form `--flag=value`, always, including named options and free-form values.
 4. Rule strings (allowed/disallowed tools, skill names) are validated against the tokenizer's constraints before being formatted into argv.
-5. Binary discovery: an explicit path option always wins and is logged with its version. The order of the automatic discovery fallbacks is not fixed by the negotiation log. Research 02 §12 suggests: configured path, then the user's native install, then an SDK platform package if present; this is evidence, not a ratified decision. In all cases the resolved path, the resolved version and the verification status are reported.
+5. Binary discovery (ratified by K7, 06 §K): the explicit path option, then the native installer launcher (`~/.local/bin/claude[.exe]`, resolved to its version directory), then a sanitized `PATH` lookup (empty, relative and current-directory entries skipped; on Windows only `.exe`). SDK platform packages in `node_modules` are not probed (planting, 02 §10 item 9). In all cases the resolved path, the version and the verification status are reported; the version comes from one `claude --version` probe at connect (zero network requests, 05 §1), and each session reports drift against `initialize.claude_code_version` (K4).
 6. Large values go through `initialize` or hudhud-owned private files, not argv. Private files are created by hudhud with restrictive permissions in a hudhud-owned location; they are not placed in the harness's config directory (R6).
 7. A bounded, UTF-8-safe NDJSON framer: per-line inbound cap 64 MiB by default, configurable (E10); outbound cap 32 MiB (initial, tunable); `onOversizedFrame: 'fail'` (default) or `'skip'` ([ADR-0008](0008-turn-and-lifecycle-semantics.md)). The framer tolerates CRLF, blank lines, a leading BOM and multibyte characters split across chunks (05 §11, D10).
 8. Non-JSON stdout lines are skipped as non-protocol noise and never executed (02 §10 item 7).
@@ -30,10 +30,13 @@ Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integr
 ### Binary provenance (A15, amended by F)
 
 - Advisory only: never blocking by default. Result is exposed as `binary.verification`.
-- Order: OS signature first (Authenticode on Windows, `/usr/bin/codesign --verify` on macOS; a Gatekeeper/quarantine spawn failure is mapped to a named cause), SHA-256 hash fallback against the published `manifest.json` checksums / npm integrity. The linux-x64 and win32-x64 digests were verified in the spike (05 §1).
+- Option `binaryVerification: 'advisory' | 'strict'`, default `'advisory'` (K9, 06 §K).
+- Advisory mode checks the SHA-256 digest table only (K8): a committed table for the tested version window, derived from npm integrity and the published `manifest.json` checksums and updated by the version-bump PR, plus digests supplied by the application. Nothing is fetched at run time. The linux-x64 and win32-x64 digests were verified in the spike (05 §1).
+- Strict mode runs the OS signature check first (Authenticode on Windows via `Get-AuthenticodeSignature` through absolute-path PowerShell; `/usr/bin/codesign --verify` on macOS; a Gatekeeper/quarantine spawn failure is mapped to a named cause), then the digest table, and refuses anything that is not `verified`. The OS check runs only in strict mode because it is slow (K8).
 - Resolve launcher symlinks (and the native-installer layout `~/.local/bin/claude[.exe]` -> `~/.local/share/claude/versions/<ver>`, 01 §4.1) to the real binary before verifying.
 - Process identity (J9, 07 §4): `initialize.pid` equals the spawned pid only when the native binary is spawned directly; behind a launcher (for example the npm fallback `cli-wrapper.cjs` shape, a shell shim, a user-supplied launcher) it is the real CLI, a child of the spawned process. hudhud always uses the pid it spawned, plus its start time, as the process identity for containment ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)); the launcher's whole tree is covered by the job or by the descendant snapshot from the spawned pid. `initialize.pid` is informational, and a mismatch is reported as a diagnostic (launcher detected). `system/init` carries no pid.
-- Opt-in strict mode: refuse to run when verification fails. This is named as a security opt-in and reported in `securityPosture`; the strict-mode option name is not fixed here.
+- Opt-in strict mode (`binaryVerification: 'strict'`): refuse to run when verification does not succeed. It is reported in `securityPosture`.
+- Signals behind a launcher: see [ADR-0010](0010-process-layer-posix.md) (K1); identity stays the spawned pid.
 
 ## Alternatives considered
 
@@ -50,7 +53,7 @@ Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integr
 
 - Provenance results can be `unverified` (no signature, no manifest available); the application decides whether to treat that as an error.
 - Strict `--flag=value` formatting must be applied at the single point where argv is built, covered by tests that include dash-leading and comma-containing values.
-- The hash fallback depends on obtaining the manifest checksums at run time or at install time; how they are delivered (bundled snapshot, fetched, or supplied by the application) is not fixed by the log. Only SDK-package checksums have been observed (05 §1).
+- Digests are delivered as a committed table for the tested window plus application-supplied digests (K8); a CLI version outside the table is `unverified` in advisory mode. Only SDK-package checksums have been observed (05 §1).
 
 ## Evidence
 

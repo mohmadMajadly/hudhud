@@ -22,7 +22,7 @@ Measured behaviour of CLI 2.1.296 (05):
 ### Session start
 
 1. hudhud always generates a session UUID and passes `--session-id` (A8). Collisions with an existing id are rejected by the CLI, but two simultaneous starts with the same id are not (07 §1 d), so hudhud owns id uniqueness.
-2. hudhud always sends `initialize` first, even though the CLI does not require it (F amendment to A11). Reasons recorded in the log or implied by it: the first-frame watchdog is armed on the `initialize` write; `initialize.pid`, `claude_code_version`, `account.apiKeySource` and capability data come from its response; the process root set for containment includes `initialize.pid` ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)); `onAuthFailure` depends on `apiKeySource` ([ADR-0012](0012-security-defaults-and-trust.md)).
+2. hudhud always sends `initialize` first, even though the CLI does not require it (F amendment to A11). Reasons recorded in the log or implied by it: the first-frame watchdog is armed on the `initialize` write; `initialize.pid`, `claude_code_version`, `account.apiKeySource` and capability data come from its response; `initialize.pid` selects the POSIX SIGTERM target behind a launcher, while containment and the sweep stay rooted at the spawned pid (K1, 06 §K; [ADR-0010](0010-process-layer-posix.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)); `onAuthFailure` depends on `apiKeySource` ([ADR-0012](0012-security-defaults-and-trust.md)).
 3. `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` is always set (not `CLAUDE_CODE_SDK_READS_SESSION_STATE`, which adds `sdk_host_only` marking), pinning the reliable "idle" run-end signal (D11).
 4. Every user message carries a `uuid`. The CLI echoes it in `result.user_message_uuid(s)` and in `command_lifecycle` frames; hudhud uses it to correlate turns and interrupts (05 §5).
 5. Every depended-on behaviour is pinned by an explicit flag or environment variable, never by an unrecorded default (A8; see [ADR-0012](0012-security-defaults-and-trust.md) for the table).
@@ -53,19 +53,19 @@ Modelled on the SDK's "bidirectional needs" rule (02 §6.1): stdin stays open wh
 
 - Default 600000 ms; `0` means wait indefinitely. The clock starts when stdin is closed and the CLI is otherwise idle. hudhud pins the documented default explicitly and does not change it by default; an option to set it exists.
 - On expiry the CLI stops background subagents and tasks (and writes a fixed stderr line), exit 0. It does NOT bound background Bash shells: a `run_in_background` shell held the CLI until it finished (697 s with the default ceiling).
-- The ceiling is therefore not an upper bound on "EOF to exit". Drain on `close()` has its own hudhud deadline, `closeTimeout` (name illustrative, default 30 s), after which the abort ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md) runs. `background_tasks_changed` and `task_*` frames are surfaced so the application can decide earlier.
+- The ceiling is therefore not an upper bound on "EOF to exit". Drain on `close()` has its own hudhud deadline, `closeTimeoutMs` (default 30 s), a single deadline measured from the `close()` call that covers both the wait for `idle` and the wait for exit (K13, 06 §K; a turn still running when it expires is aborted), after which the abort ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md) runs. `background_tasks_changed` and `task_*` frames are surfaced so the application can decide earlier.
 - After EOF a finished background shell triggers a new model turn (`system/init` ... `result`) that the host did not start. `close()` keeps consuming frames until exit, and turn bookkeeping accepts such a turn.
 
 ### Close and dispose
 
 | Operation | Meaning | Mechanism |
 |---|---|---|
-| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit up to `closeTimeout` (illustrative), then the abort ladder; pending permissions resolve `cancelled` |
+| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit; one deadline `closeTimeoutMs` (default 30 s) runs from the `close()` call (K13), then the abort ladder; pending permissions resolve `cancelled` and the CLI receives a non-interrupting deny ([ADR-0007](0007-event-delivery-backpressure-timeouts.md), K12) |
 | `session[Symbol.asyncDispose]` / `AbortSignal` | Abort | The termination ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md), starting with `interrupt{cancel_queued:true}` |
 
 ### Termination intent and exit-code semantics (E8)
 
-hudhud never infers success from an exit code. Turn and session outcomes are derived from frames plus hudhud-observed kill reasons: before any signal or job termination, hudhud records the termination intent (for example `abort`, `dispose`, `watchdog`, `host-shutdown`). On exit, the outcome is classified from (last `result`, recorded intent, exit code or signal). Exit code `4294967295` (seen under VS Code on native Windows, 01 §3) maps to `unknown`.
+hudhud never infers success from an exit code. Turn and session outcomes are derived from frames plus hudhud-observed kill reasons: before any signal or job termination, hudhud records the termination intent (for example `abort`, `dispose`, `watchdog`, `close-timeout`). hudhud installs no signal handlers in the host (K22, 06 §K), so it cannot record a host-signal intent: a terminal Ctrl+C that reaches the non-detached CLI on POSIX (exit 0, no `result`) is classified as outcome `unknown` and surfaces as a process-exited error; this is documented. On exit, the outcome is classified from (last `result`, recorded intent, exit code or signal). Exit code `4294967295` (seen under VS Code on native Windows, 01 §3) maps to `unknown`.
 
 ### Framer
 
@@ -86,7 +86,7 @@ Inbound NDJSON framer: bounded and UTF-8 safe, per-line cap 64 MiB by default an
 - Every session pays one `initialize` round trip (the response is about 17 KB, 05 §5).
 - The outcome classifier needs a table of (intent, exit) combinations; it is part of the sans-IO core and covered by fixtures.
 - Host-crash behaviour (07 §2): exit 0 says nothing about success after a host crash (a Windows job kill gives 0); on Linux, host death is stdin EOF and the CLI drains gracefully. After a Windows host crash, stale `sessions/<pid>.json` files must not be read as live sessions (hudhud does not write them, R6).
-- `close()` can now take as long as `closeTimeout`; applications that need a hard bound use `dispose` / `AbortSignal`.
+- `close()` takes at most `closeTimeoutMs` plus the abort ladder; applications that need a shorter bound use `dispose` / `AbortSignal` or a smaller `closeTimeoutMs`. Long-running turns that must finish need a larger `closeTimeoutMs` (K13).
 
 ## Evidence
 

@@ -17,6 +17,8 @@ Sans-IO applied to everything adds cost without payoff (E5): the process layer a
 
 Strictly sans-IO: the protocol, turn and permission state machines. Pure functions of the form `(state, input) -> (state, effects[])`, with an injected clock and injected id generator. The core has no I/O imports; this is enforced by lint rules and dependency-cruiser.
 
+Placement (amended by K3, 06 §K): there are two sans-IO directories. `@hudhud/core` `/protocol` (`packages/core/src/protocol/`) holds only harness-neutral pieces: the event vocabulary, generic NDJSON encoding, exit-outcome classification and the generic machine contract (`HarnessMachine`: `initialState`, `step`, neutral inputs and effects) that the binding layer drives. Each adapter implements its harness's protocol as machines against that contract in its own sans-IO directory; for Claude Code that is `packages/claude-code/src/protocol/` (wire types, control correlator, permission, turn and interrupt gating, session). The same ESLint and dependency-cruiser rules apply to both directories: no Node built-ins, no ambient time or randomness, no npm runtime dependencies, no process or binding layer; the adapter's sans-IO directory may import only `@hudhud/core/protocol` and files inside itself. The core must contain no harness wire vocabulary.
+
 Ordinary async code: the process layer ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)) and the binding layer. TS closures (handlers, callbacks) belong to the binding layer.
 
 ### Callbacks
@@ -38,7 +40,7 @@ A loopback binding ships in v1 and proves the boundary: the same core is driven 
 
 ### Golden fixtures
 
-Golden fixtures are language-neutral JSONL conformance suites (frames in, effects and events out). They are the shared contract for any future binding.
+Golden fixtures are language-neutral JSONL conformance suites (frames in, effects and events out). They are the shared contract for any future binding. The fixture line format is a neutral schema in the core; the suites for a harness live with its adapter (for Claude Code: `packages/claude-code/conformance/`, K3).
 
 ### Daemon readiness (A7)
 

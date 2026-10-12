@@ -13,7 +13,7 @@ hudhud is security-sensitive and other sensitive projects build on it. The suppl
 
 ### Package manager: pnpm (E3, on merit)
 
-Reasons recorded: strict non-flat `node_modules` (no phantom dependencies); install scripts blocked by default with an explicit `onlyBuiltDependencies` allowlist; `minimumReleaseAge` to delay freshly published (possibly hijacked) versions; catalogs for single-version dependencies across the monorepo; a deterministic lockfile. Consumers are unaffected: they install published packages with any manager. Initial value (lead decision, tunable): `minimumReleaseAge` 7 days (10080 minutes), with an explicit, reviewed exclusion list for the pinned CLI/SDK test packages, used only when the canary needs a fresh version. The `onlyBuiltDependencies` allowlist starts empty because the Windows addon is distributed prebuilt ([ADR-0009](0009-process-layer-windows.md)).
+Reasons recorded: strict non-flat `node_modules` (no phantom dependencies); install scripts blocked by default with an explicit `onlyBuiltDependencies` allowlist; `minimumReleaseAge` to delay freshly published (possibly hijacked) versions; catalogs for single-version dependencies across the monorepo; a deterministic lockfile. Consumers are unaffected: they install published packages with any manager. Initial value (lead decision, tunable): `minimumReleaseAge` 7 days (10080 minutes), with an explicit, reviewed exclusion list for the pinned CLI/SDK test packages, used only when the canary needs a fresh version. The `onlyBuiltDependencies` allowlist starts empty because the Windows addon is distributed prebuilt ([ADR-0009](0009-process-layer-windows.md)). pnpm 11 names it `allowBuilds`; an explicit deny entry (`allowBuilds: { esbuild: false }`) is not a weakening: it records that esbuild's postinstall is never run, the binary coming from esbuild's optional platform package. This is verified on Windows and Linux before it is relied on (K14, 06 §K).
 
 ### Runtime and language
 
@@ -25,7 +25,7 @@ Reasons recorded: strict non-flat `node_modules` (no phantom dependencies); inst
 
 - Changesets for versioning and changelogs.
 - API Extractor to produce and review the public API report (guards the stable tier, [ADR-0003](0003-public-api.md)).
-- Published with npm provenance; the platform addon packages included ([ADR-0004](0004-packages-and-versioning.md), [ADR-0009](0009-process-layer-windows.md)).
+- Published with npm provenance; the platform addon packages included ([ADR-0004](0004-packages-and-versioning.md), [ADR-0009](0009-process-layer-windows.md)). While the repository is private, provenance for the addon means a committed sha256 manifest and toolchain manifest per build; build attestations and npm provenance are added at open-sourcing (K17, 06 §K).
 
 ### Build-time-only dependencies
 
@@ -33,7 +33,7 @@ TypeBox (major pinned), Ajv (standalone generation), esbuild (bundling generated
 
 ### Native build
 
-CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)).
+CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)). ARM64 is cross-compiled on the x64 runner and is not first-class until tested on a real arm64 runner (K17).
 
 ## Alternatives considered
 

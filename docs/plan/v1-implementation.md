@@ -1,0 +1,1287 @@
+# hudhud v1 implementation plan
+
+Status: build contract, 2026-10-12. Derived from [architecture.md](../architecture.md), the [ADRs](../adr/README.md) 0001-0018 and the research snapshots 01, 02, 05, 06 (sections A-K) and 07. Where the documents left a choice to implementation, this plan decides on merit and marks it **plan decision** with a one-line reason. The lead's rulings on the open points of the first draft are recorded in [Lead rulings (K1-K23)](#8-lead-rulings-k1-k23) and are applied throughout; the ADRs and the architecture document were amended to match (06 §K).
+
+Conventions:
+
+- "ADR-00NN §x" points to the numbered or titled section of that ADR; "05 §x" and "07 §x" point to research snapshots; "Kn" points to a lead ruling in §8.
+- File paths are relative to the repository root. `S/sandbox/...` is the spike scratch workspace (not in the repository), used here only as the seed for the test infrastructure.
+- Sizes: S (under 200 lines including tests), M (200-600), L (600-1500), XL (over 1500).
+- Model tiers: **Opus** for process/OS/security/concurrency/protocol state machines; **Sonnet** for well-specified work.
+
+## Contents
+
+1. [Module map](#1-module-map)
+2. [Public API for v1](#2-public-api-for-v1)
+3. [Error taxonomy](#3-error-taxonomy)
+4. [Test strategy](#4-test-strategy)
+5. [Work breakdown into waves](#5-work-breakdown-into-waves)
+6. [Windows job-object addon track](#6-windows-job-object-addon-track)
+7. [Risks and de-risking order](#7-risks-and-de-risking-order)
+8. [Lead rulings (K1-K23)](#8-lead-rulings-k1-k23)
+
+---
+
+## 1. Module map
+
+### 1.1 Package and directory layout
+
+The core is harness-neutral; everything that encodes the Claude Code stream-json and control protocol lives in the adapter (K3).
+
+```
+packages/
+  core/                         @hudhud/core (published, stable tier, harness-neutral)
+    schema-src/                 TypeBox sources for neutral schemas (build time only, not published)
+    schemas/                    committed JSON Schema 2020-12: events, errors, capabilities, posture, conformance format
+    src/
+      index.ts                  root entry: binding layer, errors, public types
+      protocol/                 /protocol entry: neutral sans-IO pieces (lint + depcruise enforced)
+        generated/              Ajv standalone validators for neutral schemas (bundled, committed)
+        json.ts                 JsonValue types and guards
+        encode.ts               generic NDJSON line encoder with outbound cap
+        events/                 neutral event vocabulary (types) and display sanitizer
+        machine/                neutral machine contract (inputs, effects) and exit-outcome classifier
+        errors.ts               ErrorData (errors as data), codes, retryability
+        capabilities.ts         neutral capability types
+      process/                  /process entry: ordinary async code
+        framer.ts, spawn.ts, argv.ts, binary-path.ts, cwd.ts, hash.ts
+        tree/                   process-table snapshots (Linux /proc, darwin ps)
+        ladder/                 termination ladders (types, posix, windows)
+        sweep.ts, taskkill.ts
+        verify/                 OS signature and digest verification
+        containment/            optional Windows job addon loader
+        os/                     thin OS syscall adapters (coverage-scoped per OS)
+      binding/                  ordinary async: generic driver, handles, queues, clock, loopback
+      observability/            redaction, stderr tail, usage estimation
+      security/                 securityPosture model and builder
+  claude-code/                  @hudhud/claude-code (published)
+    schema-src/                 TypeBox sources: Claude wire schemas, option schemas
+    schemas/                    committed JSON Schema: wire-inbound, wire-outbound, options
+    conformance/                golden JSONL conformance suites for the Claude protocol machines
+    src/
+      index.ts                  connect, session, hudhud namespace, option types
+      protocol/                 Claude sans-IO (same lint + depcruise rules as core/protocol)
+        generated/              Ajv validators for the wire schemas
+        wire/                   stream-json + control protocol: types, inbound, outbound
+        machine/                control, permission, turn, session machines (implement the core contract)
+        events/                 Claude frame -> neutral event normalization, tool-kind mapping
+      generated/                Ajv validators for the option schema
+      options.ts, argv.ts, env.ts, rules.ts, settings-guard.ts
+      discovery.ts, provenance.ts, known-binaries.json
+      posture.ts, capabilities.ts, compat.ts, registry.ts
+      adapter.ts, connect.ts, session-factory.ts
+      raw/index.ts              /raw entry: unstable tier
+  hudhud/                       umbrella (re-exports only, exact versions)
+  win32-job-x64/                @hudhud/win32-job-x64 (prebuilt .node only)
+  win32-job-arm64/              @hudhud/win32-job-arm64 (built, not shipped first-class in v1, K17)
+native/win32-job/               plain C addon source, CMake, delay-load hook, committed release manifests
+tooling/
+  cli-pin.json                  pinned CLI version, per-platform sha512 + sha256 + size
+  test-support/                 private workspace package (never published)
+    src/mock/                   in-process mock Messages API + egress trap
+    src/cli/                    pinned CLI fetch, verify, cache; newest-version fetch for the canary
+    src/launcher/               sandboxed test launcher (testConnect)
+    src/fixtures/               golden fixture recorder and normalizer
+    src/leaks/                  process-leak assertions
+    src/snapshots/              request-shape structural snapshots
+    src/canary/                 degradation classifier, local bump helper
+  macos-gate/                   one-off macOS gate scripts (workflow_dispatch)
+scripts/
+  schema/                       schema build, check, additive diff linter (logic in scripts/lib/schema/)
+  addon/                        digest manifest writer, addon build wrapper
+```
+
+Plan decision: test infrastructure lives in a private workspace package under `tooling/` (added to `pnpm-workspace.yaml`), not under `packages/`. Reason: `scripts/api-report.mjs` treats every `packages/*` entry as a published API, and depcruise already forbids `packages/*/src` from importing tooling.
+
+### 1.2 Layering (dependency-cruiser and ESLint)
+
+Existing rules stay ([.dependency-cruiser.mjs](../../.dependency-cruiser.mjs), [eslint.config.js](../../eslint.config.js)). Two sans-IO directories exist after K3: `packages/core/src/protocol/` (neutral) and `packages/claude-code/src/protocol/` (Claude protocol). Additions and changes in task W0-T1:
+
+| Rule | From | Forbidden to | ADR |
+|---|---|---|---|
+| `protocol-sans-io` (extended) | both sans-IO directories | Node built-ins | ADR-0006 |
+| `protocol-not-to-process` (extended) | both sans-IO directories | `@hudhud/core/process`, `packages/core/src/process/` | ADR-0006 |
+| `protocol-no-npm-runtime-deps` (extended) | both sans-IO directories | every npm dependency, with one exception: `packages/claude-code/src/protocol/` may import `@hudhud/core/protocol` (resolved to `packages/core/(src\|dist)/protocol/` or `node_modules/@hudhud/core/(src\|dist)/protocol/`) | ADR-0005, ADR-0006, K3 |
+| `protocol-not-to-binding` | both sans-IO directories | `packages/core/src/(binding\|process\|observability\|security)/`, `@hudhud/core` root entry | ADR-0006 |
+| `adapter-protocol-closed` | `packages/claude-code/src/protocol/` | `packages/claude-code/src/` outside `protocol/` | K3 (the Claude machines stay pure) |
+| `process-not-to-binding` | `packages/core/src/process/` | `packages/core/src/binding/` | ADR-0006 |
+| `adapter-public-entry-only` | `packages/claude-code/src/` | deep paths into `packages/core/src/`; only `@hudhud/core`, `@hudhud/core/protocol`, `@hudhud/core/process` | ADR-0004 |
+| `core-neutral` (existing `core-not-to-adapters`) | `packages/core/` | `@hudhud/claude-code`, `hudhud` | ADR-0004, K3 |
+| `packages-not-to-tooling` | `packages/*/src/` | `tooling/` | ADR-0013 |
+| `raw-only-from-raw` | `packages/claude-code/src/` except `src/raw/` | `packages/claude-code/src/raw/` | ADR-0003 |
+| `os-adapters-leaf` | `packages/core/src/process/os/` | anything except `node:*` built-ins and `process/os/types.ts` | coverage scoping (§4.8) |
+
+ESLint: the existing `sansIoRules` block is applied to `packages/claude-code/src/protocol/**` as well; its import patterns additionally forbid `@hudhud/core` (root) and `@hudhud/core/process` there, while `@hudhud/core/protocol` stays allowed. Generated directories are excluded from ESLint (generated) but stay under depcruise. Integration tests (`packages/*/test/integration/**`) get a `no-restricted-imports` rule that forbids importing `connect`/`session` from the package root: they must use `testConnect` from test-support, so no integration test can reach the user's real config or an unpinned binary (ADR-0013).
+
+A neutrality test in `packages/core/test/unit/neutral.test.ts` greps `packages/core/src/**` and `packages/core/schemas/**` for Claude wire vocabulary (`control_request`, `can_use_tool`, `system/init`, `stream-json`, `--permission-mode`) and fails on any hit (K3).
+
+### 1.3 Schema pipeline (ADR-0005)
+
+Responsibility: committed, language-neutral contracts; precompiled validators; zero runtime schema dependency. The pipeline tooling is shared and harness-neutral; each package owns its schemas (ADR-0005 as amended by K3).
+
+```
+packages/<pkg>/schema-src/*.ts  --(TypeBox, build time)-->  packages/<pkg>/schemas/*.schema.json   (committed)
+packages/<pkg>/schemas/*.json   --(Ajv standalone, esm)-->  tmp/*.js
+tmp/*.js                        --(esbuild bundle, helpers inlined, format esm, no externals)-->
+   packages/core/src/protocol/generated/validators.gen.js         (+ .d.ts, committed)   neutral schemas
+   packages/claude-code/src/protocol/generated/validators.gen.js  (+ .d.ts, committed)   wire schemas
+   packages/claude-code/src/generated/validators.gen.js           (+ .d.ts, committed)   option schema
+```
+
+| Command | Effect |
+|---|---|
+| `pnpm schema:build` | regenerate schemas and validators for every package |
+| `pnpm schema:check` | regenerate into a temp dir and fail on any byte difference; part of `pnpm check` |
+| `pnpm schema:diff` | additive-only linter: compares `schemas/` with `schemas/.baseline/` per package and fails on removed properties, renamed definitions, narrowed types or enums, new `required` entries, `additionalProperties` closed; `x-` prefixed definitions and properties are exempt |
+| `pnpm check:no-ajv` | scans every `packages/*/dist/**/*.js` for `ajv` specifiers; part of `pnpm check` |
+| `pnpm check:tarball` | `pnpm pack` each published package, install the tarballs into a fresh temp project with `--prod`, import every `exports` subpath and run a smoke validation; part of `pnpm check:full` |
+
+Plan decisions:
+
+- Published TypeScript types are handwritten and a type-level test asserts mutual assignability with `Static<typeof Schema>` from the TypeBox source. Reason: `Static<>` in published `.d.ts` would make TypeBox a consumer-visible dependency (ADR-0005 §2).
+- Generated validators are committed and checked by `schema:check`. Reason: reviewable diffs and no code generation at install time.
+- The baseline for `schema:diff` is a committed copy `schemas/.baseline/`, replaced by the release task. Reason: no previous release exists to diff against.
+- `format` is not used. Reason: `ajv-formats` would be a second dependency with no protocol need.
+- Inbound wire schemas are envelope-only (`type`, `subtype`, `request_id`, `request.subtype`, `response.subtype`, `response.request_id`, `uuid`, `session_id`) with `additionalProperties: true` everywhere (ADR-0005 §7).
+- `esbuild` runs from its optional platform package with its postinstall denied (`allowBuilds: { esbuild: false }`, K14); W0-T1 verifies this on Windows and Linux.
+
+Schemas. Core (neutral): `events.schema.json` (open unions via `anyOf` with a `{type: string}` arm), `errors.schema.json`, `capabilities.schema.json`, `posture.schema.json`, `conformance.schema.json` (golden fixture line format), `version.json` (`{ "wireSchemaVersion": 1 }`). Claude Code: `wire-inbound.schema.json`, `wire-outbound.schema.json` (strict: `initialize`, `interrupt`, `set_permission_mode`, `user`, `control_response` for `can_use_tool`, `control_response` error), `options.schema.json` (strict, `additionalProperties: false`).
+
+### 1.4 Neutral sans-IO core: `@hudhud/core/protocol` (ADR-0006, K3)
+
+No Node built-ins, no ambient time or randomness, JSON-only values crossing the boundary, errors as data. This entry point contains no harness protocol; "protocol" means the neutral event and framing vocabulary (K3).
+
+#### `protocol/json.ts` (public)
+
+```ts
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+export type JsonObject = { readonly [key: string]: JsonValue };
+export function isJsonObject(value: unknown): value is JsonObject;
+export function ownString(obj: JsonObject, key: string): string | undefined; // Object.hasOwn based
+export function parseJsonLine(text: string): { ok: true; value: JsonObject } | { ok: false; reason: 'not-json' | 'not-object' | 'too-deep' };
+```
+
+Invariant: untrusted frames are never spread or `Object.assign`ed into objects; field access uses `Object.hasOwn` (a `__proto__` key stays inert, ADR-0012 §8). `JSON.parse` `RangeError` on pathological nesting maps to `too-deep`.
+
+#### `protocol/encode.ts` (public)
+
+```ts
+export function encodeJsonLine(value: JsonObject, maxBytes: number): { ok: true; line: string; bytes: number } | { ok: false; error: ErrorData };
+```
+
+`line` is `JSON.stringify(value) + "\n"` with exactly one `\n`; byte length via `TextEncoder`; above the cap yields `OUTBOUND_FRAME_TOO_LARGE` (ADR-0011 §7).
+
+#### `protocol/machine/contract.ts` (public) — the neutral machine contract
+
+Every harness adapter implements its protocol as a pure machine against this contract; the binding layer drives any machine that satisfies it (ADR-0006, K3).
+
+```ts
+export type TimerName = string;
+export interface MachineClockInput { readonly atMs: number; readonly at: string }
+export type TransportInput =
+  | { type: 'process.started'; pid: number }
+  | { type: 'line'; text: string; bytes: number }
+  | { type: 'line.oversized'; bytes: number }
+  | { type: 'line.invalid-utf8'; bytes: number }
+  | { type: 'stderr.line'; text: string }
+  | { type: 'stdout.end' }
+  | { type: 'stdin.error'; code: string }
+  | { type: 'process.spawn-error'; code: string }
+  | { type: 'process.exit'; code: number | null; signal: string | null }
+  | { type: 'timer'; name: TimerName }
+  | { type: 'ladder.done' };
+export type CommandInput =
+  | { type: 'cmd.send'; turnId: string; content: JsonValue; priority?: 'now' | 'next' | 'later' }
+  | { type: 'cmd.interrupt'; turnId?: string; cancelQueued: boolean; correlation: string }
+  | { type: 'cmd.permission'; requestId: string; decision: JsonObject }
+  | { type: 'cmd.permission-abort'; requestId: string }
+  | { type: 'cmd.set-permission-mode'; mode: string; correlation: string }
+  | { type: 'cmd.close' }
+  | { type: 'cmd.abort'; intent: 'abort' | 'dispose' };
+export type MachineInput = MachineClockInput & (TransportInput | CommandInput);
+export type MachineEffect =
+  | { type: 'write'; line: string }
+  | { type: 'stdin.end' }
+  | { type: 'timer.set'; name: TimerName; ms: number }
+  | { type: 'timer.clear'; name: TimerName }
+  | { type: 'event'; event: HudhudEventData }
+  | { type: 'permission.ask'; requestId: string; request: PermissionRequestData }
+  | { type: 'permission.cancel'; requestId: string; reason: 'harness' | 'close' | 'abort' }
+  | { type: 'handshake.ok'; info: SessionInfoData }
+  | { type: 'handshake.fail'; error: ErrorData }
+  | { type: 'turn.settle'; turnId: string; result: TurnResultData }
+  | { type: 'turn.fail'; turnId: string; error: ErrorData }
+  | { type: 'control.settle'; correlation: string; ok: true; response: JsonValue }
+  | { type: 'control.settle'; correlation: string; ok: false; error: ErrorData }
+  | { type: 'ladder.start'; intent: TerminationIntent }
+  | { type: 'session.end'; outcome: SessionOutcome; error?: ErrorData };
+export interface HarnessMachine<State, Config> {
+  initialState(config: Config): State;                                   // State and Config are JSON
+  step(state: State, input: MachineInput): { state: State; effects: readonly MachineEffect[] };
+}
+```
+
+Plan decision: machines generate only deterministic ids (`hudhud_<n>` request ids, `bg-<n>` harness-initiated turn ids); every UUID (session id, user message `uuid`) arrives from the binding inside an input or the config. Reason: a pure function that replays byte-identically from a fixture.
+
+Contract invariants (checked by a reusable property-test kit exported from test-support and run against every machine): every turn settles exactly once; each `permission.ask` ends with exactly one cancel or answer; no `write` after `stdin.end`; event `seq` strictly increases by 1; timers are cleared before `session.end`; after `session.end` every input yields no effects; `step` output survives `JSON.parse(JSON.stringify(x))` unchanged.
+
+#### `protocol/machine/outcome.ts` (public) — ADR-0008 "Termination intent and exit-code semantics"
+
+```ts
+export type TerminationIntent = 'none' | 'close' | 'close-timeout' | 'abort' | 'dispose' | 'watchdog' | 'auth-fail-fast' | 'oversized-frame' | 'handshake-failed';
+export interface ExitObservation { code: number | null; signal: string | null }
+export type SessionOutcome = 'closed' | 'aborted' | 'failed' | 'crashed' | 'killed-externally' | 'unknown';
+export function classifyExit(input: { intent: TerminationIntent; exit: ExitObservation; lastResultIsError?: boolean; turnActive: boolean; platform: 'win32' | 'posix' }): { outcome: SessionOutcome; turnSynthesis: 'cancelled' | 'error' | 'none' };
+```
+
+Harness-neutral (intent plus OS exit facts). Table in [§3.3](#33-process-exit-mapping). Never infers success from an exit code; `4294967295` is `unknown`.
+
+#### `protocol/events/` (public)
+
+Neutral event union in [§2.2](#22-harness-neutral-stable-tier-hudhudcore) and `sanitizeForDisplay(text)` (strips C0/C1 controls and ANSI CSI/OSC sequences, ADR-0012 §8). ACP-aligned vocabulary (ADR-0003, H12): tool kinds `read | edit | delete | move | search | execute | think | fetch | other`; tool status `pending | in_progress | completed | failed`; stop reasons `end_turn | max_tokens | max_turn_requests | refusal | cancelled`, all open.
+
+#### `protocol/errors.ts`, `protocol/capabilities.ts` (public)
+
+`ErrorData { code: HudhudErrorCode; message: string; retryable: boolean; details?: JsonObject }` and the code table of [§3](#3-error-taxonomy). Neutral `Capability`, `HarnessCapabilities`, `ProcessContainment` types.
+
+### 1.5 Claude Code protocol machines: `@hudhud/claude-code` `src/protocol/` (K3)
+
+Same sans-IO rules as the core protocol directory; may import only `@hudhud/core/protocol` and files inside `src/protocol/`. Not a public entry point (internal to the adapter; the conformance suites drive it through a test-only import).
+
+#### `protocol/wire/types.ts` (internal, schema-checked)
+
+Envelope types for every frame hudhud reads or writes (01 §2.6-2.8, 02 §4, 05 §5-§9): `ControlRequestFrame`, `ControlResponseFrame` (success/error), `ControlCancelRequestFrame`, `KeepAliveFrame`, `SystemFrame` (open `subtype`), `AssistantFrame`, `UserFrame`, `StreamEventFrame`, `ResultFrame`, `CommandLifecycleFrame`, `UnknownFrame`. Typed fields are only those the machines read: `system/init` (`session_id`, `permissionMode`, `capabilities`, `model`, `claude_code_version`), `result` (`subtype`, `is_error`, `result`, `errors`, `terminal_reason`, `api_error_status`, `user_message_uuid`, `user_message_uuids`, `usage`, `total_cost_usd`, `num_turns`, `permission_denials`), `api_retry`, `session_state_changed`, `permission_denied`, `can_use_tool` fields (02 §4.3), `initialize` response (`pid`, `claude_code_version`, `account.apiKeySource`, `models[].value`, `capabilities`, `current_permission_mode`).
+
+#### `protocol/wire/inbound.ts` (internal)
+
+```ts
+export type InboundClass =
+  | { kind: 'control_request'; requestId: string; subtype: string; frame: JsonObject }
+  | { kind: 'control_response'; requestId: string; ok: true; response: JsonObject | undefined; frame: JsonObject }
+  | { kind: 'control_response'; requestId: string; ok: false; error: string; frame: JsonObject }
+  | { kind: 'control_cancel_request'; requestId: string; frame: JsonObject }
+  | { kind: 'keep_alive'; frame: JsonObject }
+  | { kind: 'conversation'; type: string; subtype: string | undefined; frame: JsonObject }
+  | { kind: 'malformed'; reason: string; frame: JsonObject };
+export function classifyInbound(frame: JsonObject): InboundClass;
+```
+
+Lenient: unknown `type`/`subtype` is `conversation`; `malformed` only when a routing field has the wrong JSON type (ADR-0005 §7, ADR-0011 §7-8, 02 §3).
+
+#### `protocol/wire/outbound.ts` (internal)
+
+```ts
+export function initializeRequest(requestId: string, body: InitializeBody): JsonObject;  // no workspaceTrust parameter exists
+export function interruptRequest(requestId: string, cancelQueued: boolean): JsonObject;
+export function setPermissionModeRequest(requestId: string, mode: PermissionModeWire): JsonObject;
+export function userMessage(uuid: string, content: UserContentWire, priority?: 'now' | 'next' | 'later'): JsonObject;
+export function permissionResponse(requestId: string, decision: PermissionDecisionWire): JsonObject;
+export function controlErrorResponse(requestId: string, message: string): JsonObject;
+```
+
+`InitializeBody` in v1: `{ appendSystemPrompt?: string; systemPrompt?: string[] }`. Every frame passes the strict generated validator, then `encodeJsonLine` (32 MiB cap). `initialize.workspaceTrust` cannot be sent (ADR-0012 §2, J3).
+
+#### `protocol/machine/control.ts` (internal) — control-request correlator
+
+Outbound pending map `requestId -> { purpose: 'initialize' | 'interrupt' | 'set_permission_mode' | 'raw'; sentAtMs }`; inbound pending map `requestId -> { subtype; turnId? }`. A `control_response` for an unknown id is ignored with diagnostic `control.unknown-response`; duplicate inbound in-flight ids are ignored (02 §3); `control_cancel_request` removes the inbound entry and yields a cancel; nothing is written for a cancelled request; unknown inbound subtypes are answered with `control_response` error "Unsupported control request subtype" except the never-answered set (`remote_*`, unhandled `request_user_dialog` kinds). v1 handles inbound `can_use_tool` only; `hook_callback` and `mcp_message` are answered with an error (v1 registers no hooks and no SDK MCP servers).
+
+#### `protocol/machine/permission.ts` (internal) — ADR-0007, ADR-0012 §3
+
+```ts
+export interface PermissionEntry { requestId: string; toolUseId: string; toolName: string; turnId?: string; state: 'asked' | 'answered' | 'cancelled' }
+export type PermissionDecisionWire =
+  | { behavior: 'allow'; updatedInput?: JsonObject; updatedPermissions?: readonly JsonObject[] }
+  | { behavior: 'deny'; message: string; interrupt?: boolean };
+export function stripNonSessionDestinations(updates: readonly JsonObject[], allowConfigWrites: boolean): { kept: JsonObject[]; strippedCount: number };
+```
+
+No default timeout; each `asked` entry ends exactly once in `answered` or `cancelled` (CLI cancel, application `AbortSignal`, close, abort); `permission_suggestions` passed through as raw data, never applied or shape-checked (D17); non-`session` destinations stripped unless `dangerouslyAllowConfigWrites`; more than 4096 updates rejected locally. On close (drain) the machine answers the CLI with `{behavior:'deny', message:'hudhud session closing', interrupt:false}` so the turn reaches `idle`; on abort nothing is written because the interrupt makes the CLI withdraw the request (K12, ADR-0007).
+
+#### `protocol/machine/turn.ts` (internal) — ADR-0008 "Turns and interrupts"
+
+Per turn: `{ turnId (= user message uuid, or bg-<n>), origin: 'application' | 'harness', phase: 'queued' | 'started' | 'interrupting' | 'settled', initSeen, pendingInterrupt? }` in FIFO order.
+
+- A host `send` creates a `queued` turn and writes the `user` frame with `uuid`.
+- Turn start: `command_lifecycle` `state:"started"` with `command_uuid` when capability `msg_lifecycle_v1` was seen, otherwise the next `system/init` starts the oldest queued turn. A `system/init` with no queued host turn starts a harness-originated turn `bg-<n>` (07 §7).
+- Interrupt gating: an interrupt before the turn's `system/init` is stored and sent once it arrives (D5, GH#98713); on a settled turn it is a no-op.
+- Plan decision: if the interrupt response's `still_queued` contains the target uuid after its `system/init`, re-send once after 50 ms and emit `interrupt.still-queued-retry`. Reason: 05 §7 names the workaround; one retry, then report.
+- Turn end: `result` with matching `user_message_uuid(s)`, else the oldest started turn; synthesized from `session_state_changed` `idle` or process exit (05 §9). `error_during_execution` with `terminal_reason` `aborted_streaming`/`aborted_tools` after an interrupt is outcome `cancelled`, raw kept.
+
+#### `protocol/machine/session.ts` (internal) — the composed Claude machine, implements `HarnessMachine`
+
+```ts
+export interface ClaudeSessionConfig {
+  readonly mode: 'create' | 'resume' | 'fork';
+  readonly sessionId: string;                 // expected system/init.session_id
+  readonly firstFrameTimeoutMs: number;       // 60000
+  readonly idleStallMs: number;               // 300000
+  readonly closeTimeoutMs: number;            // 30000, measured from cmd.close (K13)
+  readonly interruptWaitMs: number;           // 1000
+  readonly maxOutboundBytes: number;          // 33554432
+  readonly onOversizedFrame: 'fail' | 'skip';
+  readonly onAuthFailure: 'fail-fast' | 'harness-retry';
+  readonly authFailFastSources: readonly string[];  // ['ANTHROPIC_API_KEY'] in v1 (K10)
+  readonly permissionHandler: boolean;
+  readonly allowConfigWrites: boolean;
+  readonly platform: 'win32' | 'posix';
+  readonly initialize: InitializeBody;
+}
+export declare const claudeSessionMachine: HarnessMachine<ClaudeSessionState, ClaudeSessionConfig>;
+```
+
+Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> terminating -> ended`, plus `failed`.
+
+- `process.started`: write `initialize` first (ADR-0008 §2) and set `first-frame`. The binding feeds `process.started` only after Windows job assignment (ADR-0009 §1).
+- Commands before `handshake.ok` are queued and flushed after it (02 §4.1).
+- Handshake: the init `control_response` clears `first-frame`, records `pid`, `claude_code_version`, `apiKeySource`, `capabilities`, emits `handshake.ok` and `session.started`. A `result` before the response (J7) is `SESSION_NOT_FOUND` when `mode` is `resume`/`fork` and the frame is `error_during_execution` with `num_turns` 0, otherwise `HANDSHAKE_FAILED` cause `result-before-response`. Exit or `stdout.end` first: `HANDSHAKE_FAILED` cause `exited-before-response` (or `SESSION_NOT_FOUND` if the matching `result` was seen). Timer: `HANDSHAKE_TIMEOUT`, `ladder.start` intent `watchdog`.
+- Identity: the first `system/init.session_id` must equal the expected id (`fork`: the hudhud-chosen new id); mismatch is diagnostic `session.id-mismatch`, and a `ProtocolError` for `create`.
+- Idle watchdog: while a turn is queued or started, every frame re-arms `idle`; on fire emit `stalled` once per silence period with `pendingPermissions`; never kills (ADR-0008).
+- Auth fail-fast (ADR-0012 §6, K10): applies when `onAuthFailure` is `fail-fast` and `apiKeySource` is in `authFailFastSources` (`ANTHROPIC_API_KEY` only in v1; `ANTHROPIC_AUTH_TOKEN` is added only after its `apiKeySource` string is observed in a recorded fixture). Trigger: the first of `system/api_retry` with `error === "authentication_failed"`, `assistant` with `error === "authentication_failed"`, `result` with `api_error_status === 401`; 403 is not a trigger. Effect: session poisoned, active turns fail `AUTHENTICATION_FAILED`, `ladder.start` intent `auth-fail-fast`, later commands fail `SESSION_POISONED`. `system/api_retry` is always surfaced as `api.retry`.
+- Oversized frame: `fail` gives `OVERSIZED_FRAME` and `ladder.start` intent `oversized-frame`; `skip` gives diagnostic `frame.skipped-oversized` (byte count only).
+- Close (drain, K13): reject new sends; set the `close` timer to `closeTimeoutMs` at the `cmd.close` instant (single deadline); pending permissions are cancelled with the non-interrupting deny (K12); wait for no active turn and `session_state_changed` `idle`, then `stdin.end`; keep consuming frames and accept harness-originated turns after EOF (07 §7); on timer `ladder.start` intent `close-timeout`.
+- Abort/dispose: record the intent first; if the handshake completed and stdin is open, write `interrupt{cancel_queued:true}` and set `interrupt-wait`; emit `ladder.start`; pending permissions cancel with reason `abort`, nothing written (K12).
+- `process.exit`: classify via core `classifyExit`; settle or fail remaining turns; emit `session.terminated`; `session.end`.
+
+#### `protocol/events/normalize.ts`, `tool-kind.ts` (internal)
+
+`normalizeFrame(frame, ctx) -> HudhudEventData[]` into the neutral vocabulary. Claude tool mapping: Bash, PowerShell -> execute; Read, NotebookRead -> read; Edit, Write, NotebookEdit -> edit; Glob, Grep -> search; WebFetch, WebSearch -> fetch; everything else -> other. Every event built from a frame carries `raw`; unmapped frames emit `harness.frame`.
+
+### 1.6 Binding layer: `@hudhud/core` root (ordinary async, harness-neutral)
+
+| Module | Responsibility | Key API | ADR |
+|---|---|---|---|
+| `binding/clock.ts` | real clock and ids | `interface Clock { nowMs(): number; nowIso(): string }`, `interface IdSource { uuid(): string }`, `systemClock`, `cryptoIds` | ADR-0006 |
+| `binding/driver.ts` | drives any `HarnessMachine`: serial input queue, effect executor, Node timers, transport I/O, ladder hand-off | `class SessionDriver<S, C> { constructor(deps: DriverDeps<S, C>); start(): Promise<SessionInfo>; command(input: CommandInput): void; readonly ended: Promise<SessionEnd> }` | ADR-0006, ADR-0007, ADR-0008, K3 |
+| `binding/transport.ts` | internal transport seam between driver and process or loopback; not public in v1 (K18) | `interface HarnessTransport { write(line: string): Promise<void>; end(): void; readonly output: AsyncIterable<TransportOutput>; readonly exited: Promise<ExitObservation>; terminate(intent: TerminationIntent): Promise<void> }` | ADR-0001 §3 |
+| `binding/queue.ts` | bounded per-subscriber queue (counts and bytes), three overflow policies, gap marker | `class BoundedQueue<T> { push(item: T, bytes: number): 'ok' \| 'overflow-error' \| 'dropped' \| Promise<void> }` | ADR-0007 |
+| `binding/fanout.ts` | broadcast, turn filters, compat replay | `subscribe(filter, opts): AsyncIterableIterator<HudhudEvent>` | ADR-0007, ADR-0003 |
+| `binding/handles.ts` | `Session`, `Turn`, `Harness` implementations over the driver | §2 | ADR-0003 |
+| `binding/permission-bridge.ts` | `permission.ask` effects -> handler calls with an `AbortSignal`; strict validation of the returned decision; a throwing handler yields a CLI-facing error answer through the machine | | ADR-0006, ADR-0007 |
+| `binding/errors.ts` | error classes from `ErrorData` | `class HudhudError extends Error { readonly code; readonly retryable; readonly details? }` and subclasses | §3 |
+| `binding/adapter.ts` | adapter registration and `adapterApiVersion` check | `defineAdapter(def: AdapterDefinition): RegisteredAdapter` | ADR-0004 §3 |
+| `binding/loopback.ts` | loopback binding: every input and effect through `JSON.stringify`/`JSON.parse`, asserting round-trip equality; machine supplied by the caller | `createLoopbackDriver(machine, ...)` | ADR-0006 |
+| `binding/host-exit.ts` | one `process.once('exit')` hook that ends stdin of live sessions synchronously; no signal handlers (K22) | | 02 §6.3 |
+
+Invariants: stdout is read continuously regardless of subscribers (ADR-0007); `ask()` and `turn.done` never wait on a subscriber; only `'block'` can pause input processing (documented hazard); handler exceptions never escape into the driver; one input at a time, no re-entrancy.
+
+Plan decision: the per-event byte size used by queues is the raw frame byte count from the framer (synthesized events count 256 bytes). Reason: deterministic and dominated by the mandatory raw payload.
+
+### 1.7 Process layer: `@hudhud/core/process` (ADR-0009, ADR-0010, ADR-0011)
+
+| Module | Public | Key API | Invariants |
+|---|---|---|---|
+| `framer.ts` | yes | `createFramer({ maxLineBytes }): { push(chunk: Uint8Array): FramerOutput[]; end(): FramerOutput[] }`; `FramerOutput = {kind:'line', text, bytes} \| {kind:'oversized', bytes} \| {kind:'invalid-utf8', bytes}` | generic NDJSON; memory bounded by cap plus one chunk; oversized lines discarded while streaming until the next LF; CRLF, blank lines, leading BOM, split multibyte characters tolerated (05 §11) |
+| `argv.ts` | yes | `formatFlag(name: string, value?: string): string` | always `--name=value`; name `^[a-z][a-z0-9-]*$`; NUL refused (ADR-0011 §3) |
+| `binary-path.ts` | yes | `resolveExecutable(path: string): Promise<ResolvedExecutable>` | realpath, absolute, regular file, executable bit on POSIX, `.cmd`/`.bat` refused in original or resolved path, case-insensitive on win32 |
+| `cwd.ts` | yes | `validateCwd(cwd: string, platform): Promise<string>` | exists, directory, realpath'd (macOS gate item 6); win32 realpath length of 259 UTF-16 units or more throws `CwdTooLong`; never `\\?\` (J10) |
+| `hash.ts` | yes | `sha256File(path): Promise<string>` | streaming |
+| `spawn.ts` | yes | `spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess>` | `shell:false`, `windowsHide:true`, stdio pipes, explicit `env`, not detached; serialized writes with backpressure; stderr into the bounded tail; `error` events become `process.spawn-error`; child stdout `ENOTCONN` after a failed spawn swallowed (07 §6) |
+| `tree/` | yes | `snapshotDescendants(rootPid, deps): Promise<ProcessRecord[]>`; `ProcessRecord {pid, ppid, pgid?, startTime, name}`; `parseProcStat`, `parsePsOutput` | Linux `/proc/<pid>/stat` (start time field 22, comm up to the last `)`); macOS `/bin/ps -A -o pid=,ppid=,pgid=,lstart=,comm=` with `LC_ALL=C` (fields confirmed by the macOS gate) |
+| `ladder/types.ts` | yes | `LadderTiming`, `LadderStep`, `LadderReport`, `LadderHooks` | timing injected |
+| `ladder/posix.ts` | yes | `runPosixLadder(proc, hooks, timing): Promise<LadderReport>` | ADR-0010 as amended by K1: interrupt (hook) -> EOF -> 2 s -> S1 + SIGTERM to the signal target -> 5 s -> S2 + SIGKILL of the signal target and the spawned pid + sweep(S1 ∪ S2); never `kill(-pgid)` of the CLI, launcher or host group |
+| `sweep.ts` | yes | `sweep(records, deps)` | kill only if pid and start time still match; `kill(-pgid)` only for groups led by a recorded descendant whose identity matches |
+| `ladder/windows.ts` | yes | `runWindowsLadder(proc, hooks, timing, job: JobHandle \| null)` | interrupt (wait at most 1 s) -> EOF -> 2 s -> `TerminateJobObject`; fallback `taskkill /T /F` (absolute `%SystemRoot%\System32\taskkill.exe`, `shell:false`) -> 2 s -> `TerminateProcess` via the child handle |
+| `verify/` | yes | `verifyBinary(path, opts: { mode: 'advisory' \| 'strict'; digests }): Promise<BinaryVerification>` | K8: advisory checks the digest table only; strict runs the OS signature check first (win32 Authenticode, darwin `/usr/bin/codesign --verify --strict`) and then the digest table |
+| `containment/win32-job.ts` | yes | `loadJobAddon(deps): JobAddonLoad` | never throws; pre-`dlopen` sha256 (defence in depth); arm64 reports `unavailable` in v1 (K17); see §6 |
+| `os/win32.ts`, `os/posix.ts`, `os/darwin.ts` | no | thin syscall adapters behind `interface OsCalls` | no logic; coverage-scoped per OS (§4.8) |
+
+Ladder timing defaults (initial, tunable, H5): `interruptWaitMs 1000`, Windows `eofGraceMs 2000`, `taskkillGraceMs 2000`; POSIX `eofGraceMs 2000`, `termGraceMs 5000`. Every ladder records its termination intent before the first signal (ADR-0008 E8). The interrupt step is a hook (`hooks.interrupt(): Promise<'acknowledged' | 'timeout' | 'not-applicable'>`) supplied by the driver from the machine's `control.settle` or `interrupt-wait` timer (plan decision; reason: ladder stays ordinary async, the protocol step stays in the machine, ADR-0006 E5).
+
+Process identity and signal target (K1): identity, containment root and sweep root are the spawned pid plus its start time (ADR-0011, J9). The POSIX signal target is `initialize.pid` only when it appears in snapshot S1 as a descendant of the spawned pid with a start time matching the snapshot; otherwise it is the spawned pid. A spawned pid that differs from `initialize.pid` emits diagnostic `binary.launcher-detected`.
+
+### 1.8 Claude Code adapter (outside `src/protocol/`)
+
+| Module | Public | Responsibility | ADR |
+|---|---|---|---|
+| `options.ts` | types public | option types, strict validation, cross-field rules, default resolution into `EffectiveOptions` (JSON) | ADR-0003, ADR-0005 §7, ADR-0012 |
+| `rules.ts` | no | tool rule strings and skill names against the tokenizer constraints (no unparenthesized comma or whitespace, balanced parentheses, no leading `-`, no control characters) | ADR-0011 §4 |
+| `argv.ts` | no | single point of argv construction (§2.5) through `formatFlag` | ADR-0011 §3 |
+| `env.ts` | no | presets and the object form `{ preset, add, remove }` (K19); pinned keys; dropped and added names; win32 case-insensitive names | ADR-0012 §4 |
+| `settings-guard.ts` | no | `projectCredentialEnv: 'refuse'` pre-spawn check (read only, K5) | ADR-0012 §2 |
+| `discovery.ts` | no | discovery order ratified in K7 | ADR-0011 §5 |
+| `provenance.ts`, `known-binaries.json` | no | digest table for the tested window plus application digests (K8) | ADR-0011 |
+| `posture.ts` | no | Claude posture entries; `managedPolicy` from the child env and a read-only parse of the user's settings `env` (K23) | ADR-0012 §5, §7 |
+| `capabilities.ts` | no | `HarnessCapabilities` for Claude Code v1 | architecture "Capability model" |
+| `compat.ts` | no | `CLAUDE_CODE_COMPAT = { minTested, maxTested, knownBroken }`, `compatStatus(version)` | ADR-0004 §4 |
+| `registry.ts` | no | per-Harness live session-id lock | ADR-0008, J6 |
+| `adapter.ts`, `connect.ts`, `session-factory.ts` | `connect`, `session`, `hudhud` public | validate -> guard -> cwd -> resolve -> verify -> spawn -> job -> driver(`claudeSessionMachine`) | all |
+| `raw/index.ts` | `/raw` | unstable tier (§2.6) | ADR-0003, ADR-0004 §5 |
+
+Discovery (K7): (1) `binaryPath`; (2) the native installer launcher `~/.local/bin/claude` (`%USERPROFILE%\.local\bin\claude.exe`) resolved to its version directory; (3) a `PATH` lookup that skips empty and relative entries and the current directory, accepts only `.exe` on win32 and refuses `.cmd`/`.bat`. No `node_modules` probing.
+
+Verification (K8, K9): `known-binaries.json` is a committed digest table (version -> platform -> sha256, size) for the tested window, updated by the bump PR the lead prepares locally (K16); applications may add digests (`claudeCode.binaryDigests`). Nothing is fetched at run time. `binaryVerification: 'advisory'` (default) uses the digest table only (`verified` on a match, `failed` on a mismatch, `unverified` for an unknown version). `'strict'` first runs the OS signature check (Windows: `Get-AuthenticodeSignature` through `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive`, `shell:false`, the path passed as a separate argument; macOS: `/usr/bin/codesign --verify --strict`), then the digest table, and refuses anything but `verified`. Results are cached per (realpath, size, mtime) for the Harness lifetime.
+
+Connect (K4): `connect()` validates options, resolves and verifies the binary, runs one `claude --version` probe (explicit env, `shell:false`, 15 s timeout; zero network requests, 05 §1) to populate `binary.version` and `compat`, and builds `securityPosture`. Sessions compare `initialize.claude_code_version` with it and emit `binary.version-changed` on drift.
+
+Settings guard (K5): runs whenever the effective setting sources include `project` or `local`, whether they come from `workspaceTrust: 'full'` or from `claudeCode.settingSources`. It reads `.claude/settings.json` and `.claude/settings.local.json` in the cwd, in every ancestor up to the filesystem root (D13: ancestors are read, including the home tree), and in every `additionalDirectories` entry and its ancestors. It refuses when any `env` key matches `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `/^ANTHROPIC_.*_BASE_URL$/`, `/^CLAUDE_CODE_USE_/`, or a top-level `apiKeyHelper` exists. Unparseable files refuse (fail closed). Variable names, never values, go into the error. Reads use a 2 MiB cap and do not follow a symlinked settings file outside its directory without recording it in `details`. The lookup is a deliberate superset; it may only be narrowed by evidence from spike W0-T2. TOCTOU is documented (ADR-0012).
+
+### 1.9 Security defaults and posture (ADR-0012)
+
+`core/src/security/posture.ts` (neutral model and builder): `buildPosture(entries: PostureEntryInput[]): SecurityPosture`, each entry `{ setting, value, defaultValue, deviates }`, `deviates` by deep JSON equality. `claude-code/src/posture.ts` produces the Claude entries. Membership is fixed in [§2.4](#24-options-defaults-and-securityposture-membership); a test enumerates the option schema and fails if a security-relevant option lacks an entry (ADR-0012 §7).
+
+`managedPolicy` (K23): `'not-fetched-custom-base-url'` when `ANTHROPIC_BASE_URL` is set in the child env or in the `env` of the user settings file (`<config dir>/settings.json`, where the config dir is `claudeCode.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`); `'not-applicable-third-party-provider'` when a `CLAUDE_CODE_USE_*` switch is set there; otherwise `'fetched-if-eligible'`. The user settings file is parsed read-only for these keys only; values are never logged or stored (only booleans leave the parser); the file is never written (R6).
+
+### 1.10 Errors, capabilities, observability
+
+- Errors: `core/src/protocol/errors.ts` (data) and `core/src/binding/errors.ts` (classes), table in §3.
+- Capabilities: computed by `claude-code/src/capabilities.ts` at connect; per-session `features` from `system/init.capabilities`; per-session `containment` (K2).
+- Observability (ADR-0016): `observability/redact.ts` exports `redactText(text, secrets)` and `redactJson(value, policy)`. Values of every child env variable whose name matches `/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i` are replaced by `<redacted>` wherever they occur; `sk-ant-` keys, bearer tokens and URL userinfo are masked; headers `x-api-key`, `authorization`, `cookie`, `proxy-authorization` are masked. `observability/stderr-tail.ts`: last 2048 UTF-16 code units, redacted on read (02 §2.6). `observability/usage.ts`: cumulative usage plus estimated deltas typed `{ estimate: true }`. Diagnostics carry env names only (ADR-0012 §4). `TRACEPARENT`/`TRACESTATE` are removed from the child env in every form of `env` unless the `trace` option is set (ADR-0016 §2).
+
+### 1.11 Test support (`tooling/test-support`)
+
+| Module | Responsibility | Seed |
+|---|---|---|
+| `mock/server.ts` | in-process `http.Server` on `127.0.0.1:0`; Messages API (SSE and non-streaming), scenario markers `[[mock:NAME k=v]]` in user text only, step = assistant messages after the marked message, never assumes the last message is `user` (D16) | `S/sandbox/mock-api/server.mjs` |
+| `mock/provider.ts` | pluggable response provider; responses typed against `@anthropic-ai/sdk` (dev dependency of test-support only) | ADR-0013 §6 |
+| `mock/egress-trap.ts` | `CONNECT`: log host, answer 403, `socket.on('error')` before any write (J12); absolute-URI proxy requests logged and refused; every hit and every non-allowlisted path is a violation that fails the test | 05 §2, 07 §0.2 |
+| `mock/allowlist.ts` | `POST /v1/messages?beta=true` only, plus per-test extras | ADR-0013 §5 |
+| `cli/pinned.ts` | fetch, verify and cache the pinned CLI (§4.6) | 05 §1 |
+| `cli/newest.ts` | canary: resolve the newest published version, record its registry integrity for the run, fetch and verify against that record (K16) | |
+| `launcher/sandbox.ts` | per-test sandbox (config, home, appdata, tmp on a native filesystem outside the home tree; ancestor check for `.claude`, `CLAUDE.md`, `.mcp.json`); `testConnect(opts)` injecting the pinned `binaryPath`, an explicit env map (fake key, base URL = mock, `HTTPS_PROXY`/`HTTP_PROXY` both cases = mock, `NO_PROXY=127.0.0.1`, nonessential variable on, Git Bash path on win32) and `claudeCode.configDir` | 05 §3, §13.2; `S/sandbox/driver/lib.mjs` |
+| `launcher/warm.ts` | warms a fresh config dir with one session before concurrent fan-out (J11) | |
+| `leaks/` | records every spawned root, samples descendants, asserts zero survivors; suite-level sweep by sandbox root in command lines (07 §13) | `S/sandbox/driver/t06-tree.mjs` |
+| `fixtures/recorder.ts` | drives the pinned CLI directly (not through hudhud) and records `in`/`out`/`err`/`exit` into the conformance format; normalizer replaces uuids, pids, paths, versions, timestamps, durations and costs | `lib.mjs` `Session` |
+| `machine-kit.ts` | reusable fast-check kit asserting the contract invariants of §1.4 against any `HarnessMachine` | K3 |
+| `snapshots/request-shape.ts` | normalized structural snapshots; semantic change fails, additive warns | ADR-0013 §4 |
+| `canary/classify.ts` | classifies a red canary run as `mock-inadequate` or `protocol-regressed` and writes the job summary | ADR-0013 §8 |
+| `canary/bump.ts` | local, lead-run helper (`pnpm cli:bump <version>`): updates `tooling/cli-pin.json`, `known-binaries.json`, `CLAUDE_CODE_COMPAT.maxTested`, re-records fixtures; never pushes | K16 |
+
+Golden fixtures: `packages/claude-code/conformance/<suite>/<case>.jsonl`; line format from the neutral `conformance.schema.json`: `{"t":<ms>,"dir":"config"|"in"|"out"|"err"|"exit"|"cmd"|"timer","v":<json>}` followed by `{"dir":"expect","effects":[...],"events":[...]}` blocks. The conformance runner replays them against `claudeSessionMachine.step` with a fake clock.
+
+---
+
+## 2. Public API for v1
+
+Stability tags follow ADR-0003: §2.2-§2.5 are the stable tier (`@public`); `claudeCode` options are the harness-namespaced tier; §2.6 is `/raw` (unstable). Declarations are complete for v1; JSDoc is omitted here and required in code.
+
+### 2.1 Entry points
+
+| Specifier | Contents |
+|---|---|
+| `@hudhud/core` | neutral public types (`Harness`, `Session`, `Turn`, events, results, capabilities, posture, errors), error classes, `adapterApiVersion`, `wireSchemaVersion`, `defineAdapter` (`@beta`) |
+| `@hudhud/core/protocol` | neutral sans-IO API: `HarnessMachine` contract, input/effect types, `classifyExit`, `encodeJsonLine`, `parseJsonLine`, `sanitizeForDisplay`, `ErrorData` |
+| `@hudhud/core/process` | process layer API used by adapters (§1.7) |
+| `@hudhud/core/schemas/*.json` | neutral JSON Schema files (exports `"./schemas/*": "./schemas/*"`) |
+| `@hudhud/claude-code` | `connect`, `session`, `hudhud`, Claude Code option and request types, `CLAUDE_CODE_COMPAT` |
+| `@hudhud/claude-code/schemas/*.json` | Claude wire and option schemas |
+| `@hudhud/claude-code/raw` | unstable tier |
+| `hudhud` | re-exports of `@hudhud/core` and `@hudhud/claude-code` (no logic) |
+
+### 2.2 Harness-neutral stable tier (`@hudhud/core`)
+
+```ts
+export declare const adapterApiVersion: 1;
+export declare const wireSchemaVersion: 1;
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+export type JsonObject = { readonly [key: string]: JsonValue };
+
+// ---- capabilities -------------------------------------------------------
+export type Capability = 'supported' | 'emulated' | 'unsupported';
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+export interface HarnessCapabilities {
+  readonly multiTurn: Capability;
+  readonly resume: Capability;
+  readonly fork: Capability;
+  readonly interrupt: Capability;
+  readonly permissionsInBand: Capability;
+  readonly workspaceTrust: { readonly none: Capability; readonly context: Capability; readonly full: Capability };
+  readonly processContainment: ProcessContainment;   // what this Harness can provide (K2)
+  readonly reasons: { readonly [capabilityPath: string]: string };
+}
+
+// ---- binary, compat, posture --------------------------------------------
+export interface BinaryVerification {
+  readonly status: 'verified' | 'unverified' | 'failed';
+  readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+  readonly mode: 'advisory' | 'strict';
+  readonly detail?: string;
+}
+export interface BinaryInfo {
+  readonly path: string;
+  readonly requestedPath?: string;
+  readonly version: string;               // from the connect probe (K4)
+  readonly source: 'option' | 'native-install' | 'path';
+  readonly verification: BinaryVerification;
+}
+export interface CompatInfo {
+  readonly harness: string;
+  readonly version: string;
+  readonly minTested: string;
+  readonly maxTested: string;
+  readonly knownBroken: readonly string[];
+  readonly status: 'tested' | 'untested' | 'known-broken';
+}
+export interface SecurityPostureEntry {
+  readonly setting: string;
+  readonly value: JsonValue;
+  readonly defaultValue: JsonValue;
+  readonly deviates: boolean;
+}
+export interface SecurityPosture { readonly entries: readonly SecurityPostureEntry[] }
+
+// ---- events -------------------------------------------------------------
+export interface EventBase { readonly seq: number; readonly ts: string; readonly sessionId: string }
+export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
+export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});
+export interface UsageTotals {
+  readonly inputTokens?: number; readonly outputTokens?: number;
+  readonly cacheCreationInputTokens?: number; readonly cacheReadInputTokens?: number;
+  readonly costUsd?: number;
+}
+export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'max-budget' | 'unknown' | (string & {});
+export interface TurnResult {
+  readonly turnId: string;
+  readonly sessionId: string;
+  readonly outcome: TurnOutcome;
+  readonly isError: boolean;
+  readonly text?: string;
+  readonly stopReason?: StopReason;
+  readonly terminalReason?: string;
+  readonly errors?: readonly string[];
+  readonly apiErrorStatus?: number;
+  readonly usage?: UsageTotals;
+  readonly permissionDenials: readonly { readonly toolName: string; readonly toolUseId: string }[];
+  readonly synthesized: boolean;
+  readonly raw?: JsonValue;
+}
+export type DiagnosticCode =
+  | 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified'
+  | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable'
+  | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry'
+  | 'session.id-mismatch' | 'control.unknown-response' | (string & {});
+
+export type HudhudEvent =
+  | (EventBase & { type: 'compat'; compat: CompatInfo; raw?: JsonValue })
+  | (EventBase & { type: 'session.started'; mode: 'create' | 'resume' | 'fork'; pid: number; cliPid?: number; version: string; apiKeySource?: string; permissionMode?: string; raw: JsonValue })
+  | (EventBase & { type: 'turn.queued'; turnId: string })
+  | (EventBase & { type: 'turn.started'; turnId: string; origin: 'application' | 'harness'; features: readonly string[]; model?: string; raw: JsonValue })
+  | (EventBase & { type: 'message.assistant'; turnId?: string; text?: string; aborted?: boolean; raw: JsonValue })
+  | (EventBase & { type: 'message.delta'; turnId?: string; index: number; deltaType: 'text' | 'thinking' | 'input_json' | (string & {}); text?: string; raw: JsonValue })
+  | (EventBase & { type: 'tool.call'; turnId?: string; toolUseId: string; toolName: string; kind: ToolKind; status: 'pending'; input: JsonValue; raw: JsonValue })
+  | (EventBase & { type: 'tool.result'; turnId?: string; toolUseId: string; status: 'completed' | 'failed'; raw: JsonValue })
+  | (EventBase & { type: 'permission.requested'; requestId: string; turnId?: string; toolName: string; toolUseId: string; raw: JsonValue })
+  | (EventBase & { type: 'permission.resolved'; requestId: string; behavior: 'allow' | 'deny' | 'cancelled'; by: 'application' | 'harness' | 'close' | 'abort'; raw?: JsonValue })
+  | (EventBase & { type: 'permission.denied'; toolName: string; toolUseId: string; reasonType?: string; raw: JsonValue })
+  | (EventBase & { type: 'api.retry'; attempt: number; maxRetries?: number; retryDelayMs?: number; errorStatus?: number; error?: string; raw: JsonValue })
+  | (EventBase & { type: 'usage.update'; turnId?: string; reported: UsageTotals; estimatedDelta: UsageTotals & { readonly estimate: true }; raw?: JsonValue })
+  | (EventBase & { type: 'turn.completed'; turnId: string; result: TurnResult; raw?: JsonValue })
+  | (EventBase & { type: 'session.state'; state: 'idle' | 'running' | 'requires_action' | (string & {}); raw: JsonValue })
+  | (EventBase & { type: 'background.tasks'; raw: JsonValue })
+  | (EventBase & { type: 'stalled'; silentForMs: number; turnId?: string; pendingPermissions: number; raw?: JsonValue })
+  | (EventBase & { type: 'diagnostic'; code: DiagnosticCode; message: string; data?: JsonObject; raw?: JsonValue })
+  | (EventBase & { type: 'gap'; dropped: number; raw?: JsonValue })
+  | (EventBase & { type: 'session.terminated'; intent: string; outcome: string; exitCode?: number; signal?: string; raw?: JsonValue })
+  | (EventBase & { type: 'harness.frame'; frameType: string; subtype?: string; raw: JsonValue })
+  | (EventBase & { type: string & {}; raw?: JsonValue });                    // open arm
+
+// ---- subscriptions --------------------------------------------------------
+export type OverflowPolicy = 'error' | 'drop-oldest-with-gap-marker' | 'block';
+export interface SubscriberOptions {
+  readonly maxEvents?: number;            // default 10000
+  readonly maxBytes?: number;             // default 67108864
+  readonly overflow?: OverflowPolicy;     // default 'error'; 'block' can stall control frames
+  readonly signal?: AbortSignal;
+}
+
+// ---- permissions ----------------------------------------------------------
+export interface PermissionRequest {
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly turnId?: string;
+  readonly toolName: string;
+  readonly displayName?: string;
+  readonly toolUseId: string;
+  readonly input: JsonValue;
+  readonly suggestions: readonly JsonValue[];   // passed through, never applied
+  readonly blockedPath?: string;
+  readonly decisionReason?: string;             // untrusted; sanitizeForDisplay before rendering
+  readonly title?: string;
+  readonly description?: string;
+  readonly raw: JsonValue;
+}
+export type PermissionDecision =
+  | { readonly behavior: 'allow'; readonly updatedInput?: JsonObject; readonly updatedPermissions?: readonly JsonObject[] }
+  | { readonly behavior: 'deny'; readonly message: string; readonly interrupt?: boolean };
+export type PermissionHandler = (request: PermissionRequest, ctx: { readonly signal: AbortSignal }) => Promise<PermissionDecision>;
+
+// ---- input ---------------------------------------------------------------
+export type UserContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; readonly dataBase64: string };
+export type UserInput = string | { readonly content: readonly UserContentBlock[]; readonly priority?: 'now' | 'next' | 'later' };
+
+// ---- handles --------------------------------------------------------------
+export interface SessionInfo {
+  readonly id: string;
+  readonly mode: 'create' | 'resume' | 'fork';
+  readonly forkedFrom?: string;
+  readonly pid: number;                   // spawned pid (process identity)
+  readonly cliPid?: number;               // initialize.pid (informational)
+  readonly version: string;
+  readonly apiKeySource?: string;
+  readonly features: readonly string[];
+  readonly containment: ProcessContainment;   // what this session got (K2)
+}
+export interface Turn extends AsyncIterable<HudhudEvent> {
+  readonly id: string;
+  readonly done: Promise<TurnResult>;
+  interrupt(opts?: { readonly cancelQueued?: boolean }): Promise<void>;
+}
+export interface Session extends AsyncDisposable {
+  readonly id: string;
+  readonly info: SessionInfo;
+  readonly closed: Promise<void>;
+  ask(prompt: UserInput, opts?: { readonly signal?: AbortSignal }): Promise<TurnResult>;
+  send(input: UserInput, opts?: { readonly signal?: AbortSignal; readonly events?: SubscriberOptions }): Turn;
+  events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent>;
+  setPermissionMode(mode: string, opts?: { readonly signal?: AbortSignal }): Promise<void>;
+  close(opts?: { readonly signal?: AbortSignal }): Promise<void>;
+}
+export interface Harness extends AsyncDisposable {
+  readonly capabilities: HarnessCapabilities;
+  readonly binary: BinaryInfo;
+  readonly compat: CompatInfo;
+  readonly securityPosture: SecurityPosture;
+}
+
+// ---- adapters (beta) --------------------------------------------------------
+export interface AdapterDefinition { readonly name: string; readonly adapterApiVersion: number }
+export declare function defineAdapter<T extends AdapterDefinition>(def: T): T;
+
+// ---- errors (section 3) -----------------------------------------------------
+export type HudhudErrorCode = /* union of every code in section 3.1 */ string;
+export declare class HudhudError extends Error { readonly code: HudhudErrorCode; readonly retryable: boolean; readonly details?: JsonObject }
+export declare function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError;
+```
+
+Semantics:
+
+- `ask()` resolves with the `TurnResult` for every completed turn, including `isError: true` and `cancelled`; it rejects only for session-level failures (K21). An aborted `opts.signal` interrupts the turn (gated) and rejects `ask()` with `AbortError` immediately; the turn still settles in the background.
+- `send()` returns a `Turn` whose iterator buffers from creation with the subscriber defaults (bounded, `'error'` scoped to that iterator).
+- `events()` starts with a replayed `compat` event (seq 0); `harness.compat` exposes the same data; there is no separate harness-level event channel in v1 (K20).
+- `close()` drains under a single deadline measured from the call (`closeTimeoutMs`, default 30 s) and then runs the abort ladder (K13). `Symbol.asyncDispose` on Session and Harness runs the abort ladder; disposing a Harness disposes its sessions.
+- `setPermissionMode('bypassPermissions')` is refused unless the session was created with `dangerouslyAllowBypassPermissions`.
+- hudhud installs no signal handlers; a terminal Ctrl+C that reaches a non-detached CLI ends as outcome `unknown` with `PROCESS_EXITED` (K22). This is documented.
+
+### 2.3 Claude Code adapter (`@hudhud/claude-code`)
+
+```ts
+import type { Harness, Session, PermissionHandler, SubscriberOptions } from '@hudhud/core';
+
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions';   // K11; 'manual' not offered in v1
+export type WorkspaceTrust = 'none' | 'context' | 'full';
+export type SettingSource = 'user' | 'project' | 'local';
+export type EnvOption =
+  | 'harness'
+  | 'inherit'
+  | { readonly [name: string]: string }                                   // explicit map: exactly these variables
+  | { readonly preset: 'harness' | 'inherit'; readonly add?: { readonly [name: string]: string }; readonly remove?: readonly string[] };   // K19
+
+export interface ConnectOptions {
+  readonly backend?: 'native';
+  readonly binaryPath?: string;
+  readonly binaryVerification?: 'advisory' | 'strict';   // K9, default 'advisory'
+  readonly claudeCode?: ClaudeCodeConnectOptions;
+  readonly signal?: AbortSignal;
+}
+export interface ClaudeCodeConnectOptions {
+  readonly configDir?: string;
+  readonly bare?: boolean;
+  readonly binaryDigests?: { readonly [version: string]: { readonly [platform: string]: string } };
+  readonly dangerouslyAllowRawControl?: boolean;
+}
+
+export interface SessionOptions {
+  readonly cwd?: string;
+  readonly permissionMode?: PermissionMode;
+  readonly dangerouslyAllowBypassPermissions?: boolean;
+  readonly onPermission?: PermissionHandler;
+  readonly workspaceTrust?: WorkspaceTrust;
+  readonly projectCredentialEnv?: 'refuse' | 'allow';
+  readonly env?: EnvOption;
+  readonly autoUpdate?: 'disabled' | 'harness-default';
+  readonly nonessentialTraffic?: 'disabled' | 'harness-default';
+  readonly dangerouslyAllowConfigWrites?: boolean;
+  readonly onAuthFailure?: 'fail-fast' | 'harness-retry';
+  readonly onOversizedFrame?: 'fail' | 'skip';
+  readonly maxFrameBytes?: number;
+  readonly maxOutboundFrameBytes?: number;
+  readonly firstFrameTimeoutMs?: number;
+  readonly idleStallMs?: number;
+  readonly closeTimeoutMs?: number;
+  readonly termination?: {
+    readonly interruptWaitMs?: number;
+    readonly eofGraceMs?: number;
+    readonly termGraceMs?: number;
+    readonly taskkillGraceMs?: number;
+  };
+  readonly trace?: { readonly traceparent: string; readonly tracestate?: string };
+  readonly claudeCode?: ClaudeCodeSessionOptions;
+  readonly events?: SubscriberOptions;
+  readonly signal?: AbortSignal;
+}
+export interface ClaudeCodeSessionOptions {
+  readonly settingSources?: readonly SettingSource[];
+  readonly model?: string;
+  readonly allowedTools?: readonly string[];
+  readonly disallowedTools?: readonly string[];
+  readonly additionalDirectories?: readonly string[];
+  readonly maxTurns?: number;
+  readonly includePartialMessages?: boolean;
+  readonly appendSystemPrompt?: string;
+  readonly backgroundWaitCeilingMs?: number;
+}
+export interface ResumeOptions extends SessionOptions { readonly fork?: boolean }
+
+export interface ClaudeCodeHarness extends Harness {
+  readonly sessions: {
+    create(opts?: SessionOptions): Promise<Session>;
+    resume(sessionId: string, opts?: ResumeOptions): Promise<Session>;
+  };
+}
+export declare function connect(opts?: ConnectOptions): Promise<ClaudeCodeHarness>;
+export declare function session(opts?: ConnectOptions & SessionOptions): Promise<Session>;
+export declare const hudhud: { readonly connect: typeof connect; readonly session: typeof session };
+export declare const CLAUDE_CODE_COMPAT: { readonly minTested: string; readonly maxTested: string; readonly knownBroken: readonly string[] };
+```
+
+`continue` is not part of v1 (K6). A custom spawner is not public in v1 (K18).
+
+Cross-field validation (`INVALID_OPTIONS` unless noted): `workspaceTrust` and `claudeCode.settingSources` both set; `workspaceTrust: 'context'` is `CAPABILITY_UNSUPPORTED`; `permissionMode: 'bypassPermissions'` without `dangerouslyAllowBypassPermissions: true`, or the flag with another mode; `projectCredentialEnv` set while the effective sources contain neither `project` nor `local`; rule strings failing `rules.ts`; non-UUID `resume` ids (plan decision: titles are not addressable identities, 07 §1 a12); frame caps outside `[1 MiB, 1 GiB]`, timeouts outside `[1000, 86400000]` ms; env names that are not valid variable names, values containing NUL; `env.add` or `env.remove` naming a hudhud-pinned key (`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CONFIG_DIR`, `TRACEPARENT`, `TRACESTATE`); `trace.traceparent` not in W3C format.
+
+### 2.4 Options: defaults and securityPosture membership
+
+| Option | Default | Effect | In securityPosture | Ruling / ADR |
+|---|---|---|---|---|
+| `backend` | `'native'` | only value in v1 | no | 0001 |
+| `binaryPath` | discovery (K7) | `binary.source` | no | 0011 |
+| `binaryVerification` | `'advisory'` | advisory: digest table only; strict: OS signature then digests, refuse non-`verified` | yes | K8, K9, 0011 |
+| `claudeCode.configDir` | user's real config dir | `CLAUDE_CONFIG_DIR` | yes (`'user'` or `'isolated'`, no path) | 0012 §1 |
+| `claudeCode.bare` | `false` | `--bare` | yes | 0012 §1 |
+| `claudeCode.binaryDigests` | none | extra digests | no | K8 |
+| `claudeCode.dangerouslyAllowRawControl` | `false` | `/raw` writes | yes | 0003, 0012 §8 |
+| `cwd` | `process.cwd()` realpath'd | `CwdTooLong` check | no | 0011 §9 |
+| `permissionMode` | `'default'` | `--permission-mode=<v>` always | yes | K11, 0012 §3 |
+| `dangerouslyAllowBypassPermissions` | `false` | `--allow-dangerously-skip-permissions` | yes | 0012 §7 |
+| `onPermission` | none | `--permission-prompt-tool=stdio` iff set | yes (`permissionPrompting`) | 0012 §3 |
+| `workspaceTrust` | `'none'` | `--setting-sources=user` (`'full'`: `user,project,local`) | yes | 0012 §2 |
+| `claudeCode.settingSources` | derived from `workspaceTrust` | `--setting-sources=<csv>` | yes | 0012 §2, H15 |
+| `projectCredentialEnv` | `'refuse'` whenever sources include project or local | pre-spawn guard | yes | K5, 0012 §2 |
+| `env` | `'harness'` | preset, map, or `{preset, add, remove}` | yes: the form, `'inherit'`, explicit maps (names only), and every credential or routing variable named in `add` (`ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, provider families) | K19, 0012 §4 |
+| `autoUpdate` | `'disabled'` | `DISABLE_AUTOUPDATER=1` | yes | 0012 §4 |
+| `nonessentialTraffic` | `'disabled'` | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | yes, plus `managedPolicy` | K23, 0012 §5 |
+| `dangerouslyAllowConfigWrites` | `false` | keep non-session permission destinations | yes | 0012 §3 |
+| `onAuthFailure` | `'fail-fast'` (API key source only in v1) | §1.5 trigger | no | K10, 0012 §6 |
+| `onOversizedFrame` | `'fail'` | | no | 0011 §7 |
+| `maxFrameBytes` | 67108864 | inbound cap | no | 0011 §7 |
+| `maxOutboundFrameBytes` | 33554432 | outbound cap | no | 0011 §7 |
+| `firstFrameTimeoutMs` | 60000 | handshake watchdog | no | 0008 |
+| `idleStallMs` | 300000 | `stalled` | no | 0008 |
+| `closeTimeoutMs` | 30000, from the `close()` call | drain deadline | no | K13, 0008 |
+| `termination.*` | 1000 / 2000 / 5000 / 2000 | ladder timing | no | 0009, 0010 |
+| `trace` | none | `TRACEPARENT` only when set | no | 0016 §2 |
+| `claudeCode.backgroundWaitCeilingMs` | 600000 | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` | no | 0008, J5 |
+| `claudeCode.allowedTools`, `disallowedTools`, `additionalDirectories` | unset | flags | yes | 0011 §4 |
+| `claudeCode.model`, `maxTurns`, `includePartialMessages` (`false`), `appendSystemPrompt` | unset | flags or `initialize` | no | |
+| `events` / `SubscriberOptions` | 10000 events, 64 MiB, `'error'` | | no | 0007 |
+| (fixed) `initialize.workspaceTrust` | never sent | none in v1 | yes (constant entry) | 0012 §2, J3 |
+| (fixed) `permission_suggestions` | never applied | none | yes (constant entry) | 0012 §3 |
+| (raw) `extraArgs`, `extraEnv` | none | §2.6 | yes (names only) | 0003 |
+
+Plan decision: `includePartialMessages` defaults to `false`. Reason: each partial frame repeats content (05 §11); streaming applications opt in.
+
+### 2.5 Always-passed argv and environment
+
+```
+--output-format=stream-json --input-format=stream-json --verbose
+--setting-sources=<csv>                         always (05 §13.1, 07 §9 p5)
+--permission-mode=<mode>                        always (05 §6, D4)
+create: --session-id=<uuid>                     resume: --resume=<id>        fork: --resume=<id> --fork-session --session-id=<new uuid>
+[--permission-prompt-tool=stdio]                iff onPermission
+[--allow-dangerously-skip-permissions]          iff dangerouslyAllowBypassPermissions
+[--bare] [--model=] [--max-turns=] [--include-partial-messages]
+[--allowedTools=<csv>] [--disallowedTools=<csv>] [--add-dir=<path>]...
+```
+
+Environment (K19): the base comes from the form of `env` — `'harness'` (allowlist by rule, H4; removes `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_AGENT_SDK_*`; dropped names reported), `'inherit'` (everything), an explicit map (exactly those variables), or `{ preset, add, remove }` (the preset, then `remove` names deleted, then `add` entries set; added and removed names reported as `env.added`/`env.removed`). Then pinned keys override in every form: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, `DISABLE_AUTOUPDATER=1` (unless `harness-default`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless `harness-default`), `CLAUDE_CONFIG_DIR` (only with `configDir`); always removed: `CLAUDE_CODE_SDK_READS_SESSION_STATE` (D11), `TRACEPARENT`/`TRACESTATE` (unless `trace`). hudhud never sets `CLAUDE_CODE_ENTRYPOINT` (ADR-0001 §4).
+
+### 2.6 Unstable tier (`@hudhud/claude-code/raw`)
+
+```ts
+export interface RawFrame { readonly direction: 'in' | 'out'; readonly seq: number; readonly ts: string; readonly bytes: number; readonly frame: JsonValue }
+export interface RawSpawnOptions {
+  readonly extraArgs?: readonly string[];
+  readonly extraEnv?: { readonly [name: string]: string };
+}
+export interface RawSession {
+  frames(opts?: SubscriberOptions): AsyncIterable<RawFrame>;
+  controlRequest(subtype: string, body?: JsonObject, opts?: { readonly signal?: AbortSignal; readonly timeoutMs?: number }): Promise<JsonValue>;
+  writeFrame(frame: JsonObject): Promise<void>;
+}
+export declare function raw(session: Session): RawSession;
+export declare function createSessionRaw(harness: ClaudeCodeHarness, opts: SessionOptions & { readonly raw: RawSpawnOptions }): Promise<Session>;
+```
+
+`controlRequest` and `writeFrame` throw `INVALID_OPTIONS` unless the Harness was connected with `claudeCode.dangerouslyAllowRawControl: true` (plan decision; reason: arbitrary control frames carry the agent's full authority, ADR-0012 §8). `extraArgs` may not contain the flags of §2.5 or `--dangerously-skip-permissions`; `extraEnv` may not name pinned keys.
+
+---
+
+## 3. Error taxonomy
+
+### 3.1 Codes and classes
+
+All classes extend `HudhudError` (`name` equals the class name; `AbortError` keeps `name === 'AbortError'`). `retryable`: repeating the same call with the same inputs may succeed without a change by the application.
+
+| Class | `code` | Raised by | When | Retryable |
+|---|---|---|---|---|
+| `InvalidOptionsError` | `INVALID_OPTIONS` | `connect`, `create`, `resume`, `send`, `setPermissionMode`, raw | validation or a cross-field rule (§2.3); `details.path`, `details.rule` | no |
+| `CapabilityUnsupportedError` | `CAPABILITY_UNSUPPORTED` | options | `workspaceTrust: 'context'`, `backend: 'agent-sdk'`, an `unsupported` capability | no |
+| `AdapterApiVersionError` | `ADAPTER_API_VERSION_MISMATCH` | `defineAdapter` | unsupported adapter integer | no |
+| `BinaryNotFoundError` | `BINARY_NOT_FOUND` | `connect` | explicit path missing or discovery empty; `details.candidates` | no |
+| `BinaryRefusedError` | `BINARY_REFUSED` | `connect` | `.cmd`/`.bat` in the path, not a regular file, not executable, relative `PATH` entry | no |
+| `BinaryVerificationError` | `BINARY_VERIFICATION_FAILED` | `connect` | `binaryVerification: 'strict'` and status not `verified` | no |
+| `BinaryProbeError` | `BINARY_PROBE_FAILED` | `connect` | `--version` probe fails or times out (15 s) | yes |
+| `CwdInvalidError` | `CWD_INVALID` | `create`, `resume` | missing or not a directory | no |
+| `CwdTooLongError` | `CWD_TOO_LONG` | `create`, `resume` (win32) | realpath'd cwd of 259 UTF-16 units or more; message names `subst`/junction | no |
+| `ProjectCredentialEnvError` | `PROJECT_CREDENTIAL_ENV` | `create`, `resume` | guard hit (K5); `details.files`, `details.variables` (names), `details.apiKeyHelper`, `details.unparseable` | no |
+| `SessionIdInUseError` | `SESSION_ID_IN_USE` | `create`, `resume` | a live session with that id exists in this Harness (J6) | yes |
+| `SpawnError` | `SPAWN_FAILED` | `create`, `resume` | child `error` before spawn; `details.cause`: `'enoent' \| 'eacces' \| 'eperm' \| 'gatekeeper' \| 'unknown'` | no |
+| `HandshakeTimeoutError` | `HANDSHAKE_TIMEOUT` | `create`, `resume` | first-frame watchdog; `details.cause: 'no-response'`; darwin `details.hint: 'keychain-prompt-suspected'` | yes |
+| `HandshakeError` | `HANDSHAKE_FAILED` | `create`, `resume` | `details.cause`: `'exited-before-response'`, `'stdout-closed'`, `'error-response'`, `'result-before-response'`, `'stdin-error'`; redacted stderr tail | yes |
+| `SessionNotFoundError` | `SESSION_NOT_FOUND` | `resume` | `result/error_during_execution`, `num_turns` 0, before the `initialize` response (07 §1 a11, J7) | no |
+| `AuthenticationFailedError` | `AUTHENTICATION_FAILED` | `turn.done`, `ask` | fail-fast trigger (K10); session poisoned; recreate | no |
+| `SessionPoisonedError` | `SESSION_POISONED` | `send`, `ask`, `setPermissionMode` | after poisoning (D15) | no |
+| `ProtocolError` | `PROTOCOL_ERROR` | `turn.done`, session end | a machine invariant broke (for example id mismatch on `create`) | no |
+| `OversizedFrameError` (extends `ProtocolError`) | `OVERSIZED_FRAME` | `turn.done`, session end | inbound line above `maxFrameBytes` under `'fail'` | no |
+| `OutboundFrameTooLargeError` | `OUTBOUND_FRAME_TOO_LARGE` | `send`, `ask`, raw `writeFrame` | encoded line above the outbound cap; nothing written | no |
+| `ControlRequestError` | `CONTROL_REQUEST_FAILED` | `interrupt`, `setPermissionMode`, raw `controlRequest` | CLI answered with an error | yes |
+| `ProcessExitedError` | `PROCESS_EXITED` | `turn.done`, `ask`, later calls | process ended without a hudhud intent; `details`: `exitCode`, `signal`, `outcome`, redacted `stderrTail` | yes |
+| `SessionClosedError` | `SESSION_CLOSED` | any call | after `close()` or dispose started | no |
+| `HarnessDisposedError` | `HARNESS_DISPOSED` | `sessions.create`, `sessions.resume` | after Harness dispose | no |
+| `AbortError` | `ABORTED` | any call with a `signal` | the signal aborted; `cause` = `signal.reason` | no |
+| `SubscriberOverflowError` | `SUBSCRIBER_OVERFLOW` | that iterator | queue full under `'error'` | no |
+
+`stalled` is an event, never an error. A `result` with `is_error: true` is a `TurnResult` (K21).
+
+### 3.2 Where errors surface
+
+| Phase | Surface |
+|---|---|
+| Option validation, binary, cwd, guard | `connect`, `create` or `resume` rejects; nothing is spawned |
+| Spawn and handshake | `create`/`resume` reject after the ladder ran (no orphan) |
+| Turn | `turn.done` and `ask` reject only for session-level causes |
+| After the session ended | every call rejects with the ending error or `SESSION_CLOSED` |
+
+### 3.3 Process exit mapping
+
+Rules apply top to bottom; the intent is recorded before any signal.
+
+| Intent | Exit observation | Outcome | Active turn becomes | Error |
+|---|---|---|---|---|
+| any | code `4294967295` | `unknown` | `error` (synthesized) | `PROCESS_EXITED` unless intent is close/abort |
+| `abort`, `dispose` | any | `aborted` | `cancelled` (synthesized) | none |
+| `close` | code 0 or 1, no active turn | `closed` | none | none |
+| `close-timeout` | any | `aborted` | `cancelled` | none (`session.terminated` says `close-timeout`) |
+| `watchdog`, `handshake-failed` | any | `failed` | n/a | the handshake error |
+| `auth-fail-fast` | any | `failed` | `error` | `AUTHENTICATION_FAILED` |
+| `oversized-frame` | any | `failed` | `error` | `OVERSIZED_FRAME` |
+| `none` | code 0, no active turn, last result not error | `closed` | none | none |
+| `none` | code 1, last result `is_error` | `closed` | settled from the result | none |
+| `none` | code 0 with an active turn and no result (Linux SIGINT from outside, for example a terminal Ctrl+C, K22; a foreign job close on Windows) | `unknown` | turn fails | `PROCESS_EXITED` |
+| `none` | code 143 or 129, or a `signal` (Windows `TerminateProcess` shows as `SIGTERM`) | `killed-externally` | turn fails | `PROCESS_EXITED` |
+| `none` | any other | `crashed` | turn fails | `PROCESS_EXITED` |
+
+Exit codes never prove success (05 §9, 07 §2). The redacted stderr tail is attached to `PROCESS_EXITED` and `HANDSHAKE_FAILED`.
+
+---
+
+## 4. Test strategy
+
+### 4.1 Layers and commands
+
+| Layer | Vitest project | Command | Runs in |
+|---|---|---|---|
+| Unit (sans-IO, pure, fakes) | `unit` | `pnpm test` | `pnpm check` |
+| Property and fuzz (fast-check) | `unit` | same | same; seeds printed, `FC_SEED` reproduces |
+| Conformance (golden JSONL against `claudeSessionMachine.step`) | `conformance` | `pnpm test:conformance` | `pnpm check` |
+| Integration (pinned CLI + in-process mock) | `integration` | `pnpm test:integration` | `pnpm check:full` (CI STANDARD Linux, FULL Linux and Windows; macOS after M1 lands, K15) |
+| Tarball install | script | `pnpm check:tarball` | `pnpm check:full` |
+| Canary | `integration` with `HUDHUD_CLI_CHANNEL=newest` | nightly (Linux) and weekly (Windows; macOS after its gate) | scheduled (K16) |
+
+`pnpm check` adds `schema:check`, `check:no-ajv`, conformance. `pnpm check:full` = `pnpm check` + `cli:fetch` + integration + tarball. Coverage stays at 100 %; exclusions in §4.8.
+
+### 4.2 Unit and property tests per module
+
+| Module | Unit tests | Property / fuzz |
+|---|---|---|
+| core `framer` | CRLF, blank lines, BOM, split multibyte at every offset, cap and cap+1, oversized then valid, invalid UTF-8, partial line at `end()` | random chunkings reassemble; random bytes never throw, memory under cap + chunk; exact oversize detection |
+| core `json`, `encode` | `__proto__` keys inert; deep nesting `RangeError`; cap boundary | arbitrary strings produce exactly one LF and round-trip |
+| core `machine/outcome` | every row of §3.3 on both platforms | total over intents x representative exits |
+| core `events/sanitize` | ANSI CSI/OSC/C1 stripped | arbitrary strings never throw |
+| claude `wire/inbound`, `outbound` | every frame type in fixtures; unknown types; malformed envelopes; each builder matches the strict schema; `initialize` has no `workspaceTrust` (type and runtime) | arbitrary JSON classifies totally |
+| claude `machine/control` | unknown response id, duplicate inbound id, cancel of unknown id, unsupported subtype answered, silent set | random request/response/cancel interleavings keep the table consistent |
+| claude `machine/permission` | allow, deny, deny+interrupt, error, cancel by CLI, by signal, by close (non-interrupting deny written, K12), by abort (nothing written), destination stripping, 4097 updates | every ask ends exactly once |
+| claude `machine/turn` | FIFO start, `command_lifecycle` correlation, background turn, interrupt before and after init, on settled turn, `still_queued` retry once, idle-synthesized end | random interleavings never settle twice or before the write |
+| claude `machine/session` | handshake success, `result` before response (resume vs create), exit before response, first-frame timer, auth fail-fast per trigger with `ANTHROPIC_API_KEY`, no fail-fast for `ANTHROPIC_AUTH_TOKEN`, `apiKeyHelper`, OAuth `none` (K10), oversized fail/skip, close with pending permission, close deadline from the call (K13), abort before/after handshake, queued commands | the contract invariants via `machine-kit` with a fake clock; JSON round-trip of every state and effect |
+| claude `events/normalize` | every fixture frame maps as specified; unknown frames to `harness.frame`; raw always present | arbitrary frames never throw |
+| core `binding/queue`, `fanout` | count and byte limits, each policy, gap counts, `'block'` resumes, `return()` releases, signal abort | random push/pull schedules within bounds, order preserved |
+| core `binding/driver` | fake transport and timers driving a test machine: effect order, no re-entrancy, permission bridge (throws, invalid decision, signal), ladder hand-off, `ask()` independent of subscribers | microtask-order permutations |
+| core `binding/loopback` | the full Claude conformance set through serialize/deserialize (test imports the Claude machine as a test dependency) | |
+| core `process/argv` | dash-leading values, commas, spaces, `=`, empty, NUL refused | one argv entry each |
+| core `process/binary-path`, `cwd` | `.cmd`/`.bat` in any segment and case, symlink chains, relative paths, 258/259 via injected platform | |
+| core `process/tree` | `/proc/<pid>/stat` with spaces and `)` in comm; ps fixtures (C locale) | arbitrary comm strings |
+| core `process/ladder/*`, `sweep` | fake `OsCalls` and clock: step order, intent first, early exit at each step, start-time mismatch skips kill, signal target selection per K1 (launcher present, absent, `initialize.pid` not in S1, start-time mismatch), never the host group | random exit timing: no signal after exit |
+| core `process/verify` | advisory uses digests only and never spawns PowerShell/codesign (K8); strict runs the OS check first; cache keyed by realpath, size, mtime | |
+| core `containment/win32-job` loader | missing package, wrong arch, arm64 (K17), digest mismatch, dlopen throws, success; never throws | |
+| claude `options`, `rules`, `argv`, `env` | every row of §2.3/§2.4; env forms including `{preset, add, remove}`, pinned keys refused in `add`/`remove`, win32 case-insensitive names, added credential variables listed in posture (K19); argv snapshot per option combination | random option objects: argv entries all start with `--` and parse back |
+| claude `settings-guard` | each variable pattern, `apiKeyHelper`, `settings.local.json`, every ancestor to the root, `additionalDirectories`, unparseable, oversized, symlinked file; applies under `claudeCode.settingSources` too (K5) | |
+| claude `posture` | membership against the option schema; deviation flags; `managedPolicy` from child env and from user settings `env`; values never appear in output (K23) | |
+| core `observability/redact` | fake secrets in env values, keys, bearer tokens, URL userinfo, headers | random strings with a secret never leak it |
+| core neutrality | no Claude wire vocabulary in core sources or schemas (K3) | |
+| test-support mock | trailing `system` message, reset CONNECT socket (J12), absolute-URI proxy refused, allowlist violation fails, SSE framing | |
+
+### 4.3 Golden fixtures (ADR-0006, ADR-0013 §10)
+
+Recorded by `tooling/test-support/src/fixtures/recorder.ts` from the pinned CLI on Windows and Linux, normalized, hand-minimized, stored in `packages/claude-code/conformance/`. Suites: `handshake`, `text-turn`, `two-turns`, `partial-messages`, `tool-bash`, `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response`, `permission-never-answered-interrupt`, `permission-eof`, `interrupt-midstream`, `interrupt-queued`, `interrupt-cancel-queued`, `interrupt-same-write` (GH#98713), `eof-idle`, `eof-midstream`, `eof-midtool`, `resume`, `resume-not-found`, `fork`, `fork-session-id`, `auth-401-no-retry`, `auth-401-retries` (shortened timing), `overloaded-529`, `max-turns`, `bg-shell-turn-after-eof`, `session-state-events`, `big-frame-5mb` (stored compressed), `utf8-arabic`, `crlf-bom`. Both OSes are recorded where the sequence differs (05 §14). A fixture with `apiKeySource: "ANTHROPIC_AUTH_TOKEN"` is recorded when the mock harness can produce it; only then is that source added to `authFailFastSources` (K10). Fixtures are re-recorded by the lead's local bump (K16) and the diff is reviewed.
+
+### 4.4 Integration tests (pinned CLI + in-process mock)
+
+Enforced by `testConnect` and lint: pinned, hash-verified binary only; explicit env map; nonessential variable on and the CONNECT trap active on every run; fake key only; cwd outside the home tree and any `.claude`/`CLAUDE.md`/`.mcp.json` ancestor; native-filesystem `TMPDIR`/`CLAUDE_CODE_TMPDIR`; isolated pre-warmed `CLAUDE_CONFIG_DIR` for concurrency; zero egress violations and zero leaks asserted in `afterEach`.
+
+Test root (plan decision): `HUDHUD_TEST_ROOT`, else `RUNNER_TEMP` on CI, else `os.tmpdir()`; a root with a forbidden ancestor fails with instructions (for example a `subst` drive on Windows), never skips. Reason: 05 §13.1 and the rule against silent weakening.
+
+Suites (Wave 6): lifecycle; permissions and interrupt; containment and ladders (Windows job, Windows best-effort, Linux SIGTERM/SIGKILL+sweep, host crash, launcher signal target per K1 with a launcher shaped like 07 §4 `t14-launcher.cjs`); security defaults (argv and env at the child via a probe tool call, setting sources and the C3 redirect with a second mock, the credential guard against real project dirs including ancestors and `--add-dir`, ancestor isolation, posture, auth fail-fast with `errn status=401`, oversized frame with `big`); request-shape snapshots.
+
+Flake policy: no automatic retries; timing bounds with a 3x margin over 05/07 measurements.
+
+### 4.5 Egress trap
+
+The mock is the proxy (`HTTPS_PROXY`, `HTTP_PROXY`, lower-case variants) with `NO_PROXY=127.0.0.1`. Any `CONNECT`, absolute-URI request or non-allowlisted path is a violation (hostname and method, credentials redacted) that fails the test. One test runs with the nonessential variable deliberately off and asserts the trap records and refuses the attempts (05 §2 run 89). The TLS-terminating trap of 07 §0.2 is not ported.
+
+### 4.6 How CI obtains the pinned CLI
+
+`tooling/cli-pin.json` holds, per platform, the package name, the pinned npm `integrity` (sha512), the binary `sha256`, `size` and file name (05 §1 values for `linux-x64` and `win32-x64`; darwin entries filled by M1, marked `pendingGate` until then).
+
+`pnpm cli:fetch` (`tooling/test-support/bin/fetch-cli.mjs`, logic in `src/cli/`):
+
+1. Read the registry document of the exact version from `registry.npmjs.org` only; take `dist.tarball`, refuse any other host.
+2. Download to a temp file; compare sha512 with the **pinned** integrity (never the value just fetched).
+3. Extract only `package/<file>` with an in-repo ustar reader over `zlib.gunzip` (no `tar` subprocess; `..`, absolute paths, links and devices refused).
+4. Compare sha256 and size with the pin; write to `${HUDHUD_CLI_CACHE:-.cache/claude-cli}/<version>/<platform>/<file>` (0755 on POSIX) with a `verified.json` stamp.
+5. Each test session re-checks size and the stamp keyed by mtime.
+
+CI caches `.cache/claude-cli` with `actions/cache` keyed on `hashFiles('tooling/cli-pin.json')`, OS and arch; only `main` writes it. The user's install is never used: `testConnect` always passes the cached `binaryPath` and asserts it lies under the cache. The package is never installed through pnpm; the pin changes only through a reviewed PR prepared by the lead (K16).
+
+Canary variant (K16): `cli/newest.ts` resolves the newest published version from the registry, records its `dist.integrity` for that run (written to the job summary), fetches and verifies the tarball against that record, then proceeds as above with a run-local pin.
+
+### 4.7 Cleanup assertions (no leaked processes)
+
+- Every spawned CLI is recorded (pid, start time; Linux `/proc`, Windows the addon's `processTimes` or one CIM query).
+- Tree tests sample descendants (Linux `/proc` every 250 ms; Windows `listPids(job)` or CIM every 1 s for best-effort tests).
+- `afterEach`: every root exited; every sampled descendant still matching pid and start time is a leak, fails the test, and is then killed by pid plus start time.
+- `afterAll`: any process whose command line contains the test root fails the suite (07 §13).
+
+### 4.8 Coverage (100 %) and justified exclusions
+
+| Exclusion | Justification | Compensating control |
+|---|---|---|
+| `packages/*/src/**/generated/**` | generated | `schema:check` determinism; validators exercised by wire and option tests; tarball check |
+| `packages/core/src/process/os/win32.ts` off win32, `os/posix.ts` on win32, `os/darwin.ts` off darwin | thin syscall adapters | OS-scoped coverage: each OS job runs `vitest --coverage` with `include` set to its own adapter and a 100 % threshold (`vitest.os.config.ts`) |
+| `native/win32-job/**` (C) | not JavaScript | native tests (§6.5); `/W4 /WX`, `/analyze` clean |
+
+---
+
+## 5. Work breakdown into waves
+
+### 5.1 Rules for every wave
+
+- No two tasks in a wave own the same file. Shared files (barrels, API reports, lockfile, `package.json` files, configs) are owned only by the wave's closer (`W<n>-Z`) or by W0-T1.
+- Every task leaves `pnpm check` green on its own; modules are reached by tests through relative paths until the closer exports them.
+- Wave end: the lead runs `pnpm check:full` on Windows and in a throw-away `node:22-bookworm` container on a copy of the repository (CONTRIBUTING.md), then makes one push that triggers CI FULL. The next wave starts after the gate is green. Main stays bisectable because each commit is green.
+- Each agent prompt names its ADR clauses, the rulings it implements and the listed security concerns. Agents never run the user's `claude`, never read the user's config, never use real credentials, never touch GitHub.
+
+### 5.2 Wave 0 — prelude and lookup spike (parallel)
+
+**W0-T1 Repository prelude** — Opus, M.
+Owns: `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `vitest.config.ts`, `vitest.os.config.ts`, `eslint.config.js`, `.dependency-cruiser.mjs`, `tsconfig.json`, `.gitignore`, `.prettierignore`, `scripts/api-report.mjs`, `scripts/test/api-report*.test.ts`, `scripts/test/depcruise-rules.test.ts`, `packages/core/package.json`, `packages/claude-code/package.json`, `packages/core/tsconfig.json`, `packages/claude-code/tsconfig.json`, `tooling/test-support/{package.json,tsconfig.json,src/index.ts}`, `CONTRIBUTING.md`.
+Work: catalog pins (older than 7 days) for TypeBox (major pinned), `ajv`, `esbuild`, `fast-check`, `@anthropic-ai/sdk` (test-support only); `allowBuilds: { esbuild: false }` with its written reason (K14); workspace `tooling/*`; vitest projects `unit`, `conformance`, `integration`, `scripts` (`passWithNoTests` scoped to empty projects); coverage exclusions of §4.8; the ESLint and depcruise rules of §1.2 including the extension of the sans-IO rules to `packages/claude-code/src/protocol/` with the `@hudhud/core/protocol` exception (K3); no new `package.json` scripts (closers add each script when its implementation lands); `api-report.mjs` skips packages without an `exports` field and `.json` subpaths; `exports` gains `"./schemas/*"` in both packages.
+Acceptance: `pnpm install --frozen-lockfile && pnpm check` green on Windows and Linux; a scratch build that runs esbuild on both OSes proves it works from its optional platform package without the postinstall (K14; if not, stop and report); depcruise rule tests fail on planted forbidden imports (core to Claude wire vocabulary path, Claude protocol to `@hudhud/core/process`, Claude protocol to a Node built-in) and pass on `@hudhud/core/protocol`; lockfile diff reviewed.
+Security: supply chain, no weakening of existing rules, privacy gate on.
+
+**W0-T2 Settings lookup spike (K5)** — Opus, M.
+Owns: `docs/research/08-settings-lookup-spike.md` only (scripts and runs in the scratch workspace, as in 05/07).
+Work: with the pinned 2.1.296 binaries (npm pack, integrity and sha256 verified as in 05 §1), the spike mock and the sandbox recipe of 05 §13.2, on Windows and in the Linux container: does the CLI load `.claude/settings.json` and `.claude/settings.local.json` from the cwd only, from the git root, or from every ancestor; does it load them from `--add-dir` directories; does `env` from each location apply (observe `ANTHROPIC_BASE_URL` redirection to a second mock, as 07 §9). Project dirs on `subst` drives on Windows, removed in `finally`; no user config touched.
+Acceptance: the report states, per location and OS, loaded or not, with run evidence; the guard of W3-T3 keeps the superset unless the report proves a location is never read.
+Security: sandbox isolation, fake key, egress trap, cleanup evidence as in 07 §13.
+
+### 5.3 Wave 1 — independent leaves (parallel)
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W1-T1 | Schema pipeline, neutral schemas and Claude wire schemas | `packages/core/schema-src/**`, `packages/core/schemas/**`, `packages/claude-code/schema-src/wire*.ts`, `packages/claude-code/schemas/wire-*.schema.json`, `scripts/schema/**`, `scripts/lib/schema/**`, `scripts/test/schema-*.test.ts`, `packages/core/src/protocol/generated/**`, `packages/claude-code/src/protocol/generated/**`, `packages/core/src/protocol/{json,capabilities}.ts`, `packages/core/src/protocol/events/types.ts`, `packages/claude-code/src/protocol/wire/types.ts`, type-equality tests | W0 | Opus | XL |
+| W1-T2 | Framer and line encoder | `packages/core/src/process/framer.ts`, `packages/core/src/protocol/encode.ts`, tests | W0 | Opus | M |
+| W1-T3 | Error taxonomy | `packages/core/src/protocol/errors.ts`, `packages/core/src/binding/errors.ts`, tests | W0 | Sonnet | M |
+| W1-T4 | Bounded queue and fanout | `packages/core/src/binding/{queue,fanout}.ts`, tests | W0 | Opus | M |
+| W1-T5 | Observability primitives | `packages/core/src/observability/**`, tests | W0 | Opus | M |
+| W1-T6 | Mock API and egress trap | `tooling/test-support/src/mock/**`, tests | W0 | Opus | L |
+| W1-T7 | Pinned CLI fetch, verify, cache (and newest-version variant) | `tooling/cli-pin.json`, `tooling/test-support/src/cli/**`, `tooling/test-support/bin/fetch-cli.mjs`, tests | W0 | Opus | L |
+| W1-T8 | Process primitives | `packages/core/src/process/{argv,binary-path,cwd,hash}.ts`, tests | W0 | Opus | M |
+| W1-T9 | Process tree, ladder types, OS call interfaces | `packages/core/src/process/tree/**`, `packages/core/src/process/ladder/types.ts`, `packages/core/src/process/os/types.ts`, fixtures, tests | W0 | Opus | M |
+| A1 | Addon C source and CMake | `native/win32-job/**` | W0 | Opus | M |
+| W1-Z | Closer | barrels, `packages/*/api/*.api.md`, smoke tests, `.changeset/*`, `package.json` scripts `schema:build`, `schema:check`, `schema:diff`, `check:no-ajv`, `cli:fetch` (wired into `check`) | all W1 | Sonnet | S |
+
+Acceptance highlights:
+
+- W1-T1: second `schema:build` produces no diff; `schema:check` fails on a hand edit; `schema:diff` fails on each forbidden change class (fixture schemas); `check:no-ajv` passes and fails on a planted `import 'ajv'`; type-equality tests compile; outbound validators reject unknown keys, inbound accept them; core neutrality test passes. Security: no `eval`/`new Function` in generated code, no runtime dependency, esbuild without plugins or network.
+- W1-T2: framer property tests (1000+ runs); oversized detection with bounded heap growth. Security: memory exhaustion, UTF-8, no silent truncation.
+- W1-T3: every §3.1 code has a class, data round-trip and retryability test.
+- W1-T4: bounds property tests; `'block'` documented as able to stall control frames.
+- W1-T5: redaction property test; bounded tail. Security: secret leakage (ADR-0016 §1).
+- W1-T6: J12 reset test; absolute-URI refusal; allowlist violation fails; trailing `system` message; binds `127.0.0.1` only; no outbound sockets (test patches `net.connect` to throw).
+- W1-T7: integrity from the pin; tar reader fuzzed against traversal, links, devices; corrupted download fails; registry host allowlist; newest-version mode records the registry integrity and verifies against it. Security: never executes the binary during fetch.
+- W1-T8: argv properties; `.cmd`/`.bat` case variants; 258/259 boundary. Security: argv injection, BatBadBut, planting.
+- W1-T9: parser fixtures; nothing kills.
+- A1: §6.1.
+
+### 5.4 Wave 2 — Claude sub-machines, neutral contract, process I/O, adapter config, launcher
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W2-T1 | Claude inbound, outbound, control correlator | `packages/claude-code/src/protocol/wire/{inbound,outbound}.ts`, `packages/claude-code/src/protocol/machine/control.ts`, tests | W1-T1, T2, T3 | Opus | L |
+| W2-T2 | Claude permission machine | `packages/claude-code/src/protocol/machine/permission.ts`, tests | W1-T1, T3 | Opus | M |
+| W2-T3 | Claude turn machine and interrupt gating | `packages/claude-code/src/protocol/machine/turn.ts`, tests | W1-T1, T3 | Opus | L |
+| W2-T4 | Neutral machine contract, outcome classifier, display sanitizer, machine kit | `packages/core/src/protocol/machine/{contract,outcome}.ts`, `packages/core/src/protocol/events/sanitize.ts`, `tooling/test-support/src/machine-kit.ts`, tests | W1-T1, T3 | Opus | M |
+| W2-T5 | Claude event normalization | `packages/claude-code/src/protocol/events/{normalize,tool-kind}.ts`, tests | W1-T1 | Sonnet | M |
+| W2-T6 | Spawn and process handle | `packages/core/src/process/spawn.ts`, `packages/core/src/process/os/{win32,posix,darwin}.ts`, tests | W1-T2, T5, T8, T9 | Opus | L |
+| W2-T7 | POSIX ladder (K1 signal target) and sweep | `packages/core/src/process/ladder/posix.ts`, `packages/core/src/process/sweep.ts`, tests | W1-T9 | Opus | L |
+| W2-T8 | Windows ladder (job and best-effort) | `packages/core/src/process/ladder/windows.ts`, `packages/core/src/process/taskkill.ts`, tests | W1-T9 | Opus | M |
+| W2-T9 | Claude options, rules, argv, env (K19) | `packages/claude-code/schema-src/options.ts`, `packages/claude-code/schemas/options.schema.json`, `packages/claude-code/src/generated/**`, `packages/claude-code/src/{options,rules,argv,env}.ts`, tests | W1-T1, T8 | Opus | L |
+| W2-T10 | Test launcher, leak assertions, fixture recorder | `tooling/test-support/src/{launcher,leaks,fixtures}/**`, tests | W1-T6, T7, T9 | Opus | L |
+| M1 | macOS gate harness | `tooling/macos-gate/**`, `.github/workflows/macos-gate.yml` | W1-T6, T7, T9 | Opus | M |
+| A2 | Addon platform packages and digest tooling | `packages/win32-job-x64/**`, `packages/win32-job-arm64/**`, `scripts/addon/**`, `scripts/test/addon-*.test.ts` | A1 | Opus | M |
+| W2-Z | Closer | barrels, API reports, smoke tests, changesets, `package.json` files | all W2 | Sonnet | S |
+
+Note: W2-T1, T2, T3 and T5 define their own local input and output types and do not depend on the neutral contract; the composition onto the contract (W2-T4) happens in W3-T1. W2-T4 and the Claude sub-machines share no files.
+
+Acceptance highlights:
+
+- W2-T1: every recorded 05/07 frame classifies without `malformed`; unknown subtype answered; silent set unanswered. Security: stdin authority, `workspaceTrust` impossible.
+- W2-T2: stripping of `localSettings`, `userSettings`, `projectSettings`, unknown destinations; suggestions passed through unchanged; K12 close and abort behaviour. Security: config writes (R6), untrusted shapes (D17).
+- W2-T3: GH#98713 gating with the `interrupt-same-write` order; background turn after EOF.
+- W2-T4: `classifyExit` table; `machine-kit` runs against a trivial reference machine; core neutrality test still passes.
+- W2-T6: real-process tests with `node -e` children: env exactly the given map, no shell (`&`/`|` literal), backpressure with a slow reader, stderr tail, `ENOENT` mapping, `ENOTCONN` swallowed; a source-tree test asserts no `shell: true` in `packages/*/src`. Security: shell injection, env leakage.
+- W2-T7: fake-OS tests for K1 selection and guards; Linux real test with a `node` launcher child that spawns a `node` "CLI" grandchild that ignores nothing and owns a `sleep` group: SIGTERM reaches the grandchild via K1, SIGKILL+sweep path leaves zero survivors, the host group is never signalled. Security: group kills, pid reuse.
+- W2-T8: fake-OS tests; Windows real test with `node` child and grandchild: best-effort ladder leaves zero survivors. Security: absolute System32 path, `shell:false`.
+- W2-T9: argv snapshot per option row; `--flag=value` everywhere; env per OS and per form; pinned keys refused in `add`/`remove`; posture fields present in `EffectiveOptions`. Security: argv injection, env leakage, `NODE_OPTIONS`.
+- W2-T10: forbidden-ancestor refusal; leak detection catches a planted orphan; recorder reproduces the 05 §5 handshake shape on Windows and Linux (lead-run at wave end). Security: sandbox isolation, fake key.
+- M1: reproduces the seven gate items with the pinned darwin binary (digests recorded on first run and checked against npm integrity and `manifest.json`), the mock and the ps parser; `workflow_dispatch` only, `permissions: contents: read`, `macos-15` arm64 and an x64 runner if available; artifacts 3 days. Dispatched by the lead.
+- A2: §6.2.
+
+### 5.5 Wave 3 — Claude session machine and security assembly
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W3-T1 | Claude session machine on the neutral contract | `packages/claude-code/src/protocol/machine/{session,index}.ts`, tests | W2-T1..T5 | Opus | XL |
+| W3-T2 | Verification and discovery (K7, K8, K9) | `packages/core/src/process/verify/**`, `packages/claude-code/src/{discovery,provenance}.ts`, `packages/claude-code/src/known-binaries.json`, tests | W1-T8, W2-T6 | Opus | L |
+| W3-T3 | Project credential guard (K5) | `packages/claude-code/src/settings-guard.ts`, tests | W2-T9, W0-T2 report | Opus | M |
+| W3-T4 | Security posture (K19, K23) | `packages/core/src/security/**`, `packages/claude-code/src/posture.ts`, tests | W2-T9 | Opus | M |
+| W3-T5 | Job addon loader and containment (K2, K17) | `packages/core/src/process/containment/**`, tests | A2, W2-T8 | Opus | M |
+| W3-T6 | Golden fixture recording | `packages/claude-code/conformance/**` | W2-T10 | Sonnet | M |
+| A3 | Addon prebuild workflow (K17) | `.github/workflows/addon-prebuild.yml`, `scripts/addon/manifest*.mjs` (new files), `native/win32-job/release/**` | A2 | Opus | M |
+| W3-Z | Closer | barrels, API reports, changesets, `package.json` files (including `@hudhud/win32-job-x64` as an optional dependency of core; arm64 not listed, K17) | all W3 | Sonnet | S |
+
+Acceptance highlights:
+
+- W3-T1: `machine-kit` invariants (2000+ runs on CI, seed logged); every recorded 05/07 sequence replays through `step` with expected effects; K10, K12, K13 behaviours. Security: stdin authority, auth poisoning, permission never silently allowed, oversized handling.
+- W3-T2: advisory never spawns a verifier process; strict PowerShell probe by absolute path with the binary path as a separate argument, parsing only `Status`; codesign by absolute path; launcher symlink layout of 01 §4.1 resolved. Security: planting, command injection into the probe.
+- W3-T3: tests of §4.2; real-CLI checks in W6-T4. Security: fail closed, names never values, symlinks, size cap.
+- W3-T4: membership test; K23 parser returns booleans only (property test: no input value appears in the output). Security: no weakened default is silent, no secret logging.
+- W3-T5: §6.4.
+- W3-T6: suites of §4.3 recorded on Windows and Linux.
+- A3: §6.3.
+
+### 5.6 Wave 4 — generic binding layer and conformance
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W4-T1 | Generic driver, handles, permission bridge, loopback, clock, adapter registration, host-exit hook | `packages/core/src/binding/{driver,transport,handles,permission-bridge,clock,adapter,loopback,host-exit}.ts`, tests | W2-T4, W1-T4 | Opus | XL |
+| W4-T2 | Conformance runner | `packages/claude-code/test/conformance/**` | W3-T1, W3-T6 | Sonnet | M |
+| W4-T3 | Claude capabilities, compat, session registry | `packages/claude-code/src/{capabilities,compat,registry}.ts`, tests | W1-T1 | Sonnet | S |
+| W4-Z | Closer | barrels, API reports, changesets | all W4 | Sonnet | S |
+
+Acceptance: W4-T1 tests of §4.2 against a test machine (the core never imports the Claude machine outside tests), including "`ask()` resolves while a `'block'` subscriber on another session is stalled"; loopback replays every Claude conformance suite; W4-T2 runs every suite on every OS in `pnpm check`. Security for W4-T1: handler isolation, cancellation always possible, no re-entrancy, bounded memory, no signal handlers (K22).
+
+### 5.7 Wave 5 — adapter assembly and public API
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W5-T1 | Claude Code adapter | `packages/claude-code/src/{adapter,connect,session-factory}.ts`, `packages/claude-code/src/raw/**`, unit tests with a fake spawner | all previous | Opus | XL |
+| W5-Z | Public API closer | `packages/claude-code/src/index.ts`, `packages/hudhud/src/index.ts`, all barrels, all API reports, smoke tests, changesets | W5-T1 | Sonnet | S |
+
+Acceptance: pipeline order tests (validation before filesystem access; guard before spawn; job assignment before `process.started`; one `--version` probe per connect, K4); `pnpm api:check` with reports matching §2; umbrella smoke test. Security: every threat-model row of architecture.md mapped to a test id in the task report.
+
+### 5.8 Wave 6 — integration against the pinned CLI
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W6-T1 | Lifecycle | `packages/claude-code/test/integration/lifecycle/**` | W5 | Opus | L |
+| W6-T2 | Permissions and interrupt | `.../integration/permissions/**` | W5 | Opus | L |
+| W6-T3 | Containment, ladders, host crash, launcher signal target | `.../integration/containment/**` | W5, W3-T5 | Opus | L |
+| W6-T4 | Security defaults (guard against real CLI lookup, env forms, posture) | `.../integration/security/**` | W5 | Opus | L |
+| W6-T5 | Request-shape snapshots, degradation classifier, tarball check | `tooling/test-support/src/{snapshots,canary}/**`, `scripts/check-tarball.mjs`, `.../integration/request-shape/**` | W5 | Sonnet | M |
+| W6-Z | Closer | `package.json` (`check:full`, `test:integration`, `check:tarball`, `cli:bump`), changesets | all W6 | Sonnet | S |
+
+Each task cites the evidence run per scenario (for example W6-T1 `resume-not-found` <- 07 §1 a11; W6-T2 `interrupt-same-write` <- 05 §7 run 36; W6-T3 orphan <- 05 §10 runs 60-72, host crash <- 07 §2 W94, launcher <- 07 §4; W6-T4 C3 <- 07 §9 and the W0-T2 report). Acceptance: `pnpm test:integration` green on Windows and Linux, zero egress violations, zero leaks, and per-job wall-time samples (at least 10 runs per OS) recorded for K15.
+
+### 5.9 Wave 7 — CI, canary, documentation, release readiness
+
+| Id | Title | Owns | Deps | Tier | Size |
+|---|---|---|---|---|---|
+| W7-T1 | CI integration (K15) | `.github/workflows/ci.yml`, `.github/actions/setup/action.yml`, `scripts/lib/ci-*.mjs` only if tier rules change (with tests) | W6 | Opus | M |
+| W7-T2 | Canary (K16) | `.github/workflows/nightly.yml`, `.github/workflows/canary-weekly.yml`, `scripts/nightly-check.mjs`, `scripts/lib/nightly.mjs`, `scripts/lib/canary-weekly.mjs`, `scripts/test/nightly*.test.ts`, `scripts/test/canary-weekly*.test.ts` | W6-T5, W1-T7 | Opus | M |
+| W7-T3 | User documentation | `docs/guide/**`, `README.md`, `NOTICE`, every-way registry table | W5 | Sonnet | M |
+| W7-T4 | Release readiness | `docs/plan/v1-release-checklist.md`, darwin entries of `tooling/cli-pin.json` and `known-binaries.json` from M1, `CLAUDE_CODE_COMPAT` | M1 results, all | Opus | S |
+
+W7-T1 (K15): Linux and Windows jobs run `pnpm check:full`; the Windows job builds the addon x64 from source and writes the digest table before tests; OS-scoped coverage step; CLI cache step; `timeout-minutes` per job set to the measured p95 from W6 times 2, with the measurements and the formula written in the workflow comment and in ADR-0014; until the macOS gate passes, the macOS job runs static checks, unit and conformance only (`pnpm check`), integration on macOS is enabled by W7-T4 after M1 lands.
+
+W7-T2 (K16): the nightly `should-run` job finds the newest published CLI version; when it is newer than the pin, a Linux job (`contents: read` only, no write token anywhere in scheduled jobs) fetches it through `cli/newest.ts`, records the registry integrity for the run, runs the integration suite against it, and writes a job summary with the version, integrity, results and the degradation classification; a failure turns the run red. It never re-runs the pinned version. The bump PR is prepared by the lead locally with `pnpm cli:bump <version>`. A weekly scheduled canary additionally runs the integration suite on Windows, and on macOS once the macOS gate has passed (Windows only before that), against the newest CLI version whenever a version newer than the pinned one was published since the last weekly run, so every OS sees a new CLI within a week at bounded cost. The weekly workflow (`.github/workflows/canary-weekly.yml`, owned by W7-T2) keeps the date of its last run in its own job summary history and compares publish times from the registry; it also holds only `contents: read`. Cost basis: about 20-30 CLI releases per month (02 §11) gives at most about 30 nightly Linux runs and at most about 4.3 weekly runs per OS per month; with the planning multipliers of 04 §1 (Linux 1x, Windows 2x, macOS 10x) the monthly cost is about 30 x D_linux + 4.3 x 2 x D_windows + 4.3 x 10 x D_macos Linux-equivalent minutes, where D is the measured integration-suite duration per OS; the durations are re-measured after Wave 6 and the estimate recomputed.
+
+### 5.10 Summary table
+
+| Wave | Tasks (parallel) | Model mix | Ends with |
+|---|---|---|---|
+| 0 | W0-T1, W0-T2 | 2 Opus | local check Win+Linux, CI FULL |
+| 1 | W1-T1..T9, A1, W1-Z | 9 Opus, 2 Sonnet | same |
+| 2 | W2-T1..T10, M1, A2, W2-Z | 11 Opus, 2 Sonnet | same; lead dispatches M1 |
+| 3 | W3-T1..T6, A3, W3-Z | 6 Opus, 2 Sonnet | same; lead dispatches A3 |
+| 4 | W4-T1..T3, W4-Z | 1 Opus, 3 Sonnet | same |
+| 5 | W5-T1, W5-Z | 1 Opus, 1 Sonnet | same |
+| 6 | W6-T1..T5, W6-Z | 4 Opus, 2 Sonnet | same |
+| 7 | W7-T1..T4 | 3 Opus, 1 Sonnet | same; v1 checklist |
+
+---
+
+## 6. Windows job-object addon track
+
+A separate track (A1-A3, then W3-T5 and W6-T3) in parallel with the main waves, merging only through wave gates. If x64 is not green by 1.0, v1 ships `'best-effort'` on Windows and the addon becomes v1.x (ADR-0009). Windows arm64 uses `'best-effort'` in v1 (K17).
+
+### 6.1 A1: C source scope
+
+`native/win32-job/src/hudhud_win32_job.c` (200-300 lines), `native/win32-job/src/delay_load_hook.c`, `native/win32-job/CMakeLists.txt`, `native/win32-job/build.mjs`, `native/win32-job/README.md`.
+
+N-API surface (plain C on `node_api.h`, `NAPI_VERSION 8`):
+
+| JS name | Win32 calls | Contract |
+|---|---|---|
+| `createJob()` -> external | `CreateJobObjectW(NULL, NULL)`; `SetInformationJobObject(JobObjectExtendedLimitInformation)` with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` only (no breakaway flags) | handle **not inheritable** (otherwise the CLI would keep the job alive after host death); finalizer closes the handle (kills the tree, "dies with its owner") |
+| `assignProcess(job, pid)` -> `{ creationTime: string }` | `OpenProcess(PROCESS_SET_QUOTA \| PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `AssignProcessToJobObject`, `CloseHandle` | called while Node holds the child handle (no pid reuse); creation time as a decimal string of 100 ns units |
+| `terminateJob(job, exitCode)` | `TerminateJobObject` | idempotent |
+| `closeJob(job)` | `CloseHandle` | idempotent; later use fails with `ERR_JOB_CLOSED` |
+| `listPids(job)` | `QueryInformationJobObject(JobObjectBasicProcessIdList)` | buffer bounded at 65536 entries |
+| `processTimes(pid)` | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes` | identity for tests and sweeps |
+| `version` | constant | ABI check |
+
+Errors: JS `Error` with `code` `WIN32_<GetLastError>` and the API name; no `FormatMessage`. No other Win32 calls.
+
+Build (CMake 3.28+, MSVC v143, C17): `/W4 /WX /sdl /guard:cf /Qspectre /analyze`; link `/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /guard:cf`, `/CETCOMPAT` on x64; `/Brepro`, `/PDBALTPATH:%_PDB%`; import library from `node_api.def` of the pinned `node-api-headers` package (`lib /def:... /machine:x64|arm64`; plan decision: versioned and integrity-checked by pnpm, no nodejs.org download; fallback the Node headers tarball verified against `SHASUMS256.txt` if the package lacks the `.def`); `delay_load_hook.c` maps `node.exe` imports to the host process (Electron hosts). x64 and ARM64 via `cmake -A x64` / `cmake -A ARM64`.
+
+A1 acceptance: `node native/win32-job/build.mjs --arch x64` builds with zero warnings and clean `/analyze`; a native smoke script runs create/assign/list/terminate against a `node -e` child.
+
+### 6.2 A2: platform packages and digest tooling
+
+`packages/win32-job-x64/package.json`: `os: ["win32"]`, `cpu: ["x64"]`, `files: ["hudhud_win32_job.node", "SHA256SUMS"]`, `exports` for the `.node` file and `package.json`, no scripts, no dependencies, `publishConfig.provenance: true` (effective at open-sourcing, K17). `packages/win32-job-arm64` mirrors it but is not an optional dependency of core and is not published as first-class in v1 (K17). The `.node` files are never committed.
+
+`scripts/addon/write-digests.mjs` writes `packages/core/src/process/containment/win32-job-digests.json` (`{ "x64": "<sha256>", "version": "<addon version>" }`) from a local or CI build, so the loader's digest check runs in every Windows test.
+
+### 6.3 A3: prebuild pipeline in CI (K17)
+
+Workflow `.github/workflows/addon-prebuild.yml`, triggers `workflow_dispatch` and tags `v*` (never `pull_request_target`):
+
+| Job | Runner | Permissions | Steps |
+|---|---|---|---|
+| `build` (matrix x64, arm64) | `windows-2025` | `contents: read` | checkout (pinned SHA, no persisted credentials); frozen install without scripts; record toolchain (`cmake --version`, `cl` banner, Windows SDK version) into `toolchain.json`; for arm64 first check that the MSVC ARM64 build tools exist on the image and fail with an explicit message if not (K17: stop and report); build; sha256; upload artifact (3 days) |
+| `test-x64` | `windows-2025` | `contents: read` | download x64; addon test suite (§6.5) including the pinned-CLI tree test |
+| `manifest` | `ubuntu-24.04` | `contents: read` | download both; write `SHA256SUMS` and `manifest.json` (`version`, per arch `sha256`, `size`, `toolchain`); upload |
+
+No arm64 test job while the repository is private: no real arm64 runner is assumed (K17). The lead commits `SHA256SUMS`, `manifest.json` and `toolchain.json` into `native/win32-job/release/<version>/` as the provenance record of the build (K17). Attestations and `npm publish --provenance` are added at open-sourcing. No caches in this workflow.
+
+### 6.4 W3-T5: loader with fallback
+
+`loadJobAddon({ platform, arch, requireResolve, readFile, dlopen, digests })`:
+
+1. Not win32: `unavailable`, `not-windows`.
+2. `arch === 'arm64'`: `unavailable`, `arm64-not-first-class` (K17); other non-x64: `unsupported-arch`.
+3. Resolve `@hudhud/win32-job-x64/hudhud_win32_job.node` via `createRequire(import.meta.url)`; missing: `package-missing`.
+4. sha256 against the shipped digest; mismatch or none: `digest-mismatch` (defence in depth only).
+5. `process.dlopen` into a fresh module object; failure: `dlopen-failed`.
+6. `version` check; mismatch: `abi-mismatch`.
+
+Never throws. Harness capability `processContainment` is `'job'` when loaded, else `'best-effort'` with a `reasons` entry (K2). Per session: `createJob` + `assignProcess` right after spawn, before `process.started` reaches the machine; an assignment failure keeps the session, sets `info.containment` to `'best-effort'` and emits `containment.fallback` (K2). The session holds the job handle and closes it after the process exited.
+
+### 6.5 Addon tests
+
+| Test | Where | Proves |
+|---|---|---|
+| loader unit tests (all outcomes including arm64) | all OS | fallback never throws |
+| create/assign/list/terminate with `node` child + grandchild | Windows x64 | nesting under libuv's job, inheritance (05 §10) |
+| handle not inherited | Windows x64 | closing the host-side handle kills the tree |
+| host crash | Windows x64 | helper Node host killed with `TerminateProcess`; zero survivors (07 §2 W94 inverted) |
+| CLI Bash tree | Windows x64 | pinned CLI with `[[mock:bash cmd=sleep 30]]`, dispose ends in `TerminateJobObject`; zero survivors (05 §10 runs 67-69) |
+| idempotency | Windows x64 | double close, terminate after close, `ERR_JOB_CLOSED` |
+| digest mismatch | Windows x64 | tampered copy refused, fallback to best-effort |
+
+---
+
+## 7. Risks and de-risking order
+
+| # | Risk | Impact | De-risk action | When |
+|---|---|---|---|---|
+| R1 | Windows x64 addon not green (1.0 criterion) | v1 ships `'best-effort'` on Windows; host crash orphans Git-Bash trees (07 §2) | A1 in Wave 1, A3 in Wave 3 | Waves 1-3 |
+| R2 | macOS behaviour differs (process groups, Keychain hang, zsh snapshot hang, socket path, path identity) | v1 blocked by the macOS gate | M1 in Wave 2, dispatched immediately; results feed W2-T7, W3-T2, error causes | Wave 2 |
+| R3 | Session machine interleaving bugs | hangs, double settlement, silent permission | fixtures early (W2-T10 recorder, W3-T6), `machine-kit` model tests, loopback replay | Waves 2-4 |
+| R4 | Settings lookup differs from the guard's assumptions | false sense of safety under project sources | W0-T2 spike; guard stays a superset unless narrowed by evidence (K5) | Wave 0 |
+| R5 | esbuild without postinstall fails on one OS | schema pipeline blocked | verified in W0-T1; stop and report if it fails (K14) | Wave 0 |
+| R6 | CI minutes and time limits with real-CLI integration and ~250 MB binaries per OS | budget overrun, timeouts | cache the binary; measure in W6; size timeouts as p95 x 2 (K15) | Waves 6-7 |
+| R7 | CLI drift during development | stale expectations | pinned 2.1.296; nightly canary against the newest version; lead bumps locally (K16) | continuous |
+| R8 | Flaky timing tests | red CI without regressions | fake clocks for order, 3x margins, no retries | all waves |
+| R9 | Auth fail-fast for `ANTHROPIC_AUTH_TOKEN` and OAuth never observed | narrower protection | fail-fast limited to `ANTHROPIC_API_KEY` until a fixture exists (K10), documented | Wave 3 |
+| R10 | Windows arm64 hosts | no containment beyond best-effort | documented capability `'best-effort'` on arm64 in v1 (K17) | v1 |
+| R11 | Electron or non-Node hosts load the addon | crash on load | delay-load hook in A1; Electron smoke test deferred, documented | Wave 1 |
+| R12 | K3 split leaks Claude vocabulary into the core | multi-harness design broken | neutrality test, depcruise rules, review in every closer | all waves |
+
+Order: R4 and R5 in Wave 0; R1 and R2 in parallel tracks (Waves 1-2); R3 (Waves 2-4); R6 measurement (Wave 6); R7, R8, R12 continuous.
+
+---
+
+## 8. Lead rulings (K1-K23)
+
+Rulings of 2026-10-12 on the open points of the first draft (recorded in 06 §K). Each is applied in the sections cited.
+
+| Id | Ruling | Applied in |
+|---|---|---|
+| K1 | POSIX SIGTERM goes to `initialize.pid` only when it is in snapshot S1 as a descendant of the spawned pid with a matching start time, otherwise to the spawned pid; containment and sweep are rooted at the spawned pid. | §1.7, W2-T7, W6-T3; ADR-0010 |
+| K2 | `HarnessCapabilities.processContainment` is what the Harness can provide; `Session.info.containment` is what the session got; assignment failure falls back to `'best-effort'` with a diagnostic. No new enum value (no custom spawner in v1). | §2.2, §6.4 |
+| K3 | Claude Code wire types, Claude schemas and the Claude protocol machines live in `@hudhud/claude-code` (`src/protocol/`), under the sans-IO lint and depcruise rules. `@hudhud/core` keeps only neutral pieces: event vocabulary and public types, generic NDJSON framer and encoder, bounded queues, error taxonomy, schema pipeline tooling, generic machine contract and handle machinery, process layer, securityPosture model. Core `/protocol` means the neutral protocol. | §1.1-§1.6, §2.1, waves 1-4; ADR-0004, ADR-0005, ADR-0006, architecture |
+| K4 | One `claude --version` probe at connect (no network, 05 §1); per-session drift report. | §1.8, W5-T1 |
+| K5 | The credential guard applies whenever effective sources include project or local (also via `claudeCode.settingSources`); lookup is cwd and every ancestor up to the filesystem root plus every `--add-dir` directory; superset, fail closed. A Wave-0 spike pins down the real lookup; the guard may only be narrowed by that evidence. | §1.8, W0-T2, W3-T3, W6-T4; ADR-0012 |
+| K6 | `continue` is not in v1. | §2.3 |
+| K7 | Discovery: option, native installer launcher, sanitized `PATH`; no `node_modules` probing. | §1.8; ADR-0011 |
+| K8 | Committed digest table for the tested window, updated by the bump PR, plus application digests; never fetched at run time. The OS-signature check runs only under `'strict'`; advisory uses the digest table only. | §1.7, §1.8, W3-T2; ADR-0011 |
+| K9 | `binaryVerification: 'advisory' \| 'strict'`, default `'advisory'`. | §2.3, §2.4; ADR-0011 |
+| K10 | Fail-fast trigger set accepted; 403 is not a trigger; fail-fast applies to `ANTHROPIC_API_KEY` only until the `ANTHROPIC_AUTH_TOKEN` source string is observed in a fixture; documented. | §1.5, §4.3; ADR-0012 |
+| K11 | Permission modes: `default`, `acceptEdits`, `plan`, `dontAsk`, `auto`, and `bypassPermissions` only with `dangerouslyAllowBypassPermissions`; no `manual` in v1. | §2.3 |
+| K12 | Pending permissions on drain get a non-interrupting deny; on abort nothing is written. | §1.5; ADR-0007 |
+| K13 | `close()` has a single deadline from the call, default 30 s; documented. | §1.5, §2.2; ADR-0008 |
+| K14 | `allowBuilds: { esbuild: false }` is an explicit deny, not a weakening; W0 verifies esbuild works from its optional platform package without the postinstall on Windows and Linux, else stops and reports. | §1.3, W0-T1; ADR-0017 |
+| K15 | Timeouts re-sized from W6 measurements (p95 x 2, documented). Before the macOS gate passes, macOS runs static checks, unit and conformance only; integration on macOS after M1 lands. | W7-T1; ADR-0014 |
+| K16 | No write tokens in scheduled jobs. The nightly downloads the newest published CLI (integrity recorded from the registry and pinned for that run), runs the integration suite on Linux, and goes red with a job summary on failure. The lead makes the bump PR locally. The nightly tests the new version, never the pinned one. Amended: a weekly canary also runs Windows (and macOS after its gate) against the newest version when one newer than the pin appeared since the last weekly run; cost basis 02 §11, durations re-measured after W6. | §4.6, W7-T2; ADR-0004, ADR-0013, ADR-0014 |
+| K17 | While private: x64 built and tested on `windows-2025`; arm64 cross-compiled if the MSVC ARM64 tools exist on the image (else stop and report) but not shipped first-class until it runs on a real arm64 runner; arm64 Windows uses `'best-effort'` until then. Provenance now is the committed sha256 and toolchain manifests; attestations and npm provenance at open-sourcing. | §6; ADR-0009, ADR-0017 |
+| K18 | The transport seam is internal; no public custom spawner in v1. | §1.6, §2.3 |
+| K19 | `env` gains `{ preset: 'harness' \| 'inherit', add?, remove? }` alongside the string and map forms; `add` keys reported by name; adding credential or routing variables is allowed and listed in securityPosture. | §2.3-§2.5, W2-T9; ADR-0012 |
+| K20 | `harness.compat` plus `compat` replayed as the first event of every session stream. | §2.2 |
+| K21 | `ask()`/`turn.done` resolve for error results and reject only for session-level failures. | §2.2, §3 |
+| K22 | No signal handlers; terminal Ctrl+C on POSIX ends as `unknown` with `PROCESS_EXITED`; documented. | §1.6, §2.2, §3.3 |
+| K23 | Read-only parse of the user's settings files for the posture-relevant `env` keys (`ANTHROPIC_BASE_URL`, provider switches) only; values never logged or stored; never written. | §1.9, W3-T4; ADR-0012 |

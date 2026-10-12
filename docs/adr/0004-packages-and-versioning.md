@@ -15,8 +15,8 @@ hudhud is a TypeScript-primary monorepo that will be consumed by applications on
 
 | Package | Content |
 |---|---|
-| `@hudhud/core` | Sans-IO protocol and session core; subpath `/protocol`; subpath `/process` (process layer); `schemas/` (committed JSON Schema) |
-| `@hudhud/claude-code` | Claude Code adapter (`native` and `agent-sdk` backends); subpath `/raw` (unstable tier) |
+| `@hudhud/core` | Harness-neutral core (amended by K3, 06 §K): subpath `/protocol` (neutral sans-IO pieces: event vocabulary, generic NDJSON encoding, the generic machine contract, exit-outcome classification); subpath `/process` (process layer, including the generic NDJSON framer); root entry (binding layer, public types, errors, securityPosture model); `schemas/` (committed neutral JSON Schema); schema pipeline tooling. It contains no harness's wire protocol. |
+| `@hudhud/claude-code` | Claude Code adapter (`native` and `agent-sdk` backends); `src/protocol/` holds the Claude Code wire types and the Claude protocol state machines (control, permission, turn and interrupt gating, session) under the same sans-IO rules as core `/protocol` (K3); `schemas/` (committed Claude wire and option schemas); subpath `/raw` (unstable tier) |
 | `hudhud` | Umbrella package: a zero-code re-export with exact-version dependencies, so `npm i hudhud` is the simple path. It must never contain logic (E4). |
 | `@hudhud/win32-job-x64`, `@hudhud/win32-job-arm64` | Optional platform packages carrying the prebuilt Windows job-object addon ([ADR-0009](0009-process-layer-windows.md)) |
 
@@ -32,11 +32,12 @@ Names are working names until the owner reserves the npm scope `@hudhud` and the
 
 ### Operational duty
 
-Changelog triage for every CLI release. This is a standing maintenance task, not an event: the canary ([ADR-0013](0013-testing-strategy.md)) opens auto-bump PRs and a human triages the CLI changelog.
+Changelog triage for every CLI release. This is a standing maintenance task, not an event: the nightly canary ([ADR-0013](0013-testing-strategy.md)) tests each newly published CLI version and reports the result; the lead triages the CLI changelog and prepares the version-bump PR locally (amended by K16, 06 §K: scheduled jobs hold no write tokens, so the canary does not open PRs).
 
 ## Alternatives considered
 
 - Single package. Rejected: the Windows addon is binary and platform-specific; the process layer and core must stay importable without the Claude Code adapter; adapters for other harnesses are planned.
+- Claude Code wire types and protocol machines in `@hudhud/core` (the original reading of the layer diagram). Rejected by K3 (06 §K): the core would encode one harness's protocol, contrary to the multi-harness rule R3.
 - Umbrella with logic or ranged dependencies. Rejected (E4): the umbrella exists for convenience only; exact versions keep installs reproducible and security review simple.
 - Pre-1.0 semver as in the SDKs (breaking changes announced inline, 02 §11). Rejected [derived]: other sensitive projects build on hudhud and need an explicit compatibility contract.
 - Version the schema with the library only. Rejected: language bindings need a schema version independent of the TypeScript package version (03 §5 item 4).

@@ -27,8 +27,10 @@ Non-detached by default. No native code on POSIX.
 
 1. Send `interrupt` with `cancel_queued: true`.
 2. Close stdin (EOF).
-3. Wait 2 s. If the CLI has not exited: take snapshot S1 of the CLI's descendants and send `SIGTERM` to the CLI only. (`SIGTERM` is the step proven to make the CLI clean its tool groups.)
-4. Wait 5 s. If the CLI has not exited: take snapshot S2, send `SIGKILL` to the CLI, then run the sweep over S1 ∪ S2.
+3. Wait 2 s. If the CLI has not exited: take snapshot S1 of the spawned process's descendants and send `SIGTERM` to the signal target only. (`SIGTERM` is the step proven to make the CLI clean its tool groups.)
+4. Wait 5 s. If the CLI has not exited: take snapshot S2, send `SIGKILL` to the signal target and to the spawned process, then run the sweep over S1 ∪ S2.
+
+Signal target (K1, 06 §K): `initialize.pid` when it appears in S1 as a descendant of the spawned pid with a start time matching the snapshot (the real CLI behind a launcher, which forwards no signals, 07 §4); otherwise the spawned pid. Snapshots, containment and the sweep are always rooted at the spawned pid ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md), J9).
 
 Never `kill(-pgid of the CLI)`.
 

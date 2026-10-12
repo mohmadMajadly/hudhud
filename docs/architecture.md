@@ -56,16 +56,22 @@ Foundation: hudhud implements the stream-json + control protocol itself against 
 +---------------------------------------------------------------------+
 | @hudhud/claude-code            Claude Code adapter                  |
 |   backends: native | agent-sdk (optional peer, never redistributed) |
+|   src/protocol/  sans-IO Claude machines: wire types, control,      |
+|                  permission, turn/interrupt gating, session         |
+|                  (implement the core machine contract)              |
+|   schemas/       Claude wire and option JSON Schema                 |
 |   /raw  (unstable tier)                                             |
 +---------------------------------------------------------------------+
-| @hudhud/core                                                        |
-|   /protocol   sans-IO state machines: protocol, turn, permission    |
-|               (state, input) -> (state, effects[]); injected        |
+| @hudhud/core   (harness-neutral)                                    |
+|   /protocol   neutral sans-IO pieces: event vocabulary, machine     |
+|               contract (state, input) -> (state, effects[]),        |
+|               exit-outcome classifier, NDJSON encoding; injected    |
 |               clock and ids; JSON-only boundary                     |
-|   schemas/    committed JSON Schema 2020-12 (the contract)          |
+|   schemas/    committed neutral JSON Schema 2020-12                 |
 |   /process    ordinary async code: spawn, framer, termination       |
 |               ladders, sweep, binary resolution/verification        |
-|   binding layer: closures, timers, AbortSignal, subscribers         |
+|   binding layer: generic driver, closures, timers, AbortSignal,     |
+|               subscribers; securityPosture model                    |
 +---------------------------------------------------------------------+
 | @hudhud/win32-job-x64 | @hudhud/win32-job-arm64                     |
 |   optional, prebuilt plain-C N-API addon (Windows job objects)      |
@@ -78,6 +84,8 @@ Foundation: hudhud implements the stream-json + control protocol itself against 
 Later: a daemon (JSON-RPC 2.0 over NDJSON on a local authenticated channel, never TCP by default) with thin generated clients for other languages. Packages, versioning and `adapterApiVersion`: [ADR-0004](adr/0004-packages-and-versioning.md). Toolchain: [ADR-0017](adr/0017-toolchain.md).
 
 Session to process binding is adapter-internal and may be one-to-many ([ADR-0003](adr/0003-public-api.md)).
+
+The core encodes no harness's protocol (K3, 06 §K): the Claude Code wire types, schemas and protocol state machines live in the adapter, under the same sans-IO lint and dependency-cruiser rules as the core's neutral `/protocol` ([ADR-0004](adr/0004-packages-and-versioning.md), [ADR-0006](adr/0006-sans-io-core-and-daemon-readiness.md)). The build plan is [plan/v1-implementation.md](plan/v1-implementation.md).
 
 ## Public API sketch
 
@@ -156,14 +164,15 @@ interface SessionOptions {
   cwd?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto';  // always passed explicitly; 'auto' is a descriptively named opt-in, always listed in securityPosture
   workspaceTrust?: 'none' | 'context' | 'full';                      // harness-neutral; default 'none' -> ['user']; 'full' -> ['user','project','local'] and is a security-weakening opt-in listed in securityPosture
-  env?: 'harness' | 'inherit' | Record<string, string>;              // 'inherit' is a security-weakening opt-in, listed in securityPosture
+  env?: 'harness' | 'inherit' | Record<string, string>
+      | { preset: 'harness' | 'inherit'; add?: Record<string, string>; remove?: string[] };  // K19; 'inherit' and added credential/routing names are listed in securityPosture
   onPermission?: (req: PermissionRequest, ctx: { signal: AbortSignal }) => Promise<PermissionDecision>;
   onAuthFailure?: 'fail-fast' | 'harness-retry';                     // default 'fail-fast' (where applicable)
   onOversizedFrame?: 'fail' | 'skip';                                // default 'fail'
   maxFrameBytes?: number;                                            // default 64 MiB
   autoUpdate?: 'disabled' | 'harness-default';                       // default 'disabled' (DISABLE_AUTOUPDATER=1); 'harness-default' listed in securityPosture
   nonessentialTraffic?: 'disabled' | 'harness-default';              // default 'disabled' (G1 confirmed, 07 §3); 'harness-default' is always listed in securityPosture
-  projectCredentialEnv?: 'refuse' | 'allow';                         // only with workspaceTrust 'full'; default 'refuse'; 'allow' is listed in securityPosture (illustrative name)
+  projectCredentialEnv?: 'refuse' | 'allow';                         // whenever sources include project or local (K5); default 'refuse'; 'allow' is listed in securityPosture
 }
 
 declare function connect(opts?: ConnectOptions): Promise<Harness>;
@@ -199,17 +208,17 @@ hudhud's core vocabulary mirrors ACP where it is sound (tool kind and status, pe
 
 ## Sans-IO core
 
-The protocol, turn and permission state machines are pure: `(state, input) -> (state, effects[])`, with injected clock and ids, no I/O imports (enforced by lint and dependency-cruiser). Application callbacks are id-correlated request/response messages with optional deadline and cancel; TS closures live in the binding layer. The core boundary is JSON-only: ISO timestamps plus `seq`, string ids, no `bigint`/`Date`/class instances, base64 binary, optional means absent, errors as data. A loopback binding in v1 proves the boundary. Golden fixtures are language-neutral JSONL conformance suites. The process layer and binding layer are ordinary async code (sans-IO is not forced onto them). Later multi-language support is a daemon with generated clients, not native ports. Decision: [ADR-0006](adr/0006-sans-io-core-and-daemon-readiness.md).
+The protocol, turn and permission state machines are pure: `(state, input) -> (state, effects[])`, with injected clock and ids, no I/O imports (enforced by lint and dependency-cruiser). The core defines the neutral machine contract and the binding drives any machine that implements it; the Claude Code machines live in `@hudhud/claude-code` `src/protocol/` (K3). Application callbacks are id-correlated request/response messages with optional deadline and cancel; TS closures live in the binding layer. The core boundary is JSON-only: ISO timestamps plus `seq`, string ids, no `bigint`/`Date`/class instances, base64 binary, optional means absent, errors as data. A loopback binding in v1 proves the boundary. Golden fixtures are language-neutral JSONL conformance suites. The process layer and binding layer are ordinary async code (sans-IO is not forced onto them). Later multi-language support is a daemon with generated clients, not native ports. Decision: [ADR-0006](adr/0006-sans-io-core-and-daemon-readiness.md).
 
 ## Process layer per OS
 
-General: `shell: false`, `windowsHide: true`, stdio pipes, explicit environment, non-detached, all flags as `--flag=value` ([ADR-0011](adr/0011-spawn-hygiene-and-binary-provenance.md)). Drain (`close()`) is not a ladder: stdin stays open until idle, then EOF; a hudhud deadline (`closeTimeout`, illustrative, default 30 s) then runs the abort ladder, because the CLI's background-wait ceiling does not bound background Bash shells (07 §7; [ADR-0008](adr/0008-turn-and-lifecycle-semantics.md)). Abort (`dispose`, `AbortSignal`) uses the ladders below. Termination intent is recorded before any signal, because exit codes mislead (Windows job close gives 0; Linux SIGINT gives 0 with no `result`; SIGTERM gives 143).
+General: `shell: false`, `windowsHide: true`, stdio pipes, explicit environment, non-detached, all flags as `--flag=value` ([ADR-0011](adr/0011-spawn-hygiene-and-binary-provenance.md)). Drain (`close()`) is not a ladder: stdin stays open until idle, then EOF; a single hudhud deadline (`closeTimeoutMs`, default 30 s, measured from the `close()` call, K13) then runs the abort ladder, because the CLI's background-wait ceiling does not bound background Bash shells (07 §7; [ADR-0008](adr/0008-turn-and-lifecycle-semantics.md)). Abort (`dispose`, `AbortSignal`) uses the ladders below. Termination intent is recorded before any signal, because exit codes mislead (Windows job close gives 0; Linux SIGINT gives 0 with no `result`; SIGTERM gives 143).
 
 ### Windows ([ADR-0009](adr/0009-process-layer-windows.md))
 
 Evidence: `TerminateProcess(claude.exe)` orphans the Git-Bash tool tree (4 of 4); EOF leaves none; a second `KILL_ON_JOB_CLOSE` job nested under libuv's job works and grandchildren inherit it (05 §10). Host crash under a Node host: libuv's job kills the CLI about 33 ms after host death without graceful shutdown and the Git-Bash tool tree is orphaned, so the addon job is required for crash cleanup too (07 §2). The cwd must be shorter than 259 characters; hudhud fails with a named error before spawn, never auto-prefixing `\\?\` (07 §6, [ADR-0011](adr/0011-spawn-hygiene-and-binary-provenance.md)). Process identity is the pid hudhud spawned; `initialize.pid` differs behind a launcher and is informational (07 §4).
 
-Containment: spawn (not detached), assign to a host-owned job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before the first stdin write. The addon is `@hudhud/win32-job-{x64,arm64}`: plain C on `node_api.h`, CMake/MSVC, prebuilt-only, provenance; a pre-`dlopen` sha256 check is defence in depth only. Capability `processContainment: 'job'` (addon is a 1.0 criterion; job nesting, inheritance and job-close kill are already proven by 05 §10; remaining work: addon implementation and the arm64 prebuild pipeline), otherwise `'best-effort'`.
+Containment: spawn (not detached), assign to a host-owned job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before the first stdin write. The addon is `@hudhud/win32-job-{x64,arm64}`: plain C on `node_api.h`, CMake/MSVC, prebuilt-only, provenance; a pre-`dlopen` sha256 check is defence in depth only. Capability `processContainment: 'job'` (addon is a 1.0 criterion; job nesting, inheritance and job-close kill are already proven by 05 §10; remaining work: addon implementation and the arm64 prebuild pipeline), otherwise `'best-effort'`. While the repository is private, only x64 is first-class; arm64 is cross-compiled but Windows arm64 reports `'best-effort'` until the addon has run on a real arm64 runner (K17).
 
 Ladder with job:
 
@@ -234,9 +243,11 @@ Abort ladder (non-detached; never `kill(-pgid of the CLI)`, which is the host's 
 ```
 1. interrupt {cancel_queued:true}
 2. stdin EOF
-3. wait 2 s  -> snapshot S1 (descendants: pid, ppid, pgid, start time); SIGTERM to the CLI only
-4. wait 5 s  -> snapshot S2; SIGKILL the CLI; sweep(S1 U S2)
+3. wait 2 s  -> snapshot S1 (descendants: pid, ppid, pgid, start time); SIGTERM to the signal target only
+4. wait 5 s  -> snapshot S2; SIGKILL the signal target and the spawned process; sweep(S1 U S2)
 ```
+
+Signal target (K1): `initialize.pid` when it is in S1 as a descendant of the spawned pid with a matching start time (the CLI behind a launcher), otherwise the spawned pid; snapshots, containment and the sweep are rooted at the spawned pid.
 
 Sweep: kill only processes whose pid and start time still match the snapshot (pid+starttime guard); `kill(-pgid)` for groups led by a descendant. Linux: scan `/proc/<pid>/stat`. macOS: `/bin/ps` by absolute path with `LC_ALL=C`. POSIX reports `processContainment: 'best-effort'` in v1; the residual is narrower than feared (host death drains gracefully, 07 §2; an orphan arises only if the CLI itself is SIGKILLed). A cgroup spawner (`'cgroup'`) is planned for v1.x. `PR_SET_CHILD_SUBREAPER` is rejected (global side effect on the host process, zombie accumulation). macOS is untested until the macOS gate.
 
@@ -248,23 +259,23 @@ Principle: whoever controls the CLI's stdin has the agent's full authority; the 
 |---|---|---|
 | Stdin authority | Control channel fully trusted (02 §10 item 1). | stdin private to the hudhud process; no API forwards caller frames verbatim except the unstable `/raw` tier; dangerous control subtypes never sent without explicit opt-in. |
 | Untrusted workspace (project settings, hooks, MCP, instructions) | Project/local settings `env` applies at `-p` startup without any trust dialog (01 §4.2); project `.mcp.json`, hooks and skills load by default, with or without persisted trust (07 §10). | Default `workspaceTrust 'none'` (maps to `--setting-sources` `user` only; owner decision 1); `'context'` unsupported in v1; `'full'` is a first-class choice of the application, listed in securityPosture, and its documentation states plainly that project hooks, MCP servers and env run without any trust dialog. |
-| Project env redirects `ANTHROPIC_BASE_URL` (or replaces `ANTHROPIC_API_KEY`) to exfiltrate prompts and credentials | VERIFIED (C3, 07 §9): a project or local `env.ANTHROPIC_BASE_URL` redirects all model traffic with the host's key, overrides the host's base URL, and `apiKeySource` does not reveal it; `--setting-sources=user` blocks it, omitting the flag does not. | Project settings not loaded by default, `--setting-sources` always passed. Under `'full'`: `projectCredentialEnv: 'refuse'` (default, name illustrative) reads the project and local settings before spawn and fails with a typed error if `env` sets a credential or routing variable (best-effort, TOCTOU documented); `'allow'` is listed in securityPosture ([ADR-0012](adr/0012-security-defaults-and-trust.md)). |
+| Project env redirects `ANTHROPIC_BASE_URL` (or replaces `ANTHROPIC_API_KEY`) to exfiltrate prompts and credentials | VERIFIED (C3, 07 §9): a project or local `env.ANTHROPIC_BASE_URL` redirects all model traffic with the host's key, overrides the host's base URL, and `apiKeySource` does not reveal it; `--setting-sources=user` blocks it, omitting the flag does not. | Project settings not loaded by default, `--setting-sources` always passed. Whenever sources include `project` or `local` (via `'full'` or `claudeCode.settingSources`, K5): `projectCredentialEnv: 'refuse'` (default) reads the project and local settings of the cwd, every ancestor and every `--add-dir` directory before spawn and fails with a typed error if `env` sets a credential or routing variable (best-effort, TOCTOU documented); `'allow'` is listed in securityPosture ([ADR-0012](adr/0012-security-defaults-and-trust.md)). |
 | Persisted trust grant | `initialize.workspaceTrust` writes `hasTrustDialogAccepted` to the user's `.claude.json` and widens project permission rules for future sessions, including interactive ones (07 §10). | Never sent by default (R6); exposure deferred to v1.x as a separate `dangerously*` boolean, never part of `'full'`. |
 | Ancestor `~/.claude` leak | With cwd under the user's home, `~/.claude` is also read as a project `.claude`; skill names reached the API request; not prevented by `CLAUDE_CONFIG_DIR` or HOME redirect (05 §13.1). | `--setting-sources` always explicit, default `user` only; tests use a cwd outside the home tree. |
 | Config write via control channel | `update_settings` (writes `localSettings`/`userSettings`), `apply_flag_settings`, `set_permission_mode` (bypass needs `--allow-dangerously-skip-permissions`) (02 §4.2). | `update_settings` never sent without explicit opt-in; non-session permission destinations stripped; `permission_suggestions` never auto-applied; hudhud never writes harness files (R6). |
 | Implicit `auto` permission mode | Without `--permission-mode` mutating tools ran with no host callback, even with stdio prompting (05 §6). | `--permission-mode` always explicit; `auto` is a named opt-in listed in `securityPosture`. |
-| Env leakage | The whole parent environment reaches the CLI and every tool and MCP server (02 §10 item 4). | Env preset `'harness'` (allowlist) by default; dropped names reported; `'inherit'` is a security-weakening opt-in, listed in securityPosture. |
+| Env leakage | The whole parent environment reaches the CLI and every tool and MCP server (02 §10 item 4). | Env preset `'harness'` (allowlist) by default; object form `{preset, add, remove}` (K19); dropped and added names reported; `'inherit'` and added credential or routing variables are listed in securityPosture. |
 | Argv injection | Dash-leading values are parsed as flags; tokenizer splits rule strings (02 §2.4). | `--flag=value` always; rule/skill strings validated; large values via `initialize` or private files. |
 | `.cmd` / `.bat` (BatBadBut, CVE-2024-27980) | Windows batch spawning (02 §10 item 3). | `shell: false`; `.cmd`/`.bat` refused; prefer real `.exe`. |
-| Egress | Without `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` the CLI CONNECTs to `api.anthropic.com:443`, ignoring `ANTHROPIC_BASE_URL` (05 §2). | Default disabled (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`); spike G1 confirmed it does not suppress managed policy fetching (07 §3). Individual switches are not equivalent (they leave `bootstrap`, `penguin_mode`, `mcp-registry`). Any custom `ANTHROPIC_BASE_URL` disables managed-policy fetching; `securityPosture` reports `managedPolicy: 'not-fetched-custom-base-url'` (name illustrative). Tests: variable plus CONNECT trap. |
-| Binary planting / tampering | Resolution via PATH or `node_modules` is trusted by the SDKs (02 §10 item 9). | Explicit resolution, symlink resolution, advisory verification (OS signature first, hash fallback), `binary.verification` exposed. |
+| Egress | Without `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` the CLI CONNECTs to `api.anthropic.com:443`, ignoring `ANTHROPIC_BASE_URL` (05 §2). | Default disabled (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`); spike G1 confirmed it does not suppress managed policy fetching (07 §3). Individual switches are not equivalent (they leave `bootstrap`, `penguin_mode`, `mcp-registry`). Any custom `ANTHROPIC_BASE_URL` disables managed-policy fetching; `securityPosture` reports `managedPolicy: 'not-fetched-custom-base-url'`, also when the base URL comes from the user's settings `env` (read-only parse, K23). Tests: variable plus CONNECT trap. |
+| Binary planting / tampering | Resolution via PATH or `node_modules` is trusted by the SDKs (02 §10 item 9). | Explicit resolution (option, native installer launcher, sanitized PATH; no `node_modules`, K7), symlink resolution, advisory verification against a committed digest table; strict mode adds the OS signature check (K8, K9); `binary.verification` exposed. |
 | Unbounded frames / memory | TS reader has no cap; Python caps at 1 MiB (02 §3); real frames reach MBs (05 §11). | 64 MiB inbound cap (configurable), outbound cap, `onOversizedFrame: 'fail'` default. |
 | Slow consumer stalls control frames | One stdout pipe carries control and conversation frames (05 §6, §12). | stdout always drained; per-subscriber bounded queues; `'error'` overflow default ([ADR-0007](adr/0007-event-delivery-backpressure-timeouts.md)). |
 | Untrusted text in protocol fields | `decision_reason` etc. may carry ANSI; non-JSON stdout lines exist (02 §10 item 7). | Treat as data, sanitize before rendering, skip non-JSON lines, never execute them. |
 | Orphaned processes after abort or host crash | Windows and POSIX trees survive a kill (05 §10); a Node host crash on Windows kills the CLI via libuv's job but orphans the Git-Bash tree (07 §2). | Job object on Windows (also for crash cleanup); ladder plus sweep on POSIX; residuals documented ([ADR-0009](adr/0009-process-layer-windows.md), [ADR-0010](adr/0010-process-layer-posix.md)). |
 | Two live resumes of one session | The CLI has no session lock; two processes resuming one session diverge and the last-written branch wins (07 §1). | A second live resume or create of the same id within one Harness is a typed error; the cross-process hazard is documented. |
 | Credential handling | The SDK's SessionStore resume copies credentials into a temp dir (02 §10 item 5). | hudhud never copies credentials; never collects or proxies OAuth tokens ([ADR-0015](adr/0015-legal-and-provenance.md)). |
-| Sticky auth failure burning time | 401 is sticky; default retries take about 3 minutes (05 §9). | `onAuthFailure: 'fail-fast'` where `apiKeySource` is `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`; session marked `poisoned` (G2). |
+| Sticky auth failure burning time | 401 is sticky; default retries take about 3 minutes (05 §9). | `onAuthFailure: 'fail-fast'` where `apiKeySource` is `ANTHROPIC_API_KEY` (`ANTHROPIC_AUTH_TOKEN` once its source string is observed, K10); session marked `poisoned` (G2). |
 
 Out of scope for the threat model: a compromised harness binary that passes verification, a malicious host application, and kernel-level isolation (the Linux sandboxing of the command tool is the harness's feature; native Windows does not support it, 01 §7).
 
@@ -282,18 +293,18 @@ Every default decided in the negotiation log. "securityPosture" says whether the
 | Permission prompting | `--permission-prompt-tool=stdio` only when a handler is supplied | supply a handler | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | Settings writes | `update_settings` never sent; non-session permission destinations stripped | boolean `dangerouslyAllowConfigWrites` | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | `permission_suggestions` | never auto-applied | application applies them itself | yes | [0012](adr/0012-security-defaults-and-trust.md) |
-| Environment | preset `'harness'`: allowlist by rule (see Note 2); dropped names (never values) reported in diagnostics | `'inherit'` (security-weakening opt-in, listed in securityPosture), or explicit map | yes | [0012](adr/0012-security-defaults-and-trust.md) |
+| Environment | preset `'harness'`: allowlist by rule (see Note 2); dropped names (never values) reported in diagnostics | `'inherit'` (security-weakening opt-in, listed in securityPosture), explicit map, or `{ preset, add, remove }` (K19; added credential or routing variables listed in securityPosture) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | Auto-update | `autoUpdate: 'disabled'` (sets `DISABLE_AUTOUPDATER=1`) | `autoUpdate: 'harness-default'` (an update can replace the binary mid-run, GH#74305) | yes (when `'harness-default'`) | [0012](adr/0012-security-defaults-and-trust.md) |
 | Nonessential traffic | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (confirmed by G1, 07 §3) | `nonessentialTraffic: 'harness-default'` (listed in securityPosture); the individual switches are not an equivalent alternative | yes (plus `managedPolicy` state when a base URL is set) | [0012](adr/0012-security-defaults-and-trust.md) |
-| Project credential env (under `'full'`) | `projectCredentialEnv: 'refuse'` (illustrative name): typed error if project/local settings `env` sets credential or routing variables, or `apiKeyHelper` is set (best-effort, TOCTOU) | `'allow'` (security-weakening, listed in securityPosture) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
+| Project credential env (whenever sources include project or local, K5) | `projectCredentialEnv: 'refuse'`: typed error if project/local settings `env` (cwd, every ancestor, every `--add-dir` directory) sets credential or routing variables, or `apiKeyHelper` is set (best-effort, TOCTOU, fail closed) | `'allow'` (security-weakening, listed in securityPosture) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | `initialize.workspaceTrust` (CLI persisted trust grant) | never sent | v1.x: separate `dangerously*` boolean, not part of `'full'` | yes (when exposed) | [0012](adr/0012-security-defaults-and-trust.md) |
-| Auth failure | `onAuthFailure: 'fail-fast'` only when `account.apiKeySource` in {`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`}; `apiKeyHelper` and OAuth-with-refresh behave as `'harness-retry'`; `poisoned` session | `'harness-retry'`; overridable both ways | no | [0012](adr/0012-security-defaults-and-trust.md) |
+| Auth failure | `onAuthFailure: 'fail-fast'` only when `account.apiKeySource` is `ANTHROPIC_API_KEY` (`ANTHROPIC_AUTH_TOKEN` after its string is observed, K10); trigger per K10; `apiKeyHelper` and OAuth-with-refresh behave as `'harness-retry'`; `poisoned` session | `'harness-retry'`; overridable both ways | no | [0012](adr/0012-security-defaults-and-trust.md) |
 | Session id | hudhud generates a UUID and passes `--session-id`; a second live use of one id in a Harness is a typed error | none | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | `initialize` | always sent first | none | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | User message `uuid` | on every user message | none | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | Session state events | `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` | none (hudhud depends on it) | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | Stdin-close ceiling | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` pinned to the CLI default 600000 (0 = unlimited; does not bound background Bash shells, 07 §7) | configurable | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
-| Drain deadline | `closeTimeout` (illustrative name), 30 s (initial, tunable); then the abort ladder | configurable | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
+| Drain deadline | `closeTimeoutMs`, 30 s (initial, tunable), a single deadline from the `close()` call (K13); then the abort ladder | configurable | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | Interrupt gating | queued until the turn's `system/init` | none | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | First-frame watchdog | armed on `initialize` write; 60 s (initial, tunable; MCP startup can take up to `MCP_TIMEOUT` 30 s); named failure causes | configurable | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
 | Idle watchdog | emits `stalled` after 300 s without frames while a turn is running (initial, tunable); never kills by default | configurable | no | [0008](adr/0008-turn-and-lifecycle-semantics.md) |
@@ -305,8 +316,8 @@ Every default decided in the negotiation log. "securityPosture" says whether the
 | Spawn | `shell:false`, `windowsHide:true`, non-detached, `--flag=value`, `.cmd`/`.bat` refused | no opt-out | no | [0011](adr/0011-spawn-hygiene-and-binary-provenance.md) |
 | Windows cwd length | cwd of 259 characters or more fails before spawn with `CwdTooLong` (illustrative); never auto-prefixed with `\\?\` (07 §6) | shorter path, `subst` or junction | no | [0011](adr/0011-spawn-hygiene-and-binary-provenance.md) |
 | Process identity | the pid hudhud spawned plus start time; `initialize.pid` informational, mismatch reported as a diagnostic (launcher detected, 07 §4) | none | no | [0011](adr/0011-spawn-hygiene-and-binary-provenance.md) |
-| Binary provenance | advisory, OS signature first, hash fallback; `binary.verification` exposed; never blocking | strict mode (opt-in, name not fixed) | yes | [0011](adr/0011-spawn-hygiene-and-binary-provenance.md) |
-| Process containment | Windows `'job'` (addon) else `'best-effort'`; POSIX `'best-effort'` | `'cgroup'` later (v1.x) | yes (capability) | [0009](adr/0009-process-layer-windows.md), [0010](adr/0010-process-layer-posix.md) |
+| Binary provenance | `binaryVerification: 'advisory'`: committed digest table only (K8, K9); `binary.verification` exposed; never blocking | `'strict'`: OS signature first, then digests; refuses unless verified | yes | [0011](adr/0011-spawn-hygiene-and-binary-provenance.md) |
+| Process containment | Windows x64 `'job'` (addon) else `'best-effort'`; Windows arm64 `'best-effort'` while private (K17); POSIX `'best-effort'`; per-session value reported (K2) | `'cgroup'` later (v1.x) | yes (capability) | [0009](adr/0009-process-layer-windows.md), [0010](adr/0010-process-layer-posix.md) |
 | Subscriber overflow | `'error'`, scoped to that subscriber; per-subscriber queue 10,000 events or 64 MiB, whichever first (initial, tunable) | `'drop-oldest-with-gap-marker'`; `'block'` (plain name; can stall control frames) | no | [0007](adr/0007-event-delivery-backpressure-timeouts.md) |
 | Permission handler timeout | none; always cancellable; pending resolve `cancelled` on close | application-side timeouts | no | [0007](adr/0007-event-delivery-backpressure-timeouts.md) |
 | Hook / tool handler timeout (v1.1) | declared timeout 60 s (initial, tunable), sent in seconds (the CLI unit; callback default 600 s; a callback timeout is fail-closed, 07 §8); hudhud's handler timer = declared timeout minus 2 s margin (E9); fail-closed for `PreToolUse` / `PermissionRequest`, continue for informational events | configure the single timeout value | no | [0007](adr/0007-event-delivery-backpressure-timeouts.md) |
@@ -352,12 +363,12 @@ Detail: [ADR-0013](adr/0013-testing-strategy.md).
 - Request-shape structural snapshots (fail on semantic change, warn on additive, normalized); endpoint allowlist.
 - Hand-authored responses typed and validated against `@anthropic-ai/sdk` types (or a published spec); pluggable response provider; scenario matching on user-message markers only; the mock never assumes the last message is `user`.
 - Degradation-signal assertions classify a red canary as `mock-inadequate` or `protocol-regressed`.
-- Pinned, hash-verified CLI; golden JSONL fixtures; SDK differential oracle (from v1.1); canary against `latest` / `stable` / pinned with auto-bump PRs; fast-check; Windows CI mandatory.
+- Pinned, hash-verified CLI; golden JSONL fixtures; SDK differential oracle (from v1.1); nightly (Linux) and weekly (Windows, macOS after its gate) canaries against the newest published CLI, without write tokens; the lead prepares bump PRs locally (K16); fast-check; Windows CI mandatory.
 - Opt-in live suite only with an owner-provided dedicated credential; deferred, none exists yet (owner decision 2).
 
 ## CI
 
-Detail: [ADR-0014](adr/0014-ci-strategy.md). Tiers decided by a unit-tested default-FULL classifier: LIGHT (docs only, for pull requests and pushes to main), STANDARD (one Linux job), FULL (Linux, then Windows and macOS). The only required check is the `ci-gate` job. macOS runs on the FULL tier only; a one-off macOS `workflow_dispatch` spike runs before v1; nightly full runs happen only when a new CLI version was published, gated by a cheap Linux registry check (G3; ADR-0014 amendment 2). Billing multipliers (1/2/10) and merge-queue availability are UNVERIFIED (04 §1, §2).
+Detail: [ADR-0014](adr/0014-ci-strategy.md). Tiers decided by a unit-tested default-FULL classifier: LIGHT (docs only, for pull requests and pushes to main), STANDARD (one Linux job), FULL (Linux, then Windows and macOS). The only required check is the `ci-gate` job. macOS runs on the FULL tier only; a one-off macOS `workflow_dispatch` spike runs before v1; a nightly run tests the newest CLI on Linux when a new version was published, and a weekly canary tests it on Windows (and macOS after its gate) when a version newer than the pin appeared (G3; ADR-0014 amendments 2-3); job timeouts are re-sized as measured p95 x 2 and macOS runs static, unit and conformance checks only until its gate passes (K15, amendment 4). Billing multipliers (1/2/10) and merge-queue availability are UNVERIFIED (04 §1, §2).
 
 ## Scope: v1, v1.1, later
 
