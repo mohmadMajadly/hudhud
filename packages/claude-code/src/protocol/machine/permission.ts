@@ -18,7 +18,10 @@
  * - Abort (K12): nothing is written, because hudhud's `interrupt` makes the
  *   CLI withdraw its requests.
  * - Decisions are checked strictly and rebuilt from known keys only. An
- *   invalid decision is answered with a control error, never with an allow.
+ *   invalid decision, like a failed handler, is answered with a
+ *   non-interrupting deny with a fixed message (fail closed, 05 §6) and a
+ *   diagnostic to the application; control errors are written only for
+ *   malformed CLI requests.
  * - Permission updates whose `destination` is not `session` are stripped
  *   unless `dangerouslyAllowConfigWrites` is set (ADR-0012 §3, R6). More than
  *   {@link MAX_PERMISSION_UPDATES} updates are rejected.
@@ -62,19 +65,20 @@ export const CLOSING_DENY_MESSAGE = 'hudhud session closing';
 export const CANCELLED_DENY_MESSAGE = 'hudhud permission request cancelled';
 
 /**
- * Control error written for a decision that fails validation.
+ * The deny message written for a decision that fails validation.
  *
  * @internal
  */
-export const INVALID_DECISION_ERROR = 'hudhud: invalid permission decision';
+export const INVALID_DECISION_DENY_MESSAGE = 'hudhud: invalid permission decision';
 
 /**
- * Control error written when the application's handler failed. Fixed text:
- * the handler's own error never reaches the CLI or the model.
+ * The deny message written when the application's handler failed. Fixed
+ * text: the handler's own error never reaches the CLI or the model; it goes
+ * to the application in a `permission.handler-failed` diagnostic.
  *
  * @internal
  */
-export const HANDLER_FAILED_ERROR = 'hudhud: permission handler failed';
+export const HANDLER_FAILED_DENY_MESSAGE = 'hudhud: permission handler failed';
 
 /**
  * Control error written for a `can_use_tool` request without the fields
@@ -171,7 +175,12 @@ export type PermissionInput = { readonly atMs: number } & (
   | { readonly type: 'cli.cancel'; readonly requestId: string }
   | { readonly type: 'cli.gone' }
   | { readonly type: 'cmd.permission'; readonly requestId: string; readonly decision: JsonObject }
-  | { readonly type: 'cmd.permission-error'; readonly requestId: string }
+  | {
+      /** The handler threw or rejected; `error` is reported to the application only. */
+      readonly type: 'cmd.permission-error';
+      readonly requestId: string;
+      readonly error: string;
+    }
   | { readonly type: 'cmd.permission-abort'; readonly requestId: string }
   | { readonly type: 'cmd.close' }
   | { readonly type: 'cmd.abort' }
@@ -185,17 +194,41 @@ export type PermissionInput = { readonly atMs: number } & (
 export type PermissionResolvedBy = 'application' | 'harness' | 'close' | 'abort';
 
 /**
- * Diagnostic codes of the permission machine.
+ * Every diagnostic code the permission machine emits; the session machine
+ * (W3) registers them with the neutral diagnostic vocabulary.
+ *
+ * - `permission.malformed-request`: a `can_use_tool` request lacked
+ *   `tool_name`, `tool_use_id` or `input`; answered with a control error.
+ * - `permission.duplicate-request`: an in-flight request id was reused; ignored.
+ * - `permission.unknown-request`: an answer or cancel for no pending request
+ *   (late, repeated or unknown); ignored, nothing written.
+ * - `permission.invalid-decision`: the application's decision was refused
+ *   (`data.reason`); a non-interrupting deny was written.
+ * - `permission.handler-failed`: the handler failed (`data.error`); a
+ *   non-interrupting deny with a fixed message was written.
+ * - `permission.updates-stripped`: non-session updates were not sent
+ *   (`data.strippedCount`).
+ * - `permission.ignored-after-abort`: a request arrived after abort; nothing
+ *   was written.
  *
  * @internal
  */
-export type PermissionDiagnosticCode =
-  | 'permission.malformed-request'
-  | 'permission.duplicate-request'
-  | 'permission.unknown-request'
-  | 'permission.invalid-decision'
-  | 'permission.updates-stripped'
-  | 'permission.ignored-after-abort';
+export const PERMISSION_DIAGNOSTIC_CODES = [
+  'permission.malformed-request',
+  'permission.duplicate-request',
+  'permission.unknown-request',
+  'permission.invalid-decision',
+  'permission.handler-failed',
+  'permission.updates-stripped',
+  'permission.ignored-after-abort',
+] as const;
+
+/**
+ * A diagnostic code of the permission machine.
+ *
+ * @internal
+ */
+export type PermissionDiagnosticCode = (typeof PERMISSION_DIAGNOSTIC_CODES)[number];
 
 /**
  * Why a decision was refused.
@@ -379,12 +412,12 @@ function errorFrame(requestId: string, error: string): PermissionEffect {
   };
 }
 
+function nonInterruptingDeny(requestId: string, message: string): PermissionEffect {
+  return successFrame(requestId, { behavior: 'deny', message, interrupt: false });
+}
+
 function closingDeny(requestId: string): PermissionEffect {
-  return successFrame(requestId, {
-    behavior: 'deny',
-    message: CLOSING_DENY_MESSAGE,
-    interrupt: false,
-  });
+  return nonInterruptingDeny(requestId, CLOSING_DENY_MESSAGE);
 }
 
 function resolved(
@@ -490,7 +523,7 @@ export function stepPermission(
               requestId: entry.requestId,
               reason: parsed.reason,
             }),
-            errorFrame(entry.requestId, INVALID_DECISION_ERROR),
+            nonInterruptingDeny(entry.requestId, INVALID_DECISION_DENY_MESSAGE),
             resolved(entry, input.atMs, 'deny', 'application'),
           ];
         }
@@ -518,16 +551,16 @@ export function stepPermission(
       });
     case 'cmd.permission-error':
       return settle(state, input.requestId, input.atMs, (entry) => [
-        errorFrame(entry.requestId, HANDLER_FAILED_ERROR),
+        diagnostic('permission.handler-failed', 'The permission handler failed.', {
+          requestId: entry.requestId,
+          error: input.error,
+        }),
+        nonInterruptingDeny(entry.requestId, HANDLER_FAILED_DENY_MESSAGE),
         resolved(entry, input.atMs, 'deny', 'application'),
       ]);
     case 'cmd.permission-abort':
       return settle(state, input.requestId, input.atMs, (entry) => [
-        successFrame(entry.requestId, {
-          behavior: 'deny',
-          message: CANCELLED_DENY_MESSAGE,
-          interrupt: false,
-        }),
+        nonInterruptingDeny(entry.requestId, CANCELLED_DENY_MESSAGE),
         resolved(entry, input.atMs, 'cancelled', 'application'),
       ]);
     case 'cmd.close':

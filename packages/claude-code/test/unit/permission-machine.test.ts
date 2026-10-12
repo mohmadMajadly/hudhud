@@ -12,10 +12,11 @@ import { validateOutboundFrame } from '../../src/protocol/generated/validators.g
 import {
   CANCELLED_DENY_MESSAGE,
   CLOSING_DENY_MESSAGE,
-  HANDLER_FAILED_ERROR,
-  INVALID_DECISION_ERROR,
+  HANDLER_FAILED_DENY_MESSAGE,
+  INVALID_DECISION_DENY_MESSAGE,
   MALFORMED_REQUEST_ERROR,
   MAX_PERMISSION_UPDATES,
+  PERMISSION_DIAGNOSTIC_CODES,
   initialPermissionState,
   parseDecision,
   permissionMachine,
@@ -472,13 +473,27 @@ describe('application answers', () => {
     }
   });
 
-  it('a failed handler is answered with a fixed control error', () => {
+  it('a failed handler gets a fixed non-interrupting deny; its error goes to the application only', () => {
+    const secret = 'TypeError: db password rejected at /srv/app.js:12';
     const { effects } = run([
       ask('r1'),
-      { type: 'cmd.permission-error', requestId: 'r1', atMs: 0 },
+      { type: 'cmd.permission-error', requestId: 'r1', error: secret, atMs: 0 },
     ]);
     expect(effects.slice(1)).toEqual([
-      { type: 'write', frame: errorResponse('r1', HANDLER_FAILED_ERROR) },
+      {
+        type: 'diagnostic',
+        code: 'permission.handler-failed',
+        message: expect.any(String) as string,
+        data: { requestId: 'r1', error: secret },
+      },
+      {
+        type: 'write',
+        frame: successResponse('r1', {
+          behavior: 'deny',
+          message: HANDLER_FAILED_DENY_MESSAGE,
+          interrupt: false,
+        }),
+      },
       expect.objectContaining({ type: 'permission.resolved', behavior: 'deny', by: 'application' }),
     ]);
     expectWireValid(effects);
@@ -512,7 +527,7 @@ describe('application answers', () => {
     ['bad-interrupt', { behavior: 'deny', message: 'x', interrupt: 'yes' }],
     ['bad-interrupt', { behavior: 'deny', message: 'x', interrupt: null }],
   ] as const)(
-    'refuses a decision (%s) with a control error, never an allow',
+    'refuses a decision (%s) with a fixed non-interrupting deny, never an allow',
     (reason, decision) => {
       const { effects } = run([ask('r1'), answer('r1', untyped(decision))]);
       expect(effects.slice(1)).toEqual([
@@ -522,7 +537,14 @@ describe('application answers', () => {
           message: expect.any(String) as string,
           data: { requestId: 'r1', reason },
         },
-        { type: 'write', frame: errorResponse('r1', INVALID_DECISION_ERROR) },
+        {
+          type: 'write',
+          frame: successResponse('r1', {
+            behavior: 'deny',
+            message: INVALID_DECISION_DENY_MESSAGE,
+            interrupt: false,
+          }),
+        },
         expect.objectContaining({
           type: 'permission.resolved',
           behavior: 'deny',
@@ -581,7 +603,7 @@ describe('application answers', () => {
   it('answers for unknown ids are ignored with a diagnostic, nothing written', () => {
     for (const input of [
       answer('nope', { behavior: 'allow' }, 3),
-      { type: 'cmd.permission-error', requestId: 'nope', atMs: 3 },
+      { type: 'cmd.permission-error', requestId: 'nope', error: 'e', atMs: 3 },
       { type: 'cmd.permission-abort', requestId: 'nope', atMs: 3 },
       { type: 'cli.cancel', requestId: 'nope', atMs: 3 },
     ] as const) {
@@ -687,7 +709,7 @@ describe('cancellation (ADR-0007, K12)', () => {
       ask('r1'),
       { type: 'cmd.close', atMs: 1 },
       answer('r1', { behavior: 'allow' }, 2),
-      { type: 'cmd.permission-error', requestId: 'r1', atMs: 2 },
+      { type: 'cmd.permission-error', requestId: 'r1', error: 'e', atMs: 2 },
       { type: 'cmd.permission-abort', requestId: 'r1', atMs: 2 },
       { type: 'cli.cancel', requestId: 'r1', atMs: 2 },
     ]);
@@ -777,6 +799,18 @@ describe('cancellation (ADR-0007, K12)', () => {
 });
 
 describe('machine shape', () => {
+  it('lists every diagnostic code once', () => {
+    expect(PERMISSION_DIAGNOSTIC_CODES).toEqual([
+      'permission.malformed-request',
+      'permission.duplicate-request',
+      'permission.unknown-request',
+      'permission.invalid-decision',
+      'permission.handler-failed',
+      'permission.updates-stripped',
+      'permission.ignored-after-abort',
+    ]);
+  });
+
   it('initialState carries the config and starts open with nothing pending', () => {
     expect(initialPermissionState({ dangerouslyAllowConfigWrites: true })).toEqual({
       dangerouslyAllowConfigWrites: true,
@@ -894,7 +928,9 @@ describe('every ask ends exactly once (property)', () => {
     { weight: 3, arbitrary: fc.tuple(id, decision).map(([r, d]) => answer(r, d)) },
     {
       weight: 1,
-      arbitrary: id.map((r) => ({ type: 'cmd.permission-error', requestId: r, atMs: 0 }) as const),
+      arbitrary: id.map(
+        (r) => ({ type: 'cmd.permission-error', requestId: r, error: 'e', atMs: 0 }) as const,
+      ),
     },
     {
       weight: 1,
@@ -926,6 +962,8 @@ describe('every ask ends exactly once (property)', () => {
             } else if (effect.type === 'permission.resolved') {
               if (open.has(effect.entry.requestId)) open.delete(effect.entry.requestId);
               else expect(effect.by).toBe('close');
+            } else if (effect.type === 'diagnostic') {
+              expect(PERMISSION_DIAGNOSTIC_CODES).toContain(effect.code);
             } else if (effect.type === 'write') {
               // K12: nothing is ever written once abort was requested.
               expect(aborted).toBe(false);
