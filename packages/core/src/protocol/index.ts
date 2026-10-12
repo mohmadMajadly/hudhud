@@ -1,5 +1,6 @@
 /**
  * Neutral sans-IO pieces of hudhud: JSON values, the NDJSON line encoder,
+ * the harness machine contract and exit classifier, the display sanitizer,
  * errors as data, capability and posture types, and the event vocabulary.
  *
  * @remarks
@@ -55,3 +56,30 @@ export type {
   TurnResult,
   UsageTotals,
 } from './events/types.js';
+
+export type {
+  CommandInput,
+  HarnessMachine,
+  HudhudEventData,
+  MachineClockInput,
+  MachineEffect,
+  MachineInput,
+  MachineStep,
+  PermissionRequestData,
+  SessionInfoData,
+  TimerName,
+  TransportInput,
+  TurnResultData,
+} from './machine/contract.js';
+export type {
+  ClassifyExitInput,
+  ExitClassification,
+  ExitError,
+  ExitObservation,
+  SessionOutcome,
+  TerminationIntent,
+} from './machine/outcome.js';
+export { classifyExit, TERMINATION_INTENTS, UNKNOWN_EXIT_CODE } from './machine/outcome.js';
+
+export type { SanitizeForDisplayOptions } from './events/sanitize.js';
+export { sanitizeForDisplay } from './events/sanitize.js';

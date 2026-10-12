@@ -35,7 +35,11 @@ import type { ProcessIdentity, ProcessSnapshot } from './tree/types.js';
 /** The signal of the sweep. */
 const SWEEP_SIGNAL: PosixSignal = 'SIGKILL';
 
-/** What the sweep needs from the operating system (POSIX). */
+/**
+ * What the sweep needs from the operating system (POSIX).
+ *
+ * @public
+ */
 export interface SweepDeps {
   /** `process.pid` of the host. */
   readonly hostPid: number;
@@ -43,7 +47,11 @@ export interface SweepDeps {
   readonly signals: PosixSignalCalls;
 }
 
-/** What to sweep. */
+/**
+ * What to sweep.
+ *
+ * @public
+ */
 export interface SweepRequest {
   /** Identity of the spawned process: the root of the sweep (ADR-0011 J9). */
   readonly spawned: ProcessIdentity;
@@ -53,10 +61,18 @@ export interface SweepRequest {
   readonly recorded: readonly ProcessSnapshot[];
 }
 
-/** Result of one `kill(2)` call by the sweep; `error` when the adapter threw. */
+/**
+ * Result of one `kill(2)` call by the sweep; `error` when the adapter threw.
+ *
+ * @public
+ */
 export type SweepSignalOutcome = SignalOutcome | 'error';
 
-/** What the sweep did. JSON data. */
+/**
+ * What the sweep did. JSON data.
+ *
+ * @public
+ */
 export interface SweepResult {
   /** The plan over the latest snapshot; `null` when that snapshot could not be taken. */
   readonly plan: SweepPlan | null;
@@ -82,6 +98,8 @@ function call(send: () => SignalOutcome): SweepSignalOutcome {
  * is recorded in its outcome. `summary.processesSignalled` counts the
  * successful calls by pid, `summary.groupsSignalled` the successful
  * `kill(-pgid)` calls.
+ *
+ * @public
  */
 export async function sweep(request: SweepRequest, deps: SweepDeps): Promise<SweepResult> {
   let latest: ProcessSnapshot;

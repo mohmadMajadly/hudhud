@@ -33,10 +33,16 @@ export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProbl
 export function checkExecutablePath(value: string, platform: ProcessPlatform): ExecutableRefusal | undefined;
 
 // @public
+export function childEnv(env: Readonly<Record<string, string>>, platform: ProcessPlatform): Record<string, string>;
+
+// @public
 export function compareStartTime(a: string, b: string): number;
 
 // @public
 export function createFramer(options: FramerOptions): Framer;
+
+// @public
+export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls;
 
 // @public
 export type CwdErrorReason = CwdProblem | 'not-found' | 'not-directory' | 'unresolvable';
@@ -67,10 +73,27 @@ export class CwdValidationError extends Error {
 }
 
 // @public
+export interface DarwinPsTableCalls {
+    // (undocumented)
+    runPs(): Promise<Uint8Array>;
+    // (undocumented)
+    readonly source: 'darwin-ps';
+}
+
+// @public
 export const DEFAULT_LADDER_TIMING: LadderTiming;
 
 // @public
 export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number;
+
+// @public
+export const DEFAULT_TASKKILL_TIMEOUT_MS = 10000;
+
+// @public
+export interface DescendantSnapshot extends DescendantTree {
+    // (undocumented)
+    readonly snapshot: ProcessSnapshot;
+}
 
 // @public
 export function descendantsOf(records: readonly ProcessRecord[], root: ProcessIdentity): DescendantTree;
@@ -177,7 +200,41 @@ export type FramerOutput = {
 };
 
 // @public
+export type GroupSkipReason =
+/** The group id is 0 or 1, or the group of the host, the spawned process or the CLI. */
+'protected-group'
+/** A member of the group in the latest snapshot is not a verified descendant. */
+| 'foreign-member'
+/** The host's own group is unknown, so no group can be proven foreign to it. */
+| 'host-group-unknown';
+
+// @public
+export interface GroupTarget {
+    readonly leader: ProcessIdentity;
+    // (undocumented)
+    readonly pgid: number;
+}
+
+// @public
+export interface HarnessProcess {
+    endStdin(): void;
+    readonly exited: Promise<ProcessExit>;
+    readonly exitStatus: ProcessExit | null;
+    readonly identity: ProcessIdentity | null;
+    readonly identityProblem: IdentityProblem | null;
+    readonly identitySource: ProcessTableSource;
+    killViaHandle(signal: 'SIGTERM' | 'SIGKILL'): boolean;
+    readonly pid: number;
+    stderrTail(): string;
+    readonly stdout: AsyncIterable<Uint8Array>;
+    write(data: string | Uint8Array): Promise<void>;
+}
+
+// @public
 export function hostPlatform(nodePlatform?: NodeJS.Platform): ProcessPlatform;
+
+// @public
+export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 
 // @public
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
@@ -187,6 +244,17 @@ export function isCanonicalStartTime(value: string): boolean;
 
 // @public
 export function isFlagName(name: string): boolean;
+
+// @public
+export interface JobHandle {
+    terminate(): void;
+}
+
+// @public
+export interface LadderClock {
+    now(): number;
+    schedule(ms: number, callback: () => void): () => void;
+}
 
 // @public
 export interface LadderHooks {
@@ -239,7 +307,18 @@ export interface LadderTiming {
 }
 
 // @public
+export interface LinuxProcTableCalls {
+    listPids(): Promise<readonly number[]>;
+    readStat(pid: number): Promise<Uint8Array | null>;
+    // (undocumented)
+    readonly source: 'linux-proc';
+}
+
+// @public
 export const maxFramerLineBytes = 536870888;
+
+// @public
+export const nodeTaskkillDeps: Omit<TaskkillDeps, 'env'>;
 
 // @public
 export class NotRegularFileError extends Error {
@@ -249,6 +328,27 @@ export class NotRegularFileError extends Error {
     // (undocumented)
     readonly path: string;
 }
+
+// @public
+export type OsCalls = {
+    readonly platform: 'linux';
+    readonly hostPid: number;
+    readonly processTable: LinuxProcTableCalls;
+    readonly signals: PosixSignalCalls;
+} | {
+    readonly platform: 'darwin';
+    readonly hostPid: number;
+    readonly processTable: DarwinPsTableCalls;
+    readonly signals: PosixSignalCalls;
+} | {
+    readonly platform: 'win32';
+    readonly hostPid: number;
+    readonly processTable: Win32CimTableCalls;
+    readonly terminate: Win32TerminateCalls;
+};
+
+// @public
+export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls;
 
 // @public
 export interface ParsedProcessTable {
@@ -280,6 +380,47 @@ export type PathProblem = 'empty' | 'nul' | 'ill-formed' | 'not-absolute' | 'dev
 export function pathProblem(value: string, platform: ProcessPlatform): PathProblem | undefined;
 
 // @public
+export interface PosixLadderDeps<Intent extends string = string> {
+    // (undocumented)
+    readonly clock: LadderClock;
+    readonly intent: Intent;
+    // (undocumented)
+    readonly os: PosixOsCalls;
+}
+
+// @public
+export interface PosixLadderProcess {
+    endStdin(): void;
+    readonly exited: Promise<unknown>;
+    hasExited(): boolean;
+    readonly initializePid: number | null;
+    readonly spawned: ProcessIdentity;
+}
+
+// @public
+export type PosixOsCalls = Extract<OsCalls, {
+    readonly platform: 'linux' | 'darwin';
+}>;
+
+// @public
+export type PosixSignal = 'SIGTERM' | 'SIGKILL';
+
+// @public
+export interface PosixSignalCalls {
+    // (undocumented)
+    signalGroup(pgid: number, signal: PosixSignal): SignalOutcome;
+    // (undocumented)
+    signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
+}
+
+// @public
+export interface ProcessExit {
+    readonly code: number | null;
+    // (undocumented)
+    readonly signal: NodeJS.Signals | null;
+}
+
+// @public
 export interface ProcessIdentity {
     // (undocumented)
     readonly pid: number;
@@ -306,7 +447,41 @@ export interface ProcessSnapshot {
 }
 
 // @public
+export class ProcessSpawnError extends Error {
+    constructor(errno: string | undefined, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly code = "SPAWN_FAILED";
+    readonly errno: string | undefined;
+    // (undocumented)
+    readonly name = "ProcessSpawnError";
+    // (undocumented)
+    readonly reason: SpawnFailureCause;
+}
+
+// @public
+export class ProcessStreamError extends Error {
+    constructor(stream: 'stdin' | 'stdout', reason: 'ended' | 'failed', errno: string | undefined, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly errno: string | undefined;
+    // (undocumented)
+    readonly name = "ProcessStreamError";
+    readonly reason: 'ended' | 'failed';
+    // (undocumented)
+    readonly stream: 'stdin' | 'stdout';
+}
+
+// @public
+export type ProcessTableCalls = LinuxProcTableCalls | DarwinPsTableCalls | Win32CimTableCalls;
+
+// @public
 export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
+
+// @public
+export function processTableStartTime(table: ProcessTableCalls): StartTimeReader;
 
 // @public
 export interface ResolvedExecutable {
@@ -326,6 +501,18 @@ export interface ResolveExecutableOptions {
 }
 
 // @public
+export function resolveTaskkillPath(deps: Pick<TaskkillDeps, 'env' | 'fs'>): Promise<{
+    readonly path: string;
+    readonly systemRoot: string;
+}>;
+
+// @public
+export function runPosixLadder<Intent extends string>(proc: PosixLadderProcess, hooks: LadderHooks, timing: LadderTiming, deps: PosixLadderDeps<Intent>): Promise<LadderReport<Intent>>;
+
+// @public
+export function runWindowsLadder<Intent extends string>(proc: WindowsLadderProcess, hooks: LadderHooks, timing: LadderTiming, job: JobHandle | null, deps: WindowsLadderDeps<Intent>): Promise<LadderReport<Intent>>;
+
+// @public
 export function safeSearchPathEntries(value: string | undefined, platform: ProcessPlatform): string[];
 
 // @public
@@ -340,9 +527,295 @@ export interface Sha256FileOptions {
 }
 
 // @public
+export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
+
+// @public
+export interface SignalTargetDecision {
+    readonly launcherDetected: boolean;
+    // (undocumented)
+    readonly source: 'initialize-pid' | 'spawned';
+    readonly target: ProcessIdentity;
+}
+
+// @public
+export interface SnapshotDeps {
+    // (undocumented)
+    readonly processTable: ProcessTableCalls;
+}
+
+// @public
+export function snapshotDescendants(root: ProcessIdentity, deps: SnapshotDeps): Promise<DescendantSnapshot>;
+
+// @public
+export type SpawnFailureCause = 'enoent' | 'eacces' | 'eperm' | 'unknown';
+
+// @public
+export function spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess>;
+
+// @public
+export interface SpawnSpec {
+    readonly args: readonly string[];
+    readonly cwd: string;
+    readonly env: Readonly<Record<string, string>>;
+    readonly file: string;
+    readonly secrets?: readonly string[];
+    readonly startTime?: StartTimeReader;
+    readonly stderrTail?: Omit<StderrTailOptions, 'secrets'>;
+}
+
+// @public
+export class SpawnSpecError extends Error {
+    constructor(problem: SpawnSpecProblem, subject: string);
+    // (undocumented)
+    readonly name = "SpawnSpecError";
+    // (undocumented)
+    readonly problem: SpawnSpecProblem;
+    readonly subject: string;
+}
+
+// @public
+export type SpawnSpecProblem = 'file-refused' | 'cwd-refused' | 'arg-nul' | 'env-name' | 'env-value' | 'env-duplicate-name' | 'env-missing-required';
+
+// @public
+export interface StartTimeReader {
+    read(pid: number): Promise<string | null>;
+    // (undocumented)
+    readonly source: ProcessTableSource;
+}
+
+// @public
+export class StderrTail {
+    constructor(options?: StderrTailOptions);
+    end(): void;
+    push(chunk: Uint8Array | string): void;
+    read(): string;
+    get receivedBytes(): number;
+    get retainedBound(): number;
+    get retainedCodeUnits(): number;
+    get truncated(): boolean;
+}
+
+// @public
+export interface StderrTailOptions {
+    readonly maxChars?: number;
+    readonly maxLineChars?: number;
+    readonly maxLines?: number;
+    readonly secrets?: readonly string[];
+}
+
+// @public
+export function sweep(request: SweepRequest, deps: SweepDeps): Promise<SweepResult>;
+
+// @public
+export interface SweepDeps {
+    readonly hostPid: number;
+    // (undocumented)
+    readonly processTable: LinuxProcTableCalls | DarwinPsTableCalls;
+    // (undocumented)
+    readonly signals: PosixSignalCalls;
+}
+
+// @public
+export interface SweepPlan {
+    readonly groups: readonly GroupTarget[];
+    readonly processes: readonly ProcessIdentity[];
+    // (undocumented)
+    readonly skippedGroups: readonly {
+        readonly pgid: number;
+        readonly reason: GroupSkipReason;
+    }[];
+    // (undocumented)
+    readonly skippedProcesses: readonly {
+        readonly pid: number;
+        readonly reason: SweepSkipReason;
+    }[];
+}
+
+// @public
+export interface SweepRequest {
+    readonly recorded: readonly ProcessSnapshot[];
+    readonly signalTarget: ProcessIdentity;
+    readonly spawned: ProcessIdentity;
+}
+
+// @public
+export interface SweepResult {
+    readonly coveredByGroup: readonly number[];
+    // (undocumented)
+    readonly groups: readonly {
+        readonly pgid: number;
+        readonly outcome: SweepSignalOutcome;
+    }[];
+    readonly plan: SweepPlan | null;
+    // (undocumented)
+    readonly processes: readonly {
+        readonly pid: number;
+        readonly outcome: SweepSignalOutcome;
+    }[];
+    // (undocumented)
+    readonly summary: LadderSweepSummary;
+}
+
+// @public
+export type SweepSignalOutcome = SignalOutcome | 'error';
+
+// @public
+export type SweepSkipReason =
+/** The pid is absent from the latest snapshot. */
+'exited'
+/** The pid is present with another start time (reused). */
+| 'identity-changed'
+/** pid 0 or 1, the host, or the spawned process. */
+| 'protected';
+
+// @public
+export function systemRootFrom(env: Readonly<Record<string, string | undefined>>): {
+    readonly ok: true;
+    readonly root: string;
+} | {
+    readonly ok: false;
+    readonly reason: TaskkillRefusal;
+};
+
+// @public
+export function taskkillArgv(pid: number, tree?: boolean): readonly string[];
+
+// @public
+export type TaskkillCalls = Win32TerminateCalls;
+
+// @public
+export interface TaskkillDeps {
+    readonly env: Readonly<Record<string, string | undefined>>;
+    // (undocumented)
+    readonly execFile: TaskkillExecFile;
+    // (undocumented)
+    readonly fs: TaskkillFs;
+    readonly timeoutMs?: number;
+}
+
+// @public
+export interface TaskkillExecError {
+    // (undocumented)
+    readonly code?: number | string | null | undefined;
+}
+
+// @public
+export type TaskkillExecFile = (file: string, args: readonly string[], options: TaskkillExecOptions, callback: (error: TaskkillExecError | null) => void) => unknown;
+
+// @public
+export interface TaskkillExecOptions {
+    // (undocumented)
+    readonly cwd: string;
+    // (undocumented)
+    readonly env: Readonly<Record<string, string>>;
+    // (undocumented)
+    readonly killSignal: 'SIGKILL';
+    // (undocumented)
+    readonly maxBuffer: number;
+    // (undocumented)
+    readonly shell: false;
+    // (undocumented)
+    readonly timeout: number;
+    // (undocumented)
+    readonly windowsHide: true;
+    // (undocumented)
+    readonly windowsVerbatimArguments: false;
+}
+
+// @public
+export interface TaskkillFs {
+    // (undocumented)
+    lstat(path: string): Promise<{
+        isFile(): boolean;
+        isSymbolicLink(): boolean;
+    }>;
+    // (undocumented)
+    realpath(path: string): Promise<string>;
+}
+
+// @public
+export type TaskkillRefusal =
+/** `SystemRoot` is not a plain drive-absolute directory path. */
+'system-root-invalid'
+/** Several spellings of `SystemRoot` in the environment disagree. */
+| 'system-root-ambiguous'
+/** The executable does not exist or cannot be resolved. */
+| 'not-found'
+/** The realpath differs from the expected path (junction, symbolic link). */
+| 'redirected'
+/** Not a regular file. */
+| 'not-regular-file';
+
+// @public
+export interface TaskkillResult {
+    // (undocumented)
+    readonly exitCode: number | null;
+}
+
+// @public
+export class TaskkillUnavailableError extends Error {
+    constructor(reason: TaskkillRefusal, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly code = "TASKKILL_UNAVAILABLE";
+    // (undocumented)
+    readonly name = "TaskkillUnavailableError";
+    // (undocumented)
+    readonly reason: TaskkillRefusal;
+}
+
+// @public
+export const TRUNCATED = "<truncated>";
+
+// @public
 export function validateCwd(cwd: string, platform: ProcessPlatform, fs?: CwdFs): Promise<string>;
 
 // @public
 export const WIN32_CWD_MAX_LENGTH = 258;
+
+// @public
+export const WIN32_DEFAULT_SYSTEM_ROOT = "C:\\Windows";
+
+// @public
+export const WIN32_REQUIRED_ENV_NAMES: readonly string[];
+
+// @public
+export interface Win32CimTableCalls {
+    // (undocumented)
+    queryProcesses(): Promise<Uint8Array>;
+    // (undocumented)
+    readonly source: 'win32-cim';
+}
+
+// @public
+export interface Win32TerminateCalls {
+    taskkillProcess(pid: number): Promise<TaskkillResult>;
+    taskkillTree(pid: number): Promise<TaskkillResult>;
+}
+
+// @public
+export interface WindowsLadderDeps<Intent extends string> {
+    // (undocumented)
+    readonly clock: LadderClock;
+    readonly initializePid: number | null;
+    readonly intent: Intent;
+    // (undocumented)
+    readonly os: WindowsOsCalls;
+}
+
+// @public
+export interface WindowsLadderProcess {
+    closeStdin(): void;
+    readonly exited: Promise<unknown>;
+    hasExited(): boolean;
+    readonly identity: ProcessIdentity;
+    terminate(): boolean;
+}
+
+// @public
+export type WindowsOsCalls = Extract<OsCalls, {
+    readonly platform: 'win32';
+}>;
 
 ```

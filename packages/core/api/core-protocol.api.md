@@ -8,6 +8,49 @@
 export type Capability = 'supported' | 'emulated' | 'unsupported';
 
 // @public
+export function classifyExit(input: ClassifyExitInput): ExitClassification;
+
+// @public
+export interface ClassifyExitInput {
+    // (undocumented)
+    readonly exit: ExitObservation;
+    // (undocumented)
+    readonly intent: TerminationIntent;
+    readonly lastResultIsError?: boolean;
+    // (undocumented)
+    readonly platform: 'win32' | 'posix';
+    readonly turnActive: boolean;
+}
+
+// @public
+export type CommandInput = {
+    readonly type: 'cmd.send';
+    readonly turnId: string;
+    readonly content: JsonValue;
+} | {
+    readonly type: 'cmd.interrupt';
+    readonly turnId?: string;
+    readonly cancelQueued: boolean;
+    readonly correlation: string;
+} | {
+    readonly type: 'cmd.permission';
+    readonly requestId: string;
+    readonly decision: JsonObject;
+} | {
+    readonly type: 'cmd.permission-abort';
+    readonly requestId: string;
+} | {
+    readonly type: 'cmd.set-permission-mode';
+    readonly mode: string;
+    readonly correlation: string;
+} | {
+    readonly type: 'cmd.close';
+} | {
+    readonly type: 'cmd.abort';
+    readonly intent: 'abort' | 'dispose';
+};
+
+// @public
 export interface CompatInfo {
     // (undocumented)
     readonly harness: string;
@@ -72,6 +115,26 @@ export interface EventBase {
 }
 
 // @public
+export interface ExitClassification {
+    // (undocumented)
+    readonly error: ExitError;
+    // (undocumented)
+    readonly outcome: SessionOutcome;
+    readonly turnSynthesis: 'cancelled' | 'error' | 'none';
+}
+
+// @public
+export type ExitError = 'none' | 'recorded' | 'PROCESS_EXITED' | 'AUTHENTICATION_FAILED' | 'OVERSIZED_FRAME';
+
+// @public
+export interface ExitObservation {
+    // (undocumented)
+    readonly code: number | null;
+    // (undocumented)
+    readonly signal: string | null;
+}
+
+// @public
 export interface HarnessCapabilities {
     // (undocumented)
     readonly fork: Capability;
@@ -91,6 +154,14 @@ export interface HarnessCapabilities {
         readonly context: Capability;
         readonly full: Capability;
     };
+}
+
+// @public
+export interface HarnessMachine<State, Config> {
+    // (undocumented)
+    initialState(config: Config): State;
+    // (undocumented)
+    step(state: State, input: MachineInput): MachineStep<State>;
 }
 
 // @public
@@ -232,6 +303,9 @@ export type HudhudEvent = (EventBase & {
 });
 
 // @public
+export type HudhudEventData = HudhudEvent;
+
+// @public
 export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode;
 
 // @public
@@ -258,6 +332,80 @@ export type JsonValue = JsonPrimitive | readonly JsonValue[] | {
 export type KnownErrorData = ErrorData & {
     readonly code: HudhudErrorCode;
 };
+
+// @public
+export interface MachineClockInput {
+    readonly at: string;
+    readonly atMs: number;
+}
+
+// @public
+export type MachineEffect = {
+    readonly type: 'write';
+    readonly line: string;
+} | {
+    readonly type: 'stdin.end';
+} | {
+    readonly type: 'timer.set';
+    readonly name: TimerName;
+    readonly ms: number;
+} | {
+    readonly type: 'timer.clear';
+    readonly name: TimerName;
+} | {
+    readonly type: 'event';
+    readonly event: HudhudEventData;
+} | {
+    readonly type: 'permission.ask';
+    readonly requestId: string;
+    readonly request: PermissionRequestData;
+} | {
+    readonly type: 'permission.cancel';
+    readonly requestId: string;
+    readonly reason: 'harness' | 'close' | 'abort';
+} | {
+    readonly type: 'handshake.ok';
+    readonly info: SessionInfoData;
+} | {
+    readonly type: 'handshake.fail';
+    readonly error: ErrorData;
+} | {
+    readonly type: 'turn.settle';
+    readonly turnId: string;
+    readonly result: TurnResultData;
+} | {
+    readonly type: 'turn.fail';
+    readonly turnId: string;
+    readonly error: ErrorData;
+} | {
+    readonly type: 'control.settle';
+    readonly correlation: string;
+    readonly ok: true;
+    readonly response: JsonValue;
+} | {
+    readonly type: 'control.settle';
+    readonly correlation: string;
+    readonly ok: false;
+    readonly error: ErrorData;
+} | {
+    readonly type: 'ladder.start';
+    readonly intent: TerminationIntent;
+} | {
+    readonly type: 'session.end';
+    readonly outcome: SessionOutcome;
+    readonly error?: ErrorData;
+};
+
+// @public
+export type MachineInput = MachineClockInput & (TransportInput | CommandInput);
+
+// @public
+export interface MachineStep<State> {
+    // (undocumented)
+    readonly effects: readonly MachineEffect[];
+    // (undocumented)
+    readonly state: State;
+}
 
 // @public
 export function makeErrorData(code: HudhudErrorCode, message: string, details?: JsonObject): KnownErrorData;
@@ -299,7 +447,44 @@ export type ParseJsonLineResult = {
 };
 
 // @public
+export interface PermissionRequestData {
+    // (undocumented)
+    readonly blockedPath?: string;
+    // (undocumented)
+    readonly decisionReason?: string;
+    // (undocumented)
+    readonly description?: string;
+    // (undocumented)
+    readonly displayName?: string;
+    // (undocumented)
+    readonly input: JsonValue;
+    // (undocumented)
+    readonly raw: JsonValue;
+    // (undocumented)
+    readonly requestId: string;
+    // (undocumented)
+    readonly sessionId: string;
+    readonly suggestions: readonly JsonValue[];
+    // (undocumented)
+    readonly title?: string;
+    // (undocumented)
+    readonly toolName: string;
+    // (undocumented)
+    readonly toolUseId: string;
+    // (undocumented)
+    readonly turnId?: string;
+}
+
+// @public
 export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+
+// @public
+export function sanitizeForDisplay(text: string, options?: SanitizeForDisplayOptions): string;
+
+// @public
+export interface SanitizeForDisplayOptions {
+    readonly singleLine?: boolean;
+}
 
 // @public
 export interface SecurityPosture {
@@ -320,10 +505,76 @@ export interface SecurityPostureEntry {
 }
 
 // @public
+export interface SessionInfoData {
+    // (undocumented)
+    readonly apiKeySource?: string;
+    readonly cliPid?: number;
+    // (undocumented)
+    readonly features: readonly string[];
+    // (undocumented)
+    readonly forkedFrom?: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly mode: 'create' | 'resume' | 'fork';
+    readonly pid: number;
+    // (undocumented)
+    readonly version: string;
+}
+
+// @public
+export type SessionOutcome = 'closed' | 'aborted' | 'failed' | 'crashed' | 'killed-externally' | 'unknown';
+
+// @public
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});
 
 // @public
+export const TERMINATION_INTENTS: readonly TerminationIntent[];
+
+// @public
+export type TerminationIntent = 'none' | 'close' | 'close-timeout' | 'abort' | 'dispose' | 'watchdog' | 'auth-fail-fast' | 'oversized-frame' | 'handshake-failed';
+
+// @public
+export type TimerName = string;
+
+// @public
 export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
+
+// @public
+export type TransportInput = {
+    readonly type: 'process.started';
+    readonly pid: number;
+} | {
+    readonly type: 'line';
+    readonly text: string;
+    readonly bytes: number;
+} | {
+    readonly type: 'line.oversized';
+    readonly bytes: number;
+} | {
+    readonly type: 'line.invalid-utf8';
+    readonly bytes: number;
+} | {
+    readonly type: 'stderr.line';
+    readonly text: string;
+} | {
+    readonly type: 'stdout.end';
+} | {
+    readonly type: 'stdin.error';
+    readonly code: string;
+} | {
+    readonly type: 'process.spawn-error';
+    readonly code: string;
+} | {
+    readonly type: 'process.exit';
+    readonly code: number | null;
+    readonly signal: string | null;
+} | {
+    readonly type: 'timer';
+    readonly name: TimerName;
+} | {
+    readonly type: 'ladder.done';
+};
 
 // @public
 export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'max-budget' | 'unknown' | (string & {});
@@ -359,6 +610,12 @@ export interface TurnResult {
     // (undocumented)
     readonly usage?: UsageTotals;
 }
+
+// @public
+export type TurnResultData = TurnResult;
+
+// @public
+export const UNKNOWN_EXIT_CODE = 4294967295;
 
 // @public
 export interface UsageTotals {

@@ -1,11 +1,12 @@
 /**
  * Process layer of hudhud: framing, argv, binary and cwd checks, hashing,
- * process-table parsing and termination-ladder types.
+ * process-table snapshots, spawn, the termination ladders and the sweep.
  *
  * @remarks
- * Ordinary async code used by adapters (ADR-0009, ADR-0010, ADR-0011). Spawn,
- * the ladders, the sweep and binary verification land in later waves; the
- * OS call adapters (`os/`) stay internal.
+ * Ordinary async code used by adapters (ADR-0009, ADR-0010, ADR-0011). The
+ * OS call adapters (`os/`) stay internal; their interfaces are public and
+ * {@link osCallsFor} composes them for the host. Binary verification and
+ * the job addon loader land in later waves.
  *
  * @packageDocumentation
  */
@@ -73,3 +74,82 @@ export type {
   LadderTiming,
 } from './ladder/types.js';
 export { DEFAULT_LADDER_TIMING } from './ladder/types.js';
+export type { LadderClock } from './ladder/types.js';
+
+export type { DescendantSnapshot, SnapshotDeps } from './tree/snapshot.js';
+export { snapshotDescendants } from './tree/snapshot.js';
+export type {
+  GroupSkipReason,
+  GroupTarget,
+  SignalTargetDecision,
+  SweepPlan,
+  SweepSkipReason,
+} from './tree/select.js';
+
+export type {
+  DarwinPsTableCalls,
+  LinuxProcTableCalls,
+  OsCalls,
+  PosixSignal,
+  PosixSignalCalls,
+  ProcessTableCalls,
+  SignalOutcome,
+  TaskkillResult,
+  Win32CimTableCalls,
+  Win32TerminateCalls,
+} from './os/types.js';
+
+export { childEnv, WIN32_REQUIRED_ENV_NAMES } from './win32-env.js';
+
+export type {
+  HarnessProcess,
+  IdentityProblem,
+  ProcessExit,
+  SpawnFailureCause,
+  SpawnSpec,
+  SpawnSpecProblem,
+  StartTimeReader,
+} from './spawn.js';
+export {
+  osCallsFor,
+  ProcessSpawnError,
+  ProcessStreamError,
+  processTableStartTime,
+  spawnHarnessProcess,
+  SpawnSpecError,
+} from './spawn.js';
+
+export type { PosixLadderDeps, PosixLadderProcess, PosixOsCalls } from './ladder/posix.js';
+export { runPosixLadder } from './ladder/posix.js';
+export type { SweepDeps, SweepRequest, SweepResult, SweepSignalOutcome } from './sweep.js';
+export { sweep } from './sweep.js';
+
+export type {
+  JobHandle,
+  WindowsLadderDeps,
+  WindowsLadderProcess,
+  WindowsOsCalls,
+} from './ladder/windows.js';
+export { runWindowsLadder } from './ladder/windows.js';
+export type {
+  TaskkillCalls,
+  TaskkillDeps,
+  TaskkillExecError,
+  TaskkillExecFile,
+  TaskkillExecOptions,
+  TaskkillFs,
+  TaskkillRefusal,
+} from './taskkill.js';
+export {
+  createTaskkillCalls,
+  DEFAULT_TASKKILL_TIMEOUT_MS,
+  nodeTaskkillDeps,
+  resolveTaskkillPath,
+  systemRootFrom,
+  taskkillArgv,
+  TaskkillUnavailableError,
+  WIN32_DEFAULT_SYSTEM_ROOT,
+} from './taskkill.js';
+// The stderr tail of a spawned process (also on the root entry).
+export type { StderrTailOptions } from '../observability/stderr-tail.js';
+export { StderrTail, TRUNCATED } from '../observability/stderr-tail.js';

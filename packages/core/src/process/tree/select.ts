@@ -26,7 +26,11 @@ function signallable(pid: number, hostPid: number): boolean {
   return pid >= MIN_SIGNALLABLE && pid !== hostPid;
 }
 
-/** Outcome of the K1 signal-target rule. */
+/**
+ * Outcome of the K1 signal-target rule.
+ *
+ * @public
+ */
 export interface SignalTargetDecision {
   /** The process that receives SIGTERM (and SIGKILL along with the spawned pid). */
   readonly target: ProcessIdentity;
@@ -77,13 +81,22 @@ export function maySignal(
   return signallable(identity.pid, hostPid) && findIdentity(latest.records, identity) !== null;
 }
 
-/** A process group that may be signalled with `kill(-pgid)`. */
+/**
+ * A process group that may be signalled with `kill(-pgid)`.
+ *
+ * @public
+ */
 export interface GroupTarget {
   readonly pgid: number;
   /** The group leader (`pid === pgid`), a verified descendant. */
   readonly leader: ProcessIdentity;
 }
 
+/**
+ * Why the sweep left a process alone.
+ *
+ * @public
+ */
 export type SweepSkipReason =
   /** The pid is absent from the latest snapshot. */
   | 'exited'
@@ -92,6 +105,11 @@ export type SweepSkipReason =
   /** pid 0 or 1, the host, or the spawned process. */
   | 'protected';
 
+/**
+ * Why the sweep left a group alone.
+ *
+ * @public
+ */
 export type GroupSkipReason =
   /** The group id is 0 or 1, or the group of the host, the spawned process or the CLI. */
   | 'protected-group'
@@ -100,7 +118,11 @@ export type GroupSkipReason =
   /** The host's own group is unknown, so no group can be proven foreign to it. */
   | 'host-group-unknown';
 
-/** What the sweep may signal. */
+/**
+ * What the sweep may signal.
+ *
+ * @public
+ */
 export interface SweepPlan {
   /** Verified descendants, each with its identity from the latest snapshot, ordered by pid. */
   readonly processes: readonly ProcessIdentity[];
