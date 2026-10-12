@@ -12,6 +12,7 @@ coverage/
 packages/*/temp/
 
 # Logs and local tooling state
+.claude/worktrees/
 *.log
 .eslintcache
 

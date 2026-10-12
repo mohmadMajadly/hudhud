@@ -34,6 +34,9 @@ Spike findings that shape the design (05):
 13. Property-based tests with fast-check for the framer, the state machines, and the argv builder.
 14. Windows CI is mandatory ([ADR-0014](0014-ci-strategy.md)); process-tree tests on Windows and Linux follow the spike (`tree` scenarios of 05 §10), including pid-plus-creation-time verification of survivors.
 15. Opt-in live suite: only with an owner-provided dedicated credential (deferred by owner decision 2). Without it, no test calls the real API.
+16. Mock robustness (J12, 07 §0.2, §11.5): the mock's CONNECT handler must survive a client that resets the socket during refusal (the spike mock crashed on this, with no socket `error` listener). A test for it is required.
+17. Fresh config dirs (J11, 07 §5): concurrent sessions on a cold, never-initialized `CLAUDE_CONFIG_DIR` can hit a first-write race (a skipped global-config write). Test fixtures pre-initialize config dirs, or start one session first. Production is unaffected, because the real config dir exists; sharing it between concurrent sessions is safe in steady state.
+18. Egress setting: the variable `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` also fixes feature-flag defaults, so tests and production use the same setting (07 §11 item 6).
 
 ## Alternatives considered
 
@@ -55,5 +58,6 @@ Spike findings that shape the design (05):
 ## Evidence
 
 - 05 §2 (mock, endpoints, headers, gotcha), §3 (sandbox env), §13.2 (sandbox recipe), §16 (reproducing).
+- 07 §0.2 (TLS-terminating trap, mock fixes), §5 (concurrent sessions, cold config dir), §11 items 5-6; 06 §J11-J12.
 - 04 §4 (cache and pitfalls for CI side).
 - 02 §13 (open questions the spike answered), §8 (SDK as oracle).

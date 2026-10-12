@@ -1,7 +1,7 @@
 # ADR-0008: Turn and lifecycle semantics
 
 - Status: Accepted
-- Pending spikes referenced: G4 items (stdin-close ceiling, resume/fork, host-crash behaviour, `initialize.pid`) are tracked in [ADR-0018](0018-scope-and-roadmap.md); the decisions below are not blocked by them except where stated.
+- Spikes: the G4 items touching this ADR (stdin-close ceiling, resume/fork, host-crash behaviour, `initialize.pid`) are done; results in 07 §1, §2, §4, §7 and 06 §J5-J9. No gate remains open here.
 - Date: 2026-10-12
 - Negotiation log items: A11, A8 (session id), E8, E10 (framer), D2, D5, D6, D11 (06 §A, §D, §E, §F)
 - Related: [ADR-0007](0007-event-delivery-backpressure-timeouts.md), [ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md), [ADR-0012](0012-security-defaults-and-trust.md)
@@ -21,11 +21,20 @@ Measured behaviour of CLI 2.1.296 (05):
 
 ### Session start
 
-1. hudhud always generates a session UUID and passes `--session-id` (A8).
+1. hudhud always generates a session UUID and passes `--session-id` (A8). Collisions with an existing id are rejected by the CLI, but two simultaneous starts with the same id are not (07 §1 d), so hudhud owns id uniqueness.
 2. hudhud always sends `initialize` first, even though the CLI does not require it (F amendment to A11). Reasons recorded in the log or implied by it: the first-frame watchdog is armed on the `initialize` write; `initialize.pid`, `claude_code_version`, `account.apiKeySource` and capability data come from its response; the process root set for containment includes `initialize.pid` ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)); `onAuthFailure` depends on `apiKeySource` ([ADR-0012](0012-security-defaults-and-trust.md)).
 3. `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` is always set (not `CLAUDE_CODE_SDK_READS_SESSION_STATE`, which adds `sdk_host_only` marking), pinning the reliable "idle" run-end signal (D11).
 4. Every user message carries a `uuid`. The CLI echoes it in `result.user_message_uuid(s)` and in `command_lifecycle` frames; hudhud uses it to correlate turns and interrupts (05 §5).
 5. Every depended-on behaviour is pinned by an explicit flag or environment variable, never by an unrecorded default (A8; see [ADR-0012](0012-security-defaults-and-trust.md) for the table).
+
+### Resume, continue and fork (J6, J7; 07 §1)
+
+- The CLI has no session lock. Two processes resuming one session both append to one transcript, and the next resume follows only the last-written branch (07 §1 c1-c3). hudhud refuses a second live resume or create of the same session id within one `Harness` with a typed error, and documents the cross-process hazard.
+- `--resume <id>` keeps the id (`system/init.session_id` equals the old id) and loads history. `--fork-session` gives a new id, or the one passed with `--session-id`, and a full copy of the transcript. A live-process `--session-id` combined with `--resume` but without `--fork-session` is an error (07 §1 a6).
+- `--continue` is cwd-scoped and never fails: in a cwd with no history it silently starts a new session (exit 0). hudhud's `continue` therefore compares the id in `system/init` with the expected one and reports `resumed: false` when a new session was started.
+- A nonexistent id yields a `result/error_during_execution` frame on stdout BEFORE any `initialize` response, followed by exit 1. The protocol layer accepts a `result` frame before the `initialize` response (J7), and the first-frame watchdog and the `initialize` waiter map it to a typed `SessionNotFound` error, not a timeout.
+- With stream-json input, a resumed session emits nothing before the first user message except the `initialize` response.
+- `resume` and `fork` capabilities are `supported` (Windows and Linux; macOS is untested until its gate).
 
 ### First-frame and idle watchdogs
 
@@ -40,13 +49,18 @@ Measured behaviour of CLI 2.1.296 (05):
 
 ### Stdin-close policy
 
-Modelled on the SDK's "bidirectional needs" rule (02 §6.1): stdin stays open while the session has pending handlers or work; it is closed when the CLI reports `idle` after a result, or when a ceiling expires. The ceiling is `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`; its exact pinned value is a pre-v1 spike item (G4).
+Modelled on the SDK's "bidirectional needs" rule (02 §6.1): stdin stays open while the session has pending handlers or work; it is closed when the CLI reports `idle` after a result, or when a ceiling expires. The ceiling is `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (J5, 07 §7):
+
+- Default 600000 ms; `0` means wait indefinitely. The clock starts when stdin is closed and the CLI is otherwise idle. hudhud pins the documented default explicitly and does not change it by default; an option to set it exists.
+- On expiry the CLI stops background subagents and tasks (and writes a fixed stderr line), exit 0. It does NOT bound background Bash shells: a `run_in_background` shell held the CLI until it finished (697 s with the default ceiling).
+- The ceiling is therefore not an upper bound on "EOF to exit". Drain on `close()` has its own hudhud deadline, `closeTimeout` (name illustrative, default 30 s), after which the abort ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md) runs. `background_tasks_changed` and `task_*` frames are surfaced so the application can decide earlier.
+- After EOF a finished background shell triggers a new model turn (`system/init` ... `result`) that the host did not start. `close()` keeps consuming frames until exit, and turn bookkeeping accepts such a turn.
 
 ### Close and dispose
 
 | Operation | Meaning | Mechanism |
 |---|---|---|
-| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit; pending permissions resolve `cancelled` |
+| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit up to `closeTimeout` (illustrative), then the abort ladder; pending permissions resolve `cancelled` |
 | `session[Symbol.asyncDispose]` / `AbortSignal` | Abort | The termination ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md), starting with `interrupt{cancel_queued:true}` |
 
 ### Termination intent and exit-code semantics (E8)
@@ -71,10 +85,12 @@ Inbound NDJSON framer: bounded and UTF-8 safe, per-line cap 64 MiB by default an
 
 - Every session pays one `initialize` round trip (the response is about 17 KB, 05 §5).
 - The outcome classifier needs a table of (intent, exit) combinations; it is part of the sans-IO core and covered by fixtures.
-- Pre-v1 spikes remain for the stdin-close ceiling and for host-crash EOF/EPIPE behaviour ([ADR-0018](0018-scope-and-roadmap.md)).
+- Host-crash behaviour (07 §2): exit 0 says nothing about success after a host crash (a Windows job kill gives 0); on Linux, host death is stdin EOF and the CLI drains gracefully. After a Windows host crash, stale `sessions/<pid>.json` files must not be read as live sessions (hudhud does not write them, R6).
+- `close()` can now take as long as `closeTimeout`; applications that need a hard bound use `dispose` / `AbortSignal`.
 
 ## Evidence
 
 - 05 §5, §7, §8, §9, §11, §12, §15.
+- 07 §1 (resume/fork matrix), §2 (host crash), §7 (background wait ceiling), §11 item 3-4; 06 §J5-J8.
 - 02 §6.1 (stdin close), §6.3 (SDK close ladder).
 - 01 §2.9 (interrupt and priority), §3 (exit codes), §7 (hang reports: GH#99194, GH#86074).

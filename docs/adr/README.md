@@ -2,7 +2,7 @@
 
 MADR-style records for hudhud. Overview: [../architecture.md](../architecture.md). Evidence: [../research/](../research/README.md). Date of all records: 2026-10-12.
 
-Status vocabulary: "Accepted" is decided; "Accepted — pending spike X" is decided but gated on the named spike; "owner decision N" refers to the owner decisions in [../architecture.md](../architecture.md#owner-decisions).
+Status vocabulary: "Accepted" is decided; "Accepted — pending X" is decided but gated on the named item (all pre-v1 spikes except the macOS gate are done, see [../research/07-pre-v1-spikes.md](../research/07-pre-v1-spikes.md)); "owner decision N" refers to the owner decisions in [../architecture.md](../architecture.md#owner-decisions).
 
 | ADR | Title | Status | Negotiation log items |
 |---|---|---|---|
@@ -12,13 +12,13 @@ Status vocabulary: "Accepted" is decided; "Accepted — pending spike X" is deci
 | [0004](0004-packages-and-versioning.md) | Packages, versioning and adapterApiVersion | Accepted (names reserved by the owner before first publish, owner decision 3) | A4, A17, E4 |
 | [0005](0005-schema-and-validation.md) | Schema and validation | Accepted | A5, E2, F |
 | [0006](0006-sans-io-core-and-daemon-readiness.md) | Sans-IO core, serialization rules and daemon readiness | Accepted | A6, A7, E5 |
-| [0007](0007-event-delivery-backpressure-timeouts.md) | Event delivery, backpressure and handler timeouts | Accepted (hook timeout unit pending spike G4) | A10, B3, B6, E9 |
-| [0008](0008-turn-and-lifecycle-semantics.md) | Turn and lifecycle semantics | Accepted (ceiling value pending spike G4) | A11, E8, E10, F |
-| [0009](0009-process-layer-windows.md) | Process layer on Windows | Accepted — pending addon spike | A13, B1, D6, D7 |
-| [0010](0010-process-layer-posix.md) | Process layer on POSIX | Accepted — pending macOS gate (list ratified) | A12 (replaced), E1, F, D8 |
-| [0011](0011-spawn-hygiene-and-binary-provenance.md) | Spawn hygiene and binary provenance | Accepted | A14, A15, E10 |
-| [0012](0012-security-defaults-and-trust.md) | Security defaults, workspace trust and opt-in naming | Accepted — pending spike G1 | A8, A9, B4, B5, E7, G1, G2 |
-| [0013](0013-testing-strategy.md) | Testing strategy | Accepted (live suite deferred, owner decision 2) | A16 |
+| [0007](0007-event-delivery-backpressure-timeouts.md) | Event delivery, backpressure and handler timeouts | Accepted (hook timeout unit resolved, 07 §8) | A10, B3, B6, E9, J4 |
+| [0008](0008-turn-and-lifecycle-semantics.md) | Turn and lifecycle semantics | Accepted (resume, ceiling and host-crash spikes done, 07 §1, §2, §7) | A11, E8, E10, F, J5-J7 |
+| [0009](0009-process-layer-windows.md) | Process layer on Windows | Accepted — pending addon implementation (1.0 criterion, reinforced by 07 §2) | A13, B1, D6, D7, J8 |
+| [0010](0010-process-layer-posix.md) | Process layer on POSIX | Accepted — pending macOS gate (list ratified) | A12 (replaced), E1, F, D8, J8 |
+| [0011](0011-spawn-hygiene-and-binary-provenance.md) | Spawn hygiene and binary provenance | Accepted | A14, A15, E10, J9, J10 |
+| [0012](0012-security-defaults-and-trust.md) | Security defaults, workspace trust and opt-in naming | Accepted (G1, C3 and workspaceTrust spikes done, 07 §3, §9, §10) | A8, A9, B4, B5, E7, G1, G2, J1-J3 |
+| [0013](0013-testing-strategy.md) | Testing strategy | Accepted (live suite deferred, owner decision 2) | A16, J11, J12 |
 | [0014](0014-ci-strategy.md) | CI strategy | Accepted — pending macOS spike | R7, G3 |
 | [0015](0015-legal-and-provenance.md) | Legal posture and code provenance | Accepted | A1, A2 |
 | [0016](0016-observability.md) | Observability | Accepted | A18 |

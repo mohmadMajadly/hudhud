@@ -25,13 +25,14 @@ Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integr
 6. Large values go through `initialize` or hudhud-owned private files, not argv. Private files are created by hudhud with restrictive permissions in a hudhud-owned location; they are not placed in the harness's config directory (R6).
 7. A bounded, UTF-8-safe NDJSON framer: per-line inbound cap 64 MiB by default, configurable (E10); outbound cap 32 MiB (initial, tunable); `onOversizedFrame: 'fail'` (default) or `'skip'` ([ADR-0008](0008-turn-and-lifecycle-semantics.md)). The framer tolerates CRLF, blank lines, a leading BOM and multibyte characters split across chunks (05 §11, D10).
 8. Non-JSON stdout lines are skipped as non-protocol noise and never executed (02 §10 item 7).
+9. Windows cwd length (J10, 07 §6): a plain spawn works up to 258 characters; from 259 it fails with a misleading `ENOENT`. A `\\?\`-prefixed cwd spawns, but the CLI then runs in the 8.3 short-name alias, which puts transcripts under a different project key (resume and transcripts split) and makes the Bash tool refuse writes. hudhud therefore validates the cwd length on Windows before spawn and throws a named error (`CwdTooLong`, illustrative). It never auto-prefixes. Application workarounds: a shorter path, `subst`, or a junction used consistently. Verified on a host with `LongPathsEnabled=1`; not verified with it disabled or with 8.3 names disabled.
 
 ### Binary provenance (A15, amended by F)
 
 - Advisory only: never blocking by default. Result is exposed as `binary.verification`.
 - Order: OS signature first (Authenticode on Windows, `/usr/bin/codesign --verify` on macOS; a Gatekeeper/quarantine spawn failure is mapped to a named cause), SHA-256 hash fallback against the published `manifest.json` checksums / npm integrity. The linux-x64 and win32-x64 digests were verified in the spike (05 §1).
 - Resolve launcher symlinks (and the native-installer layout `~/.local/bin/claude[.exe]` -> `~/.local/share/claude/versions/<ver>`, 01 §4.1) to the real binary before verifying.
-- The process root set used for containment ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)) is {spawned pid, `initialize.pid`}, because a native launcher can make them differ. Whether they differ is a pre-v1 spike item (G4).
+- Process identity (J9, 07 §4): `initialize.pid` equals the spawned pid only when the native binary is spawned directly; behind a launcher (for example the npm fallback `cli-wrapper.cjs` shape, a shell shim, a user-supplied launcher) it is the real CLI, a child of the spawned process. hudhud always uses the pid it spawned, plus its start time, as the process identity for containment ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)); the launcher's whole tree is covered by the job or by the descendant snapshot from the spawned pid. `initialize.pid` is informational, and a mismatch is reported as a diagnostic (launcher detected). `system/init` carries no pid.
 - Opt-in strict mode: refuse to run when verification fails. This is named as a security opt-in and reported in `securityPosture`; the strict-mode option name is not fixed here.
 
 ## Alternatives considered
@@ -55,4 +56,5 @@ Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integr
 
 - 02 §2.2-§2.4, §3, §8, §10 items 2, 3, 6, 7, 9.
 - 05 §1 (hash verification), §11 (frame sizes and encoding), §5 (`initialize.pid`).
+- 07 §4 (`initialize.pid` versus spawned pid), §6 (Windows long-path cwd); 06 §J9-J10.
 - 01 §4.1 (binary layout and auto-update), §7 (Windows specifics).

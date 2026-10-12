@@ -44,7 +44,12 @@ When a hook handler times out: fail-closed for `PreToolUse` and `PermissionReque
 
 ### Single source for the hook timeout (E9, amended by F)
 
-The declared hook/in-process-tool timeout defaults to 60 s (initial, tunable, to be validated by measurement). hudhud's handler timer is the declared timeout minus a 2 s margin, so it is strictly shorter and hudhud answers (fail-closed) before the CLI gives up. There is a single configured value; both numbers derive from it. The unit and default of the CLI-side hook timeout are not verified; they are a pre-v1 spike item ([ADR-0018](0018-scope-and-roadmap.md), G4).
+The declared hook/in-process-tool timeout defaults to 60 s (initial, tunable, to be validated by measurement). hudhud's handler timer is the declared timeout minus a 2 s margin, so it is strictly shorter and hudhud answers (fail-closed) before the CLI gives up. There is a single configured value; both numbers derive from it. The CLI-side behaviour was verified by spike (07 §8, J4):
+
+- The unit is seconds, both for `initialize` hook callbacks and for settings hooks (`timeout: 3000` means 50 minutes). hudhud passes the timeout in seconds, never milliseconds.
+- The CLI's callback default (no `timeout`) is 600 s, so hudhud's 60 s default is always sent explicitly.
+- A callback timeout blocks the tool (fail-closed): at the deadline the CLI sends `control_cancel_request` and returns a blocking tool result. hudhud must handle `control_cancel_request` for `hook_callback` exactly as for `can_use_tool`. hudhud's own fail-closed answer, from the shorter timer, arrives first and is consistent with the CLI's.
+- A settings command-hook timeout is fail-open on `PreToolUse` (the tool runs). This applies to hooks configured in settings files, not to hudhud's callbacks.
 
 ## Alternatives considered
 
@@ -64,6 +69,7 @@ The declared hook/in-process-tool timeout defaults to 60 s (initial, tunable, to
 ## Evidence
 
 - 05 §6 (never-answered permission, interrupt cancel), §12 (no `keep_alive`).
+- 07 §8 (hook timeout unit, default and failure direction); 06 §J4.
 - 05 §11 (frame sizes).
 - 02 §3 (message routing; concurrent handlers with one AbortController per request id), §4.1 (cancel semantics).
 - 03 §5 item 12 (permissions as a state machine with a cancel path).

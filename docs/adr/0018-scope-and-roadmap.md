@@ -1,6 +1,6 @@
 # ADR-0018: Scope, roadmap and pre-v1 gates
 
-- Status: Accepted. Several v1 items are conditional on spikes (listed below).
+- Status: Accepted. The G4 spikes are done (07, 06 §J); the macOS gate and the Windows addon implementation remain open.
 - Date: 2026-10-12
 - Negotiation log items: A19, F (A19: resume/fork gated), G3, G4, G5 (06 §A, §F, §G)
 - Related: all other ADRs
@@ -13,7 +13,7 @@ The owner requires quality and security above time (R1), and "first-class" is op
 
 ### v1
 
-Spawn and handshake; send and stream; permissions; interrupt; resume/fork (gated: only if the resume/fork spike is green); shutdown (drain and abort); capabilities; errors; subscriptions; best-effort containment (`processContainment: 'job'` on Windows once the addon exists, otherwise `'best-effort'`; POSIX `'best-effort'`). The Windows addon is a criterion for 1.0 ([ADR-0009](0009-process-layer-windows.md)). The `native` backend only. Sans-IO core with loopback binding ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)).
+Spawn and handshake; send and stream; permissions; interrupt; resume/fork (spike green on Windows and Linux, 07 §1; macOS pending its gate); shutdown (drain and abort); capabilities; errors; subscriptions; best-effort containment (`processContainment: 'job'` on Windows once the addon exists, otherwise `'best-effort'`; POSIX `'best-effort'`). The Windows addon is a criterion for 1.0 ([ADR-0009](0009-process-layer-windows.md)). The `native` backend only. Sans-IO core with loopback binding ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)).
 
 ### v1.1
 
@@ -25,21 +25,27 @@ Session-file reading; prewarm; daemon with generated clients ([ADR-0006](0006-sa
 
 ### Pre-v1 spike list (G4)
 
-1. `--resume` / `--fork-session` matrix (also gates resume/fork in v1).
-2. Host-crash behaviour: what the CLI does on EOF/EPIPE when the host dies.
-3. E7 gate: nonessential-traffic default (G1 a/b, [ADR-0012](0012-security-defaults-and-trust.md)).
-4. `initialize.pid` versus the spawned pid with a native launcher.
-5. Concurrent sessions sharing a config directory.
-6. Windows long-path cwd.
-7. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` pinned ([ADR-0008](0008-turn-and-lifecycle-semantics.md)).
-8. Hook timeout unit and default (E9, [ADR-0007](0007-event-delivery-backpressure-timeouts.md)).
+All eight spikes are done on Windows and Linux (research 07, 2026-10-12; lead resolutions in 06 §J). macOS was not available and is covered by the macOS gate below.
+
+| # | Spike | Result | Resolution |
+|---|---|---|---|
+| 1 | `--resume` / `--fork-session` matrix | done, 07 §1 | J6: no CLI session lock; hudhud guards within a Harness; `continue` reports `resumed: false`; `SessionNotFound`; resume/fork stay in v1 ([ADR-0008](0008-turn-and-lifecycle-semantics.md)) |
+| 2 | Host-crash behaviour | done, 07 §2 | J8: Windows Node host loses the tool tree, so the job addon is required for crash cleanup too; Linux drains gracefully ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)) |
+| 3 | E7 gate: nonessential-traffic default (G1) | done, 07 §3 | J1: default confirmed, policy-neutral; custom base URL disables managed policy ([ADR-0012](0012-security-defaults-and-trust.md)) |
+| 4 | `initialize.pid` versus the spawned pid | done, 07 §4 | J9: identity is the spawned pid; mismatch is a diagnostic ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)) |
+| 5 | Concurrent sessions sharing a config directory | done, 07 §5 | J11: safe in steady state; fresh-dir first-write race only ([ADR-0013](0013-testing-strategy.md)) |
+| 6 | Windows long-path cwd | done, 07 §6 | J10: `CwdTooLong` before spawn; never auto-prefix ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)) |
+| 7 | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` | done, 07 §7 | J5: default 600000; does not bound background shells; own `closeTimeout` ([ADR-0008](0008-turn-and-lifecycle-semantics.md)) |
+| 8 | Hook timeout unit and default (E9) | done, 07 §8 | J4: seconds; callback default 600 s; fail-closed ([ADR-0007](0007-event-delivery-backpressure-timeouts.md)) |
 
 Additional gates stated elsewhere in the log, not in the G4 list:
 
-- Windows job addon: mostly de-risked by 05 §10 (nesting, inheritance, job-close kill, assign before the first stdin write); remaining work is the addon implementation and the arm64 prebuild pipeline.
-- `initialize.workspaceTrust` (B4: `'context'` unsupported in v1; the spike would decide a later upgrade).
-- Project-env `ANTHROPIC_BASE_URL` (C3, never tested; informs the threat model in [architecture.md](../architecture.md#security-model-and-threat-model)).
-- Not covered by 05: `mcp_message` in-process MCP, hooks over stdio, `--output-format json` shape (needed before v1.1).
+- Windows job addon: mostly de-risked by 05 §10 (nesting, inheritance, job-close kill, assign before the first stdin write) and reinforced by 07 §2; remaining work is the addon implementation and the arm64 prebuild pipeline.
+- `initialize.workspaceTrust` (B4): done, 07 §10 (J3). It is a persisted trust grant, not a loading filter; `'context'` stays unsupported in v1 and the CLI field is never sent by default.
+- Project-env `ANTHROPIC_BASE_URL` (C3): done, 07 §9 (J2). VERIFIED exfiltration path; `'full'` carries the `projectCredentialEnv` guard ([ADR-0012](0012-security-defaults-and-trust.md)).
+- Not covered by 05 or 07: `mcp_message` in-process MCP, hooks over stdio, `--output-format json` shape (needed before v1.1).
+
+Not done in the pre-v1 spikes (07 §12): macOS; an OAuth/claude.ai login (no credential); Windows hosts other than Node/libuv for host crash; Windows hosts with `LongPathsEnabled=0` or 8.3 names disabled; the full 600 s expiry of a background subagent (derived from the constant and the 5 s behaviour).
 
 ### macOS gate (G3)
 
@@ -60,6 +66,7 @@ A one-off `workflow_dispatch` macOS spike before v1, then macOS on the FULL tier
 
 ## Evidence
 
-- 06 §A19, §F, §G3, §G4, §G5.
+- 06 §A19, §F, §G3, §G4, §G5, §J.
+- 07 §0 (spike summary), §12 (not done).
 - 05 §16 (not covered), §10.
 - 03 §7 (adapter kinds).

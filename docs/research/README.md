@@ -9,7 +9,8 @@ These files are point-in-time research snapshots dated 2026-10-12. They record w
 | [03-harness-landscape.md](03-harness-landscape.md) | Other harnesses, ACP and other standards, prior art, event-model design practices |
 | [04-ci-economy.md](04-ci-economy.md) | GitHub Actions billing facts and risk-tiered CI design |
 | [05-empirical-cli.md](05-empirical-cli.md) | Spike results against pinned, hash-verified CLI binaries and a local mock API (Windows and Linux) |
-| [06-architecture-negotiation.md](06-architecture-negotiation.md) | The architecture negotiation log. Its section G overrides F, F overrides E/B/A where they conflict |
+| [06-architecture-negotiation.md](06-architecture-negotiation.md) | The architecture negotiation log. Its section G overrides F, F overrides E/B/A where they conflict; section J records the lead resolutions after the pre-v1 spikes |
+| [07-pre-v1-spikes.md](07-pre-v1-spikes.md) | Pre-v1 spike results against the pinned CLI 2.1.296 (resume/fork, host crash, nonessential traffic, pid, concurrency, long paths, background ceiling, hook timeout, project env base URL, workspaceTrust; Windows and Linux, no macOS) |
 
 Rules for reading them:
 

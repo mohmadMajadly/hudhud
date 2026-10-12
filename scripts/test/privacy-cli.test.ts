@@ -149,6 +149,18 @@ describe('privacy-scan --tree', () => {
     write('blob.bin', `\0\0${LEAK_EMAIL}`);
     expect(scan('--tree').status).toBe(0);
   });
+
+  it('skips the contents of an untracked nested repository but scans its name', () => {
+    write('nested/inner.md', `${LEAK_EMAIL}\n`);
+    const nested = spawnSync('git', ['init', '--quiet'], { cwd: path.join(dir, 'nested') });
+    expect(nested.status).toBe(0);
+    expect(scan('--tree').status).toBe(0);
+
+    rmSync(path.join(dir, 'nested'), { recursive: true, force: true });
+    write(`${DENIED}/inner.md`, 'clean\n');
+    expect(spawnSync('git', ['init', '--quiet'], { cwd: path.join(dir, DENIED) }).status).toBe(0);
+    expect(scan('--tree').status).toBe(1);
+  });
 });
 
 describe('pre-commit hook', () => {

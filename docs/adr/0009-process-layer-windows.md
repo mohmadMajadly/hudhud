@@ -1,6 +1,6 @@
 # ADR-0009: Process layer on Windows (job object, native addon, fallback)
 
-- Status: Accepted — pending addon spike (the addon is a 1.0 criterion and ships in v1 only if its spike is green; otherwise v1 ships with `processContainment: 'best-effort'`)
+- Status: Accepted — pending addon implementation (the addon is a 1.0 criterion and ships in v1 only if its spike is green; otherwise v1 ships with `processContainment: 'best-effort'`). The host-crash spike (07 §2) reinforces it.
 - Date: 2026-10-12
 - Negotiation log items: A13, B1 (round 3), D6, D7, C1 (06 §A, §B, §C, §D)
 - Related: [ADR-0008](0008-turn-and-lifecycle-semantics.md), [ADR-0010](0010-process-layer-posix.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md), [ADR-0004](0004-packages-and-versioning.md)
@@ -13,7 +13,7 @@ Measured on Windows with CLI 2.1.296 (05 §10):
 - Spawned normally (not detached, so already inside libuv's global job) and then assigned to a second job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: nesting works, the CLI behaves normally, grandchildren inherit the job (no breakaway), and closing the job kills everything.
 - Closing the job produces Node exit code 0, so exit 0 does not prove success (05 §9).
 - There is an assignment race window between spawn and assign (about 1 s measured, before any tool ran; 05 §10).
-- The host-crash case: a job handle owned by the host dies with the host, so the tree dies too.
+- The host-crash case: a job handle owned by the host dies with the host, so the tree dies too. Measured (07 §2, J8): under a Node host on Windows, libuv's own job kills the CLI about 32-35 ms after the host dies (exit code 0, no graceful shutdown, stale `sessions/<pid>.json`), but its Git-Bash tool tree (`bash.exe`, `conhost.exe`) survives, because the grandchildren are not in libuv's job. A detached Windows host and Linux behave differently: the CLI sees stdin EOF and drains gracefully, with no orphans.
 - The TS SDK's own close uses `TerminateProcess` on the direct child only; its parent-exit reaper on Windows only ends stdin (02 §6.3).
 
 Node has no built-in API for job objects, so native code is required for containment.
@@ -29,6 +29,7 @@ Node has no built-in API for job objects, so native code is required for contain
 1. After spawn, assign the child to a new job object created with `KILL_ON_JOB_CLOSE`, owned by the host process. The assignment happens before the first stdin write (closing the race window of D7).
 2. The addon is `@hudhud/win32-job-x64` / `@hudhud/win32-job-arm64`, optional platform packages ([ADR-0004](0004-packages-and-versioning.md)).
 3. Capability `processContainment` is `'job'` when the addon is present and assignment succeeded, otherwise `'best-effort'`. This capability exists from v1.
+4. The job is required for host-crash cleanup as well as for abort (J8, 07 §2): libuv's job kills the CLI but lets the tool tree break away, so only hudhud's own nested `KILL_ON_JOB_CLOSE` job, which grandchildren inherit, makes host death kill the whole tree. This reinforces the addon as the 1.0 criterion. Not verified: a Windows host that is not Node/libuv (Python, Bun, .NET).
 
 ### Native addon toolchain (B1 = option ii)
 
@@ -75,5 +76,6 @@ All termination records its termination intent first, because a job close surfac
 ## Evidence
 
 - 05 §10 (Windows process tree table, job helper), §9 (exit codes), §15 item 4-5.
+- 07 §2 (host crash: job-kill timing, orphaned Git-Bash tree, detached and Linux rows); 06 §J8.
 - 02 §6.3 (SDK close ladder, reaper), §10 item 8 (tree cleanup gap).
 - 01 §7 (Windows specifics; stdio MCP servers on Windows are killed by tree after 300 ms in 2.1.296).

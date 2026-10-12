@@ -10,7 +10,7 @@
 // 2 usage or configuration error.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -106,6 +106,9 @@ function scanTree(denylist) {
     findings.push(...scanPathName(file, denylist));
     const absolute = path.join(root, file);
     if (!existsSync(absolute)) continue; // deleted in the working tree
+    // An untracked nested repository is listed as a directory; its contents
+    // belong to that repository and cannot be committed here (only a gitlink).
+    if (statSync(absolute).isDirectory()) continue;
     const content = readFileSync(absolute);
     if (content.subarray(0, BINARY_SNIFF_BYTES).includes(0)) continue; // binary
     findings.push(...scanText(file, content.toString('utf8'), denylist));

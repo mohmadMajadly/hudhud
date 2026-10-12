@@ -47,7 +47,7 @@ Not the ladder. `close()` keeps stdin open until `idle`, then sends EOF and wait
 ### Containment capability and residuals
 
 - POSIX reports `processContainment: 'best-effort'` in v1.
-- Residual, documented: if the host itself dies, nothing runs the ladder, and descendants of a CLI killed with `SIGKILL` can survive. What happens to the CLI on host death (EOF/EPIPE behaviour) is a pre-v1 spike item (G4).
+- Residual, documented: if the host itself dies, nothing runs the ladder, and descendants of a CLI killed with `SIGKILL` can survive. Measured on Linux (07 §2, J8): host death is stdin EOF and the CLI behaves exactly like a graceful EOF. It finishes the in-flight stream or tool (up to the tool's own duration, observed 15 s), then exits 0, with no orphans. EPIPE on later writes did not change the outcome. The documented residual is narrower: an orphan only arises if the CLI itself is SIGKILLed, and a long tool keeps running after the host is gone, up to its own timeout. macOS is untested.
 - A strong option is planned for v1.x: a cgroup spawner (systemd scope or delegated cgroup v2) reporting `processContainment: 'cgroup'`. It is not available everywhere (needs delegation), so it is optional, not the default.
 
 ### Sockets
@@ -69,10 +69,11 @@ On Linux the CLI's messaging socket falls back to `/tmp/cc-socks-<uid>/<pid>.soc
 - The sweep is inherently racy (a descendant may fork between snapshot and kill). The two snapshots reduce but do not eliminate the window; this is documented as best-effort.
 - The `/proc` and `ps` parsers are locale- and format-sensitive; `LC_ALL=C` and fixtures per OS are required.
 - On macOS, the whole ladder (including whether `SIGTERM` makes the CLI clean its tool groups) is untested until the macOS gate runs.
-- Process identity (`pid`, start time) is used by the sweep; the process root set also includes `initialize.pid` when it differs from the spawned pid (native launcher), see [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md).
+- Process identity (`pid`, start time) is used by the sweep and always refers to the pid hudhud spawned. `initialize.pid` differs from it behind a launcher and is informational; a mismatch is reported as a diagnostic, see [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md) (J9).
 
 ## Evidence
 
 - 05 §10 (Linux table and implications), §9 (signal exit codes), §13 (socket fallback), §15 item 4.
 - 02 §6.3 (SDK close ladder: EOF, 2 s, SIGTERM, 5 s, SIGKILL; no tree kill).
 - 05 §5 (`initialize.pid` is the CLI's own pid).
+- 07 §2 (Linux host-crash rows L71-L74), §4 (pid versus launcher); 06 §J8-J9.
