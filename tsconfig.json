@@ -17,7 +17,8 @@
     "scripts/**/*.ts",
     "packages/*/test/**/*.ts",
     "packages/*/schema-src/**/*.ts",
-    "tooling/*/test/**/*.ts"
+    "tooling/*/test/**/*.ts",
+    "tooling/*/bin/**/*.mjs"
   ],
   "references": [
     { "path": "packages/core" },
