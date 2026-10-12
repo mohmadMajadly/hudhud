@@ -1,0 +1,1183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/core/schema-src/index.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "hudhud events",
+  "description": "Harness-neutral session events. Enums with a plain string arm are open: unknown values are accepted on read. Unknown event types match OpenHudhudEvent.",
+  "$ref": "#/$defs/HudhudEvent",
+  "$defs": {
+    "ToolKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "read",
+            "edit",
+            "delete",
+            "move",
+            "search",
+            "execute",
+            "think",
+            "fetch",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "StopReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "end_turn",
+            "max_tokens",
+            "max_turn_requests",
+            "refusal",
+            "cancelled"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "TurnOutcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "completed",
+            "error",
+            "cancelled",
+            "max-turns",
+            "max-budget",
+            "unknown"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "DiagnosticCode": {
+      "anyOf": [
+        {
+          "enum": [
+            "env.dropped",
+            "env.added",
+            "env.removed",
+            "binary.launcher-detected",
+            "binary.version-changed",
+            "binary.unverified",
+            "project.permissions-ignored",
+            "containment.fallback",
+            "containment.addon-unavailable",
+            "stdout.non-json-line",
+            "frame.skipped-oversized",
+            "interrupt.still-queued-retry",
+            "session.id-mismatch",
+            "control.unknown-response"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "UsageTotals": {
+      "type": "object",
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cacheCreationInputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cacheReadInputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "costUsd": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "TurnResult": {
+      "type": "object",
+      "required": [
+        "turnId",
+        "sessionId",
+        "outcome",
+        "isError",
+        "permissionDenials",
+        "synthesized"
+      ],
+      "properties": {
+        "turnId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/TurnOutcome"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        },
+        "stopReason": {
+          "$ref": "#/$defs/StopReason"
+        },
+        "terminalReason": {
+          "type": "string"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "apiErrorStatus": {
+          "type": "integer"
+        },
+        "usage": {
+          "$ref": "#/$defs/UsageTotals"
+        },
+        "permissionDenials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "toolName",
+              "toolUseId"
+            ],
+            "properties": {
+              "toolName": {
+                "type": "string"
+              },
+              "toolUseId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "synthesized": {
+          "type": "boolean"
+        },
+        "raw": {}
+      }
+    },
+    "CompatInfo": {
+      "type": "object",
+      "required": [
+        "harness",
+        "version",
+        "minTested",
+        "maxTested",
+        "knownBroken",
+        "status"
+      ],
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "minTested": {
+          "type": "string"
+        },
+        "maxTested": {
+          "type": "string"
+        },
+        "knownBroken": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "enum": [
+            "tested",
+            "untested",
+            "known-broken"
+          ]
+        }
+      }
+    },
+    "CompatEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "compat"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "compat"
+        },
+        "compat": {
+          "$ref": "#/$defs/CompatInfo"
+        },
+        "raw": {}
+      }
+    },
+    "SessionStartedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "mode",
+        "pid",
+        "version",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "session.started"
+        },
+        "mode": {
+          "enum": [
+            "create",
+            "resume",
+            "fork"
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cliPid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "version": {
+          "type": "string"
+        },
+        "apiKeySource": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "TurnQueuedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "turnId"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "turn.queued"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      }
+    },
+    "TurnStartedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "turnId",
+        "origin",
+        "features",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "turn.started"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "application",
+            "harness"
+          ]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "MessageAssistantEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "message.assistant"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "aborted": {
+          "type": "boolean"
+        },
+        "raw": {}
+      }
+    },
+    "MessageDeltaEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "index",
+        "deltaType",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "message.delta"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deltaType": {
+          "anyOf": [
+            {
+              "enum": [
+                "text",
+                "thinking",
+                "input_json"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "ToolCallEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "toolUseId",
+        "toolName",
+        "kind",
+        "status",
+        "input",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "tool.call"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "toolUseId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ToolKind"
+        },
+        "status": {
+          "type": "string",
+          "const": "pending"
+        },
+        "input": {},
+        "raw": {}
+      }
+    },
+    "ToolResultEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "toolUseId",
+        "status",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "tool.result"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "toolUseId": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "raw": {}
+      }
+    },
+    "PermissionRequestedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "requestId",
+        "toolName",
+        "toolUseId",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "permission.requested"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "toolUseId": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "PermissionResolvedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "requestId",
+        "behavior",
+        "by"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "permission.resolved"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "behavior": {
+          "enum": [
+            "allow",
+            "deny",
+            "cancelled"
+          ]
+        },
+        "by": {
+          "enum": [
+            "application",
+            "harness",
+            "close",
+            "abort"
+          ]
+        },
+        "raw": {}
+      }
+    },
+    "PermissionDeniedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "toolName",
+        "toolUseId",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "permission.denied"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "toolUseId": {
+          "type": "string"
+        },
+        "reasonType": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "ApiRetryEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "attempt",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "api.retry"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retryDelayMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "errorStatus": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "UsageUpdateEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "reported",
+        "estimatedDelta"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "usage.update"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "reported": {
+          "$ref": "#/$defs/UsageTotals"
+        },
+        "estimatedDelta": {
+          "type": "object",
+          "required": [
+            "estimate"
+          ],
+          "properties": {
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cacheCreationInputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cacheReadInputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "costUsd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "estimate": {
+              "type": "boolean",
+              "const": true
+            }
+          }
+        },
+        "raw": {}
+      }
+    },
+    "TurnCompletedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "turnId",
+        "result"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "turn.completed"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/TurnResult"
+        },
+        "raw": {}
+      }
+    },
+    "SessionStateEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "state",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "session.state"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "enum": [
+                "idle",
+                "running",
+                "requires_action"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "raw": {}
+      }
+    },
+    "BackgroundTasksEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "background.tasks"
+        },
+        "raw": {}
+      }
+    },
+    "StalledEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "silentForMs",
+        "pendingPermissions"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "stalled"
+        },
+        "silentForMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "pendingPermissions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {}
+      }
+    },
+    "DiagnosticEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "diagnostic"
+        },
+        "code": {
+          "$ref": "#/$defs/DiagnosticCode"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        },
+        "raw": {}
+      }
+    },
+    "GapEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "dropped"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "gap"
+        },
+        "dropped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {}
+      }
+    },
+    "SessionTerminatedEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "intent",
+        "outcome"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "session.terminated"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "signal": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "HarnessFrameEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type",
+        "frameType",
+        "raw"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "harness.frame"
+        },
+        "frameType": {
+          "type": "string"
+        },
+        "subtype": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "KnownHudhudEvent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CompatEvent"
+        },
+        {
+          "$ref": "#/$defs/SessionStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/TurnQueuedEvent"
+        },
+        {
+          "$ref": "#/$defs/TurnStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/MessageAssistantEvent"
+        },
+        {
+          "$ref": "#/$defs/MessageDeltaEvent"
+        },
+        {
+          "$ref": "#/$defs/ToolCallEvent"
+        },
+        {
+          "$ref": "#/$defs/ToolResultEvent"
+        },
+        {
+          "$ref": "#/$defs/PermissionRequestedEvent"
+        },
+        {
+          "$ref": "#/$defs/PermissionResolvedEvent"
+        },
+        {
+          "$ref": "#/$defs/PermissionDeniedEvent"
+        },
+        {
+          "$ref": "#/$defs/ApiRetryEvent"
+        },
+        {
+          "$ref": "#/$defs/UsageUpdateEvent"
+        },
+        {
+          "$ref": "#/$defs/TurnCompletedEvent"
+        },
+        {
+          "$ref": "#/$defs/SessionStateEvent"
+        },
+        {
+          "$ref": "#/$defs/BackgroundTasksEvent"
+        },
+        {
+          "$ref": "#/$defs/StalledEvent"
+        },
+        {
+          "$ref": "#/$defs/DiagnosticEvent"
+        },
+        {
+          "$ref": "#/$defs/GapEvent"
+        },
+        {
+          "$ref": "#/$defs/SessionTerminatedEvent"
+        },
+        {
+          "$ref": "#/$defs/HarnessFrameEvent"
+        }
+      ]
+    },
+    "OpenHudhudEvent": {
+      "type": "object",
+      "required": [
+        "seq",
+        "ts",
+        "sessionId",
+        "type"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "raw": {}
+      }
+    },
+    "HudhudEvent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/KnownHudhudEvent"
+        },
+        {
+          "$ref": "#/$defs/OpenHudhudEvent"
+        }
+      ]
+    }
+  }
+}

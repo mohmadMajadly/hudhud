@@ -1,0 +1,736 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/claude-code/schema-src/wire.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "Claude Code wire frames read by hudhud",
+  "description": "Lenient: every object accepts unknown keys. The root checks only the routing envelope; the named frame views type the fields hudhud reads, each optional unless routing needs it.",
+  "$ref": "#/$defs/InboundEnvelope",
+  "$defs": {
+    "ControlRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id",
+        "request"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_request"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "subtype"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "ControlResponseEnvelope": {
+      "type": "object",
+      "required": [
+        "type",
+        "response"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_response"
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "request_id"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "ControlCancelRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_cancel_request"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "KeepAliveFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "keep_alive"
+        }
+      },
+      "additionalProperties": true
+    },
+    "ConversationEnvelope": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "not": {
+            "enum": [
+              "control_request",
+              "control_response",
+              "control_cancel_request",
+              "keep_alive"
+            ]
+          }
+        },
+        "subtype": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "InboundEnvelope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ControlRequestFrame"
+        },
+        {
+          "$ref": "#/$defs/ControlResponseEnvelope"
+        },
+        {
+          "$ref": "#/$defs/ControlCancelRequestFrame"
+        },
+        {
+          "$ref": "#/$defs/KeepAliveFrame"
+        },
+        {
+          "$ref": "#/$defs/ConversationEnvelope"
+        }
+      ]
+    },
+    "ControlResponseSuccessFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "response"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_response"
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "request_id"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "success"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "response": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "ControlResponseErrorFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "response"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_response"
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "request_id"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "error"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "ControlResponseFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ControlResponseSuccessFrame"
+        },
+        {
+          "$ref": "#/$defs/ControlResponseErrorFrame"
+        }
+      ]
+    },
+    "InitializeResponse": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claude_code_version": {
+          "type": "string"
+        },
+        "account": {
+          "type": "object",
+          "properties": {
+            "apiKeySource": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "current_permission_mode": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "InterruptResponse": {
+      "type": "object",
+      "properties": {
+        "still_queued": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cancelled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "CanUseToolRequest": {
+      "type": "object",
+      "required": [
+        "subtype",
+        "tool_name",
+        "input",
+        "tool_use_id"
+      ],
+      "properties": {
+        "subtype": {
+          "type": "string",
+          "const": "can_use_tool"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "permission_suggestions": {
+          "type": "array",
+          "items": {}
+        },
+        "blocked_path": {
+          "type": "string"
+        },
+        "decision_reason_type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "CanUseToolRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id",
+        "request"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_request"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/CanUseToolRequest"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SystemFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "subtype"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SystemInitFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "subtype"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string",
+          "const": "init"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model": {
+          "type": "string"
+        },
+        "claude_code_version": {
+          "type": "string"
+        },
+        "apiKeySource": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "ApiRetryFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "subtype"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string",
+          "const": "api_retry"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer"
+        },
+        "max_retries": {
+          "type": "integer"
+        },
+        "retry_delay_ms": {
+          "type": "number"
+        },
+        "error_status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SessionStateChangedFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "subtype"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string",
+          "const": "session_state_changed"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "sdk_host_only": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "PermissionDeniedFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "subtype"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string",
+          "const": "permission_denied"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "decision_reason_type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "AssistantFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "assistant"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_tool_use_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "object"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "UserFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "user"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_tool_use_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "StreamEventFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "stream_event"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_tool_use_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "ResultFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "result"
+        },
+        "subtype": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "is_error": {
+          "type": "boolean"
+        },
+        "result": {
+          "type": "string"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "terminal_reason": {
+          "type": "string"
+        },
+        "api_error_status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "user_message_uuid": {
+          "type": "string"
+        },
+        "user_message_uuids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "usage": {
+          "type": "object"
+        },
+        "total_cost_usd": {
+          "type": "number"
+        },
+        "num_turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "permission_denials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool_name": {
+                "type": "string"
+              },
+              "tool_use_id": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "CommandLifecycleFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "command_lifecycle"
+        },
+        "command_uuid": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "UnknownFrame": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

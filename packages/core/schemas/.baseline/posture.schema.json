@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/core/schema-src/index.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "hudhud security posture",
+  "description": "The security-relevant settings of a harness or session and whether each deviates from its default. Values never carry secrets.",
+  "$ref": "#/$defs/SecurityPosture",
+  "$defs": {
+    "SecurityPostureEntry": {
+      "type": "object",
+      "required": [
+        "setting",
+        "value",
+        "defaultValue",
+        "deviates"
+      ],
+      "properties": {
+        "setting": {
+          "type": "string"
+        },
+        "value": {},
+        "defaultValue": {},
+        "deviates": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SecurityPosture": {
+      "type": "object",
+      "required": [
+        "entries"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecurityPostureEntry"
+          }
+        }
+      }
+    }
+  }
+}

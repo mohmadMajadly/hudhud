@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/core/schema-src/index.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "hudhud harness capabilities",
+  "description": "What a harness can do, computed at connect.",
+  "$ref": "#/$defs/HarnessCapabilities",
+  "$defs": {
+    "Capability": {
+      "enum": [
+        "supported",
+        "emulated",
+        "unsupported"
+      ]
+    },
+    "ProcessContainment": {
+      "enum": [
+        "job",
+        "best-effort",
+        "cgroup"
+      ]
+    },
+    "HarnessCapabilities": {
+      "type": "object",
+      "required": [
+        "multiTurn",
+        "resume",
+        "fork",
+        "interrupt",
+        "permissionsInBand",
+        "workspaceTrust",
+        "processContainment",
+        "reasons"
+      ],
+      "properties": {
+        "multiTurn": {
+          "$ref": "#/$defs/Capability"
+        },
+        "resume": {
+          "$ref": "#/$defs/Capability"
+        },
+        "fork": {
+          "$ref": "#/$defs/Capability"
+        },
+        "interrupt": {
+          "$ref": "#/$defs/Capability"
+        },
+        "permissionsInBand": {
+          "$ref": "#/$defs/Capability"
+        },
+        "workspaceTrust": {
+          "type": "object",
+          "required": [
+            "none",
+            "context",
+            "full"
+          ],
+          "properties": {
+            "none": {
+              "$ref": "#/$defs/Capability"
+            },
+            "context": {
+              "$ref": "#/$defs/Capability"
+            },
+            "full": {
+              "$ref": "#/$defs/Capability"
+            }
+          }
+        },
+        "processContainment": {
+          "$ref": "#/$defs/ProcessContainment"
+        },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
