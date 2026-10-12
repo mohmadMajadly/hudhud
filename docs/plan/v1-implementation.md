@@ -192,7 +192,7 @@ export type TransportInput =
   | { type: 'timer'; name: TimerName }
   | { type: 'ladder.done' };
 export type CommandInput =
-  | { type: 'cmd.send'; turnId: string; content: JsonValue; priority?: 'now' | 'next' | 'later' }
+  | { type: 'cmd.send'; turnId: string; content: JsonValue }
   | { type: 'cmd.interrupt'; turnId?: string; cancelQueued: boolean; correlation: string }
   | { type: 'cmd.permission'; requestId: string; decision: JsonObject }
   | { type: 'cmd.permission-abort'; requestId: string }
@@ -275,12 +275,12 @@ Lenient: unknown `type`/`subtype` is `conversation`; `malformed` only when a rou
 export function initializeRequest(requestId: string, body: InitializeBody): JsonObject;  // no workspaceTrust parameter exists
 export function interruptRequest(requestId: string, cancelQueued: boolean): JsonObject;
 export function setPermissionModeRequest(requestId: string, mode: PermissionModeWire): JsonObject;
-export function userMessage(uuid: string, content: UserContentWire, priority?: 'now' | 'next' | 'later'): JsonObject;
+export function userMessage(uuid: string, content: UserContentWire): JsonObject;
 export function permissionResponse(requestId: string, decision: PermissionDecisionWire): JsonObject;
 export function controlErrorResponse(requestId: string, message: string): JsonObject;
 ```
 
-`InitializeBody` in v1: `{ appendSystemPrompt?: string; systemPrompt?: string[] }`. Every frame passes the strict generated validator, then `encodeJsonLine` (32 MiB cap). `initialize.workspaceTrust` cannot be sent (ADR-0012 §2, J3).
+`InitializeBody` in v1: `{}` (W1 provenance ruling, ADR-0015: `appendSystemPrompt`, `systemPrompt` and the user frame `priority` were never observed in frames nor in the MIT Python SDK, so they are not in the wire types; system prompts go through the documented `--system-prompt` / `--append-system-prompt` flags). Every frame passes the strict generated validator, then `encodeJsonLine` (32 MiB cap). `initialize.workspaceTrust` cannot be sent (ADR-0012 §2, J3).
 
 #### `protocol/machine/control.ts` (internal) — control-request correlator
 
@@ -611,7 +611,7 @@ export type PermissionHandler = (request: PermissionRequest, ctx: { readonly sig
 export type UserContentBlock =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'image'; readonly mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; readonly dataBase64: string };
-export type UserInput = string | { readonly content: readonly UserContentBlock[]; readonly priority?: 'now' | 'next' | 'later' };
+export type UserInput = string | { readonly content: readonly UserContentBlock[] };
 
 // ---- handles --------------------------------------------------------------
 export interface SessionInfo {
@@ -785,7 +785,7 @@ Cross-field validation (`INVALID_OPTIONS` unless noted): `workspaceTrust` and `c
 | `trace` | none | `TRACEPARENT` only when set | no | 0016 §2 |
 | `claudeCode.backgroundWaitCeilingMs` | 600000 | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` | no | 0008, J5 |
 | `claudeCode.allowedTools`, `disallowedTools`, `additionalDirectories` | unset | flags | yes | 0011 §4 |
-| `claudeCode.model`, `maxTurns`, `includePartialMessages` (`false`), `appendSystemPrompt` | unset | flags or `initialize` | no | |
+| `claudeCode.model`, `maxTurns`, `includePartialMessages` (`false`), `appendSystemPrompt` | unset | flags only (W1 provenance ruling) | no | |
 | `events` / `SubscriberOptions` | 10000 events, 64 MiB, `'error'` | | no | 0007 |
 | (fixed) `initialize.workspaceTrust` | never sent | none in v1 | yes (constant entry) | 0012 §2, J3 |
 | (fixed) `permission_suggestions` | never applied | none | yes (constant entry) | 0012 §3 |
