@@ -12,11 +12,14 @@
  *   CreateProcess / MSVCRT rules). `.bat`/`.cmd` files and relative paths are
  *   refused before the call (BatBadBut, binary planting).
  * - Explicit environment: the child gets `spec.env` and nothing from the
- *   host, with one documented exception on Windows: libuv adds each of
- *   {@link WIN32_REQUIRED_ENV_NAMES} from the host when the map lacks it
- *   (measured). Names that would change meaning are refused: empty, `=` or
- *   NUL in a name, NUL in a value, and on Windows two names equal ignoring
- *   case (Node would silently keep one of them).
+ *   host. On Windows libuv would copy each of {@link WIN32_REQUIRED_ENV_NAMES}
+ *   from the host into the child when the map lacks it; spawn prevents that
+ *   by passing every such name the map lacks with an empty value (measured:
+ *   libuv then adds nothing and a node child runs), and refuses a map without
+ *   a non-empty `SYSTEMROOT`, the one variable a child cannot run without
+ *   (an empty value aborts a node child at start). Names that would change
+ *   meaning are refused: empty, `=` or NUL in a name, NUL in a value, and on
+ *   Windows two names equal ignoring case (Node would silently keep one).
  * - Hygiene: `windowsHide: true`, not detached (the child stays in the host's
  *   process group on POSIX and in libuv's job on Windows; ADR-0009, ADR-0010),
  *   exactly three pipes and no IPC channel, so nothing else is inherited
@@ -57,10 +60,11 @@ import { takeSnapshot } from './tree/snapshot.js';
 import type { ProcessIdentity, ProcessTableSource } from './tree/types.js';
 
 /**
- * The variables libuv adds to a Windows child's environment from the host's
- * when the given map lacks them (libuv `make_program_env`, measured with
- * Node 24). Provide a value for each of them in `SpawnSpec.env` to keep the
- * host's values out of the child.
+ * The variables libuv's Windows process creation copies from the host into
+ * a child's environment when the given map lacks them (`required_vars` in
+ * libuv `src/win/process.c`; measured with Node 24). {@link spawnHarnessProcess}
+ * never lets that happen: it passes each of them the map lacks as an empty
+ * string, except `SYSTEMROOT`, which the map must provide.
  *
  * @public
  */
@@ -117,7 +121,13 @@ export interface SpawnSpec {
  * @public
  */
 export type SpawnSpecProblem =
-  'file-refused' | 'cwd-refused' | 'arg-nul' | 'env-name' | 'env-value' | 'env-duplicate-name';
+  | 'file-refused'
+  | 'cwd-refused'
+  | 'arg-nul'
+  | 'env-name'
+  | 'env-value'
+  | 'env-duplicate-name'
+  | 'env-missing-required';
 
 /**
  * Thrown by {@link spawnHarnessProcess} for a spec it refuses; nothing was
@@ -287,12 +297,34 @@ function checkSpec(spec: SpawnSpec, platform: ProcessPlatform): void {
     if (seen.has(key)) throw new SpawnSpecError('env-duplicate-name', name);
     seen.add(key);
   }
+  if (platform === 'win32' && windowsValue(spec.env, 'SYSTEMROOT') === '') {
+    throw new SpawnSpecError('env-missing-required', 'SYSTEMROOT');
+  }
 }
 
-/** A null-prototype copy, so no inherited property can reach the child. */
-function ownEnv(env: Readonly<Record<string, string>>): Record<string, string> {
+/** The value of `name` in `env`, compared case-insensitively as Windows does; `''` when absent. */
+function windowsValue(env: Readonly<Record<string, string>>, name: string): string {
+  const found = Object.keys(env).find((key) => key.toUpperCase() === name);
+  return found === undefined ? '' : String(env[found]);
+}
+
+/**
+ * The environment passed to the child: a null-prototype copy of `env`, plus,
+ * on Windows, every name of {@link WIN32_REQUIRED_ENV_NAMES} it lacks set to
+ * `''`, so libuv copies nothing from the host.
+ *
+ * @internal
+ */
+export function childEnv(
+  env: Readonly<Record<string, string>>,
+  platform: ProcessPlatform,
+): Record<string, string> {
   const copy = Object.create(null) as Record<string, string>;
   for (const [name, value] of Object.entries(env)) copy[name] = value;
+  if (platform === 'win32') {
+    const present = new Set(Object.keys(env).map((name) => name.toUpperCase()));
+    for (const name of WIN32_REQUIRED_ENV_NAMES) if (!present.has(name)) copy[name] = '';
+  }
   return copy;
 }
 
@@ -538,7 +570,8 @@ export async function spawnProcess(
     readonly startTime: StartTimeReader;
   },
 ): Promise<HarnessProcess> {
-  checkSpec(spec, hostPlatform(deps.platform));
+  const platform = hostPlatform(deps.platform);
+  checkSpec(spec, platform);
   const tail = new StderrTail({
     ...spec.stderrTail,
     secrets: [...secretsFromEnv(spec.env), ...(spec.secrets ?? [])],
@@ -548,7 +581,7 @@ export async function spawnProcess(
   try {
     child = deps.spawn(spec.file, [...spec.args], {
       cwd: spec.cwd,
-      env: ownEnv(spec.env),
+      env: childEnv(spec.env, platform),
       shell: false,
       windowsHide: true,
       windowsVerbatimArguments: false,

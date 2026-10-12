@@ -102,6 +102,16 @@ describe('system32Layout', () => {
         SystemRoot: 'C:\\Windows',
         PATH: 'C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
         PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+        WINDIR: 'C:\\Windows',
+        HOMEDRIVE: '',
+        HOMEPATH: '',
+        LOGONSERVER: '',
+        SYSTEMDRIVE: '',
+        TEMP: 'C:\\Windows\\Temp',
+        TMP: 'C:\\Windows\\Temp',
+        USERDOMAIN: '',
+        USERNAME: '',
+        USERPROFILE: 'C:\\Windows',
       },
     });
   });

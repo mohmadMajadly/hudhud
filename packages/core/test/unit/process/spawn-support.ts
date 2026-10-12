@@ -18,6 +18,14 @@ import type { ProcessIdentity, ProcessSnapshot } from '../../../src/process/tree
 /** A cwd every test child can use: the realpath of the OS temp directory. */
 export const CHILD_CWD = realpathSync(tmpdir());
 
+/**
+ * The smallest environment a test child runs with: nothing on POSIX; on
+ * Windows the host's `SYSTEMROOT`, which spawn requires (every other libuv
+ * required name is passed empty by spawn).
+ */
+export const BASE_ENV: Readonly<Record<string, string>> =
+  process.platform === 'win32' ? { SYSTEMROOT: process.env['SystemRoot'] ?? '' } : {};
+
 /** The host's process table (Linux `/proc`, macOS `ps`, Windows CIM). */
 export function hostTable(): ReturnType<typeof osCallsFor>['processTable'] {
   return osCallsFor(process.platform, process.pid).processTable;
@@ -119,7 +127,7 @@ export class ChildTracker {
       file: process.execPath,
       args: ['-e', script, ...(options.args ?? [])],
       cwd: CHILD_CWD,
-      env: options.env ?? {},
+      env: { ...BASE_ENV, ...options.env },
       ...options.spec,
     });
     this.track(child);

@@ -21,7 +21,15 @@ import {
   type StartTimeReader,
 } from '../../../src/process/spawn.js';
 import { findIdentity } from '../../../src/process/tree/descendants.js';
-import { CHILD_CWD, ChildTracker, hostSnapshot, readAll, sleep, within } from './spawn-support.js';
+import {
+  BASE_ENV,
+  CHILD_CWD,
+  ChildTracker,
+  hostSnapshot,
+  readAll,
+  sleep,
+  within,
+} from './spawn-support.js';
 
 const WIN32 = process.platform === 'win32';
 const LINUX = process.platform === 'linux';
@@ -50,21 +58,28 @@ const PRINT_ENV = 'process.stdout.write(JSON.stringify(process.env))';
 /** The child's argv after the script, as JSON. */
 const PRINT_ARGV = 'process.stdout.write(JSON.stringify(process.argv.slice(1)))';
 
-function hostValue(name: string): string | undefined {
-  // process.env is case-insensitive on Windows.
-  return process.env[name];
-}
-
-/** What a Windows child sees: the map plus libuv's required variables it lacks (measured). */
+/**
+ * The complete environment a child must see for `given` (which includes
+ * BASE_ENV): exactly `given` on POSIX; on Windows also every libuv required
+ * name `given` lacks, set to '' by spawn (never the host's value).
+ */
 function expectedChildEnv(given: Readonly<Record<string, string>>): Record<string, string> {
-  const expected: Record<string, string> = { ...given };
-  if (!WIN32) return expected;
+  if (!WIN32) return { ...given };
+  const defaults: Record<string, string> = {
+    HOMEDRIVE: '',
+    HOMEPATH: '',
+    LOGONSERVER: '',
+    PATH: '',
+    SYSTEMDRIVE: '',
+    TEMP: '',
+    USERDOMAIN: '',
+    USERNAME: '',
+    USERPROFILE: '',
+    WINDIR: '',
+  };
   const givenUpper = new Set(Object.keys(given).map((name) => name.toUpperCase()));
-  for (const name of WIN32_REQUIRED_ENV_NAMES) {
-    const value = hostValue(name);
-    if (!givenUpper.has(name) && value !== undefined) expected[name] = value;
-  }
-  return expected;
+  const missing = Object.entries(defaults).filter(([name]) => !givenUpper.has(name));
+  return { ...Object.fromEntries(missing), ...given };
 }
 
 describe('environment', () => {
@@ -77,7 +92,7 @@ describe('environment', () => {
       const env = { HUDHUD_A: '1', HUDHUD_EMPTY: '', HUDHUD_TEXT: 'مرحبا = x; y' };
       const child = await tracker.node(PRINT_ENV, { env });
       const seen = JSON.parse((await readAll(child)).toString('utf8')) as Record<string, string>;
-      expect(seen).toEqual(expectedChildEnv(env));
+      expect(seen).toEqual(expectedChildEnv({ ...BASE_ENV, ...env }));
       expect(seen).not.toHaveProperty('NODE_OPTIONS');
       expect(seen).not.toHaveProperty('HUDHUD_HOST_CANARY');
       expect(seen).not.toHaveProperty('NODE_CHANNEL_FD');
@@ -91,7 +106,7 @@ describe('environment', () => {
     async () => {
       const env: Record<string, string> = { HUDHUD_B: '2' };
       for (const name of WIN32_REQUIRED_ENV_NAMES) env[name] = `hudhud-${name.toLowerCase()}`;
-      env['SYSTEMROOT'] = hostValue('SYSTEMROOT') ?? 'C:\\Windows';
+      env['SYSTEMROOT'] = BASE_ENV['SYSTEMROOT'] ?? '';
       const child = await tracker.node(PRINT_ENV, { env });
       const seen = JSON.parse((await readAll(child)).toString('utf8')) as Record<string, string>;
       expect(seen).toEqual(env);
@@ -103,10 +118,10 @@ describe('environment', () => {
     'never inherits an inherited (prototype) property of the map',
     async () => {
       const env = Object.create({ HUDHUD_PROTO: 'from-prototype' }) as Record<string, string>;
-      env['HUDHUD_OWN'] = 'own';
-      const child = await tracker.node(PRINT_ENV, { env });
+      Object.assign(env, BASE_ENV, { HUDHUD_OWN: 'own' });
+      const child = await tracker.node(PRINT_ENV, { spec: { env } });
       const seen = JSON.parse((await readAll(child)).toString('utf8')) as Record<string, string>;
-      expect(seen).toEqual(expectedChildEnv({ HUDHUD_OWN: 'own' }));
+      expect(seen).toEqual(expectedChildEnv({ ...BASE_ENV, HUDHUD_OWN: 'own' }));
     },
     TIMEOUT,
   );
@@ -471,7 +486,7 @@ describe('spawn failures', () => {
         file: missing,
         args: [],
         cwd: CHILD_CWD,
-        env: {},
+        env: BASE_ENV,
       }).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(ProcessSpawnError);
       expect(error).toMatchObject({ code: 'SPAWN_FAILED', reason: 'enoent', errno: 'ENOENT' });
@@ -488,7 +503,7 @@ describe('spawn failures', () => {
         file: process.execPath,
         args: ['-e', '0'],
         cwd,
-        env: {},
+        env: BASE_ENV,
       }).catch((caught: unknown) => caught);
       expect(error).toMatchObject({ reason: 'enoent' });
       // Give the pipes time to report; an unhandled 'error' would fail the run.
@@ -504,7 +519,7 @@ describe('spawn failures', () => {
       await writeFile(file, '#!/bin/sh\nexit 0\n');
       await chmod(file, 0o644);
       await expect(
-        spawnHarnessProcess({ file, args: [], cwd: CHILD_CWD, env: {} }),
+        spawnHarnessProcess({ file, args: [], cwd: CHILD_CWD, env: BASE_ENV }),
       ).rejects.toMatchObject({ reason: 'eacces', errno: 'EACCES' });
     },
     TIMEOUT,
@@ -513,7 +528,7 @@ describe('spawn failures', () => {
   it(
     'refuses a spec before spawning anything',
     async () => {
-      const base = { file: process.execPath, args: [], cwd: CHILD_CWD, env: {} };
+      const base = { file: process.execPath, args: [], cwd: CHILD_CWD, env: BASE_ENV };
       await expect(spawnHarnessProcess({ ...base, file: 'node' })).rejects.toMatchObject({
         name: 'SpawnSpecError',
         problem: 'file-refused',

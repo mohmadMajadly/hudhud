@@ -8,6 +8,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  childEnv,
   osCallsFor,
   processTableStartTime,
   ProcessSpawnError,
@@ -107,6 +108,49 @@ describe('spawnProcess options', () => {
 });
 
 describe('spawnProcess spec checks', () => {
+  it('on Windows passes every libuv-required name the map lacks as empty, never the host value', async () => {
+    const child = new FakeChild();
+    const { spawn, calls } = fakeSpawn(child);
+    const spec = {
+      ...SPEC,
+      file: 'C:\\h\\harness.exe',
+      cwd: 'C:\\work',
+      env: { SystemRoot: 'C:\\Windows', Path: 'C:\\bin', X: '1' },
+    };
+    await spawnProcess(spec, deps(spawn, 'win32'));
+    const env = calls[0]?.options['env'] as Record<string, string>;
+    expect(Object.getPrototypeOf(env)).toBeNull();
+    expect({ ...env }).toEqual({
+      SystemRoot: 'C:\\Windows',
+      Path: 'C:\\bin',
+      X: '1',
+      HOMEDRIVE: '',
+      HOMEPATH: '',
+      LOGONSERVER: '',
+      SYSTEMDRIVE: '',
+      TEMP: '',
+      USERDOMAIN: '',
+      USERNAME: '',
+      USERPROFILE: '',
+      WINDIR: '',
+    });
+    expect(childEnv({ A: '1' }, 'posix')).toEqual({ A: '1' });
+  });
+
+  it('on Windows refuses a map without a non-empty SYSTEMROOT (any case)', async () => {
+    const { spawn, calls } = fakeSpawn(new FakeChild());
+    const win = { ...SPEC, file: 'C:\\h\\harness.exe', cwd: 'C:\\work' };
+    for (const env of [{}, { SYSTEMROOT: '' }, { systemroot: '' }, { Other: 'C:\\Windows' }]) {
+      await expect(spawnProcess({ ...win, env }, deps(spawn, 'win32'))).rejects.toEqual(
+        new SpawnSpecError('env-missing-required', 'SYSTEMROOT'),
+      );
+    }
+    expect(calls).toHaveLength(0);
+    await expect(
+      spawnProcess({ ...win, env: { systemroot: 'C:\\Windows' } }, deps(spawn, 'win32')),
+    ).resolves.toBeDefined();
+  });
+
   it('refuses Windows env names that are equal ignoring case', async () => {
     const child = new FakeChild();
     const { spawn, calls } = fakeSpawn(child);

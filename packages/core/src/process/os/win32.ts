@@ -7,8 +7,12 @@
  * `shell: false`, `windowsHide: true`, not detached, stdin and stderr
  * ignored, and an explicit environment: `SystemRoot`, a `PATH` of the
  * System32 directories only, and for PowerShell a `PSModulePath` of the
- * in-box modules only. libuv still adds the variables it requires (see
- * `WIN32_REQUIRED_ENV_NAMES` in `spawn.ts`) when they are absent.
+ * in-box modules only, `WINDIR` and `USERPROFILE` equal to `SystemRoot`
+ * (PowerShell aborts with an empty `USERPROFILE`), `TEMP` and `TMP` equal to
+ * `%SystemRoot%\Temp` (with an empty `TEMP` PowerShell falls into
+ * ConstrainedLanguage at random), and every other
+ * variable libuv would otherwise copy from the host (see
+ * `WIN32_REQUIRED_ENV_NAMES` in `spawn.ts`) set to the empty string.
  *
  * `%SystemRoot%` is read from the host environment when a call is made (not
  * when the adapter is created) and must be a plain absolute drive path
@@ -67,6 +71,21 @@ export function system32Layout(systemRoot: string): System32Layout {
       SystemRoot: systemRoot,
       PATH: `${system32};${systemRoot};${system32}\\Wbem;${psHome}`,
       PSModulePath: `${psHome}\\Modules`,
+      // Every libuv-required variable is set, so libuv copies none from the
+      // host (WIN32_REQUIRED_ENV_NAMES in spawn.ts). PowerShell 5.1 aborts
+      // with an empty USERPROFILE (measured), so it gets the OS directory.
+      WINDIR: systemRoot,
+      HOMEDRIVE: '',
+      HOMEPATH: '',
+      LOGONSERVER: '',
+      SYSTEMDRIVE: '',
+      // An empty TEMP makes PowerShell 5.1's script-policy probe fail at
+      // random, which drops it into ConstrainedLanguage (measured).
+      TEMP: `${systemRoot}\\Temp`,
+      TMP: `${systemRoot}\\Temp`,
+      USERDOMAIN: '',
+      USERNAME: '',
+      USERPROFILE: systemRoot,
     },
   };
 }
