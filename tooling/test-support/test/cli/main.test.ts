@@ -19,8 +19,11 @@ import {
 
 const LINUX = release('linux-x64', '9.9.9');
 const WIN = release('win32-x64', '9.9.9');
-// The host platform key of the default runs (the fake host reports arch x64).
-const HOST_RELEASE = process.platform === 'win32' ? WIN : LINUX;
+// The fake host is win32 on Windows and linux elsewhere (arch x64), so the
+// default runs always target a pinned platform: macOS hosts would otherwise
+// derive darwin-*, which stays pendingGate until the macOS gate passes.
+const FAKE_PLATFORM = process.platform === 'win32' ? 'win32' : 'linux';
+const HOST_RELEASE = FAKE_PLATFORM === 'win32' ? WIN : LINUX;
 
 let root = '';
 let registry: FakeRegistry;
@@ -60,7 +63,7 @@ function host(
     env,
     repoRoot: root,
     fetch: registry.fetch,
-    platform: process.platform,
+    platform: FAKE_PLATFORM,
     arch: 'x64',
     report: () => ({ header: { glibcVersionRuntime: '2.36' } }),
     now: () => new Date('2026-10-12T03:00:00.000Z'),
