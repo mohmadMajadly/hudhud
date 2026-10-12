@@ -192,8 +192,12 @@ const CLOSE_BRACKET = 0x5d;
 const QUOTE = 0x22;
 const BACKSLASH = 0x5c;
 
-/** Linear scan of the container nesting depth outside string literals. */
-function nestingExceeds(text: string, maxDepth: number): boolean {
+/**
+ * Linear scan of the container nesting depth outside string literals.
+ *
+ * @internal
+ */
+export function nestingExceeds(text: string, maxDepth: number): boolean {
   let depth = 0;
   let inString = false;
   for (let i = 0; i < text.length; i += 1) {

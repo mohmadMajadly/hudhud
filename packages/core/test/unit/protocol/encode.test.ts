@@ -4,6 +4,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_MAX_OUTBOUND_FRAME_BYTES, encodeJsonLine } from '../../../src/protocol/encode.js';
+import { DEFAULT_MAX_JSON_DEPTH } from '../../../src/protocol/json.js';
 
 const seedText = process.env['FC_SEED'];
 /** Property runs (plan §4.1): at least 1000; `FC_SEED` reproduces a failure. */
@@ -183,6 +184,51 @@ describe('encodeJsonLine', () => {
       let deep: Record<string, unknown> = {};
       for (let i = 0; i < 1_000_000; i += 1) deep = { d: deep };
       expect(encodeJsonLine(untyped(deep), 64 * MiB)).toEqual(protocolError('too-deep'));
+    });
+
+    // The limit is explicit, not the engine's stack (Node 26 stringifies
+    // depths that overflow Node 22), so the boundary is identical everywhere.
+    const nested = (depth: number, leaf: unknown = 1): Record<string, unknown> => {
+      let node: unknown = leaf;
+      for (let i = 0; i < depth; i += 1) node = { d: node };
+      return node as Record<string, unknown>;
+    };
+
+    it('accepts nesting up to DEFAULT_MAX_JSON_DEPTH and refuses one level more', () => {
+      expect(encodeJsonLine(untyped(nested(DEFAULT_MAX_JSON_DEPTH)), 64 * MiB).ok).toBe(true);
+      expect(encodeJsonLine(untyped(nested(DEFAULT_MAX_JSON_DEPTH + 1)), 64 * MiB)).toEqual(
+        protocolError('too-deep'),
+      );
+      // Arrays count as containers too.
+      expect(
+        encodeJsonLine(untyped({ a: nested(DEFAULT_MAX_JSON_DEPTH - 1, []) }), 64 * MiB),
+      ).toEqual(protocolError('too-deep'));
+    });
+
+    it('measures nesting produced by toJSON after encoding', () => {
+      const viaToJson = { toJSON: () => nested(DEFAULT_MAX_JSON_DEPTH + 88) };
+      expect(encodeJsonLine(untyped(viaToJson), 64 * MiB)).toEqual(protocolError('too-deep'));
+      expect(encodeJsonLine(untyped({ inner: viaToJson }), 64 * MiB)).toEqual(
+        protocolError('too-deep'),
+      );
+    });
+
+    it('accepts a shared, non-cyclic reference', () => {
+      const shared = { x: 1 };
+      expect(encodeJsonLine(untyped({ a: shared, b: [shared, shared] }), 64)).toEqual({
+        ok: true,
+        line: '{"a":{"x":1},"b":[{"x":1},{"x":1}]}\n',
+        bytes: 36,
+      });
+    });
+
+    it('refuses a throwing toJSON', () => {
+      const throwing = {
+        toJSON: () => {
+          throw new RangeError('boom');
+        },
+      };
+      expect(encodeJsonLine(untyped(throwing), 64)).toEqual(protocolError('not-serializable'));
     });
   });
 
