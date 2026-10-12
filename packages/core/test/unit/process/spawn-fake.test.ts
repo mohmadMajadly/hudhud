@@ -8,7 +8,6 @@ import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  childEnv,
   osCallsFor,
   processTableStartTime,
   ProcessSpawnError,
@@ -19,6 +18,7 @@ import {
   type SpawnSpec,
   type StartTimeReader,
 } from '../../../src/process/spawn.js';
+import { childEnv } from '../../../src/process/win32-env.js';
 import { bytes, fixture, fixtureProcTable } from '../../process/tree/support.js';
 
 class FakeChild extends EventEmitter {

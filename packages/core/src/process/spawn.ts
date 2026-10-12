@@ -12,7 +12,7 @@
  *   CreateProcess / MSVCRT rules). `.bat`/`.cmd` files and relative paths are
  *   refused before the call (BatBadBut, binary planting).
  * - Explicit environment: the child gets `spec.env` and nothing from the
- *   host. On Windows libuv would copy each of {@link WIN32_REQUIRED_ENV_NAMES}
+ *   host. On Windows libuv would copy each of `WIN32_REQUIRED_ENV_NAMES` (`win32-env.ts`)
  *   from the host into the child when the map lacks it; spawn prevents that
  *   by passing every such name the map lacks with an empty value (measured:
  *   libuv then adds nothing and a node child runs), and refuses a map without
@@ -54,33 +54,12 @@ import { errnoCode, hostPlatform, pathProblem, type ProcessPlatform } from './cw
 import { createDarwinPsTableCalls } from './os/darwin.js';
 import { createLinuxProcTableCalls, createPosixSignalCalls } from './os/posix.js';
 import type { OsCalls, ProcessTableCalls } from './os/types.js';
-import { createWin32CimTableCalls, createWin32TerminateCalls } from './os/win32.js';
+import { createWin32CimTableCalls } from './os/win32.js';
+import { createTaskkillCalls, nodeTaskkillDeps } from './taskkill.js';
 import { parseProcStat } from './tree/proc-stat.js';
 import { takeSnapshot } from './tree/snapshot.js';
 import type { ProcessIdentity, ProcessTableSource } from './tree/types.js';
-
-/**
- * The variables libuv's Windows process creation copies from the host into
- * a child's environment when the given map lacks them (`required_vars` in
- * libuv `src/win/process.c`; measured with Node 24). {@link spawnHarnessProcess}
- * never lets that happen: it passes each of them the map lacks as an empty
- * string, except `SYSTEMROOT`, which the map must provide.
- *
- * @public
- */
-export const WIN32_REQUIRED_ENV_NAMES: readonly string[] = Object.freeze([
-  'HOMEDRIVE',
-  'HOMEPATH',
-  'LOGONSERVER',
-  'PATH',
-  'SYSTEMDRIVE',
-  'SYSTEMROOT',
-  'TEMP',
-  'USERDOMAIN',
-  'USERNAME',
-  'USERPROFILE',
-  'WINDIR',
-]);
+import { childEnv } from './win32-env.js';
 
 /**
  * Reads the start time of a pid, in the unit of {@link StartTimeReader.source}.
@@ -308,26 +287,6 @@ function windowsValue(env: Readonly<Record<string, string>>, name: string): stri
   return found === undefined ? '' : String(env[found]);
 }
 
-/**
- * The environment passed to the child: a null-prototype copy of `env`, plus,
- * on Windows, every name of {@link WIN32_REQUIRED_ENV_NAMES} it lacks set to
- * `''`, so libuv copies nothing from the host.
- *
- * @internal
- */
-export function childEnv(
-  env: Readonly<Record<string, string>>,
-  platform: ProcessPlatform,
-): Record<string, string> {
-  const copy = Object.create(null) as Record<string, string>;
-  for (const [name, value] of Object.entries(env)) copy[name] = value;
-  if (platform === 'win32') {
-    const present = new Set(Object.keys(env).map((name) => name.toUpperCase()));
-    for (const name of WIN32_REQUIRED_ENV_NAMES) if (!present.has(name)) copy[name] = '';
-  }
-  return copy;
-}
-
 /** Waits for `spawn` or `error`, whichever comes first. */
 function started(child: ChildProcess): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -507,10 +466,12 @@ export function processTableStartTime(table: ProcessTableCalls): StartTimeReader
 /**
  * The OS adapters of `platform`, composed into {@link OsCalls} (Linux:
  * `/proc` and `kill(2)`; macOS: `/bin/ps` and `kill(2)`; Windows: CIM and
- * `taskkill`). Creating them runs nothing.
+ * `taskkill.exe` through `taskkill.ts`). Creating them runs nothing. This is
+ * the seam through which the ladders, the sweep and the snapshots reach the
+ * operating system.
  *
  * @throws Error for a platform hudhud does not support
- * @internal
+ * @public
  */
 export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls {
   if (platform === 'win32') {
@@ -518,7 +479,7 @@ export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls 
       platform,
       hostPid,
       processTable: createWin32CimTableCalls(),
-      terminate: createWin32TerminateCalls(),
+      terminate: createTaskkillCalls({ env: process.env, ...nodeTaskkillDeps }),
     };
   }
   if (platform === 'darwin') {

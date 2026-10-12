@@ -1,9 +1,10 @@
 /**
- * Windows syscall adapters (plan §1.7, §4.7, §4.8): the CIM process-table
- * query and the best-effort `taskkill` tree kill (ADR-0009).
+ * Windows syscall adapter (plan §1.7, §4.7, §4.8): the CIM process-table
+ * query. The best-effort `taskkill` calls (ADR-0009) live in
+ * `process/taskkill.ts`, which also checks the realpath of the executable.
  *
  * @remarks
- * Both run a System32 binary by absolute path under `%SystemRoot%`, with
+ * The query runs a System32 binary by absolute path under `%SystemRoot%`, with
  * `shell: false`, `windowsHide: true`, not detached, stdin and stderr
  * ignored, and an explicit environment: `SystemRoot`, a `PATH` of the
  * System32 directories only, and for PowerShell a `PSModulePath` of the
@@ -12,7 +13,7 @@
  * `%SystemRoot%\Temp` (with an empty `TEMP` PowerShell falls into
  * ConstrainedLanguage at random), and every other
  * variable libuv would otherwise copy from the host (see
- * `WIN32_REQUIRED_ENV_NAMES` in `spawn.ts`) set to the empty string.
+ * `WIN32_REQUIRED_ENV_NAMES` in `win32-env.ts`) set to the empty string.
  *
  * `%SystemRoot%` is read from the host environment when a call is made (not
  * when the adapter is created) and must be a plain absolute drive path
@@ -29,7 +30,7 @@
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 
-import type { TaskkillResult, Win32CimTableCalls, Win32TerminateCalls } from './types.js';
+import type { Win32CimTableCalls } from './types.js';
 
 /** A plain absolute drive path: `X:\segment[\segment...]`, no forbidden characters. */
 const PLAIN_DRIVE_PATH = /^[A-Za-z]:(?:\\[^\\/:*?"<>|\p{Cc}]+)+$/u;
@@ -56,7 +57,6 @@ export function systemRootOf(env: Readonly<Record<string, string | undefined>>):
 /** The absolute paths and environment used for one `%SystemRoot%`. */
 export interface System32Layout {
   readonly powershell: string;
-  readonly taskkill: string;
   readonly env: Readonly<Record<string, string>>;
 }
 
@@ -66,13 +66,12 @@ export function system32Layout(systemRoot: string): System32Layout {
   const psHome = `${system32}\\WindowsPowerShell\\v1.0`;
   return {
     powershell: `${psHome}\\powershell.exe`,
-    taskkill: `${system32}\\taskkill.exe`,
     env: {
       SystemRoot: systemRoot,
       PATH: `${system32};${systemRoot};${system32}\\Wbem;${psHome}`,
       PSModulePath: `${psHome}\\Modules`,
       // Every libuv-required variable is set, so libuv copies none from the
-      // host (WIN32_REQUIRED_ENV_NAMES in spawn.ts). PowerShell 5.1 aborts
+      // host (WIN32_REQUIRED_ENV_NAMES in win32-env.ts). PowerShell 5.1 aborts
       // with an empty USERPROFILE (measured), so it gets the OS directory.
       WINDIR: systemRoot,
       HOMEDRIVE: '',
@@ -222,27 +221,6 @@ export function createWin32CimTableCalls(options: Win32AdapterOptions = {}): Win
         throw new Error(`process table query exited with ${String(result.exitCode)}`);
       }
       return result.stdout;
-    },
-  };
-}
-
-/**
- * The best-effort tree kill (contract on {@link Win32TerminateCalls}):
- * `taskkill /T /F /PID <pid>`. Callers pass only a pid whose identity they
- * verified; `pid` must be a safe integer `>= 1` (`RangeError` otherwise).
- *
- * @internal
- */
-export function createWin32TerminateCalls(options: Win32AdapterOptions = {}): Win32TerminateCalls {
-  const run = options.run ?? runCommand;
-  return {
-    async taskkillTree(pid): Promise<TaskkillResult> {
-      if (!Number.isSafeInteger(pid) || pid < 1) {
-        throw new RangeError(`pid must be a safe integer >= 1, got ${String(pid)}`);
-      }
-      const layout = system32Layout(systemRootOf(options.hostEnv ?? process.env));
-      const result = await run(layout.taskkill, ['/T', '/F', '/PID', String(pid)], layout.env);
-      return { exitCode: result.exitCode };
     },
   };
 }

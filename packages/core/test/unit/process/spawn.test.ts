@@ -16,11 +16,11 @@ import {
   ProcessSpawnError,
   ProcessStreamError,
   spawnHarnessProcess,
-  WIN32_REQUIRED_ENV_NAMES,
   type HarnessProcess,
   type StartTimeReader,
 } from '../../../src/process/spawn.js';
 import { findIdentity } from '../../../src/process/tree/descendants.js';
+import { WIN32_REQUIRED_ENV_NAMES } from '../../../src/process/win32-env.js';
 import {
   BASE_ENV,
   CHILD_CWD,

@@ -17,6 +17,8 @@
  *
  * @remarks
  * Start times are field 22 of `/proc/<pid>/stat` (clock ticks since boot).
+ *
+ * @public
  */
 export interface LinuxProcTableCalls {
   readonly source: 'linux-proc';
@@ -41,6 +43,8 @@ export interface LinuxProcTableCalls {
  * unambiguous across DST changes (plan decision of W1-T9, additive to the
  * plan's `LC_ALL=C`). The exact field list is to be confirmed by the macOS
  * gate. Resolves with stdout as bytes; rejects on a non-zero exit.
+ *
+ * @public
  */
 export interface DarwinPsTableCalls {
   readonly source: 'darwin-ps';
@@ -63,19 +67,33 @@ export interface DarwinPsTableCalls {
  * canonical microseconds, see `tree/start-time.ts`) or `''` when absent, `n` =
  * `Name` (string or null). JSON escapes control characters, so a hostile
  * name cannot forge a record. Resolves with stdout as bytes.
+ *
+ * @public
  */
 export interface Win32CimTableCalls {
   readonly source: 'win32-cim';
   queryProcesses(): Promise<Uint8Array>;
 }
 
-/** Reads of the process table for one platform. */
+/**
+ * Reads of the process table for one platform.
+ *
+ * @public
+ */
 export type ProcessTableCalls = LinuxProcTableCalls | DarwinPsTableCalls | Win32CimTableCalls;
 
-/** The only signals the POSIX ladder sends (ADR-0010). */
+/**
+ * The only signals the POSIX ladder sends (ADR-0010).
+ *
+ * @public
+ */
 export type PosixSignal = 'SIGTERM' | 'SIGKILL';
 
-/** Result of one `kill(2)` call, mapped from its errno. */
+/**
+ * Result of one `kill(2)` call, mapped from its errno.
+ *
+ * @public
+ */
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
 
 /**
@@ -86,28 +104,43 @@ export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
  * adapter itself refuses nothing and decides nothing. `signalGroup(pgid)`
  * is `kill(-pgid, signal)`; it is never called for the host's, the
  * launcher's or the CLI's group (ADR-0010, K1).
+ *
+ * @public
  */
 export interface PosixSignalCalls {
   signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
   signalGroup(pgid: number, signal: PosixSignal): SignalOutcome;
 }
 
-/** Result of the best-effort Windows tree kill. */
+/**
+ * Result of the best-effort Windows tree kill.
+ *
+ * @public
+ */
 export interface TaskkillResult {
   readonly exitCode: number | null;
 }
 
 /**
- * Windows best-effort fallback (ADR-0009): `taskkill /T /F /PID <pid>` by
- * absolute path `%SystemRoot%\System32\taskkill.exe`, `shell: false`.
- * `TerminateJobObject` belongs to the job addon handle and `TerminateProcess`
- * to the child handle, so neither is here.
+ * Windows best-effort fallback (ADR-0009): `taskkill.exe` by absolute path
+ * `%SystemRoot%\System32\taskkill.exe`, `shell: false` (implemented by
+ * `process/taskkill.ts`). `TerminateJobObject` belongs to the job addon
+ * handle and `TerminateProcess` to the child handle, so neither is here.
+ *
+ * @public
  */
 export interface Win32TerminateCalls {
+  /** `taskkill /T /F /PID <pid>`: the tree kill of the best-effort ladder. */
   taskkillTree(pid: number): Promise<TaskkillResult>;
+  /** `taskkill /F /PID <pid>` (no `/T`): one identity-verified process, used by the sweep. */
+  taskkillProcess(pid: number): Promise<TaskkillResult>;
 }
 
-/** Everything the process layer asks of the operating system. */
+/**
+ * Everything the process layer asks of the operating system.
+ *
+ * @public
+ */
 export type OsCalls =
   | {
       readonly platform: 'linux';

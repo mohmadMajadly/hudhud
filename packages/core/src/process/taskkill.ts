@@ -20,7 +20,9 @@
  *   `SystemRoot` or `System32` elsewhere is refused, as is anything that is
  *   not a regular file.
  * - `shell: false`, `windowsHide: true`, no verbatim arguments, the current
- *   directory set to `System32`, an environment of exactly `{ SystemRoot }`,
+ *   directory set to `System32`, an environment of `SystemRoot` plus every
+ *   other `WIN32_REQUIRED_ENV_NAMES` entry set to `''` (so libuv copies
+ *   nothing from the host, `win32-env.ts`),
  *   a timeout, and a bounded output buffer.
  * - The pid must be a positive safe integer that is neither 0 (System Idle
  *   Process) nor 4 (System).
@@ -39,6 +41,7 @@ import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 
 import { pathProblem } from './cwd.js';
+import { childEnv } from './win32-env.js';
 import type { TaskkillResult, Win32TerminateCalls } from './os/types.js';
 
 /**
@@ -245,15 +248,13 @@ export function taskkillArgv(pid: number, tree = true): readonly string[] {
 }
 
 /**
- * The `taskkill` calls of the Windows ladder: the tree kill of
- * {@link Win32TerminateCalls} plus a kill of one process (no `/T`), used by
- * the sweep for identity-verified descendants.
+ * The `taskkill` calls of the Windows ladder: the tree kill plus a kill of
+ * one process (no `/T`), used by the sweep for identity-verified
+ * descendants. The same contract as the `terminate` calls of `OsCalls`.
  *
  * @public
  */
-export interface TaskkillCalls extends Win32TerminateCalls {
-  taskkillProcess(pid: number): Promise<TaskkillResult>;
-}
+export type TaskkillCalls = Win32TerminateCalls;
 
 /**
  * The `taskkill` calls. Each resolves with `exitCode` 0 on success, the
@@ -272,7 +273,7 @@ export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls {
       windowsHide: true,
       windowsVerbatimArguments: false,
       cwd: `${systemRoot}\\System32`,
-      env: { SystemRoot: systemRoot },
+      env: { ...childEnv({ SystemRoot: systemRoot }, 'win32') },
       timeout: deps.timeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS,
       killSignal: 'SIGKILL',
       maxBuffer: MAX_OUTPUT_BYTES,

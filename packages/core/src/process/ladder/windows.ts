@@ -48,7 +48,6 @@
  */
 
 import type { OsCalls } from '../os/types.js';
-import type { TaskkillCalls } from '../taskkill.js';
 import { takeSnapshot } from '../tree/snapshot.js';
 import { descendantsOf, findIdentity } from '../tree/descendants.js';
 import type { ProcessIdentity, ProcessSnapshot } from '../tree/types.js';
@@ -102,14 +101,13 @@ export interface JobHandle {
 }
 
 /**
- * The Windows part of {@link OsCalls}, with the `taskkill` calls of
- * `taskkill.ts` (the tree kill plus the per-process kill the sweep uses).
+ * The Windows part of {@link OsCalls}, as `osCallsFor('win32', ...)` builds it:
+ * the CIM process table and the `taskkill` calls of `taskkill.ts` (the tree
+ * kill plus the per-process kill the sweep uses).
  *
  * @public
  */
-export type WindowsOsCalls = Omit<Extract<OsCalls, { readonly platform: 'win32' }>, 'terminate'> & {
-  readonly terminate: TaskkillCalls;
-};
+export type WindowsOsCalls = Extract<OsCalls, { readonly platform: 'win32' }>;
 
 /**
  * Dependencies of {@link runWindowsLadder}.

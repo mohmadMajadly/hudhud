@@ -11,13 +11,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   CIM_SCRIPT,
   createWin32CimTableCalls,
-  createWin32TerminateCalls,
   POWERSHELL_ARGS,
   runCommand,
   system32Layout,
   systemRootOf,
   type CommandRunner,
 } from '../../../../src/process/os/win32.js';
+import { osCallsFor } from '../../../../src/process/spawn.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { compareStartTime } from '../../../../src/process/tree/start-time.js';
 import { parseWin32ProcessJson } from '../../../../src/process/tree/win32.js';
@@ -97,7 +97,6 @@ describe('system32Layout', () => {
   it('derives absolute System32 paths and a System32-only environment', () => {
     expect(system32Layout('C:\\Windows')).toEqual({
       powershell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-      taskkill: 'C:\\Windows\\System32\\taskkill.exe',
       env: {
         SystemRoot: 'C:\\Windows',
         PATH: 'C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
@@ -160,27 +159,23 @@ describe('createWin32CimTableCalls', () => {
   );
 });
 
-describe('createWin32TerminateCalls', () => {
-  it('runs exactly taskkill.exe /T /F /PID <pid> by absolute path and returns its exit code', async () => {
-    const { run, calls } = recorder(128);
-    const terminate = createWin32TerminateCalls({ hostEnv: HOST_ENV, run });
-    await expect(terminate.taskkillTree(4321)).resolves.toEqual({ exitCode: 128 });
-    expect(calls).toEqual([
-      {
-        file: 'D:\\Win\\System32\\taskkill.exe',
-        args: ['/T', '/F', '/PID', '4321'],
-        env: system32Layout('D:\\Win').env,
-      },
-    ]);
+// The Windows terminate calls of the OS seam are the hardened `taskkill.ts`
+// calls (W2-Z reconciliation); their command lines are tested in
+// test/process/taskkill.test.ts, the composition here.
+describe('the win32 terminate calls of osCallsFor', () => {
+  const terminate = osCallsFor('win32', process.pid);
+
+  it('are the taskkill.ts calls: the tree kill and the per-process kill', () => {
+    if (terminate.platform !== 'win32') throw new Error('expected the win32 calls');
+    expect(Object.keys(terminate.terminate).sort()).toEqual(['taskkillProcess', 'taskkillTree']);
   });
 
-  it('refuses a pid that is not a positive safe integer without running anything', async () => {
-    const { run, calls } = recorder();
-    const terminate = createWin32TerminateCalls({ hostEnv: HOST_ENV, run });
-    for (const pid of [0, -4, 1.5, Number.NaN]) {
-      await expect(terminate.taskkillTree(pid)).rejects.toBeInstanceOf(RangeError);
+  it('refuse a pid that is not a positive safe integer, or 0 or 4, before resolving anything', async () => {
+    if (terminate.platform !== 'win32') throw new Error('expected the win32 calls');
+    for (const pid of [0, 4, -4, 1.5, Number.NaN]) {
+      await expect(terminate.terminate.taskkillTree(pid)).rejects.toBeInstanceOf(RangeError);
+      await expect(terminate.terminate.taskkillProcess(pid)).rejects.toBeInstanceOf(RangeError);
     }
-    expect(calls).toEqual([]);
   });
 
   it.runIf(WIN32)(
@@ -206,7 +201,9 @@ describe('createWin32TerminateCalls', () => {
       ).toBeGreaterThanOrEqual(0);
       if (grandchild !== undefined) tracker.trackDescendant(grandchild);
 
-      const result = await createWin32TerminateCalls().taskkillTree(child.pid);
+      const calls = osCallsFor('win32', process.pid);
+      if (calls.platform !== 'win32') throw new Error('expected the win32 calls');
+      const result = await calls.terminate.taskkillTree(child.pid);
       expect(result).toEqual({ exitCode: 0 });
       await within(child.exited, 10_000, 'exit after taskkill');
       await iterator.return?.();

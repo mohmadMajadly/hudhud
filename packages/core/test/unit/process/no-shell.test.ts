@@ -38,6 +38,9 @@ function code(text: string): string {
 /** Calls that start a process. */
 const STARTS_PROCESS = /\b(?:spawn|spawnSync|execFile|execFileSync|fork)\s*\(/;
 
+/** A `shell` option or property and its value (up to `,`, `;`, `}` or whitespace). */
+const SHELL_OPTION = /\bshell\s*:\s*([^,;}\s]+)/g;
+
 /** child_process APIs that always run a shell. */
 const SHELL_API = /\b(?:exec|execSync)\s*\(|\bexec(?:Sync)?\b\s*[,}]/;
 
@@ -51,7 +54,7 @@ describe('no shell in packages/*/src', () => {
 
   it('has no shell option other than `shell: false`', () => {
     const offenders = files.flatMap((file) =>
-      [...code(readFileSync(file, 'utf8')).matchAll(/\bshell\s*:\s*([^,}\s]+)/g)]
+      [...code(readFileSync(file, 'utf8')).matchAll(SHELL_OPTION)]
         .filter((match) => match[1] !== 'false')
         .map((match) => `${path.relative(ROOT, file)}: ${match[0]}`),
     );
@@ -80,7 +83,14 @@ describe('no shell in packages/*/src', () => {
 
   it('the detectors catch the forms they guard against', () => {
     const shellTrue = code('spawn(file, args, { shell: true }); // { shell: false }');
-    expect([...shellTrue.matchAll(/\bshell\s*:\s*([^,}\s]+)/g)].map((match) => match[1])).toEqual([
+    expect([...shellTrue.matchAll(SHELL_OPTION)].map((match) => match[1])).toEqual(['true']);
+    // A property type (`readonly shell: false;`) is the literal `false`, not `false;`.
+    expect(
+      [...code('interface O { readonly shell: false; x: 1 }').matchAll(SHELL_OPTION)].map(
+        (match) => match[1],
+      ),
+    ).toEqual(['false']);
+    expect([...code('let o: { shell: true; }').matchAll(SHELL_OPTION)].map((m) => m[1])).toEqual([
       'true',
     ]);
     expect(code("x({ shell: 'cmd.exe' })")).toMatch(/shell\s*:\s*'cmd\.exe'/);
