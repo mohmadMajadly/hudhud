@@ -1,5 +1,5 @@
 /**
- * Host access of the macOS gate harness (plan Â§5.4 M1), injected.
+ * Host access of the macOS gate harness (plan §5.4 M1), injected.
  *
  * @remarks
  * Types only. The real implementation is the thin wrapper
@@ -109,7 +109,7 @@ export interface GateHost {
   /** `kill(pid, signal)`; a negative pid names a process group. */
   signal(pid: number, signal: NodeJS.Signals): SignalResult;
   readonly fs: GateFs;
-  /** The calls `validateCwd` uses (core, plan Â§1.7). */
+  /** The calls `validateCwd` uses (core, plan §1.7). */
   readonly cwdFs: CwdFs;
   /** Starts the in-process mock Messages API with its egress trap (test-support). */
   startMock(): Promise<MockServer>;

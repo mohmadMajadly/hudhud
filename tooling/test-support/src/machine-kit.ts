@@ -20,86 +20,46 @@
  * fired before `session.end`; nothing is emitted after `session.end`; a
  * control correlation settles at most once.
  *
- * The contract types are mirrored here structurally (`Kit*`), so the kit
- * depends on no workspace package; a type-level test asserts that the mirror
- * and `@hudhud/core/protocol` agree and that every `HarnessMachine` is a
- * {@link KitMachine}. The module also exports {@link referenceMachine}, a
- * trivial neutral machine that satisfies the contract, for driver tests.
+ * The input types are the contract's own (`@hudhud/core/protocol`). Effects
+ * are read loosely ({@link KitEffect}) and every field is checked at run
+ * time, so the kit also reports a malformed machine instead of trusting its
+ * types; every `HarnessMachine` is a {@link KitMachine}. The module also
+ * exports {@link referenceMachine}, a trivial neutral machine that satisfies
+ * the contract, for driver tests.
  */
 
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 
+import type {
+  CommandInput,
+  JsonObject,
+  JsonValue,
+  MachineInput,
+  TransportInput,
+} from '@hudhud/core/protocol';
 import fc from 'fast-check';
 
-// ---- contract mirror ----------------------------------------------------------
-
-/** Mirror of the core `JsonValue`. */
-export type KitJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly KitJsonValue[]
-  | { readonly [key: string]: KitJsonValue };
-
-/** Mirror of the core `JsonObject`. */
-export type KitJsonObject = Readonly<Record<string, KitJsonValue>>;
-
-/** Mirror of the core `TransportInput`. */
-export type KitTransportInput =
-  | { readonly type: 'process.started'; readonly pid: number }
-  | { readonly type: 'line'; readonly text: string; readonly bytes: number }
-  | { readonly type: 'line.oversized'; readonly bytes: number }
-  | { readonly type: 'line.invalid-utf8'; readonly bytes: number }
-  | { readonly type: 'stderr.line'; readonly text: string }
-  | { readonly type: 'stdout.end' }
-  | { readonly type: 'stdin.error'; readonly code: string }
-  | { readonly type: 'process.spawn-error'; readonly code: string }
-  | { readonly type: 'process.exit'; readonly code: number | null; readonly signal: string | null }
-  | { readonly type: 'timer'; readonly name: string }
-  | { readonly type: 'ladder.done' };
-
-/** Mirror of the core `CommandInput`. */
-export type KitCommandInput =
-  | { readonly type: 'cmd.send'; readonly turnId: string; readonly content: KitJsonValue }
-  | {
-      readonly type: 'cmd.interrupt';
-      readonly turnId?: string;
-      readonly cancelQueued: boolean;
-      readonly correlation: string;
-    }
-  | {
-      readonly type: 'cmd.permission';
-      readonly requestId: string;
-      readonly decision: KitJsonObject;
-    }
-  | { readonly type: 'cmd.permission-abort'; readonly requestId: string }
-  | {
-      readonly type: 'cmd.set-permission-mode';
-      readonly mode: string;
-      readonly correlation: string;
-    }
-  | { readonly type: 'cmd.close' }
-  | { readonly type: 'cmd.abort'; readonly intent: 'abort' | 'dispose' };
+// ---- contract -------------------------------------------------------------------
 
 /** An input without its clock stamp. */
-export type KitInputBody = KitTransportInput | KitCommandInput;
-
-/** Mirror of the core `MachineInput`. */
-export type KitMachineInput = { readonly atMs: number; readonly at: string } & KitInputBody;
+export type KitInputBody = TransportInput | CommandInput;
 
 /** An effect as the kit reads it: the kit checks every other field at run time. */
 export interface KitEffect {
   readonly type: string;
 }
 
-/** What the kit needs of a machine; every core `HarnessMachine` is one. */
+/**
+ * What the kit needs of a machine: the core `HarnessMachine` with its
+ * effects read as {@link KitEffect}, so malformed machines can be driven
+ * too. Every `HarnessMachine` is one.
+ */
 export interface KitMachine<State, Config> {
   readonly initialState: (config: Config) => State;
   readonly step: (
     state: State,
-    input: KitMachineInput,
+    input: MachineInput,
   ) => { readonly state: State; readonly effects: readonly KitEffect[] };
 }
 
@@ -116,13 +76,13 @@ export type KitAction =
   /** Feed a `line` with this text; the driver computes `bytes`. */
   | { readonly kind: 'line'; readonly text: string }
   /** `cmd.send` with the next driver turn id. */
-  | { readonly kind: 'send'; readonly content: KitJsonValue }
+  | { readonly kind: 'send'; readonly content: JsonValue }
   /** `cmd.interrupt` of a sent turn (or of none when `target` is negative). */
   | { readonly kind: 'interrupt'; readonly target: number; readonly cancelQueued: boolean }
   /** `cmd.set-permission-mode` with the next driver correlation. */
   | { readonly kind: 'set-mode'; readonly mode: string }
   /** `cmd.permission` for a pending ask. */
-  | { readonly kind: 'answer'; readonly target: number; readonly decision: KitJsonObject }
+  | { readonly kind: 'answer'; readonly target: number; readonly decision: JsonObject }
   /** `cmd.permission-abort` for a pending ask. */
   | { readonly kind: 'abort-ask'; readonly target: number }
   /** Advance the clock to an armed timer's deadline and fire it. */
@@ -137,7 +97,7 @@ export interface MachineActionOptions {
   /** Further inputs to interleave as is. */
   readonly inputs?: fc.Arbitrary<KitInputBody>;
   /** Content of `cmd.send`. Default: short strings. */
-  readonly content?: fc.Arbitrary<KitJsonValue>;
+  readonly content?: fc.Arbitrary<JsonValue>;
   /** Most actions per run. Default 40. */
   readonly maxActions?: number;
 }
@@ -224,7 +184,7 @@ export interface RunMachineOptions {
 
 /** One step of a run. */
 export interface KitStep<State> {
-  readonly input: KitMachineInput;
+  readonly input: MachineInput;
   readonly effects: readonly KitEffect[];
   readonly state: State;
 }
@@ -472,7 +432,7 @@ export function runMachine<State, Config>(
 
   /** Feeds one input; returns `false` once a violation stops the run. */
   const feed = (body: KitInputBody): boolean => {
-    const input: KitMachineInput = { ...body, atMs: now, at: new Date(now).toISOString() };
+    const input: MachineInput = { ...body, atMs: now, at: new Date(now).toISOString() };
     const found = stepChecked(machine, state, input);
     if (typeof found === 'string') {
       violations.push(`${body.type}: ${found}`);
@@ -565,7 +525,7 @@ function pick<T>(items: readonly T[], index: number): T | undefined {
 function stepChecked<State, Config>(
   machine: KitMachine<State, Config>,
   state: State,
-  input: KitMachineInput,
+  input: MachineInput,
 ): { readonly state: State; readonly effects: readonly KitEffect[] } | string {
   // The state is JSON-stable here: the initial state and every step output are checked.
   const snapshot = JSON.stringify(state);
@@ -662,11 +622,11 @@ export interface ReferenceState {
 }
 
 /** An effect with its fields. */
-function fx(type: string, fields: KitJsonObject = {}): KitEffect {
+function fx(type: string, fields: JsonObject = {}): KitEffect {
   return { ...fields, type };
 }
 
-function errorData(code: string, retryable: boolean): KitJsonObject {
+function errorData(code: string, retryable: boolean): JsonObject {
   return { code, message: code.toLowerCase().replaceAll('_', ' '), retryable };
 }
 
@@ -722,13 +682,13 @@ class Draft {
     return this.prior.config.sessionId;
   }
 
-  event(type: string, fields: KitJsonObject): void {
+  event(type: string, fields: JsonObject): void {
     const event = { ...fields, type, seq: this.seq, ts: this.at, sessionId: this.sessionId };
     this.effects.push(fx('event', { event }));
     this.seq += 1;
   }
 
-  write(message: KitJsonObject): void {
+  write(message: JsonObject): void {
     if (this.stdinOpen) this.effects.push(fx('write', { line: `${JSON.stringify(message)}\n` }));
   }
 
@@ -813,14 +773,14 @@ class Draft {
   }
 }
 
-function isJsonObject(value: KitJsonValue): value is KitJsonObject {
+function isJsonObject(value: JsonValue): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Parses a reference wire line into an object; `undefined` when it is not one. */
-function parseLine(text: string): KitJsonObject | undefined {
+function parseLine(text: string): JsonObject | undefined {
   try {
-    const value = JSON.parse(text) as KitJsonValue;
+    const value = JSON.parse(text) as JsonValue;
     return isJsonObject(value) ? value : undefined;
   } catch {
     return undefined;
@@ -859,7 +819,7 @@ export const referenceMachine: KitMachine<ReferenceState, ReferenceConfig> = {
   },
 };
 
-function referenceStep(d: Draft, input: KitMachineInput): void {
+function referenceStep(d: Draft, input: MachineInput): void {
   const { config } = d.prior;
   switch (input.type) {
     case 'process.started':

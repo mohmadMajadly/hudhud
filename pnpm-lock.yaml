@@ -157,6 +157,9 @@ importers:
 
   tooling/test-support:
     dependencies:
+      '@hudhud/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       fast-check:
         specifier: 'catalog:'
         version: 4.10.2

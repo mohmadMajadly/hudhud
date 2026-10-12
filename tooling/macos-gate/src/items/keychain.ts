@@ -1,5 +1,5 @@
 /**
- * Gate item 3, Keychain (ADR-0014; research 01 Â§5: credentials live in the
+ * Gate item 3, Keychain (ADR-0014; research 01 §5: credentials live in the
  * macOS Keychain, keyed by config dir).
  *
  * With API-key auth and an isolated `CLAUDE_CONFIG_DIR` and `HOME`, the CLI

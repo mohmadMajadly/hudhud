@@ -3,19 +3,22 @@
  *
  * @remarks
  * Each row carries the identity used everywhere in hudhud (pid plus start
- * time, ADR-0011 J9) and, unlike the core parsers of
- * `@hudhud/core/process`, the command line: the suite-level sweep finds
- * survivors by the sandbox root in their command lines (07 §13). Sources:
- * Linux `/proc/<pid>/stat` (start time = field 22, clock ticks since boot)
- * and `/proc/<pid>/cmdline`; Windows one CIM query over `Win32_Process`
- * through `powershell.exe` by absolute path (start time = FILETIME of
- * `CreationDate`). macOS follows its gate (M1). Reads only; nothing here
- * signals a process.
+ * time, ADR-0011 J9), parsed by the core parsers of `@hudhud/core/process`
+ * so it compares with spawn identities, plus the command line, which the
+ * core snapshots do not read: the suite-level sweep finds survivors by the
+ * sandbox root in their command lines (07 §13). Sources: Linux
+ * `/proc/<pid>/stat` (start time = field 22, clock ticks since boot) and
+ * `/proc/<pid>/cmdline`; Windows one CIM query over `Win32_Process` through
+ * `powershell.exe` by absolute path (start time = `CreationDate` in the
+ * canonical microseconds). macOS follows its gate (M1). Reads only; nothing
+ * here signals a process.
  */
 
 import { execFile } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+
+import { parseProcStat, parseWin32ProcessJson } from '@hudhud/core/process';
 
 import { windowsSystemRoot } from '../launcher/env.js';
 
@@ -37,14 +40,9 @@ export interface ProcessTable {
   read(): Promise<readonly ProcessRow[]>;
 }
 
-const DECIMAL = /^[0-9]{1,20}$/;
-
+/** A real process: pid 0 (the idle process) is skipped. */
 function isPid(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-function isPpid(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 /**
@@ -66,33 +64,29 @@ export const WIN32_PROCESS_SCRIPT: string = [
  * yields no rows.
  */
 export function parseWin32Processes(text: string): readonly ProcessRow[] {
-  let document: unknown;
-  try {
-    document = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
-  } catch {
-    return [];
-  }
+  // pid, ppid, start time and name: the core parser, so start times are in
+  // the canonical Windows unit (microseconds) that spawn identities use.
+  const { records } = parseWin32ProcessJson(new TextEncoder().encode(text));
+  if (records.length === 0) return [];
+  // The command line is the one field the core query does not carry.
+  const commandLines = new Map<number, string>();
+  const document: unknown = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   const entries: readonly unknown[] = Array.isArray(document) ? document : [document];
-  const rows: ProcessRow[] = [];
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
     const pid: unknown = Reflect.get(entry, 'p');
-    const ppid: unknown = Reflect.get(entry, 'pp');
-    const startTime: unknown = Reflect.get(entry, 't');
-    const name: unknown = Reflect.get(entry, 'n');
     const commandLine: unknown = Reflect.get(entry, 'c');
-    if (!isPid(pid) || !isPpid(ppid) || typeof startTime !== 'string' || !DECIMAL.test(startTime)) {
-      continue;
-    }
-    rows.push({
-      pid,
-      ppid,
-      startTime,
-      name: typeof name === 'string' ? name : '',
-      commandLine: typeof commandLine === 'string' ? commandLine : '',
-    });
+    if (isPid(pid) && typeof commandLine === 'string') commandLines.set(pid, commandLine);
   }
-  return rows;
+  return records
+    .filter((record) => isPid(record.pid))
+    .map((record) => ({
+      pid: record.pid,
+      ppid: record.ppid,
+      startTime: record.startTime,
+      name: record.name,
+      commandLine: commandLines.get(record.pid) ?? '',
+    }));
 }
 
 /**
@@ -103,19 +97,14 @@ export function parseWin32Processes(text: string): readonly ProcessRow[] {
  * @returns the row, or `null` when the stat text is malformed.
  */
 export function parseLinuxProcess(stat: string, cmdline: string): ProcessRow | null {
-  const open = stat.indexOf('(');
-  const close = stat.lastIndexOf(')');
-  if (open < 0 || close < open) return null;
-  const pid = Number(stat.slice(0, open).trim());
-  const fields = stat.slice(close + 2).split(' ');
-  const ppid = Number(fields[1]);
-  const startTime = fields[19] ?? '';
-  if (!isPid(pid) || !isPpid(ppid) || !DECIMAL.test(startTime)) return null;
+  // The core parser (`@hudhud/core/process`), as for every other snapshot.
+  const record = parseProcStat(new TextEncoder().encode(stat));
+  if (record === null || !isPid(record.pid)) return null;
   return {
-    pid,
-    ppid,
-    startTime,
-    name: stat.slice(open + 1, close),
+    pid: record.pid,
+    ppid: record.ppid,
+    startTime: record.startTime,
+    name: record.name,
     commandLine: cmdline
       .split('\0')
       .filter((arg) => arg !== '')

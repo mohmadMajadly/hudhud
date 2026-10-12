@@ -1,13 +1,13 @@
 import process from 'node:process';
 
 import fc from 'fast-check';
+import type { JsonValue } from '@hudhud/core/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   KitAction,
   KitEffect,
   KitInputBody,
-  KitJsonValue,
   KitMachine,
   ReferenceConfig,
   ReferenceState,
@@ -106,7 +106,7 @@ describe('reference machine through the kit', () => {
         { type: 'process.spawn-error', code: 'ENOENT' },
         { type: 'process.started', pid: 7 },
       ),
-      content: fc.jsonValue().map((value) => JSON.parse(JSON.stringify(value)) as KitJsonValue),
+      content: fc.jsonValue().map((value) => JSON.parse(JSON.stringify(value)) as JsonValue),
       maxActions: 20,
       numRuns: 300,
       ...seed,

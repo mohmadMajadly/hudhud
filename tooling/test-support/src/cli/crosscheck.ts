@@ -20,7 +20,7 @@ import path from 'node:path';
 import { createStaging, removeStaging } from './cache.js';
 import { CliFetchError } from './errors.js';
 import { MAX_TRAILING_BYTES, MAX_TARBALL_BYTES, extractFromTarball } from './install.js';
-import { isValidSha256, isValidSize } from './pin.js';
+import { isValidSha256, isValidSize, isValidVersion } from './pin.js';
 import { downloadTarball, fetchLatest, fetchVersionDocument } from './registry.js';
 import type { RegistryOptions } from './registry.js';
 
@@ -80,25 +80,64 @@ export function manifestEntry(
   return { sha256: checksum, size };
 }
 
+/** An available cross-check. */
+export type AvailableCrossCheck = Extract<CrossCheckSource, { readonly status: 'available' }>;
+
+/** Where {@link sdkCrossCheck} reads and stages. */
+export interface CrossCheckOptions {
+  readonly registry: RegistryOptions;
+  readonly stagingRoot: string;
+}
+
 /**
  * Looks up the independent digests of the `platform` binary of CLI
  * `cliVersion` in the matching Agent SDK manifest.
+ *
+ * Without `sdkVersion` (the canary), the SDK's `latest` release is used and
+ * the cross-check is `unavailable` when it bundles another CLI version.
+ * With an explicit `sdkVersion` (the macOS gate, whose pinned CLI is older
+ * than the SDK's `latest`), that release is read and must describe
+ * `cliVersion` and `platform`: the cross-check is then available or fails
+ * closed.
  */
-export async function sdkCrossCheck(
-  options: { readonly registry: RegistryOptions; readonly stagingRoot: string },
+export function sdkCrossCheck(
+  options: CrossCheckOptions,
   cliVersion: string,
   platform: string,
   file: string,
+): Promise<CrossCheckSource>;
+export function sdkCrossCheck(
+  options: CrossCheckOptions,
+  cliVersion: string,
+  platform: string,
+  file: string,
+  sdkVersion: string,
+): Promise<AvailableCrossCheck>;
+export async function sdkCrossCheck(
+  options: CrossCheckOptions,
+  cliVersion: string,
+  platform: string,
+  file: string,
+  sdkVersion?: string,
 ): Promise<CrossCheckSource> {
-  const latest = await fetchLatest(options.registry, SDK_PACKAGE);
-  if (latest.claudeCodeVersion !== cliVersion) {
-    return {
-      status: 'unavailable',
-      reason: `${SDK_PACKAGE}@${latest.version} (latest) bundles CLI ${latest.claudeCodeVersion ?? 'unknown'}, not ${cliVersion}`,
-    };
+  let version: string;
+  if (sdkVersion === undefined) {
+    const latest = await fetchLatest(options.registry, SDK_PACKAGE);
+    if (latest.claudeCodeVersion !== cliVersion) {
+      return {
+        status: 'unavailable',
+        reason: `${SDK_PACKAGE}@${latest.version} (latest) bundles CLI ${latest.claudeCodeVersion ?? 'unknown'}, not ${cliVersion}`,
+      };
+    }
+    version = latest.version;
+  } else {
+    if (!isValidVersion(sdkVersion)) {
+      throw failed(`invalid SDK version ${JSON.stringify(sdkVersion)}`);
+    }
+    version = sdkVersion;
   }
-  const source = `${SDK_PACKAGE}@${latest.version}`;
-  const document = await fetchVersionDocument(options.registry, SDK_PACKAGE, latest.version);
+  const source = `${SDK_PACKAGE}@${version}`;
+  const document = await fetchVersionDocument(options.registry, SDK_PACKAGE, version);
   const staging = await createStaging(options.stagingRoot);
   try {
     const tgz = path.join(staging, 'sdk.tgz');

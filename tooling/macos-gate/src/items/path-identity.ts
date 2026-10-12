@@ -1,5 +1,5 @@
 /**
- * Gate item 6, path identity (ADR-0014; ADR-0011 Â§9, research 07 Â§1).
+ * Gate item 6, path identity (ADR-0014; ADR-0011 §9, research 07 §1).
  *
  * `/tmp` is a link to `/private/tmp`, and APFS volumes are usually
  * case-insensitive. hudhud passes the cwd through core `validateCwd`

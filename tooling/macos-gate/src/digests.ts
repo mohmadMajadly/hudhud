@@ -1,5 +1,5 @@
 /**
- * Gate fetch of the darwin CLI binaries (plan Â§4.6, Â§5.4 M1; ADR-0011, K16).
+ * Gate fetch of the darwin CLI binaries (plan §4.6, §5.4 M1; ADR-0011, K16).
  *
  * The pinned fetch (`tooling/test-support/src/cli/pinned.ts`) refuses
  * platforms marked `pendingGate`, because their digests are not pinned yet.
@@ -23,40 +23,23 @@
  * The binary is never executed here.
  */
 
-import path from 'node:path';
-
-import {
-  cachePaths,
-  createStaging,
-  removeStaging,
-  verifyCachedBinary,
-} from '../../test-support/src/cli/cache.js';
-import { manifestEntry, SDK_PACKAGE } from '../../test-support/src/cli/crosscheck.js';
+import { cachePaths, verifyCachedBinary } from '../../test-support/src/cli/cache.js';
+import { sdkCrossCheck } from '../../test-support/src/cli/crosscheck.js';
 import { CliFetchError } from '../../test-support/src/cli/errors.js';
-import {
-  extractFromTarball,
-  installFromRegistry,
-  MAX_TARBALL_BYTES,
-  MAX_TRAILING_BYTES,
-} from '../../test-support/src/cli/install.js';
-import { isValidVersion, parsePin } from '../../test-support/src/cli/pin.js';
+import { installFromRegistry } from '../../test-support/src/cli/install.js';
+import { parsePin } from '../../test-support/src/cli/pin.js';
 import type { CliPin, PinnedBinary } from '../../test-support/src/cli/pin.js';
-import { downloadTarball, fetchVersionDocument } from '../../test-support/src/cli/registry.js';
+import { fetchVersionDocument } from '../../test-support/src/cli/registry.js';
 import type { RegistryOptions } from '../../test-support/src/cli/registry.js';
 
 /**
- * The Agent SDK release that bundles CLI 2.1.296 (research 05 Â§1, 01 [SDKPKG]).
+ * The Agent SDK release that bundles CLI 2.1.296 (research 05 §1, 01 [SDKPKG]).
  * A different pinned version needs a different SDK version (`--sdk-version`).
  */
 export const DEFAULT_SDK_VERSION = '0.3.296';
 
 /** The darwin platforms of the gate (ADR-0014 item 1: both are hashed on every runner). */
 export const DARWIN_PLATFORMS = ['darwin-arm64', 'darwin-x64'] as const;
-
-const MANIFEST_ENTRY = 'package/manifest.json';
-const MAX_MANIFEST_BYTES = 256 * 1024;
-const MAX_SDK_ENTRY_BYTES = 32 * 1024 * 1024;
-const MAX_SDK_ENTRIES = 256;
 
 /** The independent digests of one platform binary, from the SDK manifest. */
 export interface ManifestDigest {
@@ -96,67 +79,6 @@ export interface GateFetchOptions {
 }
 
 /**
- * Reads the `platform` entry of the SDK `manifest.json` of `sdkVersion`,
- * which must describe CLI `cliVersion`. Nothing of the SDK is executed or
- * kept; the staging directory is removed.
- */
-export async function sdkManifestDigest(
-  options: { readonly registry: RegistryOptions; readonly stagingRoot: string },
-  sdkVersion: string,
-  cliVersion: string,
-  platform: string,
-  file: string,
-): Promise<ManifestDigest> {
-  if (!isValidVersion(sdkVersion)) {
-    throw new CliFetchError(
-      'cross-check-failed',
-      `invalid SDK version ${JSON.stringify(sdkVersion)}`,
-    );
-  }
-  const source = `${SDK_PACKAGE}@${sdkVersion}`;
-  const document = await fetchVersionDocument(options.registry, SDK_PACKAGE, sdkVersion);
-  const staging = await createStaging(options.stagingRoot);
-  try {
-    const tgz = path.join(staging, 'sdk.tgz');
-    const downloaded = await downloadTarball(
-      options.registry,
-      document.tarball,
-      tgz,
-      MAX_TARBALL_BYTES,
-    );
-    if (downloaded.integrity !== document.integrity) {
-      throw new CliFetchError(
-        'integrity-mismatch',
-        `${source}: tarball ${downloaded.integrity}, registry ${document.integrity}`,
-      );
-    }
-    const chunks: Uint8Array[] = [];
-    await extractFromTarball(tgz, source, {
-      wanted: MANIFEST_ENTRY,
-      maxWantedSize: MAX_MANIFEST_BYTES,
-      maxOtherSize: MAX_SDK_ENTRY_BYTES,
-      maxEntries: MAX_SDK_ENTRIES,
-      maxTrailingBytes: MAX_TRAILING_BYTES,
-      onData: (chunk) => {
-        chunks.push(chunk.slice());
-      },
-    });
-    let manifest: unknown;
-    try {
-      manifest = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    } catch (error) {
-      throw new CliFetchError('cross-check-failed', `${source} manifest.json is not JSON`, {
-        cause: error,
-      });
-    }
-    const entry = manifestEntry(manifest, cliVersion, platform, file, source);
-    return { source, sdkIntegrity: document.integrity, ...entry };
-  } finally {
-    await removeStaging(staging);
-  }
-}
-
-/**
  * Fetches and verifies the binary of `platform` for the gate (see the module
  * comment) and returns its digests and the verified path in the gate cache.
  */
@@ -176,13 +98,19 @@ export async function fetchGateBinary(
       `${entry.package}@${pin.version}: the registry states ${document.integrity}, the pin ${pinned.integrity}`,
     );
   }
-  const manifest = await sdkManifestDigest(
+  const checked = await sdkCrossCheck(
     { registry: options.registry, stagingRoot: options.cacheRoot },
-    options.sdkVersion,
     pin.version,
     platform,
     entry.file,
+    options.sdkVersion,
   );
+  const manifest: ManifestDigest = {
+    source: checked.source,
+    sdkIntegrity: checked.sdkIntegrity,
+    sha256: checked.sha256,
+    size: checked.size,
+  };
   if (
     pinned !== undefined &&
     (manifest.sha256 !== pinned.sha256 || manifest.size !== pinned.size)

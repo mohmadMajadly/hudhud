@@ -1,6 +1,6 @@
 /**
  * Gate item 4, zsh login-shell snapshot hang (ADR-0014; GH#78903, research
- * 01 Â§7).
+ * 01 §7).
  *
  * - Default runner shell (`SHELL=/bin/zsh`, the system `/etc/z*` files, an
  *   empty isolated HOME): a Bash tool turn completes.

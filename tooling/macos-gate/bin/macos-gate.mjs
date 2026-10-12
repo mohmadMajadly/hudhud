@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The macOS gate harness (plan Â§5.4 M1, ADR-0014 "macOS gate list"). Thin host
+// The macOS gate harness (plan §5.4 M1, ADR-0014 "macOS gate list"). Thin host
 // wrapper: it binds Node.js built-ins to the GateHost interface and contains
 // no decisions; the procedures and their unit tests live in src/ and test/
 // (src/main.ts documents the options and the output files).

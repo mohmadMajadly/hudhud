@@ -1,45 +1,17 @@
-// Bridges the machine kit of @hudhud/test-support and the neutral machine
-// contract of @hudhud/core (plan §1.4, K3). The kit mirrors the contract
-// structurally so that it depends on no workspace package; this test, which
-// sits outside both packages, keeps the mirror honest at compile time and
-// runs the kit against a machine typed with the core contract itself.
+// The machine kit against the neutral machine contract of @hudhud/core
+// (plan §1.4, K3): every core HarnessMachine is a KitMachine, and the kit
+// drives a machine typed with the contract itself, whose exit handling is
+// classifyExit. (The kit imports the contract's input types, so the former
+// mirror-equality test is gone; W2-Z ruling B.)
 
+import type { HarnessMachine, MachineEffect, TerminationIntent } from '@hudhud/core/protocol';
+import { classifyExit } from '@hudhud/core/protocol';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import type {
-  CommandInput,
-  HarnessMachine,
-  MachineEffect,
-  MachineInput,
-  TransportInput,
-} from '../../packages/core/src/protocol/machine/contract.js';
-import type { TerminationIntent } from '../../packages/core/src/protocol/machine/outcome.js';
-import { classifyExit } from '../../packages/core/src/protocol/machine/outcome.js';
-import type { JsonObject, JsonValue } from '../../packages/core/src/protocol/json.js';
-import type {
-  KitCommandInput,
-  KitJsonObject,
-  KitJsonValue,
-  KitMachine,
-  KitMachineInput,
-  KitTransportInput,
-} from '../../tooling/test-support/src/machine-kit.js';
-import { assertMachineContract } from '../../tooling/test-support/src/machine-kit.js';
+import type { KitMachine } from '../src/machine-kit.js';
+import { assertMachineContract } from '../src/machine-kit.js';
 
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-
-describe('machine kit mirror of the core contract', () => {
-  it('mirrors the JSON and input types exactly', () => {
-    expectTypeOf<Same<KitJsonValue, JsonValue>>().toEqualTypeOf<true>();
-    expectTypeOf<Same<KitJsonObject, JsonObject>>().toEqualTypeOf<true>();
-    expectTypeOf<Same<KitTransportInput, TransportInput>>().toEqualTypeOf<true>();
-    expectTypeOf<Same<KitCommandInput, CommandInput>>().toEqualTypeOf<true>();
-    expectTypeOf<Same<KitMachineInput, MachineInput>>().toEqualTypeOf<true>();
-    // Each mirrored input type names the same members.
-    expectTypeOf<KitTransportInput['type']>().toEqualTypeOf<TransportInput['type']>();
-    expectTypeOf<KitCommandInput['type']>().toEqualTypeOf<CommandInput['type']>();
-  });
-
+describe('machine kit and the core contract', () => {
   it('accepts every core HarnessMachine', () => {
     expectTypeOf<HarnessMachine<{ n: number }, string>>().toExtend<
       KitMachine<{ n: number }, string>

@@ -23,8 +23,9 @@ describe('parseWin32Processes', () => {
   it('parses rows, defaults missing names and command lines, skips malformed entries', () => {
     const text = `${String.fromCharCode(0xfeff)}${JSON.stringify([
       { p: 10, pp: 4, t: '133000000000000000', n: 'node.exe', c: 'node a.js' },
-      { p: 11, pp: 10, t: '133000000000000001', n: null, c: null },
+      { p: 11, pp: 10, t: '133000000000000010', n: null, c: null },
       { p: 0, pp: 0, t: '', n: 'System Idle Process', c: null },
+      { p: 0, pp: 0, t: '1', n: 'System Idle Process', c: 'idle' },
       { p: 12, pp: -1, t: '1', n: 'x', c: '' },
       { p: 13, pp: 1, t: 'abc', n: 'x', c: '' },
       { p: 14, pp: 1, t: 5, n: 'x', c: '' },
@@ -35,11 +36,12 @@ describe('parseWin32Processes', () => {
       {
         pid: 10,
         ppid: 4,
-        startTime: '133000000000000000',
+        // FILETIME (100 ns) truncated to the canonical microseconds of the core parser.
+        startTime: '13300000000000000',
         name: 'node.exe',
         commandLine: 'node a.js',
       },
-      { pid: 11, ppid: 10, startTime: '133000000000000001', name: '', commandLine: '' },
+      { pid: 11, ppid: 10, startTime: '13300000000000001', name: '', commandLine: '' },
     ]);
   });
 
@@ -78,6 +80,7 @@ describe('parseLinuxProcess', () => {
     '42 (a) S',
     `42 (a) S -3 ${STAT_TAIL}`,
     ') 42 (',
+    `0 (idle) ${STAT_TAIL}`,
     `42 (a) S ${'1 '.repeat(18)}xx`,
   ])('refuses %j', (stat) => {
     expect(parseLinuxProcess(stat, '')).toBeNull();

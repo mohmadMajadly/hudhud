@@ -9,7 +9,7 @@ import {
   parseFlag,
 } from '../../../src/process/argv.js';
 
-/** Flags a harness adapter would reserve (plan Â§2.5, Â§2.6, L4); test data only. */
+/** Flags a harness adapter would reserve (plan §2.5, §2.6, L4); test data only. */
 const RESERVED = [
   'output-format',
   'input-format',

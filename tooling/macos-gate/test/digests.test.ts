@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { sdkCrossCheck, type AvailableCrossCheck } from '../../test-support/src/cli/crosscheck.js';
 import { CliFetchError } from '../../test-support/src/cli/errors.js';
 import { parsePin, type CliPin } from '../../test-support/src/cli/pin.js';
 import {
@@ -20,7 +21,6 @@ import {
   DEFAULT_SDK_VERSION,
   digestRecord,
   fetchGateBinary,
-  sdkManifestDigest,
   type GateDigest,
 } from '../src/digests.js';
 
@@ -180,14 +180,14 @@ describe('fetchGateBinary', () => {
   });
 });
 
-describe('sdkManifestDigest', () => {
-  const lookup = (sdkVersion = SDK_VERSION): ReturnType<typeof sdkManifestDigest> =>
-    sdkManifestDigest(
+describe('sdkCrossCheck with the explicit SDK version of the gate', () => {
+  const lookup = (sdkVersion = SDK_VERSION): Promise<AvailableCrossCheck> =>
+    sdkCrossCheck(
       { registry: registry.options, stagingRoot: root },
-      sdkVersion,
       VERSION,
       'darwin-arm64',
       'claude',
+      sdkVersion,
     );
 
   it('defaults to the SDK release that bundles CLI 2.1.296 (research 05 §1)', () => {

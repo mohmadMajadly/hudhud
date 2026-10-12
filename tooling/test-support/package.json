@@ -13,6 +13,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
+    "@hudhud/core": "workspace:*",
     "fast-check": "catalog:"
   },
   "devDependencies": {
