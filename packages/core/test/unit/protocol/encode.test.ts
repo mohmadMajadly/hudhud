@@ -3,7 +3,7 @@ import process from 'node:process';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { encodeJsonLine } from '../../../src/protocol/encode.js';
+import { DEFAULT_MAX_OUTBOUND_FRAME_BYTES, encodeJsonLine } from '../../../src/protocol/encode.js';
 
 const seedText = process.env['FC_SEED'];
 /** Property runs (plan §4.1): at least 1000; `FC_SEED` reproduces a failure. */
@@ -123,7 +123,8 @@ describe('encodeJsonLine', () => {
     });
 
     it('applies the default outbound cap of 32 MiB at the exact boundary', () => {
-      const cap = 32 * MiB;
+      const cap = DEFAULT_MAX_OUTBOUND_FRAME_BYTES;
+      expect(cap).toBe(32 * MiB);
       // '{"a":""}' plus LF is 9 bytes of framing.
       const fits = encodeJsonLine({ a: 'x'.repeat(cap - 9) }, cap);
       expect(fits.ok && fits.bytes).toBe(cap);
@@ -189,7 +190,7 @@ describe('encodeJsonLine', () => {
     it('emits one frame with exactly one LF that round-trips, for arbitrary objects', () => {
       fc.assert(
         fc.property(jsonObject, (value) => {
-          const result = encodeJsonLine(value, 32 * MiB);
+          const result = encodeJsonLine(value, DEFAULT_MAX_OUTBOUND_FRAME_BYTES);
           expect(result.ok).toBe(true);
           if (!result.ok) return;
           const { line, bytes } = result;

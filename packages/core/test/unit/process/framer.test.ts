@@ -5,12 +5,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createFramer,
+  DEFAULT_MAX_INBOUND_FRAME_BYTES,
   framerRetention,
   maxFramerLineBytes,
   type Framer,
   type FramerOutput,
 } from '../../../src/process/framer.js';
-import { encodeJsonLine } from '../../../src/protocol/encode.js';
+import { DEFAULT_MAX_OUTBOUND_FRAME_BYTES, encodeJsonLine } from '../../../src/protocol/encode.js';
 
 const seedText = process.env['FC_SEED'];
 /** Property runs (plan §4.1): at least 1000; `FC_SEED` reproduces a failure. */
@@ -31,6 +32,13 @@ const concat = (...parts: readonly Uint8Array[]): Uint8Array => {
   }
   return out;
 };
+
+/** The one, chunking-independent report of a line above `max`. */
+const over = (max: number): FramerOutput => ({
+  kind: 'oversized',
+  bytes: max + 1,
+  details: { maxBytes: max, atLeastBytes: max + 1 },
+});
 
 /** Pushes every chunk, checks the memory bound after each, then ends the stream. */
 function frame(max: number, chunks: readonly Uint8Array[]): FramerOutput[] {
@@ -70,7 +78,8 @@ function chunked(bytes: Uint8Array, sizes: readonly number[]): Uint8Array[] {
 /**
  * Independent reference model of the framing rules (plan §1.7, 05 §11):
  * split on LF, drop one CR before it, drop a leading BOM on the first line,
- * skip blank lines, oversized above the cap, fatal UTF-8 decoding.
+ * skip blank lines, one fixed `oversized` report for a line above the cap,
+ * fatal UTF-8 decoding.
  */
 function reference(bytes: Uint8Array, max: number): FramerOutput[] {
   const out: FramerOutput[] = [];
@@ -88,7 +97,7 @@ function reference(bytes: Uint8Array, max: number): FramerOutput[] {
     const line = raw.at(-1) === 0x0d ? raw.subarray(0, -1) : raw;
     const size = line.length;
     if (size > max) {
-      out.push({ kind: 'oversized', bytes: size });
+      out.push(over(max));
       return;
     }
     const bom = index === 0 && line[0] === 0xef && line[1] === 0xbb && line[2] === 0xbf;
@@ -134,10 +143,7 @@ describe('createFramer', () => {
       expect(frameText('{}\n', maxFramerLineBytes)).toEqual([
         { kind: 'line', text: '{}', bytes: 2 },
       ]);
-      expect(frameText('a\nbb\n', 1)).toEqual([
-        { kind: 'line', text: 'a', bytes: 1 },
-        { kind: 'oversized', bytes: 2 },
-      ]);
+      expect(frameText('a\nbb\n', 1)).toEqual([{ kind: 'line', text: 'a', bytes: 1 }, over(1)]);
     });
   });
 
@@ -245,12 +251,8 @@ describe('createFramer', () => {
         expect(frameText(`${'a'.repeat(max)}${eol}`, max)).toEqual([
           { kind: 'line', text: 'a'.repeat(max), bytes: max },
         ]);
-        expect(frameText(`${'a'.repeat(max + 1)}${eol}`, max)).toEqual([
-          { kind: 'oversized', bytes: max + 1 },
-        ]);
-        expect(frameText(`${'a'.repeat(max + 2)}${eol}`, max)).toEqual([
-          { kind: 'oversized', bytes: max + 2 },
-        ]);
+        expect(frameText(`${'a'.repeat(max + 1)}${eol}`, max)).toEqual([over(max)]);
+        expect(frameText(`${'a'.repeat(max + 2)}${eol}`, max)).toEqual([over(max)]);
       }
     });
 
@@ -259,35 +261,60 @@ describe('createFramer', () => {
       expect(frameText(`${'é'.repeat(8)}\n`, max)).toEqual([
         { kind: 'line', text: 'é'.repeat(8), bytes: 16 },
       ]);
-      expect(frameText(`${'é'.repeat(9)}\n`, max)).toEqual([{ kind: 'oversized', bytes: 18 }]);
+      expect(frameText(`${'é'.repeat(9)}\n`, max)).toEqual([over(max)]);
     });
 
-    it('reports an oversized line once with its exact length and frames the next line', () => {
+    it('reports once, at the byte that crosses the cap, without waiting for the LF', () => {
+      const framer = createFramer({ maxLineBytes: max });
+      expect(framer.push(bytesOf('z'.repeat(max)))).toEqual([]);
+      expect(framerRetention(framer).bufferedBytes).toBe(max);
+      // Byte max + 1 is not a CR: the line is above the cap now.
+      expect(framer.push(bytesOf('z'))).toEqual([over(max)]);
+      expect(framerRetention(framer)).toEqual({ bufferedBytes: 0, capacityBytes: max + 1 });
+      for (let i = 0; i < 100; i += 1) expect(framer.push(bytesOf('z'.repeat(100)))).toEqual([]);
+      expect(framerRetention(framer).bufferedBytes).toBe(0);
+      expect(framer.push(bytesOf('\r\n{}\n'))).toEqual([{ kind: 'line', text: '{}', bytes: 2 }]);
+    });
+
+    it('waits one byte when byte max + 1 is a CR that may end the line', () => {
+      const framer = createFramer({ maxLineBytes: max });
+      expect(framer.push(bytesOf(`${'c'.repeat(max)}\r`))).toEqual([]);
+      expect(framerRetention(framer).bufferedBytes).toBe(max + 1);
+      expect(framer.push(bytesOf('\r'))).toEqual([over(max)]);
+      expect(framer.push(bytesOf('\n'))).toEqual([]);
+      expect(framer.push(bytesOf(`${'c'.repeat(max)}\r`))).toEqual([]);
+      expect(framer.push(bytesOf('\n'))).toEqual([
+        { kind: 'line', text: 'c'.repeat(max), bytes: max },
+      ]);
+    });
+
+    it('reports a line fed one byte at a time at byte max + 1', () => {
+      const framer = createFramer({ maxLineBytes: max });
+      const seen: [number, FramerOutput[]][] = [];
+      chunked(bytesOf(`${'x'.repeat(max + 5)}\n{}\n`), [1]).forEach((chunk, index) => {
+        const out = framer.push(chunk);
+        if (out.length > 0) seen.push([index, out]);
+      });
+      expect(seen).toEqual([
+        [max, [over(max)]],
+        [max + 8, [{ kind: 'line', text: '{}', bytes: 2 }]],
+      ]);
+    });
+
+    it('frames the line after an oversized one', () => {
       const big = bytesOf(`${'x'.repeat(1000)}\r\n{"ok":true}\n`);
       expect(frame(max, chunked(big, [7]))).toEqual([
-        { kind: 'oversized', bytes: 1000 },
+        over(max),
         { kind: 'line', text: '{"ok":true}', bytes: 11 },
       ]);
     });
 
-    it('reports an oversized line that ends without a terminator at end()', () => {
-      expect(frame(max, [bytesOf('y'.repeat(40)), bytesOf('y'.repeat(40))])).toEqual([
-        { kind: 'oversized', bytes: 80 },
-      ]);
-      expect(frame(max, [bytesOf(`${'y'.repeat(40)}\r`)])).toEqual([
-        { kind: 'oversized', bytes: 40 },
-      ]);
-    });
-
-    it('holds no bytes while discarding an oversized line', () => {
+    it('reports an oversized line that never ends, and nothing more at end()', () => {
       const framer = createFramer({ maxLineBytes: max });
-      expect(framer.push(bytesOf('z'.repeat(max)))).toEqual([]);
-      expect(framerRetention(framer).bufferedBytes).toBe(max);
-      expect(framer.push(bytesOf('zz'))).toEqual([]);
-      expect(framerRetention(framer)).toEqual({ bufferedBytes: 0, capacityBytes: max + 1 });
-      for (let i = 0; i < 100; i += 1) expect(framer.push(bytesOf('z'.repeat(100)))).toEqual([]);
-      expect(framerRetention(framer).bufferedBytes).toBe(0);
-      expect(framer.push(bytesOf('\n'))).toEqual([{ kind: 'oversized', bytes: 10_018 }]);
+      expect(framer.push(bytesOf('y'.repeat(40)))).toEqual([over(max)]);
+      expect(framer.push(bytesOf('y'.repeat(40)))).toEqual([]);
+      expect(framer.end()).toEqual([]);
+      expect(frame(max, [bytesOf(`${'y'.repeat(40)}\r`)])).toEqual([over(max)]);
     });
 
     it('streams 256 MiB of one line through a 1 KiB cap with bounded memory', () => {
@@ -296,7 +323,7 @@ describe('createFramer', () => {
       const framer = createFramer({ maxLineBytes: cap });
       const before = process.memoryUsage().arrayBuffers;
       for (let i = 0; i < 256; i += 1) {
-        expect(framer.push(chunk)).toEqual([]);
+        expect(framer.push(chunk)).toEqual(i === 0 ? [over(cap)] : []);
         const { bufferedBytes, capacityBytes } = framerRetention(framer);
         expect(bufferedBytes).toBe(0);
         expect(capacityBytes).toBeLessThanOrEqual(cap + 1);
@@ -304,14 +331,12 @@ describe('createFramer', () => {
       const growth = process.memoryUsage().arrayBuffers - before;
       // Nothing proportional to the 256 MiB streamed is kept.
       expect(growth).toBeLessThan(16 * MiB);
-      expect(framer.push(bytesOf('\n{}\n'))).toEqual([
-        { kind: 'oversized', bytes: 256 * MiB },
-        { kind: 'line', text: '{}', bytes: 2 },
-      ]);
+      expect(framer.push(bytesOf('\n{}\n'))).toEqual([{ kind: 'line', text: '{}', bytes: 2 }]);
     });
 
     it('frames a 5 MB line under the default inbound cap of 64 MiB (05 §11 run 75)', () => {
-      const cap = 64 * MiB;
+      const cap = DEFAULT_MAX_INBOUND_FRAME_BYTES;
+      expect(cap).toBe(64 * MiB);
       const text = `{"result":"${'r'.repeat(5_000_000)}"}`;
       const stream = bytesOf(`${text}\n`);
       expect(frame(cap, chunked(stream, [65_536]))).toEqual([
@@ -320,17 +345,17 @@ describe('createFramer', () => {
     });
 
     it('refuses a line of 64 MiB + 1 under the default inbound cap', () => {
-      const cap = 64 * MiB;
+      const cap = DEFAULT_MAX_INBOUND_FRAME_BYTES;
       const chunk = new Uint8Array(MiB).fill(0x62);
       const framer = createFramer({ maxLineBytes: cap });
       for (let i = 0; i < 64; i += 1) expect(framer.push(chunk)).toEqual([]);
       expect(framerRetention(framer)).toEqual({ bufferedBytes: cap, capacityBytes: cap });
       // cap + 1 bytes may still be a line of cap bytes plus its CR.
-      expect(framer.push(Uint8Array.of(0x62))).toEqual([]);
-      expect(framerRetention(framer)).toEqual({ bufferedBytes: cap + 1, capacityBytes: cap + 1 });
       expect(framer.push(bytesOf('\r'))).toEqual([]);
+      expect(framerRetention(framer)).toEqual({ bufferedBytes: cap + 1, capacityBytes: cap + 1 });
+      expect(framer.push(Uint8Array.of(0x62))).toEqual([over(cap)]);
       expect(framerRetention(framer)).toEqual({ bufferedBytes: 0, capacityBytes: 4096 });
-      expect(framer.push(bytesOf('\n'))).toEqual([{ kind: 'oversized', bytes: cap + 1 }]);
+      expect(framer.push(bytesOf('\n'))).toEqual([]);
     });
 
     it('releases a grown buffer after a large line completes', () => {
@@ -505,12 +530,15 @@ describe('createFramer', () => {
             const lines = objects.map((object) => {
               const result = encodeJsonLine(
                 object as Parameters<typeof encodeJsonLine>[0],
-                32 * MiB,
+                DEFAULT_MAX_OUTBOUND_FRAME_BYTES,
               );
               if (!result.ok) throw new Error(result.error.message);
               return result.line;
             });
-            const outputs = frame(32 * MiB, chunked(bytesOf(lines.join('')), sizes));
+            const outputs = frame(
+              DEFAULT_MAX_INBOUND_FRAME_BYTES,
+              chunked(bytesOf(lines.join('')), sizes),
+            );
             expect(outputs).toHaveLength(objects.length);
             outputs.forEach((output, index) => {
               expect(output.kind).toBe('line');

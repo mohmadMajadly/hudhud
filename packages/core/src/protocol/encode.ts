@@ -22,6 +22,13 @@ interface ErrorData {
 }
 
 /**
+ * Default outbound line cap: 32 MiB (ADR-0011 §7).
+ *
+ * @public
+ */
+export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number = 32 * 1024 * 1024;
+
+/**
  * Result of {@link encodeJsonLine}.
  *
  * @public
@@ -84,7 +91,8 @@ function protocolError(reason: string): EncodeJsonLineResult {
  * for a valid `maxBytes`.
  *
  * @param value - The frame to encode.
- * @param maxBytes - The outbound cap in bytes, a positive safe integer.
+ * @param maxBytes - The outbound cap in bytes, a positive safe integer; usually
+ * {@link DEFAULT_MAX_OUTBOUND_FRAME_BYTES}.
  * @throws RangeError when `maxBytes` is not a positive safe integer.
  * @public
  */
