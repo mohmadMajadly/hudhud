@@ -6,11 +6,12 @@ import type { JsonValue } from '../../../../core/src/protocol/json.js';
 import {
   type ClaudeEventData,
   type NormalizeContext,
+  classifyResult,
   normalizeFrame,
 } from '../../../src/protocol/events/normalize.js';
 import { FRAMES } from './frames.js';
 
-const CTX: NormalizeContext = { turnId: 't1', sessionId: 's-ctx' };
+const CTX: NormalizeContext = { turnId: 't1' };
 
 function one(frame: JsonValue, ctx: NormalizeContext = CTX): ClaudeEventData {
   const events = normalizeFrame(frame, ctx);
@@ -41,36 +42,9 @@ describe('events are assignable to the neutral union', () => {
 });
 
 describe('system frames', () => {
-  it('maps system/init to turn.started', () => {
-    expect(one(FRAMES.init.frame)).toEqual({
-      type: 'turn.started',
-      turnId: 't1',
-      origin: 'application',
-      features: ['interrupt_receipt_v1', 'msg_lifecycle_v1', 'ui_surface_v1'],
-      model: 'claude-opus-5-5',
-      raw: FRAMES.init.frame,
-    });
-  });
-
-  it('carries the origin and tolerates missing fields', () => {
-    const frame = { type: 'system', subtype: 'init', capabilities: [1, 'a'] };
-    expect(one(frame, { turnId: 'bg-1', origin: 'harness' })).toEqual({
-      type: 'turn.started',
-      turnId: 'bg-1',
-      origin: 'harness',
-      features: ['a'],
-      raw: frame,
-    });
-    expect(one({ type: 'system', subtype: 'init' }).type).toBe('turn.started');
-  });
-
-  it('falls back to harness.frame for init without a turn', () => {
-    expect(one(FRAMES.init.frame, {})).toEqual({
-      type: 'harness.frame',
-      frameType: 'system',
-      subtype: 'init',
-      raw: FRAMES.init.frame,
-    });
+  it('yields no event for system/init: the turn machine owns it', () => {
+    expect(normalizeFrame(FRAMES.init.frame, CTX)).toEqual([]);
+    expect(normalizeFrame(FRAMES.init.frame, {})).toEqual([]);
   });
 
   it('maps system/api_retry to api.retry', () => {
@@ -351,92 +325,34 @@ describe('stream_event frames', () => {
 });
 
 describe('result frames', () => {
-  it('maps a success result to usage.update and turn.completed', () => {
-    const [usage, completed] = normalizeFrame(FRAMES.resultSuccess.frame, CTX);
-    expect(usage).toEqual({
-      type: 'usage.update',
-      turnId: 't1',
-      reported: {
-        inputTokens: 10,
-        outputTokens: 5,
-        cacheCreationInputTokens: 2,
-        cacheReadInputTokens: 3,
-        costUsd: 0.0123,
-      },
-      estimatedDelta: { estimate: true },
-      raw: FRAMES.resultSuccess.frame,
-    });
-    expect(completed).toEqual({
-      type: 'turn.completed',
-      turnId: 't1',
-      result: {
+  it('yields only usage.update; the turn machine owns turn.completed', () => {
+    expect(normalizeFrame(FRAMES.resultSuccess.frame, CTX)).toEqual([
+      {
+        type: 'usage.update',
         turnId: 't1',
-        sessionId: 'd6e7fffb-0000-4000-8000-000000000001',
-        outcome: 'completed',
-        isError: false,
-        text: 'done',
-        stopReason: 'end_turn',
-        terminalReason: 'completed',
-        usage: usage && 'reported' in usage ? usage.reported : undefined,
-        permissionDenials: [{ toolName: 'Bash', toolUseId: 'toolu_mock_0003' }],
-        synthesized: false,
+        reported: {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheCreationInputTokens: 2,
+          cacheReadInputTokens: 3,
+          costUsd: 0.0123,
+        },
+        estimatedDelta: { estimate: true },
         raw: FRAMES.resultSuccess.frame,
       },
-      raw: FRAMES.resultSuccess.frame,
-    });
+    ]);
+    expect(normalizeFrame(FRAMES.resultSuccess.frame, {})[0]).not.toHaveProperty('turnId');
   });
 
-  it('maps max turns', () => {
-    const [completed] = normalizeFrame(FRAMES.resultMaxTurns.frame, CTX);
-    expect(completed).toMatchObject({
-      type: 'turn.completed',
-      result: {
-        outcome: 'max-turns',
-        isError: true,
-        stopReason: 'max_turn_requests',
-        errors: ['Reached maximum number of turns (1)'],
-        sessionId: 's-ctx',
-        permissionDenials: [],
-      },
-    });
-  });
-
-  it('keeps an is_error success result an error with its api status', () => {
-    expect(one(FRAMES.resultAuth.frame)).toMatchObject({
-      result: { outcome: 'error', isError: true, apiErrorStatus: 401, terminalReason: 'api_error' },
-    });
-    expect(one(FRAMES.resultAuth.frame)).not.toHaveProperty('result.stopReason');
-  });
-
-  it('maps aborted results to cancelled', () => {
-    expect(one(FRAMES.resultAbortedStreaming.frame)).toMatchObject({
-      result: { outcome: 'cancelled', isError: true, stopReason: 'cancelled' },
-    });
-  });
-
-  it('maps the budget outcome and passes a harness stop reason through', () => {
-    expect(one(FRAMES.resultBudget.frame)).toMatchObject({
-      result: { outcome: 'max-budget', stopReason: 'max_tokens' },
-    });
-  });
-
-  it('treats an error subtype as an error when is_error is absent', () => {
-    expect(one(FRAMES.resultNotFound.frame, { turnId: 't0' })).toMatchObject({
-      result: {
-        outcome: 'error',
-        isError: true,
-        sessionId: 'cccccccc-0000-4000-8000-000000000003',
-      },
-    });
-  });
-
-  it('is unknown for a result with no subtype or an unknown one', () => {
-    expect(one(FRAMES.resultBare.frame, { turnId: 't' })).toMatchObject({
-      result: { outcome: 'unknown', isError: false, sessionId: '' },
-    });
-    expect(one(FRAMES.resultOther.frame)).toMatchObject({
-      result: { outcome: 'unknown', terminalReason: 'novel' },
-    });
+  it('yields nothing when neither usage nor cost is reported', () => {
+    for (const { frame } of [
+      FRAMES.resultMaxTurns,
+      FRAMES.resultAuth,
+      FRAMES.resultNotFound,
+      FRAMES.resultBare,
+    ]) {
+      expect(normalizeFrame(frame, CTX)).toEqual([]);
+    }
   });
 
   it('ignores negative and non-numeric usage figures', () => {
@@ -450,9 +366,9 @@ describe('result frames', () => {
       type: 'usage.update',
       reported: { cacheReadInputTokens: 4 },
     });
-    expect(types({ type: 'result', usage: { input_tokens: -1 }, total_cost_usd: -1 })).toEqual([
-      'turn.completed',
-    ]);
+    expect(
+      normalizeFrame({ type: 'result', usage: { input_tokens: -1 }, total_cost_usd: -1 }, CTX),
+    ).toEqual([]);
   });
 
   it('reports cost without usage', () => {
@@ -460,57 +376,45 @@ describe('result frames', () => {
       reported: { costUsd: 0 },
     });
   });
+});
 
-  it('keeps the result visible without a turn', () => {
-    expect(normalizeFrame(FRAMES.resultNotFound.frame, {})).toEqual([
-      {
-        type: 'harness.frame',
-        frameType: 'result',
-        subtype: 'error_during_execution',
-        raw: FRAMES.resultNotFound.frame,
-      },
-    ]);
-    expect(normalizeFrame(FRAMES.resultSuccess.frame, {}).map((e) => e.type)).toEqual([
-      'usage.update',
-      'harness.frame',
-    ]);
-    expect(normalizeFrame(FRAMES.resultSuccess.frame, {})[0]).not.toHaveProperty('turnId');
+describe('classifyResult', () => {
+  it.each([
+    [FRAMES.resultSuccess, 'completed', false, 'end_turn'],
+    [FRAMES.resultMaxTurns, 'max-turns', true, 'max_turn_requests'],
+    [FRAMES.resultAuth, 'error', true, undefined],
+    [FRAMES.resultAbortedStreaming, 'cancelled', true, 'cancelled'],
+    [FRAMES.resultBudget, 'max-budget', true, 'max_tokens'],
+    [FRAMES.resultNotFound, 'error', true, undefined],
+    [FRAMES.resultBare, 'unknown', false, undefined],
+    [FRAMES.resultOther, 'unknown', false, undefined],
+  ])('classifies $0.name', ({ frame }, outcome, isError, stopReason) => {
+    const classified = classifyResult(frame);
+    expect(classified).toEqual({
+      outcome,
+      isError,
+      ...(stopReason === undefined ? {} : { stopReason }),
+    });
+  });
+
+  it('maps terminal_reason max_turns without an error subtype', () => {
+    expect(classifyResult({ type: 'result', terminal_reason: 'max_turns' })).toEqual({
+      outcome: 'max-turns',
+      isError: false,
+      stopReason: 'max_turn_requests',
+    });
   });
 });
 
 describe('control and unknown frames', () => {
-  it('maps can_use_tool to permission.requested', () => {
+  it('passes control_request frames through defensively (they should not arrive)', () => {
     expect(one(FRAMES.canUseTool.frame)).toEqual({
-      type: 'permission.requested',
-      requestId: '96faf3d7-4d77-4311-839f-a6ddaaec5323',
-      turnId: 't1',
-      toolName: 'Bash',
-      toolUseId: 'toolu_mock_0002',
-      raw: FRAMES.canUseTool.frame,
-    });
-    expect(one(FRAMES.canUseTool.frame, {})).not.toHaveProperty('turnId');
-  });
-
-  it('passes malformed can_use_tool and other control subtypes through', () => {
-    expect(one(FRAMES.hookCallback.frame)).toEqual({
       type: 'harness.frame',
       frameType: 'control_request',
-      subtype: 'hook_callback',
-      raw: FRAMES.hookCallback.frame,
+      subtype: 'can_use_tool',
+      raw: FRAMES.canUseTool.frame,
     });
-    const base = { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 'x' };
-    for (const frame of [
-      { type: 'control_request', request: base },
-      { type: 'control_request', request_id: 'r' },
-      { type: 'control_request', request_id: 'r', request: { ...base, tool_name: undefined } },
-      {
-        type: 'control_request',
-        request_id: 'r',
-        request: { subtype: 'can_use_tool', tool_name: 'B' },
-      },
-    ] as JsonValue[]) {
-      expect(one(frame).type).toBe('harness.frame');
-    }
+    expect(one(FRAMES.hookCallback.frame)).toMatchObject({ subtype: 'hook_callback' });
   });
 
   it.each([

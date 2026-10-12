@@ -24,7 +24,6 @@ import type {
   JsonValue,
   StopReason,
   TurnOutcome,
-  TurnResult,
   UsageTotals,
 } from '@hudhud/core/protocol';
 import {
@@ -47,16 +46,13 @@ type WithoutBase<E> = E extends unknown ? Omit<E, keyof EventBase> : never;
  * @internal
  */
 export type ClaudeEventData = WithoutBase<
-  | EventOf<'turn.started'>
   | EventOf<'message.assistant'>
   | EventOf<'message.delta'>
   | EventOf<'tool.call'>
   | EventOf<'tool.result'>
-  | EventOf<'permission.requested'>
   | EventOf<'permission.denied'>
   | EventOf<'api.retry'>
   | EventOf<'usage.update'>
-  | EventOf<'turn.completed'>
   | EventOf<'session.state'>
   | EventOf<'background.tasks'>
   | EventOf<'harness.frame'>
@@ -69,36 +65,35 @@ export type ClaudeEventData = WithoutBase<
  */
 export interface NormalizeContext {
   /**
-   * The turn the frame belongs to, as assigned by the turn machine. Events
-   * that need a turn (`turn.started`, `turn.completed`) fall back to
-   * `harness.frame` when it is absent.
+   * The turn the frame belongs to, as assigned by the turn machine; turn
+   * scoped events omit `turnId` when it is absent.
    */
   readonly turnId?: string;
-  /** Who started the turn announced by `system/init`; `application` when absent. */
-  readonly origin?: 'application' | 'harness';
-  /** Session id used when a `result` frame carries none. */
-  readonly sessionId?: string;
 }
 
 /**
  * Normalizes one inbound Claude frame into zero-loss neutral events.
  *
  * @remarks
- * Mapping: `system/init` to `turn.started`; `system/api_retry` to
+ * Mapping: `system/api_retry` to
  * `api.retry`; `system/session_state_changed` to `session.state`;
  * `system/permission_denied` to `permission.denied`;
  * `system/background_tasks_changed` to `background.tasks`; `assistant` to
  * `message.assistant` plus one `tool.call` per `tool_use` block; `user` with
  * `tool_result` blocks to one `tool.result` each; `stream_event`
- * `content_block_delta` to `message.delta`; `result` to `usage.update` (when
- * usage or cost is reported) plus `turn.completed`; `control_request`
- * `can_use_tool` to `permission.requested`. Everything else is `harness.frame`.
+ * `content_block_delta` to `message.delta`. Everything else is `harness.frame`,
+ * except two frames the turn machine owns: `system/init` yields no event, and
+ * `result` yields only `usage.update` (when usage or cost is reported); the turn
+ * machine builds `turn.started` and `turn.completed` (see {@link classifyResult}).
  *
  * @internal
  */
 export function normalizeFrame(frame: JsonValue, ctx: NormalizeContext): ClaudeEventData[] {
   if (!isJsonObject(frame)) return [harnessFrame(frame, 'unknown')];
   const type = ownString(frame, 'type');
+  // Owned by the turn machine, which reads these frames itself.
+  if (type === 'result') return result(frame, ctx);
+  if (type === 'system' && ownString(frame, 'subtype') === 'init') return [];
   const events = type === undefined ? [] : byType(type, frame, ctx);
   return events.length > 0 ? events : [harnessFrame(frame, type ?? 'unknown', subtypeOf(frame))];
 }
@@ -106,17 +101,13 @@ export function normalizeFrame(frame: JsonValue, ctx: NormalizeContext): ClaudeE
 function byType(type: string, frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
   switch (type) {
     case 'system':
-      return system(frame, ctx);
+      return system(frame);
     case 'assistant':
       return assistant(frame, ctx);
     case 'user':
       return user(frame, ctx);
     case 'stream_event':
       return streamEvent(frame, ctx);
-    case 'result':
-      return result(frame, ctx);
-    case 'control_request':
-      return controlRequest(frame, ctx);
     default:
       return [];
   }
@@ -147,22 +138,8 @@ function turnField(ctx: NormalizeContext): { readonly turnId?: string } {
 
 // ---- system ----------------------------------------------------------------
 
-function system(frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
+function system(frame: JsonObject): ClaudeEventData[] {
   switch (ownString(frame, 'subtype')) {
-    case 'init': {
-      if (ctx.turnId === undefined) return [];
-      const model = ownString(frame, 'model');
-      return [
-        {
-          type: 'turn.started',
-          turnId: ctx.turnId,
-          origin: ctx.origin ?? 'application',
-          features: stringItems(ownArray(frame, 'capabilities')),
-          ...(model === undefined ? {} : { model }),
-          raw: frame,
-        },
-      ];
-    }
     case 'api_retry': {
       const attempt = ownNumber(frame, 'attempt');
       if (attempt === undefined) return [];
@@ -207,10 +184,6 @@ function system(frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
     default:
       return [];
   }
-}
-
-function stringItems(items: readonly JsonValue[] | undefined): string[] {
-  return (items ?? []).filter((item): item is string => typeof item === 'string');
 }
 
 // ---- assistant and user ----------------------------------------------------
@@ -329,92 +302,84 @@ function usageTotals(frame: JsonObject): UsageTotals | undefined {
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
+/**
+ * How a `result` frame ended a turn.
+ *
+ * @internal
+ */
+export interface ResultClassification {
+  readonly outcome: TurnOutcome;
+  readonly isError: boolean;
+  readonly stopReason?: StopReason;
+}
+
+/**
+ * Classifies a `result` frame (pure; the turn machine reuses it).
+ *
+ * @remarks
+ * `isError` is `is_error === true` or an `error*` subtype. Outcome:
+ * `terminal_reason` `aborted*` is `cancelled`; `error_max_turns` or
+ * `max_turns` is `max-turns`; `error_max_budget_usd` is `max-budget`; any
+ * other error is `error`; `success` is `completed`; anything else is
+ * `unknown`. The stop reason is the frame's own `stop_reason` (open string),
+ * else derived from `terminal_reason`: `completed` is `end_turn`, `max_turns`
+ * is `max_turn_requests`, `aborted*` is `cancelled`.
+ *
+ * @internal
+ */
+export function classifyResult(frame: JsonObject): ResultClassification {
+  const subtype = ownString(frame, 'subtype');
+  const terminalReason = ownString(frame, 'terminal_reason');
+  const isError = ownBoolean(frame, 'is_error') === true || subtype?.startsWith('error') === true;
+  const aborted = terminalReason?.startsWith('aborted') === true;
+  const stopReason = ownString(frame, 'stop_reason') ?? derivedStopReason(terminalReason, aborted);
+  return {
+    outcome: outcomeOf(subtype, terminalReason, isError, aborted),
+    isError,
+    ...(stopReason === undefined ? {} : { stopReason }),
+  };
+}
+
 function outcomeOf(
   subtype: string | undefined,
   terminalReason: string | undefined,
   isError: boolean,
+  aborted: boolean,
 ): TurnOutcome {
-  if (terminalReason?.startsWith('aborted') === true) return 'cancelled';
+  if (aborted) return 'cancelled';
   if (subtype === 'error_max_turns' || terminalReason === 'max_turns') return 'max-turns';
   if (subtype === 'error_max_budget_usd') return 'max-budget';
   if (isError) return 'error';
   return subtype === 'success' ? 'completed' : 'unknown';
 }
 
-/** ACP stop reason: the frame's own `stop_reason`, else derived from `terminal_reason`. */
-function stopReasonOf(
-  frame: JsonObject,
+function derivedStopReason(
   terminalReason: string | undefined,
+  aborted: boolean,
 ): StopReason | undefined {
-  const own = ownString(frame, 'stop_reason');
-  if (own !== undefined) return own;
   if (terminalReason === 'completed') return 'end_turn';
   if (terminalReason === 'max_turns') return 'max_turn_requests';
-  return terminalReason?.startsWith('aborted') === true ? 'cancelled' : undefined;
+  return aborted ? 'cancelled' : undefined;
 }
 
-function permissionDenials(frame: JsonObject): TurnResult['permissionDenials'] {
-  const denials: { readonly toolName: string; readonly toolUseId: string }[] = [];
-  for (const entry of ownArray(frame, 'permission_denials') ?? []) {
-    if (!isJsonObject(entry)) continue;
-    const toolName = ownString(entry, 'tool_name');
-    const toolUseId = ownString(entry, 'tool_use_id');
-    if (toolName !== undefined && toolUseId !== undefined) denials.push({ toolName, toolUseId });
-  }
-  return denials;
-}
-
+/** The turn machine owns `turn.completed`; a result only yields usage. */
 function result(frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
-  const events: ClaudeEventData[] = [];
   const reported = usageTotals(frame);
-  if (reported !== undefined) {
-    events.push({
+  if (reported === undefined) return [];
+  return [
+    {
       type: 'usage.update',
       ...turnField(ctx),
       reported,
       estimatedDelta: { estimate: true },
       raw: frame,
-    });
-  }
-  // Without a turn there is no `turn.completed`; the result stays visible.
-  if (ctx.turnId === undefined) return [...events, harnessFrame(frame, 'result', subtypeOf(frame))];
-  const subtype = ownString(frame, 'subtype');
-  const terminalReason = ownString(frame, 'terminal_reason');
-  const isError = ownBoolean(frame, 'is_error') === true || subtype?.startsWith('error') === true;
-  const text = ownString(frame, 'result');
-  const stopReason = stopReasonOf(frame, terminalReason);
-  const errors = ownArray(frame, 'errors');
-  const apiErrorStatus = ownNumber(frame, 'api_error_status');
-  const turnResult: TurnResult = {
-    turnId: ctx.turnId,
-    sessionId: ownString(frame, 'session_id') ?? ctx.sessionId ?? '',
-    outcome: outcomeOf(subtype, terminalReason, isError),
-    isError,
-    ...(text === undefined ? {} : { text }),
-    ...(stopReason === undefined ? {} : { stopReason }),
-    ...(terminalReason === undefined ? {} : { terminalReason }),
-    ...(errors === undefined ? {} : { errors: stringItems(errors) }),
-    ...(apiErrorStatus === undefined ? {} : { apiErrorStatus }),
-    ...(reported === undefined ? {} : { usage: reported }),
-    permissionDenials: permissionDenials(frame),
-    synthesized: false,
-    raw: frame,
-  };
-  events.push({ type: 'turn.completed', turnId: ctx.turnId, result: turnResult, raw: frame });
-  return events;
-}
-
-// ---- control_request -------------------------------------------------------
-
-function controlRequest(frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
-  const request = ownObject(frame, 'request');
-  const requestId = ownString(frame, 'request_id');
-  if (request === undefined || requestId === undefined) return [];
-  if (ownString(request, 'subtype') !== 'can_use_tool') return [];
-  const toolName = ownString(request, 'tool_name');
-  const toolUseId = ownString(request, 'tool_use_id');
-  if (toolName === undefined || toolUseId === undefined) return [];
-  return [
-    { type: 'permission.requested', requestId, ...turnField(ctx), toolName, toolUseId, raw: frame },
+    },
   ];
 }
+
+// ---- control frames --------------------------------------------------------
+//
+// The session machine routes control frames to the control and permission
+// machines and never passes them here. One that arrives anyway ("should not
+// happen") falls through to `harness.frame`; `permission.requested` belongs to
+// the permission machine.
