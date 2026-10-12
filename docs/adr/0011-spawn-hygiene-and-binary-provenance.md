@@ -1,0 +1,58 @@
+# ADR-0011: Spawn hygiene and binary provenance
+
+- Status: Accepted. Binary discovery order is not fixed by the negotiation log (see Decision 5). Verification against OS signatures is design intent; hash verification evidence is from the spike.
+- Date: 2026-10-12
+- Negotiation log items: A14, A15, E10, F (A14/E10, A15), D1, D9, D10 (06 §A, §D, §E, §F)
+- Related: [ADR-0008](0008-turn-and-lifecycle-semantics.md), [ADR-0009](0009-process-layer-windows.md), [ADR-0012](0012-security-defaults-and-trust.md), [ADR-0015](0015-legal-and-provenance.md)
+
+## Context
+
+Argv injection is a documented real-world issue: a dash-leading value is parsed as a new flag, and both SDKs fixed it by sending `--flag=value` (02 §2.4: Python for `--resume`, `--session-id`; TS in 0.3.295). The `--allowedTools` tokenizer splits on commas and spaces outside parentheses, so rule strings need validation (02 §2.4, Python changelog 0.2.129 calls the old behaviour an injection). On Windows, spawning `.cmd` or `.bat` hits CVE-2024-27980 ("BatBadBut") (02 §2.3, §10 item 3). Large values can exceed Windows command-line limits, which is why the SDKs send agents, hooks and prompts through `initialize` (02 §2.4).
+
+The TS SDK trusts whatever `require.resolve` finds in `node_modules`; Python trusts PATH and a bundled file, and deliberately avoids probing driveless `/usr/local/bin` on Windows because of binary planting (02 §10 item 9).
+
+Spike hashes (D1, 05 §1): the win32-x64 and linux-x64 binaries match npm integrity and the SHA-256 in the SDK package's `manifest.json`; the SDK's win32 binary is byte-identical to the claude-code one. The SDK does not read `manifest.json` at runtime (02 §8).
+
+## Decision
+
+### Spawn (A14)
+
+1. `shell: false`, `windowsHide: true`, stdio `pipe` x3, explicit environment ([ADR-0012](0012-security-defaults-and-trust.md)).
+2. Explicit binary resolution, preferring a real `.exe`. Refuse `.cmd` and `.bat` anywhere in the resolved path. Never `shell: true`.
+3. All flags in the form `--flag=value`, always, including named options and free-form values.
+4. Rule strings (allowed/disallowed tools, skill names) are validated against the tokenizer's constraints before being formatted into argv.
+5. Binary discovery: an explicit path option always wins and is logged with its version. The order of the automatic discovery fallbacks is not fixed by the negotiation log. Research 02 §12 suggests: configured path, then the user's native install, then an SDK platform package if present; this is evidence, not a ratified decision. In all cases the resolved path, the resolved version and the verification status are reported.
+6. Large values go through `initialize` or hudhud-owned private files, not argv. Private files are created by hudhud with restrictive permissions in a hudhud-owned location; they are not placed in the harness's config directory (R6).
+7. A bounded, UTF-8-safe NDJSON framer: per-line inbound cap 64 MiB by default, configurable (E10); outbound cap 32 MiB (initial, tunable); `onOversizedFrame: 'fail'` (default) or `'skip'` ([ADR-0008](0008-turn-and-lifecycle-semantics.md)). The framer tolerates CRLF, blank lines, a leading BOM and multibyte characters split across chunks (05 §11, D10).
+8. Non-JSON stdout lines are skipped as non-protocol noise and never executed (02 §10 item 7).
+
+### Binary provenance (A15, amended by F)
+
+- Advisory only: never blocking by default. Result is exposed as `binary.verification`.
+- Order: OS signature first (Authenticode on Windows, `/usr/bin/codesign --verify` on macOS; a Gatekeeper/quarantine spawn failure is mapped to a named cause), SHA-256 hash fallback against the published `manifest.json` checksums / npm integrity. The linux-x64 and win32-x64 digests were verified in the spike (05 §1).
+- Resolve launcher symlinks (and the native-installer layout `~/.local/bin/claude[.exe]` -> `~/.local/share/claude/versions/<ver>`, 01 §4.1) to the real binary before verifying.
+- The process root set used for containment ([ADR-0009](0009-process-layer-windows.md), [ADR-0010](0010-process-layer-posix.md)) is {spawned pid, `initialize.pid`}, because a native launcher can make them differ. Whether they differ is a pre-v1 spike item (G4).
+- Opt-in strict mode: refuse to run when verification fails. This is named as a security opt-in and reported in `securityPosture`; the strict-mode option name is not fixed here.
+
+## Alternatives considered
+
+- Resolve the binary with `PATH` lookup only. Rejected: planting risk (02 §10 item 9).
+- Accept `.cmd` shims with `shell: true`. Rejected: BatBadBut.
+- Hard-block when hash or signature verification fails. Rejected as default (A15): the user installs and updates the CLI, and Anthropic's native auto-update changes it; blocking by default would break legitimate installs. Offered as opt-in.
+- Rely on hash only, or signature only. Rejected: signatures are the stronger OS-native check but not on every platform; the manifest hash is the portable fallback.
+- Version probe by running `claude -v` before every session (as Python does). Not required: `initialize.claude_code_version` is available after spawn, and `claude --version` makes zero network requests (05 §1) should a pre-flight check be wanted.
+- 1 MiB frame cap (Python). Rejected: too small (05 §11). Unbounded buffering (TS). Rejected: memory exhaustion (02 §3).
+- Passing large values through argv. Rejected: Windows command-line limits (02 §2.4).
+- A pre-`dlopen` sha256 check as a security boundary for the Windows addon. Defence in depth only ([ADR-0009](0009-process-layer-windows.md)).
+
+## Consequences
+
+- Provenance results can be `unverified` (no signature, no manifest available); the application decides whether to treat that as an error.
+- Strict `--flag=value` formatting must be applied at the single point where argv is built, covered by tests that include dash-leading and comma-containing values.
+- The hash fallback depends on obtaining the manifest checksums at run time or at install time; how they are delivered (bundled snapshot, fetched, or supplied by the application) is not fixed by the log. Only SDK-package checksums have been observed (05 §1).
+
+## Evidence
+
+- 02 §2.2-§2.4, §3, §8, §10 items 2, 3, 6, 7, 9.
+- 05 §1 (hash verification), §11 (frame sizes and encoding), §5 (`initialize.pid`).
+- 01 §4.1 (binary layout and auto-update), §7 (Windows specifics).
