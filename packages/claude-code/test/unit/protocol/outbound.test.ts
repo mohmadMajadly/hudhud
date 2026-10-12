@@ -242,6 +242,56 @@ describe('raw control guard', () => {
     });
   });
 
+  it('refuses raw permission answers that write settings, unless config writes are allowed (R6)', () => {
+    const answer = (updatedPermissions: unknown): JsonObject =>
+      JSON.parse(
+        JSON.stringify({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: 'r',
+            response: { behavior: 'allow', updatedPermissions },
+          },
+        }),
+      ) as JsonObject;
+    const rule = (frame: JsonObject, policy = OPEN): unknown =>
+      rawFrameRefusal(frame, policy)?.details?.['rule'];
+    const writes = [
+      [{ type: 'addRules', destination: 'localSettings' }],
+      [{ type: 'setMode', destination: 'session' }, { destination: 'userSettings' }],
+      [{ destination: 'projectSettings' }],
+      [{ destination: 'somethingNew' }],
+      [{ type: 'addRules' }],
+      ['session'],
+      [null],
+      [{ destination: 'Session' }],
+    ];
+    for (const updates of writes) {
+      expect(rule(answer(updates)), JSON.stringify(updates)).toBe('raw-config-write-permissions');
+      expect(
+        rule(answer(updates), { allowRawControl: true, allowConfigWrites: true }),
+      ).toBeUndefined();
+    }
+    const inherited = JSON.parse(
+      '{"type":"control_response","response":{"subtype":"success","request_id":"r","response":{"behavior":"allow","updatedPermissions":[{"__proto__":{"destination":"session"}}]}}}',
+    ) as JsonObject;
+    expect(rule(inherited)).toBe('raw-config-write-permissions');
+    expect(rawFrameRefusal(answer([{ destination: 'x' }]), OPEN)).toMatchObject({
+      code: 'INVALID_OPTIONS',
+      retryable: false,
+    });
+    for (const fine of [
+      answer([]),
+      answer([{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]),
+      answer('not-an-array'),
+      { type: 'control_response', response: { subtype: 'error', request_id: 'r', error: 'x' } },
+      { type: 'control_response', response: 'x' },
+      { type: 'control_response', response: { subtype: 'success', response: 'x' } },
+    ] as JsonObject[]) {
+      expect(rule(fine), JSON.stringify(fine)).toBeUndefined();
+    }
+  });
+
   it('checks raw frames for workspaceTrust and update_settings carriers', () => {
     const rule = (frame: JsonObject, policy = OPEN): unknown =>
       rawFrameRefusal(frame, policy)?.details?.['rule'];

@@ -27,6 +27,7 @@ import {
   isJsonObject,
   isJsonValue,
   makeErrorData,
+  ownArray,
   ownObject,
   ownString,
   type EncodeJsonLineResult,
@@ -273,9 +274,29 @@ export function rawControlRequest(
 }
 
 /**
+ * True when every entry of `updatedPermissions` names the `session`
+ * destination as an own property: the only destination that writes nothing
+ * to disk (R6, ADR-0012 §3). Entries that are not objects count as writing.
+ */
+function onlySessionDestinations(updates: readonly JsonValue[]): boolean {
+  return updates.every(
+    (update) => isJsonObject(update) && ownString(update, 'destination') === 'session',
+  );
+}
+
+/**
  * Why a caller-built raw frame (`RawSession.writeFrame`, plan §2.6) may not
- * be written, or `undefined` when it may. Applies the control-request rules
- * of {@link rawControlRefusal} to a `control_request` frame.
+ * be written, or `undefined` when it may.
+ *
+ * @remarks
+ * A `control_request` gets the rules of {@link rawControlRefusal}. A
+ * `control_response` whose `response.response.updatedPermissions` holds any
+ * entry without an own `destination: 'session'` is refused (rule
+ * `raw-config-write-permissions`) unless config writes are allowed: the
+ * never-write rule (R6) holds in the raw tier too, and the frame is refused,
+ * never stripped silently. Only `control_request` frames reach
+ * {@link rawControlRefusal}; a raw control request carries no permission
+ * updates.
  *
  * @internal
  */
@@ -287,7 +308,20 @@ export function rawFrameRefusal(
   if (!isJsonObject(frame) || !isJsonValue(frame)) {
     return refused('raw-frame-not-json', 'The raw frame is not a plain JSON object.');
   }
-  if (ownString(frame, 'type') !== 'control_request') return undefined;
+  const type = ownString(frame, 'type');
+  if (type === 'control_response') {
+    const envelope = ownObject(frame, 'response');
+    const body = envelope === undefined ? undefined : ownObject(envelope, 'response');
+    const updates = body === undefined ? undefined : ownArray(body, 'updatedPermissions');
+    if (updates !== undefined && !policy.allowConfigWrites && !onlySessionDestinations(updates)) {
+      return refused(
+        'raw-config-write-permissions',
+        'updatedPermissions with a destination other than session write settings files; they need dangerouslyAllowConfigWrites: true.',
+      );
+    }
+    return undefined;
+  }
+  if (type !== 'control_request') return undefined;
   const request = ownObject(frame, 'request');
   const subtype = request === undefined ? undefined : ownString(request, 'subtype');
   if (subtype === undefined) {

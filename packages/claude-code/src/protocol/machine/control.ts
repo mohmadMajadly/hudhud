@@ -20,7 +20,9 @@
  * other subtype is answered with a `control_response` error "Unsupported
  * control request subtype", except the never-answered set: `remote_*`
  * subtypes and `request_user_dialog` (v1 declares no dialog kinds, so every
- * kind is unhandled and must not be answered, 02 §4.3). A duplicate in-flight
+ * kind is unhandled and must not be answered, 02 §4.3). `elicitation` gets
+ * the unsupported error in v1 too; answering it with `{action: 'decline'}`
+ * (02 §4.3) is a v1.x item. A duplicate in-flight
  * id is ignored; `control_cancel_request` removes the entry and yields
  * `inbound.cancel`; nothing is ever written for a cancelled request.
  *
@@ -97,7 +99,12 @@ export interface ControlConfig {
 
 /** A control request hudhud wants to send. @internal */
 export type OutboundRequest = {
-  /** The binding's handle for the caller; unique among pending requests. */
+  /**
+   * The binding's handle for the caller. Binding contract: unique among
+   * pending requests. A duplicate is refused with an `INVALID_OPTIONS` settle
+   * that carries the same correlation, so the caller of the still-pending
+   * request would see a second settle; the binding must never reuse one.
+   */
   readonly correlation: string;
   /** Optional local timeout, a positive safe integer; none by default (02 §4.1). */
   readonly timeoutMs?: number;
@@ -419,6 +426,8 @@ function onRequest(
       effects: [{ type: 'inbound.request', requestId, subtype, frame }],
     };
   }
+  // Every other subtype, hook_callback, mcp_message and elicitation included.
+  // v1.x item: answer elicitation with {action: 'decline'} (02 §4.3).
   return {
     state,
     effects: [
