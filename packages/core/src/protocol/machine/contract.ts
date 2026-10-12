@@ -1,0 +1,219 @@
+/**
+ * The neutral machine contract (plan §1.4, ADR-0006, K3).
+ *
+ * @remarks
+ * Every harness adapter implements its protocol as a pure machine against
+ * this contract; the binding layer drives any machine that satisfies it. A
+ * machine is a pair of pure functions over JSON values: no I/O, no ambient
+ * time or randomness. The clock arrives with every input; every UUID arrives
+ * from the binding inside an input or the config, and a machine generates
+ * only deterministic ids (for example `<prefix>_<n>` request ids). A machine
+ * therefore replays byte for byte from a recorded input sequence.
+ *
+ * Contract invariants, checked against every machine by the machine kit of
+ * `@hudhud/test-support`:
+ *
+ * - every turn settles exactly once (`turn.settle` or `turn.fail`);
+ * - each `permission.ask` ends exactly once, by a `permission.cancel` effect
+ *   or by a `cmd.permission` / `cmd.permission-abort` input;
+ * - no `write` after `stdin.end`;
+ * - event `seq` strictly increases by 1;
+ * - timers are cleared (or have fired) before `session.end`;
+ * - after `session.end` every input yields no effects;
+ * - `step` output survives `JSON.parse(JSON.stringify(x))` unchanged.
+ *
+ * @packageDocumentation
+ */
+
+import type { ErrorData } from '../errors.js';
+import type { HudhudEvent, TurnResult } from '../events/types.js';
+import type { JsonObject, JsonValue } from '../json.js';
+import type { SessionOutcome, TerminationIntent } from './outcome.js';
+
+/**
+ * Name of a machine timer; the binding owns the real timer.
+ *
+ * @public
+ */
+export type TimerName = string;
+
+/**
+ * The injected clock, carried by every input (ADR-0006).
+ *
+ * @public
+ */
+export interface MachineClockInput {
+  /** Monotonic milliseconds of the binding clock. */
+  readonly atMs: number;
+  /** The same instant as an ISO-8601 timestamp. */
+  readonly at: string;
+}
+
+/**
+ * What the process and transport layers report to a machine.
+ *
+ * @public
+ */
+export type TransportInput =
+  | { readonly type: 'process.started'; readonly pid: number }
+  | { readonly type: 'line'; readonly text: string; readonly bytes: number }
+  | { readonly type: 'line.oversized'; readonly bytes: number }
+  | { readonly type: 'line.invalid-utf8'; readonly bytes: number }
+  | { readonly type: 'stderr.line'; readonly text: string }
+  | { readonly type: 'stdout.end' }
+  | { readonly type: 'stdin.error'; readonly code: string }
+  | { readonly type: 'process.spawn-error'; readonly code: string }
+  | { readonly type: 'process.exit'; readonly code: number | null; readonly signal: string | null }
+  | { readonly type: 'timer'; readonly name: TimerName }
+  | { readonly type: 'ladder.done' };
+
+/**
+ * What the application asks of a machine, through the binding.
+ *
+ * @public
+ */
+export type CommandInput =
+  | { readonly type: 'cmd.send'; readonly turnId: string; readonly content: JsonValue }
+  | {
+      readonly type: 'cmd.interrupt';
+      readonly turnId?: string;
+      readonly cancelQueued: boolean;
+      readonly correlation: string;
+    }
+  | { readonly type: 'cmd.permission'; readonly requestId: string; readonly decision: JsonObject }
+  | { readonly type: 'cmd.permission-abort'; readonly requestId: string }
+  | {
+      readonly type: 'cmd.set-permission-mode';
+      readonly mode: string;
+      readonly correlation: string;
+    }
+  | { readonly type: 'cmd.close' }
+  | { readonly type: 'cmd.abort'; readonly intent: 'abort' | 'dispose' };
+
+/**
+ * One input of {@link HarnessMachine.step}: a transport report or a command,
+ * stamped with the injected clock.
+ *
+ * @public
+ */
+export type MachineInput = MachineClockInput & (TransportInput | CommandInput);
+
+/**
+ * An event as a machine emits it: plain JSON (ADR-0006).
+ *
+ * @public
+ */
+export type HudhudEventData = HudhudEvent;
+
+/**
+ * A turn result as a machine settles it: plain JSON (ADR-0006).
+ *
+ * @public
+ */
+export type TurnResultData = TurnResult;
+
+/**
+ * A permission request as a machine asks it (plan §2.2 `PermissionRequest`).
+ * Every text field is untrusted harness text: sanitize it before display.
+ *
+ * @public
+ */
+export interface PermissionRequestData {
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly turnId?: string;
+  readonly toolName: string;
+  readonly displayName?: string;
+  readonly toolUseId: string;
+  readonly input: JsonValue;
+  /** Passed through, never applied. */
+  readonly suggestions: readonly JsonValue[];
+  readonly blockedPath?: string;
+  readonly decisionReason?: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly raw: JsonValue;
+}
+
+/**
+ * What a machine knows about a session once the handshake succeeded (plan
+ * §2.2 `SessionInfo`). The binding adds what only it knows, such as the
+ * containment the session got.
+ *
+ * @public
+ */
+export interface SessionInfoData {
+  readonly id: string;
+  readonly mode: 'create' | 'resume' | 'fork';
+  readonly forkedFrom?: string;
+  /** The spawned pid (process identity), from `process.started`. */
+  readonly pid: number;
+  /** The pid the harness reports for itself (informational). */
+  readonly cliPid?: number;
+  readonly version: string;
+  readonly apiKeySource?: string;
+  readonly features: readonly string[];
+}
+
+/**
+ * What a machine asks the binding to do. Effects of one step are executed in
+ * order.
+ *
+ * @public
+ */
+export type MachineEffect =
+  | { readonly type: 'write'; readonly line: string }
+  | { readonly type: 'stdin.end' }
+  | { readonly type: 'timer.set'; readonly name: TimerName; readonly ms: number }
+  | { readonly type: 'timer.clear'; readonly name: TimerName }
+  | { readonly type: 'event'; readonly event: HudhudEventData }
+  | {
+      readonly type: 'permission.ask';
+      readonly requestId: string;
+      readonly request: PermissionRequestData;
+    }
+  | {
+      readonly type: 'permission.cancel';
+      readonly requestId: string;
+      readonly reason: 'harness' | 'close' | 'abort';
+    }
+  | { readonly type: 'handshake.ok'; readonly info: SessionInfoData }
+  | { readonly type: 'handshake.fail'; readonly error: ErrorData }
+  | { readonly type: 'turn.settle'; readonly turnId: string; readonly result: TurnResultData }
+  | { readonly type: 'turn.fail'; readonly turnId: string; readonly error: ErrorData }
+  | {
+      readonly type: 'control.settle';
+      readonly correlation: string;
+      readonly ok: true;
+      readonly response: JsonValue;
+    }
+  | {
+      readonly type: 'control.settle';
+      readonly correlation: string;
+      readonly ok: false;
+      readonly error: ErrorData;
+    }
+  | { readonly type: 'ladder.start'; readonly intent: TerminationIntent }
+  | { readonly type: 'session.end'; readonly outcome: SessionOutcome; readonly error?: ErrorData };
+
+/**
+ * The result of one {@link HarnessMachine.step}.
+ *
+ * @public
+ */
+export interface MachineStep<State> {
+  readonly state: State;
+  readonly effects: readonly MachineEffect[];
+}
+
+/**
+ * A harness protocol as a pure machine (ADR-0006). `State` and `Config` are
+ * JSON values; `step` never mutates its arguments, never throws for any
+ * input, and returns errors as data.
+ *
+ * @public
+ */
+export interface HarnessMachine<State, Config> {
+  initialState(config: Config): State;
+  step(state: State, input: MachineInput): MachineStep<State>;
+}
