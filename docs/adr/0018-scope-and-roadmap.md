@@ -43,7 +43,7 @@ Additional gates stated elsewhere in the log, not in the G4 list:
 
 ### macOS gate (G3)
 
-A one-off `workflow_dispatch` macOS spike before v1, then macOS on the FULL tier only ([ADR-0014](0014-ci-strategy.md)). The seven-item gate list is ratified and recorded in [ADR-0014](0014-ci-strategy.md#macos-gate-list).
+A one-off `workflow_dispatch` macOS spike before v1, then macOS on the FULL tier only ([ADR-0014](0014-ci-strategy.md)). The seven-item gate list is ratified and recorded in [ADR-0014](0014-ci-strategy.md#macos-gate-list-ratified).
 
 ## Alternatives considered
 

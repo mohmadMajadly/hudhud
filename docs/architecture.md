@@ -387,7 +387,7 @@ Ratified by the lead (from the final negotiation round, part 1). Required before
 6. Path identity: `/tmp` is `/private/tmp` and APFS may be case-insensitive; hudhud passes a realpath'd cwd consistently, otherwise resume breaks.
 7. CI: darwin-arm64 is a mandatory runner; darwin-x64 is declared in `maxTested` only when it has run.
 
-See [ADR-0014](adr/0014-ci-strategy.md#macos-gate-list).
+See [ADR-0014](adr/0014-ci-strategy.md#macos-gate-list-ratified).
 
 ## Owner decisions
 
