@@ -11,7 +11,8 @@ import { createInterface } from 'node:readline';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { runWindowsLadder, type LadderClock } from '../../../src/process/ladder/windows.js';
+import type { LadderClock } from '../../../src/process/ladder/types.js';
+import { runWindowsLadder } from '../../../src/process/ladder/windows.js';
 import type { LadderReport } from '../../../src/process/ladder/types.js';
 import type { Win32CimTableCalls } from '../../../src/process/os/types.js';
 import {
@@ -55,7 +56,7 @@ function cimTable(): Win32CimTableCalls {
 
 const realClock: LadderClock = {
   now: () => Date.now(),
-  setTimeout: (callback, ms) => {
+  schedule: (ms, callback) => {
     const timer = setTimeout(callback, ms);
     return () => {
       clearTimeout(timer);

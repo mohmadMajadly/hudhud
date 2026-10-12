@@ -4,6 +4,7 @@ import { maySignal, selectSignalTarget } from '../tree/select.js';
 import { takeSnapshot } from '../tree/snapshot.js';
 import type { ProcessIdentity, ProcessSnapshot } from '../tree/types.js';
 import type {
+  LadderClock,
   LadderHooks,
   LadderReport,
   LadderStep,
@@ -38,22 +39,6 @@ import type {
  * The ladder never rejects for an OS failure: a failed snapshot, hook or
  * signal is recorded as a `failed` step and the ladder goes on.
  */
-
-/**
- * Time source and one-shot timers, injected so tests never use real timers.
- *
- * @public
- */
-export interface LadderClock {
-  /** Current time in milliseconds (any epoch; only differences are used). */
-  now(): number;
-  /**
-   * Calls `callback` once after `ms` milliseconds. The returned function
-   * cancels the timer; calling it after the timer fired, or twice, is a
-   * no-op.
-   */
-  schedule(ms: number, callback: () => void): () => void;
-}
 
 /**
  * The spawned process as the POSIX ladder sees it.

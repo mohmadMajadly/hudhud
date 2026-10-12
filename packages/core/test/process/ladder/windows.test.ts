@@ -129,10 +129,10 @@ function summary(report: LadderReport): string[] {
 /** The process exits `ms` after EOF (a graceful drain). */
 function exitAfterEof(h: Harness, ms: number): void {
   h.proc.onCloseStdin = () => {
-    h.clock.setTimeout(() => {
+    h.clock.schedule(ms, () => {
       h.proc.exit();
       removeRows(h, (pid) => pid === ROOT.pid);
-    }, ms);
+    });
   };
 }
 
@@ -451,10 +451,10 @@ describe('runWindowsLadder best-effort', () => {
   it('exits during the taskkill grace', async () => {
     const h = harness();
     h.taskkill = () => {
-      h.clock.setTimeout(() => {
+      h.clock.schedule(300, () => {
         h.proc.exit();
         removeRows(h, (pid) => TREE.has(pid));
-      }, 300);
+      });
       return Promise.resolve({ exitCode: 0 });
     };
     const report = await run(h, null);
@@ -633,11 +633,11 @@ describe('runWindowsLadder best-effort sweep', () => {
   it('acts only on processes whose start time still matches S1, never on the host', async () => {
     const h = harness([HOST_ROW, ROOT, KID, GRANDKID]);
     h.proc.onCloseStdin = () => {
-      h.clock.setTimeout(() => {
+      h.clock.schedule(10, () => {
         h.proc.exit();
         // The grandchild exited; the child's pid now names another process.
         h.table.rows = [HOST_ROW, { ...KID, start: '5000' }];
-      }, 10);
+      });
     };
     const report = await run(h, null);
     expect(summary(report).slice(4)).toEqual([
@@ -733,9 +733,9 @@ describe('runWindowsLadder property: no action after the exit', () => {
         fc.boolean(),
         async (exitAt, withJob, interruptOutcome, killsWork, identityOk) => {
           const h = harness([HOST_ROW, identityOk ? ROOT : { ...ROOT, start: '1' }, KID, GRANDKID]);
-          h.clock.setTimeout(() => {
+          h.clock.schedule(exitAt, () => {
             h.proc.exit();
-          }, exitAt);
+          });
           h.taskkill = () => {
             if (killsWork) h.proc.exit();
             return Promise.resolve({ exitCode: killsWork ? 0 : 1 });

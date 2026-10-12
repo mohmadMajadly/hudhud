@@ -19,7 +19,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { createInterface } from 'node:readline';
 
-import { runPosixLadder, type LadderClock } from '../../../src/process/ladder/posix.js';
+import type { LadderClock } from '../../../src/process/ladder/types.js';
+import { runPosixLadder } from '../../../src/process/ladder/posix.js';
 import type {
   LinuxProcTableCalls,
   PosixSignal,

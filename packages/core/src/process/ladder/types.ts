@@ -126,3 +126,20 @@ export interface LadderHooks {
   /** Observes each step as it is taken (diagnostics). Must not throw. */
   onStep?(step: LadderStep): void;
 }
+
+/**
+ * Time source and one-shot timers of both ladders, injected so tests never
+ * use real timers.
+ *
+ * @public
+ */
+export interface LadderClock {
+  /** Current time in milliseconds (any epoch; only differences are used). */
+  now(): number;
+  /**
+   * Calls `callback` once after `ms` milliseconds. The returned function
+   * cancels the timer; calling it after the timer fired, or twice, is a
+   * no-op.
+   */
+  schedule(ms: number, callback: () => void): () => void;
+}

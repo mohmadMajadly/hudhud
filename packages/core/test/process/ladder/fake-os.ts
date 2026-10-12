@@ -1,8 +1,5 @@
-import type {
-  LadderClock,
-  PosixLadderProcess,
-  PosixOsCalls,
-} from '../../../src/process/ladder/posix.js';
+import type { PosixLadderProcess, PosixOsCalls } from '../../../src/process/ladder/posix.js';
+import type { LadderClock } from '../../../src/process/ladder/types.js';
 import type {
   LinuxProcTableCalls,
   PosixSignal,

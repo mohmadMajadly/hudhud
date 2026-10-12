@@ -54,6 +54,7 @@ import { descendantsOf, findIdentity } from '../tree/descendants.js';
 import type { ProcessIdentity, ProcessSnapshot } from '../tree/types.js';
 import type {
   InterruptOutcome,
+  LadderClock,
   LadderHooks,
   LadderReport,
   LadderStep,
@@ -98,17 +99,6 @@ export interface JobHandle {
    * an `Error` with a string `code` (`WIN32_<n>`, `ERR_JOB_CLOSED`) on failure.
    */
   terminate(): void;
-}
-
-/**
- * Timers of the ladder; injected so tests drive time.
- *
- * @public
- */
-export interface LadderClock {
-  now(): number;
-  /** Calls `callback` after `ms`; the returned function cancels it. */
-  setTimeout(callback: () => void, ms: number): () => void;
 }
 
 /**
@@ -200,9 +190,9 @@ export async function runWindowsLadder<Intent extends string>(
   const waitForExit = async (ms: number): Promise<boolean> => {
     if (observe()) return true;
     const { promise: timeout, resolve } = Promise.withResolvers<undefined>();
-    const cancel = clock.setTimeout(() => {
+    const cancel = clock.schedule(ms, () => {
       resolve(undefined);
-    }, ms);
+    });
     await Promise.race([proc.exited, timeout]);
     cancel();
     return observe();
@@ -344,9 +334,9 @@ export async function runWindowsLadder<Intent extends string>(
   let outcome: InterruptOutcome | 'failed';
   {
     const { promise: timeout, resolve } = Promise.withResolvers<'timeout'>();
-    const cancel = clock.setTimeout(() => {
+    const cancel = clock.schedule(timing.interruptWaitMs, () => {
       resolve('timeout');
-    }, timing.interruptWaitMs);
+    });
     let hookResult: Promise<InterruptOutcome | 'failed'>;
     try {
       hookResult = hooks.interrupt().catch(() => 'failed' as const);

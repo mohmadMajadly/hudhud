@@ -1,5 +1,6 @@
 import type { Win32CimTableCalls } from '../../../src/process/os/types.js';
-import type { LadderClock, WindowsLadderProcess } from '../../../src/process/ladder/windows.js';
+import type { LadderClock } from '../../../src/process/ladder/types.js';
+import type { WindowsLadderProcess } from '../../../src/process/ladder/windows.js';
 
 /** A manual clock: timers fire only when {@link drive} advances time. */
 export class FakeClock implements LadderClock {
@@ -11,7 +12,7 @@ export class FakeClock implements LadderClock {
     return this.time;
   }
 
-  setTimeout(callback: () => void, ms: number): () => void {
+  schedule(ms: number, callback: () => void): () => void {
     const timer = { at: this.time + ms, seq: this.seq++, callback, live: true };
     this.timers.push(timer);
     return () => {
