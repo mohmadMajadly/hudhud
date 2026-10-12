@@ -1,21 +1,16 @@
 // The option types equal their TypeBox schema sources (ADR-0005), and the
-// committed option validators are exactly what the schema pipeline
-// generates from them.
-//
-// The option schema is not yet registered in scripts/lib/schema/pipeline.mjs
-// (a shared file owned by the wave closer), so `schema:check` does not cover
-// src/generated/validators.gen.ts yet; this test regenerates it with the
-// pipeline entry the closer registers (OPTIONS_PIPELINE) and compares byte
-// for byte.
+// option schema is registered in the shared schema pipeline, so
+// `schema:check` regenerates schemas/options.schema.json and
+// src/generated/validators.gen.ts byte for byte (plan §1.3).
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import type { Static } from 'typebox';
-import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { TypesEqual } from '../../../core/test/unit/type-equality.js';
-import { buildOutputs } from '../../../../scripts/lib/schema/pipeline.mjs';
+import { PIPELINES } from '../../../../scripts/lib/schema/pipeline.mjs';
 import type * as schema from '../../schema-src/options.js';
 import type * as options from '../../src/options.js';
 
@@ -29,7 +24,6 @@ const OPTIONS_PIPELINE = {
   validators: 'src/generated/validators.gen.ts',
 } as const;
 
-const VALIDATORS = 'packages/claude-code/src/generated/validators.gen.ts';
 const SCHEMA = 'packages/claude-code/schemas/options.schema.json';
 
 describe('option types equal their schema sources', () => {
@@ -76,20 +70,13 @@ describe('option types equal their schema sources', () => {
   });
 });
 
-describe('generated option validators', () => {
-  let outputs: Map<string, string>;
-
-  beforeAll(async () => {
-    outputs = await buildOutputs(root, [OPTIONS_PIPELINE]);
-  }, 120_000);
-
-  it('are byte-identical to the pipeline output', () => {
-    expect([...outputs.keys()].sort()).toEqual([SCHEMA, VALIDATORS]);
-    expect(readFileSync(`${root}/${VALIDATORS}`, 'utf8')).toBe(outputs.get(VALIDATORS));
+describe('the committed option schema', () => {
+  it('is registered in the shared schema pipeline (schema:check covers it)', () => {
+    expect(PIPELINES).toContainEqual(OPTIONS_PIPELINE);
   });
 
-  it('describe a strict schema rooted at the session() options', () => {
-    const json = JSON.parse(outputs.get(SCHEMA) ?? '{}') as {
+  it('is a strict schema rooted at the session() options', () => {
+    const json = JSON.parse(readFileSync(`${root}/${SCHEMA}`, 'utf8')) as {
       $ref: string;
       $defs: Record<
         string,

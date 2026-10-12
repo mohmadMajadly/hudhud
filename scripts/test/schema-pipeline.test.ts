@@ -32,8 +32,10 @@ beforeAll(async () => {
 describe('buildOutputs', () => {
   it('produces the schemas, data files and validators of every package', () => {
     expect([...outputs.keys()].sort()).toEqual([
+      'packages/claude-code/schemas/options.schema.json',
       'packages/claude-code/schemas/wire-inbound.schema.json',
       'packages/claude-code/schemas/wire-outbound.schema.json',
+      'packages/claude-code/src/generated/validators.gen.ts',
       'packages/claude-code/src/protocol/generated/validators.gen.ts',
       'packages/core/schemas/capabilities.schema.json',
       'packages/core/schemas/conformance.schema.json',

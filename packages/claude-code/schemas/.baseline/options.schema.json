@@ -1,0 +1,596 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/claude-code/schema-src/options.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "hudhud Claude Code adapter options",
+  "description": "Strict: unknown keys are refused. Describes the JSON part of the options; the host values signal, onPermission and events.signal are checked by the adapter.",
+  "$ref": "#/$defs/ConnectSessionOptions",
+  "$defs": {
+    "FrameBytes": {
+      "type": "integer",
+      "minimum": 1048576,
+      "maximum": 1073741824
+    },
+    "TimeoutMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 86400000
+    },
+    "PermissionMode": {
+      "enum": [
+        "default",
+        "acceptEdits",
+        "plan",
+        "dontAsk",
+        "auto",
+        "bypassPermissions"
+      ]
+    },
+    "WorkspaceTrust": {
+      "enum": [
+        "none",
+        "context",
+        "full"
+      ]
+    },
+    "SettingSource": {
+      "enum": [
+        "user",
+        "project",
+        "local"
+      ]
+    },
+    "EnvName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\(x86\\))?$"
+    },
+    "EnvMap": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\(x86\\))?$",
+        "not": {
+          "const": "preset"
+        }
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "EnvPreset": {
+      "enum": [
+        "harness",
+        "inherit"
+      ]
+    },
+    "EnvObjectForm": {
+      "type": "object",
+      "required": [
+        "preset"
+      ],
+      "properties": {
+        "preset": {
+          "$ref": "#/$defs/EnvPreset"
+        },
+        "add": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\(x86\\))?$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvName"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "EnvOption": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnvPreset"
+        },
+        {
+          "$ref": "#/$defs/EnvMap"
+        },
+        {
+          "$ref": "#/$defs/EnvObjectForm"
+        }
+      ]
+    },
+    "Termination": {
+      "type": "object",
+      "properties": {
+        "interruptWaitMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "eofGraceMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "termGraceMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "taskkillGraceMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Trace": {
+      "type": "object",
+      "required": [
+        "traceparent"
+      ],
+      "properties": {
+        "traceparent": {
+          "type": "string",
+          "pattern": "^(?!ff)[0-9a-f]{2}-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-9a-f]{2}$"
+        },
+        "tracestate": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[\\x20-\\x7e]*$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SubscriberOptionsData": {
+      "type": "object",
+      "properties": {
+        "maxEvents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "overflow": {
+          "enum": [
+            "error",
+            "drop-oldest-with-gap-marker",
+            "block"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClaudeCodeSessionOptions": {
+      "type": "object",
+      "properties": {
+        "settingSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingSource"
+          },
+          "uniqueItems": true
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "disallowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additionalDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "includePartialMessages": {
+          "type": "boolean"
+        },
+        "appendSystemPrompt": {
+          "type": "string"
+        },
+        "backgroundWaitCeilingMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BinaryDigests": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[a-z0-9]+-[a-z0-9]+(-[a-z0-9]+)?$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ClaudeCodeConnectOptions": {
+      "type": "object",
+      "properties": {
+        "configDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bare": {
+          "type": "boolean"
+        },
+        "binaryDigests": {
+          "$ref": "#/$defs/BinaryDigests"
+        },
+        "dangerouslyAllowRawControl": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectOptions": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "const": "native"
+        },
+        "binaryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binaryVerification": {
+          "enum": [
+            "advisory",
+            "strict"
+          ]
+        },
+        "claudeCode": {
+          "$ref": "#/$defs/ClaudeCodeConnectOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SessionOptions": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permissionMode": {
+          "$ref": "#/$defs/PermissionMode"
+        },
+        "dangerouslyAllowBypassPermissions": {
+          "type": "boolean"
+        },
+        "workspaceTrust": {
+          "$ref": "#/$defs/WorkspaceTrust"
+        },
+        "projectCredentialEnv": {
+          "enum": [
+            "refuse",
+            "allow"
+          ]
+        },
+        "env": {
+          "$ref": "#/$defs/EnvOption"
+        },
+        "autoUpdate": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "nonessentialTraffic": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "dangerouslyAllowConfigWrites": {
+          "type": "boolean"
+        },
+        "onAuthFailure": {
+          "enum": [
+            "fail-fast",
+            "harness-retry"
+          ]
+        },
+        "onOversizedFrame": {
+          "enum": [
+            "fail",
+            "skip"
+          ]
+        },
+        "maxFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "maxOutboundFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "firstFrameTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "idleStallMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "closeTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "termination": {
+          "$ref": "#/$defs/Termination"
+        },
+        "trace": {
+          "$ref": "#/$defs/Trace"
+        },
+        "events": {
+          "$ref": "#/$defs/SubscriberOptionsData"
+        },
+        "claudeCode": {
+          "$ref": "#/$defs/ClaudeCodeSessionOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResumeOptions": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permissionMode": {
+          "$ref": "#/$defs/PermissionMode"
+        },
+        "dangerouslyAllowBypassPermissions": {
+          "type": "boolean"
+        },
+        "workspaceTrust": {
+          "$ref": "#/$defs/WorkspaceTrust"
+        },
+        "projectCredentialEnv": {
+          "enum": [
+            "refuse",
+            "allow"
+          ]
+        },
+        "env": {
+          "$ref": "#/$defs/EnvOption"
+        },
+        "autoUpdate": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "nonessentialTraffic": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "dangerouslyAllowConfigWrites": {
+          "type": "boolean"
+        },
+        "onAuthFailure": {
+          "enum": [
+            "fail-fast",
+            "harness-retry"
+          ]
+        },
+        "onOversizedFrame": {
+          "enum": [
+            "fail",
+            "skip"
+          ]
+        },
+        "maxFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "maxOutboundFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "firstFrameTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "idleStallMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "closeTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "termination": {
+          "$ref": "#/$defs/Termination"
+        },
+        "trace": {
+          "$ref": "#/$defs/Trace"
+        },
+        "events": {
+          "$ref": "#/$defs/SubscriberOptionsData"
+        },
+        "claudeCode": {
+          "$ref": "#/$defs/ClaudeCodeSessionOptions"
+        },
+        "fork": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectSessionOptions": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "const": "native"
+        },
+        "binaryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binaryVerification": {
+          "enum": [
+            "advisory",
+            "strict"
+          ]
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permissionMode": {
+          "$ref": "#/$defs/PermissionMode"
+        },
+        "dangerouslyAllowBypassPermissions": {
+          "type": "boolean"
+        },
+        "workspaceTrust": {
+          "$ref": "#/$defs/WorkspaceTrust"
+        },
+        "projectCredentialEnv": {
+          "enum": [
+            "refuse",
+            "allow"
+          ]
+        },
+        "env": {
+          "$ref": "#/$defs/EnvOption"
+        },
+        "autoUpdate": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "nonessentialTraffic": {
+          "enum": [
+            "disabled",
+            "harness-default"
+          ]
+        },
+        "dangerouslyAllowConfigWrites": {
+          "type": "boolean"
+        },
+        "onAuthFailure": {
+          "enum": [
+            "fail-fast",
+            "harness-retry"
+          ]
+        },
+        "onOversizedFrame": {
+          "enum": [
+            "fail",
+            "skip"
+          ]
+        },
+        "maxFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "maxOutboundFrameBytes": {
+          "$ref": "#/$defs/FrameBytes"
+        },
+        "firstFrameTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "idleStallMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "closeTimeoutMs": {
+          "$ref": "#/$defs/TimeoutMs"
+        },
+        "termination": {
+          "$ref": "#/$defs/Termination"
+        },
+        "trace": {
+          "$ref": "#/$defs/Trace"
+        },
+        "events": {
+          "$ref": "#/$defs/SubscriberOptionsData"
+        },
+        "claudeCode": {
+          "type": "object",
+          "properties": {
+            "configDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bare": {
+              "type": "boolean"
+            },
+            "binaryDigests": {
+              "$ref": "#/$defs/BinaryDigests"
+            },
+            "dangerouslyAllowRawControl": {
+              "type": "boolean"
+            },
+            "settingSources": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SettingSource"
+              },
+              "uniqueItems": true
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "allowedTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "disallowedTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "additionalDirectories": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "maxTurns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "includePartialMessages": {
+              "type": "boolean"
+            },
+            "appendSystemPrompt": {
+              "type": "string"
+            },
+            "backgroundWaitCeilingMs": {
+              "$ref": "#/$defs/TimeoutMs"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

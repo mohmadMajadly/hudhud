@@ -38,6 +38,12 @@ export const PIPELINES = Object.freeze([
     entry: 'schema-src/wire.ts',
     validators: 'src/protocol/generated/validators.gen.ts',
   },
+  {
+    packageDir: 'packages/claude-code',
+    schemaId: 'claude-code-options',
+    entry: 'schema-src/options.ts',
+    validators: 'src/generated/validators.gen.ts',
+  },
 ]);
 
 /** Directory of the committed schemas inside a package. */
