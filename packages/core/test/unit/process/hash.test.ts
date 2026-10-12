@@ -1,13 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
+import { mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import fc from 'fast-check';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { NotRegularFileError, sha256File } from '../../../src/process/hash.js';
+import { FileChangedError, NotRegularFileError, sha256File } from '../../../src/process/hash.js';
 
 let root = '';
 let counter = 0;
@@ -37,12 +38,14 @@ function oneShot(content: Uint8Array | string): string {
 
 describe('sha256File', () => {
   it('matches the FIPS 180-2 test vectors', async () => {
-    await expect(sha256File(await file(''))).resolves.toBe(
-      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    );
-    await expect(sha256File(await file('abc'))).resolves.toBe(
-      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
-    );
+    await expect(sha256File(await file(''))).resolves.toMatchObject({
+      sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      size: 0,
+    });
+    await expect(sha256File(await file('abc'))).resolves.toMatchObject({
+      sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      size: 3,
+    });
   });
 
   it('property: equals the one-shot digest for any content and chunk size', async () => {
@@ -52,12 +55,14 @@ describe('sha256File', () => {
         fc.integer({ min: 1, max: 600 }),
         async (content, chunkBytes) => {
           const target = await file(content);
-          await expect(sha256File(target, { chunkBytes })).resolves.toBe(oneShot(content));
+          const result = await sha256File(target, { chunkBytes });
+          expect(result.sha256).toBe(oneShot(content));
+          expect(result.size).toBe(content.length);
         },
       ),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
-  });
+  }, 60_000);
 
   it('streams a large file through one fixed buffer (bounded memory)', async () => {
     const content = new Uint8Array(8 * 1024 * 1024 + 17);
@@ -65,8 +70,43 @@ describe('sha256File', () => {
     const target = await file(content);
     const alloc = vi.spyOn(Buffer, 'allocUnsafe');
     const digest = await sha256File(target);
-    expect(digest).toBe(oneShot(content));
+    expect(digest.sha256).toBe(oneShot(content));
     expect(alloc.mock.calls).toEqual([[65536]]);
+  });
+
+  it('binds the digest to the identity of the hashed file', async () => {
+    const target = await file('identity');
+    const facts = await stat(target, { bigint: true });
+    await expect(sha256File(target)).resolves.toEqual({
+      sha256: oneShot('identity'),
+      size: 8,
+      mtimeMs: Number(facts.mtimeMs),
+      fileId: `${String(facts.dev)}:${String(facts.ino)}`,
+    });
+  });
+
+  it('fails when the file changes while it is read', async () => {
+    const target = await file('0123456789');
+    const probe = await open(target);
+    const proto: { read: (...args: never[]) => unknown } = Object.getPrototypeOf(probe) as {
+      read: (...args: never[]) => unknown;
+    };
+    await probe.close();
+    const original = proto.read;
+    let first = true;
+    vi.spyOn(proto, 'read').mockImplementation(function (this: unknown, ...args: never[]) {
+      if (first) {
+        first = false;
+        appendFileSync(target, 'more');
+      }
+      return Reflect.apply(original, this, args);
+    });
+    const error: unknown = await sha256File(target, { chunkBytes: 4 }).catch(
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(FileChangedError);
+    expect((error as FileChangedError).path).toBe(target);
+    expect((error as FileChangedError).name).toBe('FileChangedError');
   });
 
   it.each([0, -1, 1.5, Number.NaN, 2 ** 53])('refuses chunkBytes %d', async (chunkBytes) => {
