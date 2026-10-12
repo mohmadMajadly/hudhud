@@ -1,0 +1,53 @@
+# Nightly safety net (ADR-0014, G3): the full matrix runs only when main
+# changed or a new Claude Code CLI version was published in the last window.
+# A cheap Linux job decides; Windows and macOS are reached only through it.
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: should-run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Did main or the CLI change?
+        id: check
+        shell: bash
+        env:
+          NIGHTLY_FORCED: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node scripts/nightly-check.mjs
+
+  full:
+    name: full
+    needs: check
+    if: needs.check.outputs.run == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true

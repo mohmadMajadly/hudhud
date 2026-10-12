@@ -1,0 +1,37 @@
+packages:
+  - packages/*
+
+# Single source of truth for every third-party version (ADR-0017).
+# Exact pins only; every entry was older than minimumReleaseAge when chosen.
+catalogMode: strict
+catalog:
+  '@changesets/cli': 3.0.3
+  '@eslint/js': 10.0.1
+  '@microsoft/api-extractor': 7.59.3
+  '@types/node': 22.20.5
+  '@vitest/coverage-v8': 5.0.3
+  dependency-cruiser: 18.5.0
+  eslint: 10.12.0
+  markdownlint-cli2: 0.23.3
+  prettier: 3.9.9
+  typescript: 6.0.3
+  typescript-eslint: 8.71.0
+  vitest: 5.0.3
+
+# Supply-chain policy (ADR-0017). pnpm 11 setting names, verified against the
+# pnpm 11 changelog: `allowBuilds` replaces `onlyBuiltDependencies`.
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
+allowBuilds: {}
+strictDepBuilds: true
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+# Reviewed exact-version exceptions to trustPolicy. Each entry needs a reason.
+trustPolicyExclude:
+  # Published 2024-11-13 by the undici maintainer without provenance after
+  # earlier releases carried it; required by @types/node 22.x. Two years old,
+  # identical publisher, no advisory.
+  - undici-types@6.21.0
+engineStrict: true
+savePrefix: ''
+pmOnFail: error

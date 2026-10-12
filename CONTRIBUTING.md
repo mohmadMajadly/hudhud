@@ -1,0 +1,89 @@
+# Contributing to hudhud
+
+hudhud is security-sensitive: other sensitive projects build on it. Quality and security come before speed, and no rule is weakened to get a check green. The design is fixed in [docs/](docs/architecture.md); changes to it go through an ADR.
+
+## Setup
+
+Requirements:
+
+- Node.js 22.13 or newer for the tooling (pnpm 11 and ESLint 10 require it). The published packages support Node `>=22.12.0`. [.nvmrc](.nvmrc) selects the latest Node 22.
+- pnpm, exactly the version in the `packageManager` field of [package.json](package.json). A different version is refused (`pmOnFail: error`).
+- Git. On Windows, Git for Windows (its `sh` runs the hooks).
+
+```sh
+pnpm install --frozen-lockfile
+pnpm hooks:install
+pnpm check
+```
+
+`pnpm install` never runs dependency install scripts: `allowBuilds` is empty and `strictDepBuilds` makes any dependency that wants one fail the install.
+
+## Git hooks and the privacy gate
+
+The tracked hooks live in [.githooks/](.githooks/). pnpm blocks lifecycle scripts by design, so there is no `prepare` or `postinstall` that installs them; enable them once per clone:
+
+```sh
+pnpm hooks:install   # runs: git config core.hooksPath .githooks
+```
+
+The pre-commit hook runs the privacy gate on the staged changes (added lines and new file names) and blocks the commit on any finding:
+
+- home-directory paths (`C:\Users\<name>`, `/Users/<name>`, `/home/<name>`, MSYS and WSL forms);
+- e-mail addresses, except `noreply@anthropic.com` and `*@users.noreply.github.com`;
+- credentials: Anthropic, GitHub, AWS, npm, Slack and Google key formats, private key headers, literal `_authToken=` values;
+- terms from your private denylist.
+
+The denylist holds your user names and anything else that must never be committed. It is never committed itself. Put one term per line (at least 3 characters, `#` starts a comment) in `.git/info/privacy-denylist`, or point `HUDHUD_PRIVACY_DENYLIST` at a file outside the repository. Findings never print a denylist term.
+
+Run the gate by hand with `pnpm privacy:staged` (index) or `pnpm privacy:tree` (every tracked and untracked, unignored file). CI runs the tree scan as part of `pnpm check`. Commit author metadata is not scanned. If the gate flags something, remove it; do not bypass the hook with `--no-verify`.
+
+## Checks
+
+`pnpm check` runs, in order:
+
+| Step                | Command              | What it enforces                                                                                                                  |
+| ------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Format              | `pnpm format:check`  | Prettier                                                                                                                          |
+| Build and typecheck | `pnpm build`         | `tsc --build`, maximal strictness, project references                                                                             |
+| Lint                | `pnpm lint`          | ESLint with typescript-eslint `strict-type-checked` and `stylistic-type-checked`; sans-IO rules for `packages/core/src/protocol/` |
+| Markdown            | `pnpm lint:md`       | markdownlint and an offline link and anchor checker                                                                               |
+| Layers              | `pnpm depcruise`     | dependency-cruiser: core never imports adapters, protocol never imports process or Node built-ins, no cycles                      |
+| Tests               | `pnpm test:coverage` | Vitest with 100 % v8 coverage thresholds                                                                                          |
+| API                 | `pnpm api:check`     | API Extractor reports under `packages/*/api/` match the build                                                                     |
+| Privacy             | `pnpm privacy:tree`  | the privacy gate over the whole tree                                                                                              |
+
+It must pass from a clean clone on Windows and Linux. To check Linux from Windows or macOS, run it in a throw-away `node:22` container on a copy of the repository, never on your working copy or host pnpm store.
+
+The design documents under `docs/` are covered by the link checker and the privacy scan but not yet by markdownlint or Prettier: they predate the tooling and have open lint findings. Bringing them in is a separate, owner-reviewed change.
+
+## Public API changes
+
+Every entry point in a package's `exports` map has an API Extractor config and a committed report. After an intended API change, run `pnpm build && pnpm api:update`, review the diff of `packages/*/api/*.api.md`, and commit it with the change. `pnpm api:check` fails on any unreviewed difference, on an exported entry point without a config, and on a report without a config.
+
+## Releases and changesets
+
+Changes to a package's behaviour or API need a changeset (`pnpm changeset`). All packages are `private` while the repository is private; nothing is published.
+
+## Dependencies
+
+- Every third-party version lives once, as an exact pin, in the `catalog` of [pnpm-workspace.yaml](pnpm-workspace.yaml); manifests use `catalog:` (`catalogMode: strict`).
+- `minimumReleaseAge: 10080`: versions younger than 7 days are not installed. `trustPolicy: no-downgrade` refuses versions with weaker provenance than earlier ones. Exceptions are exact-version entries with a written reason.
+- Review the lockfile diff for unexpected packages before committing it.
+
+## Commits
+
+- Conventional Commits (`feat:`, `fix:`, `build:`, `ci:`, `docs:`, `test:`, `refactor:`, `chore:`), imperative subject, body explaining why.
+- One logical change per commit; the hooks must pass.
+- Never use `[skip ci]`: it bypasses the CI classifier.
+
+## CI
+
+CI follows [ADR-0014](docs/adr/0014-ci-strategy.md). A unit-tested classifier ([scripts/lib/ci-classify.mjs](scripts/lib/ci-classify.mjs)) picks the tier; anything it cannot prove safe is FULL:
+
+| Tier     | When                                                                                   | Jobs                                                                           |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| LIGHT    | pull request touching only `docs/**`, `README.md`, `CHANGELOG.md`, `LICENSE`           | Markdown and link check, privacy scan                                          |
+| STANDARD | other draft pull requests, manual runs                                                 | `pnpm check` on Linux, Node 22                                                 |
+| FULL     | ready pull requests, label `full-ci`, pushes to `main`, tags, merge queue, `full=true` | `pnpm check` on Linux (Node 22, 24, 26), then Windows and macOS (darwin-arm64) |
+
+Keep pull requests in draft while iterating to save minutes, and mark them ready for review to get the full matrix. The `full-ci` label takes effect on the next push. `ci-gate` is the only required check. A nightly run repeats FULL only when `main` changed or a new Claude Code CLI version was published.

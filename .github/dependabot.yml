@@ -1,0 +1,13 @@
+# Keeps the SHA-pinned GitHub Actions current (ADR-0014). npm dependencies are
+# updated by hand with pnpm, which enforces minimumReleaseAge and trustPolicy.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5

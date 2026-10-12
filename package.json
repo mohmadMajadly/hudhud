@@ -1,0 +1,43 @@
+{
+  "name": "hudhud-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo root for hudhud. Not published.",
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings=0 .",
+    "lint:md": "markdownlint-cli2 && node scripts/check-links.mjs",
+    "depcruise": "depcruise --config .dependency-cruiser.mjs packages scripts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "api:check": "node scripts/api-report.mjs",
+    "api:update": "node scripts/api-report.mjs --local",
+    "privacy:staged": "node scripts/privacy-scan.mjs --staged",
+    "privacy:tree": "node scripts/privacy-scan.mjs --tree",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "changeset": "changeset",
+    "check": "pnpm run format:check && pnpm run build && pnpm run lint && pnpm run lint:md && pnpm run depcruise && pnpm run test:coverage && pnpm run api:check && pnpm run privacy:tree"
+  },
+  "devDependencies": {
+    "@changesets/cli": "catalog:",
+    "@eslint/js": "catalog:",
+    "@microsoft/api-extractor": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "dependency-cruiser": "catalog:",
+    "eslint": "catalog:",
+    "markdownlint-cli2": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
+  }
+}

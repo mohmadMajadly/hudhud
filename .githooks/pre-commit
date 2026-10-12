@@ -1,0 +1,5 @@
+#!/bin/sh
+# Privacy gate: blocks the commit when the staged changes contain home
+# directory paths, personal e-mail addresses, credentials or private denylist
+# terms. Enable once per clone with `pnpm hooks:install` (see CONTRIBUTING.md).
+exec node scripts/privacy-scan.mjs --staged

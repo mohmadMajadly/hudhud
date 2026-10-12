@@ -1,0 +1,11 @@
+# Generated or tool-owned files
+pnpm-lock.yaml
+packages/*/api/
+**/CHANGELOG.md
+dist/
+coverage/
+packages/*/temp/
+
+# Design documents are owner-maintained prose; reformatting them is not a
+# tooling decision. They are checked by the link checker and privacy scan.
+docs/

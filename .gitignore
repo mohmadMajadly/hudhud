@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+
+# API Extractor scratch output (committed reports live in packages/*/api/)
+packages/*/temp/
+
+# Logs and local tooling state
+*.log
+.eslintcache
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local environment files. Never commit secrets.
+.env
+.env.*

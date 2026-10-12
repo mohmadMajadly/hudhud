@@ -1,0 +1,37 @@
+{
+  "name": "@hudhud/claude-code",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Claude Code adapter for hudhud.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./raw": {
+      "types": "./dist/raw/index.d.ts",
+      "default": "./dist/raw/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "dependencies": {
+    "@hudhud/core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
