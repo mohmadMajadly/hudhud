@@ -82,8 +82,21 @@ describe('ruleProblem', () => {
   });
 
   it('accepted rules are single tokens: joined with commas they split back exactly', () => {
+    // Rules built to be valid (a name, optionally a parenthesized specifier
+    // with separators and arbitrary text inside), then confirmed accepted.
+    const name = fc
+      .array(fc.constantFrom('a', 'Z', '_', ':', '*', '.', '/', '9'), {
+        minLength: 1,
+        maxLength: 10,
+      })
+      .map((chars) => `R${chars.join('')}`);
+    const inner = fc
+      .string({ unit: 'binary', maxLength: 12 })
+      .map((text) => text.replaceAll(/[()\p{Cc}\u2028\u2029]/gu, ''))
+      .filter((text) => text.isWellFormed());
     const rule = fc
-      .string({ unit: 'binary', maxLength: 24 })
+      .tuple(name, fc.option(fc.array(inner, { maxLength: 3 })))
+      .map(([head, parts]) => (parts === null ? head : `${head}(${parts.join(', ')})`))
       .filter((r) => ruleProblem(r) === undefined);
     fc.assert(
       fc.property(fc.array(rule, { minLength: 1, maxLength: 6 }), (rules) => {
@@ -91,7 +104,8 @@ describe('ruleProblem', () => {
         for (const r of rules) expect(r.startsWith('-')).toBe(false);
       }),
     );
-  });
+    // About 1.5 s on a loaded host; the default 5 s left too little margin.
+  }, 30_000);
 
   it('is total over arbitrary strings', () => {
     fc.assert(
