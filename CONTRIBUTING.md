@@ -8,7 +8,7 @@ Requirements:
 
 - Node.js 22.13 or newer for the tooling (pnpm 11 and ESLint 10 require it). The published packages support Node `>=22.12.0`. [.nvmrc](.nvmrc) selects the latest Node 22.
 - pnpm, exactly the version in the `packageManager` field of [package.json](package.json). A different version is refused (`pmOnFail: error`).
-- Git. On Windows, Git for Windows (its `sh` runs the hooks).
+- Git. On Windows, Git for Windows (its `sh` runs the hooks). In deep checkout paths, `git clean -xfd` cannot delete parts of `node_modules` unless long paths are enabled: `git -c core.longPaths=true clean -xfd`.
 
 ```sh
 pnpm install --frozen-lockfile
