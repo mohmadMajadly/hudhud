@@ -57,6 +57,10 @@ async function sampleUntilResult(
 
 /** Runs item 3. */
 export async function keychainItem(context: SessionContext, r: ItemRecorder): Promise<void> {
+  r.note(
+    'limitation',
+    'Keychain access is detected through security(1) child processes sampled with /bin/ps; an in-process Security framework call by the CLI would not be visible (proxy accepted by the lead).',
+  );
   const keyed = await runScenario(context, {}, async ({ session, sandbox }) => {
     session.initialize();
     session.user(`${mockMarker('text')} gate item 3`);

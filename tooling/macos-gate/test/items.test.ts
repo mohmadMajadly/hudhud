@@ -81,7 +81,10 @@ describe('item 1: provenance', () => {
       'Authority=Developer ID Application',
       'TeamIdentifier=Q6L2SF6YDW',
     ]);
-    expect(outcome.evidence['quarantinedUnsigned']).toMatchObject({ cause: 'killed-at-launch' });
+    expect(outcome.evidence['quarantinedUnsigned']).toMatchObject({
+      cause: 'killed-at-launch',
+      refusedByPolicy: true,
+    });
     const xattr = sim.runs.find((run) => run.file === '/usr/bin/xattr');
     expect(xattr?.args.slice(0, 3)).toEqual([
       '-w',
@@ -141,9 +144,27 @@ describe('item 1: provenance', () => {
       'quarantine attribute set on signed copy',
       'quarantine attribute set on unsigned copy',
       'quarantined signed binary: runs, or fails with a named launch cause',
-      'quarantined unsigned copy: refused with a named launch cause',
       'egress: no request reached the trap',
     ]);
+  });
+
+  it('records an unsigned quarantined copy that runs as evidence only, never failing the item', async () => {
+    const { sim } = world(
+      {},
+      {
+        run: (file, args) =>
+          args[0] === '--version' && file.includes('/unsigned/')
+            ? result('2.1.296 (Claude Code)')
+            : undefined,
+      },
+    );
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.status).toBe('pass');
+    expect(outcome.evidence['quarantinedUnsigned']).toMatchObject({
+      cause: 'ok',
+      refusedByPolicy: false,
+    });
   });
 
   it('accepts a Gatekeeper refusal of the quarantined signed binary', async () => {
@@ -265,6 +286,7 @@ describe('item 3: keychain', () => {
     const outcome = await item(3, (r) => keychainItem(context, r));
     expect(outcome.failed).toEqual([]);
     expect(outcome.evidence['keychainsDirInIsolatedHome']).toBeNull();
+    expect(outcome.evidence['limitation']).toMatch(/security\(1\) child processes/);
     expect(outcome.evidence['apiKeySession']).toMatchObject({ descendants: ['helper'] });
     noSurvivors(sim);
   });

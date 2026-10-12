@@ -9,8 +9,9 @@
  *   (`--version`) in the sandbox with no request reaching the trap.
  * - Quarantine: a quarantined copy of the signed binary, and a quarantined
  *   copy whose signature was removed, are launched; each outcome is mapped
- *   to a named launch cause. The unsigned copy must fail with a named
- *   launch-failure cause (otherwise the mapping is unproven).
+ *   to a named launch cause. The unsigned copy's outcome is evidence only
+ *   (lead ruling: hudhud does not depend on Gatekeeper behaviour);
+ *   `codesign --verify --strict` on the real binary stays a hard check.
  */
 
 import path from 'node:path';
@@ -195,12 +196,13 @@ export async function provenanceItem(
     );
     const unsignedRun = await launch(unsigned);
     const unsignedCause = classifyLaunch(unsignedRun);
-    r.note('quarantinedUnsigned', outcome(unsignedRun));
-    r.check(
-      'quarantined unsigned copy: refused with a named launch cause',
-      POLICY_FAILURES.has(unsignedCause),
-      unsignedCause,
-    );
+    // Evidence only (lead ruling): hudhud does not depend on Gatekeeper
+    // behaviour, so the outcome is recorded with its named cause and never
+    // fails the item.
+    r.note('quarantinedUnsigned', {
+      ...outcome(unsignedRun),
+      refusedByPolicy: POLICY_FAILURES.has(unsignedCause),
+    });
     r.check(
       'egress: no request reached the trap',
       mock.violations.length === 0,
