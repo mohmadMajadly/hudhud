@@ -48,10 +48,13 @@ describe('sha256File', () => {
     });
   });
 
+  // Content stays small: the read count is size / chunkBytes, and size is not
+  // the property here (the 8 MiB test below covers large files). Chunk sizes
+  // still span below, at and above the content length.
   it('property: equals the one-shot digest for any content and chunk size', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.uint8Array({ maxLength: 4096 }),
+        fc.uint8Array({ maxLength: 512 }),
         fc.integer({ min: 1, max: 600 }),
         async (content, chunkBytes) => {
           const target = await file(content);
@@ -60,9 +63,9 @@ describe('sha256File', () => {
           expect(result.size).toBe(content.length);
         },
       ),
-      { numRuns: 100 },
+      { numRuns: 200 },
     );
-  }, 60_000);
+  });
 
   it('streams a large file through one fixed buffer (bounded memory)', async () => {
     const content = new Uint8Array(8 * 1024 * 1024 + 17);
