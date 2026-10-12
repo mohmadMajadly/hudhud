@@ -18,7 +18,7 @@ pnpm check
 
 `pnpm install` never runs dependency install scripts: `allowBuilds` allows none and `strictDepBuilds` makes any dependency that wants one fail the install. Its single entry, `esbuild: false`, is an explicit deny (K14): esbuild takes its binary from its optional platform package (`@esbuild/<platform>-<arch>`), so its postinstall is never needed. This was verified on Windows and Linux.
 
-The workspace has the published packages under `packages/` and private repository tooling under `tooling/` (for example `@hudhud/test-support`). Published sources never import `tooling/`.
+The workspace has the published packages under `packages/` and private repository tooling under `tooling/` (for example `@hudhud/test-support`). Published sources never import `tooling/`. A workspace package imports another one only when its own `package.json` declares it (`dependencies` for `src/`, also `devDependencies` for tests); dependency-cruiser enforces this (`workspace-deps-declared`).
 
 ## Git hooks and the privacy gate
 
@@ -50,7 +50,7 @@ Run the gate by hand with `pnpm privacy:staged` (index) or `pnpm privacy:tree` (
 | Lint                | `pnpm lint`          | ESLint with typescript-eslint `strict-type-checked` and `stylistic-type-checked`; sans-IO rules for `packages/core/src/protocol/` and `packages/claude-code/src/protocol/`; integration tests use `testConnect` only |
 | Markdown            | `pnpm lint:md`       | markdownlint and an offline link and anchor checker                                                                                                                                                                  |
 | Layers              | `pnpm depcruise`     | dependency-cruiser: the layer rules of the [v1 plan §1.2](docs/plan/v1-implementation.md#12-layering-dependency-cruiser-and-eslint), tested by `scripts/test/depcruise-rules.test.ts`                                |
-| Tests               | `pnpm test:coverage` | Vitest projects `unit`, `conformance`, `scripts` with 100 % v8 coverage thresholds; `integration` runs separately                                                                                                    |
+| Tests               | `pnpm test:coverage` | Vitest projects `unit`, `conformance`, `scripts` with 100 % v8 coverage thresholds over `packages/*/src`, `tooling/*/src` and `scripts/lib`; `integration` runs separately                                           |
 | API                 | `pnpm api:check`     | API Extractor reports under `packages/*/api/` match the build                                                                                                                                                        |
 | Privacy             | `pnpm privacy:tree`  | the privacy gate over the whole tree                                                                                                                                                                                 |
 

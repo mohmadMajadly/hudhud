@@ -106,7 +106,15 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**/*.ts', 'scripts/lib/**/*.mjs'],
+      include: [
+        'packages/*/src/**/*.ts',
+        // Test infrastructure is held to the same bar: it carries the egress
+        // trap, the mock API and the pinned-CLI tar reader (security-relevant).
+        // Files without statements (the current skeleton) count as empty and
+        // are skipped; every statement that lands is measured.
+        'tooling/*/src/**/*.ts',
+        'scripts/lib/**/*.mjs',
+      ],
       exclude: [
         // Generated Ajv standalone validators (plan §4.8). Compensating
         // controls: `schema:check` regenerates them byte for byte, the wire and

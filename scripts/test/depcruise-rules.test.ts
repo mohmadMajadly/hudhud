@@ -61,9 +61,44 @@ const SUPPORT: Record<string, string> = {
   'packages/claude-code/src/raw/index.ts': 'export {};\n',
   'packages/claude-code/src/protocol/wire/types.ts': 'export {};\n',
   'tooling/test-support/src/index.ts': 'export {};\n',
+  'packages/claude-code/dist/index.js': 'export {};\n',
+  'packages/claude-code/dist/index.d.ts': 'export {};\n',
+  'tooling/test-support/dist/index.js': 'export {};\n',
+  'tooling/test-support/dist/index.d.ts': 'export {};\n',
   'tsconfig.json': '{ "compilerOptions": { "allowJs": true } }\n',
   'package.json': '{ "name": "fixture", "private": true, "type": "module" }\n',
 };
+
+interface Extras {
+  readonly dependencies?: Record<string, string>;
+  readonly devDependencies?: Record<string, string>;
+}
+
+/** Fixture-only additions to the copied real manifests. */
+const MANIFEST_EXTRAS: Record<string, Extras> = {
+  'packages/core': {
+    dependencies: { 'third-party': '1.0.0' },
+    devDependencies: { '@hudhud/test-support': 'workspace:*' },
+  },
+  'packages/claude-code': { dependencies: { 'third-party': '1.0.0' } },
+  'tooling/test-support': { dependencies: { '@hudhud/core': 'workspace:*' } },
+};
+
+const CORE = { dir: 'packages/core', name: '@hudhud/core' };
+const CLAUDE_CODE = { dir: 'packages/claude-code', name: '@hudhud/claude-code' };
+const TEST_SUPPORT = { dir: 'tooling/test-support', name: '@hudhud/test-support' };
+
+/**
+ * Workspace links: [package directory, linked workspace package]. The last
+ * one is undeclared, like a stray or hoisted link, so resolution alone
+ * cannot be what rejects the import.
+ */
+const LINKS: readonly (readonly [string, { dir: string; name: string }])[] = [
+  ['packages/claude-code', CORE],
+  ['packages/core', TEST_SUPPORT],
+  ['tooling/test-support', CORE],
+  ['tooling/test-support', CLAUDE_CODE],
+];
 
 interface Case {
   readonly title: string;
@@ -78,7 +113,7 @@ const CASES: readonly Case[] = [
     title: 'core importing a Claude wire vocabulary path',
     file: 'packages/core/src/planted-wire.ts',
     code: "import type {} from '../../claude-code/src/protocol/wire/types.js';\n",
-    rules: ['core-neutral'],
+    rules: ['core-neutral', 'workspace-deps-declared'],
   },
   {
     title: 'Claude protocol importing @hudhud/core/process',
@@ -156,7 +191,49 @@ const CASES: readonly Case[] = [
     title: 'published source importing the tooling workspace',
     file: 'packages/core/src/planted-tooling.ts',
     code: "import {} from '../../../tooling/test-support/src/index.js';\n",
-    rules: ['packages-not-to-tooling'],
+    rules: ['packages-not-to-tooling', 'workspace-deps-declared'],
+  },
+  {
+    title: 'source importing a workspace package declared only as a devDependency',
+    file: 'packages/core/src/planted-devdep.ts',
+    code: "import {} from '@hudhud/test-support';\n",
+    rules: ['packages-not-to-tooling', 'workspace-deps-declared'],
+  },
+  {
+    title: 'test importing a workspace package declared as a devDependency (allowed)',
+    file: 'packages/core/test/planted-devdep.test.ts',
+    code: "import {} from '@hudhud/test-support';\n",
+    rules: [],
+  },
+  {
+    title: 'test importing a workspace package declared as a dependency (allowed)',
+    file: 'packages/claude-code/test/planted-dep.test.ts',
+    code: "import {} from '@hudhud/core';\n",
+    rules: [],
+  },
+  {
+    title: 'test importing an undeclared workspace package by relative path',
+    file: 'packages/claude-code/test/planted-undeclared.test.ts',
+    code: "import {} from '../../../tooling/test-support/src/index.js';\n",
+    rules: ['workspace-deps-declared'],
+  },
+  {
+    title: 'test-support source importing a declared workspace package (allowed)',
+    file: 'tooling/test-support/src/planted-dep.ts',
+    code: "import {} from '@hudhud/core';\n",
+    rules: [],
+  },
+  {
+    title: 'test-support source importing an undeclared workspace package through a link',
+    file: 'tooling/test-support/src/planted-link.ts',
+    code: "import {} from '@hudhud/claude-code';\n",
+    rules: ['workspace-deps-declared'],
+  },
+  {
+    title: 'test-support test importing an undeclared workspace package by relative path',
+    file: 'tooling/test-support/test/planted-undeclared.test.ts',
+    code: "import {} from '../../../packages/claude-code/src/index.js';\n",
+    rules: ['workspace-deps-declared'],
   },
   {
     title: 'neutral protocol importing a third-party package',
@@ -214,32 +291,32 @@ describe('dependency-cruiser layer rules', () => {
       mkdirSync(path.dirname(path.join(fixture, file)), { recursive: true });
       writeFileSync(path.join(fixture, file), content);
     };
-    // The real manifests, so `exports` resolves as in the repository. The
-    // planted third-party package is added as a declared runtime dependency,
-    // so only the sans-IO rules (not `not-to-undeclared`) can reject it.
-    for (const pkg of ['core', 'claude-code']) {
+    // The real manifests, so `exports` resolves as in the repository, with
+    // fixture-only additions (MANIFEST_EXTRAS): the planted third-party
+    // package as a declared runtime dependency, so only the sans-IO rules
+    // (not `not-to-undeclared`) can reject it, and workspace declarations
+    // for the `workspace-deps-declared` cases.
+    for (const [dir, extra] of Object.entries(MANIFEST_EXTRAS)) {
       const manifest = JSON.parse(
-        readFileSync(path.join(repoRoot, 'packages', pkg, 'package.json'), 'utf8'),
-      ) as { dependencies?: Record<string, string> };
+        readFileSync(path.join(repoRoot, dir, 'package.json'), 'utf8'),
+      ) as Record<string, Record<string, string> | undefined>;
       write(
-        `packages/${pkg}/package.json`,
+        `${dir}/package.json`,
         JSON.stringify({
           ...manifest,
-          dependencies: { ...manifest.dependencies, 'third-party': '1.0.0' },
+          dependencies: { ...manifest['dependencies'], ...extra.dependencies },
+          devDependencies: { ...manifest['devDependencies'], ...extra.devDependencies },
         }),
       );
     }
     for (const [file, content] of Object.entries(SUPPORT)) write(file, content);
     for (const c of CASES) write(c.file, c.code);
-    // The workspace link pnpm creates (a junction on Windows).
-    mkdirSync(path.join(fixture, 'packages', 'claude-code', 'node_modules', '@hudhud'), {
-      recursive: true,
-    });
-    symlinkSync(
-      path.join(fixture, 'packages', 'core'),
-      path.join(fixture, 'packages', 'claude-code', 'node_modules', '@hudhud', 'core'),
-      'junction',
-    );
+    // The workspace links pnpm creates (junctions on Windows).
+    for (const [from, target] of LINKS) {
+      const link = path.join(fixture, from, 'node_modules', ...target.name.split('/'));
+      mkdirSync(path.dirname(link), { recursive: true });
+      symlinkSync(path.join(fixture, target.dir), link, 'junction');
+    }
 
     const depcruise = (...extra: string[]) =>
       spawnSync(
@@ -273,6 +350,17 @@ describe('dependency-cruiser layer rules', () => {
   it('reports nothing for the support modules', () => {
     const planted = new Set(CASES.map((c) => c.file));
     expect(violations.filter((v) => !planted.has(v.from))).toEqual([]);
+  });
+
+  it('generates workspace-deps-declared from the workspace globs pnpm uses', () => {
+    const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+    const globs = /^packages:\n((?:\s+(?:- .*|#.*)\n)+)/m
+      .exec(yaml)?.[1]
+      ?.split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2));
+    expect(globs).toEqual(['packages/*', 'tooling/*']);
   });
 
   it.each(CASES)('$title', ({ file, rules }) => {

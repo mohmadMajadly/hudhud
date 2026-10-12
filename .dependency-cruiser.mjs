@@ -3,6 +3,9 @@
 // on the resolved module graph, including type-only imports.
 // The rules are exercised by scripts/test/depcruise-rules.test.ts.
 
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
 const ADAPTERS = String.raw`^(packages/(claude-code|hudhud)/|node_modules/(@hudhud/claude-code|hudhud)/)`;
 // The two sans-IO directories: the neutral core protocol and, since K3, the
 // Claude Code protocol machines.
@@ -21,9 +24,104 @@ const CORE_PUBLIC_ENTRIES = String.raw`^(packages/core|node_modules/@hudhud/core
 /** @type {import('dependency-cruiser').DependencyType[]} */
 const NPM = ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-no-pkg', 'npm-unknown'];
 
+/**
+ * @param {string} manifestPath
+ * @param {object} manifest
+ * @returns {string}
+ */
+function packageName(manifestPath, manifest) {
+  /** @type {unknown} */
+  const name = Reflect.get(manifest, 'name');
+  if (typeof name !== 'string' || name === '') throw new Error(`${manifestPath}: no "name"`);
+  return name;
+}
+
+/**
+ * dependency-cruiser classifies imports of workspace packages (resolved
+ * through their links to packages/ or tooling/) as "undetermined", so
+ * `not-to-undeclared` cannot see them. These rules are generated from the
+ * workspace manifests instead: a workspace package may import another one
+ * only when its own package.json declares it. Sources (`src/`) count
+ * `dependencies`, `peerDependencies` and `optionalDependencies`; everything
+ * else in the package (tests, schema sources, scripts) also counts
+ * `devDependencies`. Manifests are read relative to the working directory,
+ * which is where every path rule here is anchored as well.
+ *
+ * @returns {import('dependency-cruiser').IForbiddenRuleType[]}
+ */
+function workspaceDeclarationRules() {
+  // Keep in sync with `packages` in pnpm-workspace.yaml (tested).
+  const groups = ['packages', 'tooling'];
+  /** @type {{ dir: string, name: string, runtime: Set<string>, all: Set<string> }[]} */
+  const workspace = [];
+  for (const group of groups) {
+    if (!existsSync(group)) continue;
+    for (const entry of readdirSync(group, { withFileTypes: true })) {
+      const manifestPath = path.join(group, entry.name, 'package.json');
+      if (!entry.isDirectory() || !existsSync(manifestPath)) continue;
+      /** @type {unknown} */
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (typeof manifest !== 'object' || manifest === null) {
+        throw new Error(`${manifestPath}: not a JSON object`);
+      }
+      /** @param {string} field */
+      const names = (field) => {
+        /** @type {unknown} */
+        const value = Reflect.get(manifest, field);
+        return typeof value === 'object' && value !== null ? Object.keys(value) : [];
+      };
+      const runtime = new Set([
+        ...names('dependencies'),
+        ...names('peerDependencies'),
+        ...names('optionalDependencies'),
+      ]);
+      workspace.push({
+        dir: `${group}/${entry.name}`,
+        name: packageName(manifestPath, manifest),
+        runtime,
+        all: new Set([...runtime, ...names('devDependencies')]),
+      });
+    }
+  }
+  /** @param {string} text */
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /** @param {{ dir: string, name: string }[]} targets */
+  const targetPath = (targets) =>
+    `(${targets.map((t) => `^${escape(t.dir)}/|(^|/)node_modules/${escape(t.name)}/`).join('|')})`;
+
+  /** @type {import('dependency-cruiser').IForbiddenRuleType[]} */
+  const rules = [];
+  for (const from of workspace) {
+    const others = workspace.filter((other) => other.dir !== from.dir);
+    const notRuntime = others.filter((other) => !from.runtime.has(other.name));
+    const notDeclared = others.filter((other) => !from.all.has(other.name));
+    const comment = `${from.name} may import only the workspace packages its package.json declares.`;
+    if (notRuntime.length > 0) {
+      rules.push({
+        name: 'workspace-deps-declared',
+        severity: 'error',
+        comment: `${comment} Sources count runtime dependencies only.`,
+        from: { path: `^${escape(from.dir)}/src/` },
+        to: { path: targetPath(notRuntime) },
+      });
+    }
+    if (notDeclared.length > 0) {
+      rules.push({
+        name: 'workspace-deps-declared',
+        severity: 'error',
+        comment: `${comment} Tests and other non-source files also count devDependencies.`,
+        from: { path: `^${escape(from.dir)}/`, pathNot: `^${escape(from.dir)}/src/` },
+        to: { path: targetPath(notDeclared) },
+      });
+    }
+  }
+  return rules;
+}
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 export default {
   forbidden: [
+    ...workspaceDeclarationRules(),
     {
       name: 'no-circular',
       severity: 'error',
