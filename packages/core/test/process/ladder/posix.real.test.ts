@@ -1,12 +1,11 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { LadderReport } from '../../../src/process/ladder/types.js';
@@ -26,6 +25,26 @@ import type { ProcessIdentity } from '../../../src/process/tree/types.js';
 
 const HOST_SOURCE = fileURLToPath(new URL('./posix-real-host.ts', import.meta.url));
 
+/**
+ * The host runs from source under Node's type stripping (the sources use
+ * erasable syntax only). This resolve hook maps a missing relative `.js`
+ * specifier to its `.ts` source, as TypeScript's `nodenext` resolution does.
+ */
+const REGISTER_HOOKS = `import { registerHooks } from 'node:module';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (error?.code === 'ERR_MODULE_NOT_FOUND' && /^\\.\\.?\\//.test(specifier) && specifier.endsWith('.js')) {
+        return nextResolve(specifier.slice(0, -3) + '.ts', context);
+      }
+      throw error;
+    }
+  },
+});
+`;
+
 interface HostEvent {
   readonly kind: string;
   readonly [key: string]: unknown;
@@ -38,7 +57,7 @@ interface HostRun {
 }
 
 let workDir = '';
-let bundle = '';
+let hostArgs: string[] = [];
 /** Every identity this test learned of; killed in afterEach if still alive. */
 const recorded: ProcessIdentity[] = [];
 
@@ -69,7 +88,7 @@ async function survivors(identities: readonly ProcessIdentity[]): Promise<Proces
 }
 
 function runHost(mode: 'term' | 'kill'): Promise<HostRun> {
-  const host = spawn(process.execPath, [bundle, mode], {
+  const host = spawn(process.execPath, [...hostArgs, mode], {
     detached: true, // setsid: the host leads its own process group
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -144,18 +163,18 @@ function commonChecks(run: HostRun): {
 }
 
 describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Linux)', () => {
-  beforeAll(async () => {
+  beforeAll(() => {
     workDir = mkdtempSync(path.join(tmpdir(), 'hudhud-ladder-'));
-    bundle = path.join(workDir, 'host.mjs');
-    await build({
-      entryPoints: [HOST_SOURCE],
-      bundle: true,
-      platform: 'node',
-      format: 'esm',
-      target: 'node22',
-      outfile: bundle,
-      logLevel: 'silent',
-    });
+    const register = path.join(workDir, 'register-hooks.mjs');
+    writeFileSync(register, REGISTER_HOOKS);
+    hostArgs = [
+      // Older Node 22 lines need the flag; newer ones strip types by default.
+      ...(process.features.typescript === false ? ['--experimental-strip-types'] : []),
+      '--disable-warning=ExperimentalWarning',
+      '--import',
+      pathToFileURL(register).href,
+      HOST_SOURCE,
+    ];
   });
 
   afterEach(() => {
