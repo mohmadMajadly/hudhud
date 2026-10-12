@@ -1,0 +1,568 @@
+import { afterEach, describe, expect, it } from 'vitest';
+
+import type { GateDigest } from '../src/digests.js';
+import { keychainItem } from '../src/items/keychain.js';
+import { pathIdentityItem, turnMessages } from '../src/items/path-identity.js';
+import { processTreeItem } from '../src/items/process-tree.js';
+import {
+  provenanceItem,
+  quarantineValue,
+  signerLines,
+  type PreparedBinaries,
+} from '../src/items/provenance.js';
+import { machArch, runnerItem, runnerMetadata } from '../src/items/runner.js';
+import { shellSnapshotItem } from '../src/items/shell-snapshot.js';
+import { fitsSunPath, isInside, LONG_TMP_NAME, socketPathItem } from '../src/items/socket-path.js';
+import { ProcessLedger } from '../src/ps.js';
+import { ItemRecorder, type GateItemId, type ItemResult } from '../src/report.js';
+import type { SessionContext } from '../src/session.js';
+import { clearSessions, result, SimCli, SimHost, type CliFlags, type SimOptions } from './sim.js';
+
+const BINARY = '/cache/2.1.296/darwin-arm64/claude';
+
+afterEach(() => {
+  clearSessions();
+});
+
+function world(
+  flags: CliFlags = {},
+  options: SimOptions = {},
+): { sim: SimHost; context: SessionContext } {
+  const sim = new SimHost({ cli: (child, host) => new SimCli(child, host, flags), ...options });
+  sim.files.set(BINARY, { kind: 'file', text: 'binary' });
+  return { sim, context: { host: sim, ledger: new ProcessLedger(sim), binary: BINARY } };
+}
+
+async function item(
+  id: GateItemId,
+  run: (r: ItemRecorder) => Promise<void>,
+): Promise<ItemResult & { failed: string[] }> {
+  const recorder = new ItemRecorder(id);
+  await run(recorder);
+  const finished = recorder.finish(0);
+  return {
+    ...finished,
+    failed: finished.checks.filter((check) => !check.ok).map((check) => check.name),
+  };
+}
+
+function noSurvivors(sim: SimHost): void {
+  expect(sim.descendantsOf(sim.pid)).toEqual([]);
+  expect([...sim.table.values()].filter((p) => p.ppid === 1 && p.pid !== sim.pid)).toEqual([]);
+}
+
+const digest = (platform: string): GateDigest => ({
+  platform,
+  package: `@anthropic-ai/claude-code-${platform}`,
+  version: '2.1.296',
+  file: 'claude',
+  integrity: 'sha512-x',
+  sha256: 'a'.repeat(64),
+  size: 1,
+  manifest: { source: 'sdk', sdkIntegrity: 'sha512-y', sha256: 'a'.repeat(64), size: 1 },
+  pinStatus: 'recorded',
+  recordedAt: 'now',
+});
+
+const prepared: PreparedBinaries = {
+  digests: [digest('darwin-arm64'), digest('darwin-x64')],
+  failures: {},
+  hostBinary: BINARY,
+};
+
+describe('item 1: provenance', () => {
+  it('passes with verified digests, a valid signature and named quarantine outcomes', async () => {
+    const { sim } = world();
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.status).toBe('pass');
+    expect(outcome.evidence['signer']).toEqual([
+      'Identifier=com.anthropic.claude-code',
+      'Authority=Developer ID Application',
+      'TeamIdentifier=Q6L2SF6YDW',
+    ]);
+    expect(outcome.evidence['quarantinedUnsigned']).toMatchObject({ cause: 'killed-at-launch' });
+    const xattr = sim.runs.find((run) => run.file === '/usr/bin/xattr');
+    expect(xattr?.args.slice(0, 3)).toEqual([
+      '-w',
+      'com.apple.quarantine',
+      quarantineValue(sim.time),
+    ]);
+    expect(sim.mocks.every((mock) => mock.closed)).toBe(true);
+  });
+
+  it('fails on a fetch failure and stops without a binary', async () => {
+    const { sim } = world();
+    const outcome = await item(1, (r) =>
+      provenanceItem(
+        sim,
+        { digests: [], failures: { 'darwin-x64': '[registry] 404' }, hostBinary: undefined },
+        '2.1.296',
+        r,
+      ),
+    );
+    expect(outcome.failed).toEqual([
+      'darwin-x64: npm integrity, binary sha256/size and SDK manifest agree',
+      'binary of this runner verified',
+    ]);
+    expect(sim.runs).toEqual([]);
+  });
+
+  it('fails when the signature, version, quarantine outcomes or egress are wrong', async () => {
+    const { sim } = world(
+      {},
+      {
+        run: (file, args) => {
+          if (file === '/usr/bin/codesign' && args[0] === '--verify')
+            return result('', { code: 1 });
+          if (file === '/usr/bin/codesign' && args[0] === '--remove-signature') {
+            return result('', { code: 1 });
+          }
+          if (args[0] === '--version' && file.includes('/signed/')) return result('', { code: 2 });
+          if (args[0] === '--version' && file.includes('/unsigned/'))
+            return result('2.1.296 (Claude Code)');
+          if (args[0] === '--version') return result('9.9.9 (Claude Code)');
+          if (file === '/usr/bin/xattr') return result('', { code: 1, stderr: 'denied' });
+          return undefined;
+        },
+      },
+    );
+    const original = sim.startMock.bind(sim);
+    sim.startMock = async () => {
+      const mock = await original();
+      (mock as unknown as { trapped: unknown[] }).trapped.push({ kind: 'connect' });
+      return mock;
+    };
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([
+      'codesign --verify --strict accepts the binary',
+      'the binary runs in the sandbox and reports the pinned version',
+      'the signature of the test copy was removed',
+      'quarantine attribute set on signed copy',
+      'quarantine attribute set on unsigned copy',
+      'quarantined signed binary: runs, or fails with a named launch cause',
+      'quarantined unsigned copy: refused with a named launch cause',
+      'egress: no request reached the trap',
+    ]);
+  });
+
+  it('accepts a Gatekeeper refusal of the quarantined signed binary', async () => {
+    const { sim } = world(
+      {},
+      {
+        run: (file, args) =>
+          args[0] === '--version' && file.includes('/quarantine/')
+            ? result('', { code: null, error: 'ETIMEDOUT' })
+            : undefined,
+      },
+    );
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([]);
+  });
+
+  it('extracts signer lines and builds the quarantine value', () => {
+    expect(
+      signerLines('Executable=/x\r\nIdentifier=a\nFormat=Mach-O\nRuntime Version=15\n'),
+    ).toEqual(['Identifier=a', 'Format=Mach-O', 'Runtime Version=15']);
+    expect(quarantineValue(0x10_000 * 1000 + 999)).toBe('0083;10000;hudhud-gate;');
+  });
+});
+
+describe('item 2: process tree', () => {
+  it('passes when the tool has its own group, SIGTERM cleans it, SIGINT exits 0 and the sweep works', async () => {
+    const { sim, context } = world();
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.status).toBe('pass');
+    expect((outcome.evidence['sigkillSurvivors'] as unknown[]).length).toBe(2);
+    expect(outcome.evidence['sweep']).toMatchObject({ survivors: [] });
+    noSurvivors(sim);
+  });
+
+  it('fails on a shared group, a SIGTERM that leaves tools, and a SIGINT with a result', async () => {
+    const { sim, context } = world({ sharedGroup: true, termLeavesTools: true, intResult: true });
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toEqual([
+      'process groups: the Bash tool leads its own group',
+      'SIGTERM: the CLI cleans its tool groups (no survivor by pid + start time)',
+      'SIGINT mid-stream: exit code 0',
+      'SIGINT mid-stream: no result frame',
+    ]);
+    noSurvivors(sim);
+  });
+
+  it('fails when the CLI never starts the tool, never answers and ignores signals', async () => {
+    const { sim, context } = world({ silent: true, ignoreTerm: true });
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toEqual([
+      'SIGTERM run: the Bash tool runs under the CLI',
+      'SIGINT run: signalled while the turn streams',
+      'SIGKILL run: the Bash tool runs under the CLI',
+    ]);
+    noSurvivors(sim);
+  });
+
+  it('fails when ps lines are rejected, the start time is off and SIGTERM does not end the CLI', async () => {
+    const { sim, context } = world({ ignoreTerm: true });
+    const ps = sim.ps.bind(sim);
+    let calls = 0;
+    sim.ps = () => {
+      calls += 1;
+      return `${ps()}garbage line\n`;
+    };
+    const spawn = sim.spawn.bind(sim);
+    let first = true;
+    sim.spawn = (file, args, options) => {
+      const child = spawn(file, args, options);
+      if (first && child.pid !== undefined) {
+        first = false;
+        const record = sim.table.get(child.pid);
+        if (record !== undefined) record.start -= 3600;
+      }
+      return child;
+    };
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(calls).toBeGreaterThan(0);
+    expect(outcome.failed).toEqual(
+      expect.arrayContaining([
+        'ps: every line parses (LC_ALL=C, TZ=UTC0, pid ppid pgid lstart comm)',
+        'ps: the lstart start time of the CLI matches its spawn',
+        'SIGTERM: the CLI exits',
+      ]),
+    );
+    noSurvivors(sim);
+  });
+
+  it('fails without signalling anything when the CLI cannot be spawned', async () => {
+    const { sim, context } = world();
+    sim.spawnFails = true;
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toContain('SIGTERM run: the Bash tool runs under the CLI');
+    expect(sim.signals).toEqual([]);
+  });
+
+  it('reports survivors the session sweep could not kill', async () => {
+    const { sim, context } = world({ ignoreEof: true, ignoreTerm: true, silent: true });
+    sim.denySignals = true;
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toContain('SIGTERM run: nothing survives the session');
+    sim.denySignals = false;
+    expect((await context.ledger.sweepAll()).survivors).toEqual([]);
+  });
+});
+
+describe('item 3: keychain', () => {
+  it('passes with an API key and no security(1) child; the control run ends', async () => {
+    const { sim, context } = world(
+      {},
+      {
+        cli: (child, host) => {
+          host.addProcess(child.pid ?? 0, '/usr/libexec/helper', false);
+          return new SimCli(child, host, {});
+        },
+      },
+    );
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['keychainsDirInIsolatedHome']).toBeNull();
+    expect(outcome.evidence['apiKeySession']).toMatchObject({ descendants: ['helper'] });
+    noSurvivors(sim);
+  });
+
+  it('fails when a security(1) child appears with the API key', async () => {
+    const { sim, context } = world({ security: true, apiKeySource: 'none' });
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([
+      'API key: apiKeySource is ANTHROPIC_API_KEY',
+      'API key: no security(1) child at any sample (no Keychain access)',
+    ]);
+    noSurvivors(sim);
+  });
+
+  it('names a control-run hang on a security(1) child keychain-access', async () => {
+    const { sim, context } = world({ keychainHangWithoutKey: true });
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['controlSession']).toMatchObject({
+      securitySeen: true,
+      stallCause: 'keychain-access',
+    });
+    noSurvivors(sim);
+  });
+
+  it('fails when the CLI never answers (first frame, turn, unnamed control stall)', async () => {
+    const { sim, context } = world({ silent: true });
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([
+      'API key: the first frame arrives within the first-frame watchdog',
+      'API key: apiKeySource is ANTHROPIC_API_KEY',
+      'API key: the turn completes',
+      'control (no credential): the CLI ends, or its stall is named',
+    ]);
+    noSurvivors(sim);
+  });
+
+  it('fails when the CLI dies without a result, and stops sampling it', async () => {
+    const { sim, context } = world(
+      {},
+      {
+        cli: (child, host) => {
+          host.at(1_000, () => {
+            child.exit(1, null);
+          });
+          return new SimCli(child, host, { silent: true });
+        },
+      },
+    );
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toContain('API key: the turn completes');
+    expect(outcome.failed).not.toContain(
+      'control (no credential): the CLI ends, or its stall is named',
+    );
+    noSurvivors(sim);
+  });
+
+  it('copes with a failed spawn', async () => {
+    const { sim, context } = world();
+    sim.spawnFails = true;
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toContain('API key: the turn completes');
+    expect(outcome.failed).not.toContain(
+      'control (no credential): the CLI ends, or its stall is named',
+    );
+  });
+});
+
+describe('item 4: shell snapshot', () => {
+  it('passes when the CLI completes the turn despite the hanging login shell', async () => {
+    const { sim, context } = world();
+    const outcome = await item(4, (r) => shellSnapshotItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['hangOutcome']).toMatch(/^completed/);
+    expect(sim.files.get(`${sim.tmpdir}/hhg-AAAAA2/home/.zprofile`)?.text).toBe('sleep 600\n');
+    noSurvivors(sim);
+  });
+
+  it('passes when the hang reaches the stalled path, is named shell-snapshot and is cleaned up', async () => {
+    const { sim, context } = world({ zshHang: true });
+    const outcome = await item(4, (r) => shellSnapshotItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['hangOutcome']).toBe('watchdog stalled');
+    expect(outcome.evidence['hangSession']).toMatchObject({ stallCause: 'shell-snapshot' });
+    noSurvivors(sim);
+  });
+
+  it('fails when nothing answers (first-frame timeout instead of the stalled path)', async () => {
+    const { sim, context } = world({ silent: true });
+    const outcome = await item(4, (r) => shellSnapshotItem(context, r));
+    expect(outcome.failed).toEqual([
+      'default runner shell: the Bash tool turn completes',
+      'hanging login shell: the idle watchdog reaches the stalled path',
+      'hanging login shell: the stall is named shell-snapshot',
+    ]);
+    noSurvivors(sim);
+  });
+
+  it('fails when turns fail', async () => {
+    const { context } = world({ failTurns: true });
+    const outcome = await item(4, (r) => shellSnapshotItem(context, r));
+    expect(outcome.failed).toEqual([
+      'default runner shell: the Bash tool turn completes',
+      'hanging login shell: the CLI completes the turn on its own',
+    ]);
+  });
+
+  it('does not sample a tree it has no identity for', async () => {
+    const { sim, context } = world({ zshHang: true });
+    const register = context.ledger.register.bind(context.ledger);
+    context.ledger.register = async (pid) => {
+      await register(pid);
+      return null;
+    };
+    const outcome = await item(4, (r) => shellSnapshotItem(context, r));
+    expect(outcome.failed).toContain('hanging login shell: the stall is named shell-snapshot');
+    await context.ledger.sweepAll();
+    noSurvivors(sim);
+  });
+});
+
+describe('item 5: socket path', () => {
+  it('passes: socket inside the isolated TMPDIR, fallback outside the long one', async () => {
+    const { sim, context } = world();
+    const outcome = await item(5, (r) => socketPathItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['fallback']).toMatchObject({
+      socket: expect.stringMatching(/^\/tmp\/cc-socks-501\//) as unknown,
+    });
+    expect(outcome.evidence['isolatedSocketAfterExit']).toBe('socket');
+    noSurvivors(sim);
+  });
+
+  it('fails without messaging_socket_path', async () => {
+    const { context } = world({ noSocket: true });
+    const outcome = await item(5, (r) => socketPathItem(context, r));
+    expect(outcome.failed).toEqual([
+      'isolated TMPDIR: system/init reports messaging_socket_path',
+      'long TMPDIR: system/init reports messaging_socket_path',
+    ]);
+    expect(outcome.evidence['isolatedSocketAfterExit']).toBeNull();
+    expect(outcome.evidence['fallbackSocketAfterExit']).toBeNull();
+  });
+
+  it('fails when the paths are too long, misplaced, not sockets, or the turns fail', async () => {
+    const { context } = world({
+      socket: (tmp) => `${tmp}/${'s'.repeat(120)}.sock`,
+      failTurns: true,
+    });
+    const outcome = await item(5, (r) => socketPathItem(context, r));
+    expect(outcome.failed).toEqual([
+      'isolated TMPDIR: the socket path fits sun_path (< 104 bytes)',
+      'isolated TMPDIR: the turn completes',
+      'long TMPDIR: the fallback socket path fits sun_path (< 104 bytes)',
+      'long TMPDIR: the socket falls back outside the over-long TMPDIR',
+      'long TMPDIR: the turn completes',
+    ]);
+    const outside = world({ socket: () => '/elsewhere/x.sock' });
+    outside.sim.fs.kind = () => Promise.resolve('file');
+    const second = await item(5, (r) => socketPathItem(outside.context, r));
+    expect(second.failed).toEqual([
+      'isolated TMPDIR: the socket lies inside the isolated TMPDIR',
+      'isolated TMPDIR: the path is a socket while the CLI runs',
+    ]);
+  });
+
+  it('has pure helpers for the limit and containment', () => {
+    expect(fitsSunPath('/'.padEnd(103, 'x'))).toBe(true);
+    expect(fitsSunPath('/'.padEnd(104, 'x'))).toBe(false);
+    expect(isInside('/a/b/c', ['/x', '/a/b/'])).toBe(true);
+    expect(isInside('/a/bc', ['/a/b'])).toBe(false);
+    expect(LONG_TMP_NAME.length).toBeGreaterThan(64);
+  });
+});
+
+describe('item 6: path identity', () => {
+  it('passes: /tmp alias resolved, case variant canonical, resume keeps the session', async () => {
+    const { sim, context } = world();
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['caseInsensitiveVolume']).toBe(true);
+    expect(outcome.evidence['aliasResume']).toMatchObject({ environmentUpdate: true });
+    noSurvivors(sim);
+  });
+
+  it('fails when resume loses the history or the CLI reports another cwd', async () => {
+    const { context } = world({ resumeLosesHistory: true, reportCwd: (cwd) => `${cwd}/x` });
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual([
+      'start: the turn completes and the CLI reports the canonical cwd',
+      'resume (canonical cwd): the history is loaded',
+      'resume (canonical cwd): the CLI sees the same working directory',
+    ]);
+  });
+
+  it('fails without a session id; a case-sensitive volume needs no case check', async () => {
+    const { sim, context } = world({ noInit: true });
+    sim.caseInsensitive = false;
+    sim.aliases.clear();
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual([
+      '/tmp resolves to /private/tmp',
+      'start: the turn completes and the CLI reports the canonical cwd',
+      'start: a session id is reported',
+    ]);
+    expect(outcome.evidence['caseInsensitiveVolume']).toBe(false);
+  });
+
+  it('fails when validateCwd keeps the alias or the case variant differs', async () => {
+    const { sim, context } = world({}, {});
+    sim.cwdFs.realpath = (value) => Promise.resolve(value);
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual(
+      expect.arrayContaining([
+        'validateCwd maps the /tmp alias to its realpath',
+        'validateCwd gives a case variant the canonical spelling (case-insensitive volume)',
+      ]),
+    );
+  });
+
+  it('picks the turn request, not a side request', () => {
+    const request = (
+      body: unknown,
+    ): {
+      seq: number;
+      method: string;
+      target: string;
+      headers: Record<string, string>;
+      body: unknown;
+      bytes: number;
+    } => ({
+      seq: 1,
+      method: 'POST',
+      target: '/',
+      headers: {},
+      body,
+      bytes: 1,
+    });
+    expect(
+      turnMessages(
+        [
+          request({ messages: [{ content: 'turn A' }, { content: 'x' }] }),
+          request({ messages: [{ content: 'title' }] }),
+          request({ messages: [{ content: 'turn A' }] }),
+          request({ other: true }),
+          request(null),
+        ],
+        'turn A',
+      ),
+    ).toHaveLength(2);
+    expect(turnMessages([], 'x')).toEqual([]);
+  });
+});
+
+describe('item 7: CI runner', () => {
+  it('passes on a native arm64 runner and records eligibility', async () => {
+    const { sim } = world();
+    const outcome = await item(7, (r) => runnerItem(sim, 'arm64', BINARY, true, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence).toMatchObject({
+      platform: 'darwin-arm64',
+      maxTestedEligible: true,
+      runner: { ImageOS: 'macos15', RUNNER_ARCH: 'ARM64' },
+    });
+  });
+
+  it('passes on a native x64 runner (no proc_translated sysctl)', async () => {
+    const { sim } = world({}, { arch: 'x64' });
+    const outcome = await item(7, (r) => runnerItem(sim, 'x64', BINARY, false, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.checks.find((check) => check.name.includes('Rosetta'))?.detail).toBe(
+      'proc_translated=n/a',
+    );
+  });
+
+  it('fails off macOS, on the wrong or translated architecture, and without a binary', async () => {
+    const { sim } = world(
+      {},
+      {
+        platform: 'linux',
+        run: (file) => (file === '/usr/sbin/sysctl' ? result('1\n') : undefined),
+      },
+    );
+    const outcome = await item(7, (r) => runnerItem(sim, 'x64', undefined, true, r));
+    expect(outcome.failed).toEqual([
+      'the runner is macOS',
+      'Node.js runs on the requested architecture',
+      'the kernel reports the same architecture',
+      'the harness is not translated by Rosetta',
+      'the pinned binary is native for this runner',
+    ]);
+  });
+
+  it('maps architectures and reads runner metadata', () => {
+    expect(machArch('x64')).toBe('x86_64');
+    expect(machArch('arm64')).toBe('arm64');
+    expect(runnerMetadata({ ImageOS: 'macos15', OTHER: 'x', RUNNER_OS: undefined })).toEqual({
+      ImageOS: 'macos15',
+    });
+  });
+});

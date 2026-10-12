@@ -1,0 +1,138 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  commandName,
+  identityLabel,
+  ProcessLedger,
+  PS_ARGS,
+  PS_ENV,
+  PS_PATH,
+  psSnapshot,
+} from '../src/ps.js';
+import { SimHost, T0 } from './sim.js';
+
+/** A CLI-like root with a Bash tool group (`zsh` leading `sleep`) and a helper in the root's group. */
+function tree(sim: SimHost): { root: number; shell: number; sleep: number; helper: number } {
+  const root = sim.addProcess(sim.pid, '/tmp/claude', false);
+  const shell = sim.addProcess(root.pid, '/bin/zsh', true);
+  const sleep = sim.addProcess(shell.pid, '/bin/sleep', false);
+  const helper = sim.addProcess(root.pid, 'helper', false);
+  return { root: root.pid, shell: shell.pid, sleep: sleep.pid, helper: helper.pid };
+}
+
+describe('psSnapshot', () => {
+  it('runs /bin/ps by absolute path with exactly LC_ALL=C and TZ=UTC0 and parses every line', async () => {
+    const sim = new SimHost();
+    tree(sim);
+    const snapshot = await psSnapshot(sim);
+    expect(sim.runs[0]).toEqual({
+      file: PS_PATH,
+      args: PS_ARGS,
+      options: { env: PS_ENV, timeoutMs: 15_000 },
+    });
+    expect(PS_ARGS).toEqual(['-A', '-o', 'pid=,ppid=,pgid=,lstart=,comm=']);
+    expect(PS_ENV).toEqual({ LC_ALL: 'C', TZ: 'UTC0' });
+    expect(snapshot.source).toBe('darwin-ps');
+    expect(snapshot.rejected).toBe(0);
+    expect(snapshot.records).toHaveLength(6);
+    expect(snapshot.records.find((record) => record.pid === sim.pid)?.startTime).toBe(
+      String(T0 / 1000 - 60),
+    );
+  });
+
+  it('rejects when ps fails', async () => {
+    const sim = new SimHost();
+    sim.psFails = true;
+    await expect(psSnapshot(sim)).rejects.toThrow(/\/bin\/ps failed: code 1/);
+  });
+
+  it('names commands by basename without the login-shell dash', () => {
+    expect(commandName('/usr/bin/security')).toBe('security');
+    expect(commandName('-zsh')).toBe('zsh');
+    expect(identityLabel({ pid: 3, startTime: '9' })).toBe('3@9');
+  });
+});
+
+describe('ProcessLedger', () => {
+  it('registers a live pid with its start time, and nothing for a gone pid', async () => {
+    const sim = new SimHost();
+    const { root } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    expect(await ledger.register(root)).toMatchObject({ pid: root, name: '/tmp/claude' });
+    expect(await ledger.register(99_999)).toBeNull();
+  });
+
+  it('kills a live root and its verified tool group, then reports no survivor', async () => {
+    const sim = new SimHost();
+    const { root, shell, sleep, helper } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    const identity = await ledger.register(root);
+    expect(identity).not.toBeNull();
+    const view = await ledger.tree(identity ?? { pid: 0, startTime: '0' });
+    expect(view.descendants.map((record) => record.pid)).toEqual([shell, helper, sleep]);
+    const outcome = await ledger.sweep(identity ?? { pid: 0, startTime: '0' });
+    expect(outcome.survivors).toEqual([]);
+    expect(outcome.signalled).toContain(`${String(root)}@${String(T0 / 1000)}`);
+    expect(outcome.signalled).toContain(`-${String(shell)}`);
+    expect(sim.table.has(sleep)).toBe(false);
+    expect(sim.table.has(helper)).toBe(false);
+    // Done: a second sweep does nothing.
+    expect(await ledger.sweep(identity ?? { pid: 0, startTime: '0' })).toEqual({
+      signalled: [],
+      survivors: [],
+    });
+  });
+
+  it('never signals a pid whose start time changed (reuse) and reports nothing for it', async () => {
+    const sim = new SimHost();
+    const { root } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    const identity = await ledger.register(root);
+    const record = sim.table.get(root);
+    if (record !== undefined) record.start += 5;
+    await ledger.sweep(identity ?? { pid: 0, startTime: '0' });
+    expect(sim.signals.filter((entry) => entry.startsWith(`${String(root)}:`))).toEqual([]);
+  });
+
+  it('reports survivors when signals are refused, and retries them in sweepAll', async () => {
+    const sim = new SimHost();
+    const { root, sleep } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    const identity = await ledger.register(root);
+    sim.denySignals = true;
+    const first = await ledger.sweep(identity ?? { pid: 0, startTime: '0' });
+    expect(first.signalled).toEqual([]);
+    expect(first.survivors).toContain(`${String(sleep)}@${String(T0 / 1000)}`);
+    sim.denySignals = false;
+    const all = await ledger.sweepAll();
+    expect(all.survivors).toEqual([]);
+    expect(all.signalled.length).toBeGreaterThan(0);
+    expect(await ledger.sweepAll()).toEqual({ signalled: [], survivors: [] });
+  });
+
+  it('sweeps an orphaned tool tree after its root died (reparented to launchd)', async () => {
+    const sim = new SimHost();
+    const { root, shell, sleep } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    const identity = await ledger.register(root);
+    sim.remove(root);
+    expect(sim.table.get(shell)?.ppid).toBe(1);
+    const outcome = await ledger.sweep(identity ?? { pid: 0, startTime: '0' });
+    expect(outcome.survivors).toEqual([]);
+    expect(sim.table.has(sleep)).toBe(false);
+  });
+
+  it('keeps a bounded number of recorded snapshots, and none for done roots or roots without descendants', async () => {
+    const sim = new SimHost();
+    const lone = sim.addProcess(sim.pid, 'lone', false);
+    const { root } = tree(sim);
+    const ledger = new ProcessLedger(sim);
+    const loneIdentity = await ledger.register(lone.pid);
+    const identity = await ledger.register(root);
+    for (let i = 0; i < 20; i += 1) ledger.observe(await psSnapshot(sim));
+    const outcome = await ledger.sweep(identity ?? { pid: 0, startTime: '0' });
+    expect(outcome.survivors).toEqual([]);
+    ledger.observe(await psSnapshot(sim));
+    expect((await ledger.sweep(loneIdentity ?? { pid: 0, startTime: '0' })).survivors).toEqual([]);
+  });
+});
