@@ -49,9 +49,10 @@ function frame(max: number, chunks: readonly Uint8Array[]): FramerOutput[] {
     const { bufferedBytes, capacityBytes } = framerRetention(framer);
     // Held between calls: at most cap + 1 (a pending CR), so never above
     // cap + one chunk for any non-empty chunk.
-    expect(bufferedBytes).toBeLessThanOrEqual(max + 1);
-    expect(capacityBytes).toBeLessThanOrEqual(max + 1);
-    expect(bufferedBytes).toBeLessThanOrEqual(capacityBytes);
+    // Plain comparison: this runs per chunk inside 1000-run properties.
+    if (bufferedBytes > capacityBytes || capacityBytes > max + 1) {
+      expect({ bufferedBytes, capacityBytes }).toEqual(`at most ${String(max + 1)} bytes`);
+    }
   }
   out.push(...framer.end());
   return out;
@@ -524,8 +525,16 @@ describe('createFramer', () => {
     it('round-trips encoder output: arbitrary JSON objects survive encode, chunking and framing', () => {
       fc.assert(
         fc.property(
-          fc.array(fc.dictionary(fc.string({ unit: 'binary' }), fc.jsonValue()), { maxLength: 6 }),
-          chunkSizes,
+          // Bounded sizes keep 1000 runs fast and deterministic in duration.
+          fc.array(
+            fc.dictionary(
+              fc.string({ unit: 'binary', maxLength: 12 }),
+              fc.jsonValue({ maxDepth: 3, depthSize: 'small' }),
+              { maxKeys: 5 },
+            ),
+            { maxLength: 6 },
+          ),
+          fc.array(fc.integer({ min: 1, max: 64 }), { maxLength: 12 }),
           (objects, sizes) => {
             const lines = objects.map((object) => {
               const result = encodeJsonLine(
