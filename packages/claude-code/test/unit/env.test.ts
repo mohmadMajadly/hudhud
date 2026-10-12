@@ -2,7 +2,7 @@
 // ADR-0012 §4, plan §2.5).
 
 import { InvalidOptionsError } from '@hudhud/core';
-import type { ProcessPlatform } from '@hudhud/core/process';
+import { childEnv, WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhud/core/process';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +14,6 @@ import {
   isHarnessAllowed,
   isNeverInherited,
   PINNED_ENV_NAMES,
-  WIN32_SPAWN_REQUIRED_ENV_NAMES,
   type ChildEnv,
 } from '../../src/env.js';
 import { resolveConnectOptions, resolveSessionOptions } from '../../src/options.js';
@@ -99,7 +98,7 @@ const WIN32_PARENT: Parent = {
   claude_code_git_bash_path: 'C:\\Git\\bin\\bash.exe',
   Anthropic_Base_Url: 'http://localhost:1',
   https_proxy: 'http://proxy',
-  // Passed: libuv would add them anyway (WIN32_SPAWN_REQUIRED_ENV_NAMES).
+  // Passed: libuv would add them anyway (WIN32_REQUIRED_ENV_NAMES).
   USERNAME: 'u',
   USERDOMAIN: 'D',
   LOGONSERVER: '\\\\DC',
@@ -190,7 +189,7 @@ describe("'harness' preset (allowlist by rule)", () => {
   });
 
   it('passes every libuv-required variable on win32', () => {
-    for (const name of WIN32_SPAWN_REQUIRED_ENV_NAMES) {
+    for (const name of WIN32_REQUIRED_ENV_NAMES) {
       expect(isHarnessAllowed(name, 'win32')).toBe(true);
       expect(isHarnessAllowed(name.toLowerCase(), 'win32')).toBe(true);
     }
@@ -313,7 +312,7 @@ describe('explicit map', () => {
     expect(result).toMatchObject({ dropped: [], added: [], removed: [], spawnInjected: [] });
   });
 
-  it('reports the variables libuv adds on win32 when the map leaves them out', () => {
+  it('reports the variables the spawn layer blanks on win32 when the map leaves them out', () => {
     const result = child({ env: { PATH: 'C:\\bin' } }, WIN32_PARENT, 'win32');
     expect(result.env).not.toHaveProperty('USERNAME');
     expect(result.spawnInjected).toEqual([
@@ -328,11 +327,69 @@ describe('explicit map', () => {
       'USERPROFILE',
       'WINDIR',
     ]);
-    // Only names the parent has; never on POSIX.
+    // Whatever the parent holds (the spawn layer blanks them); never on POSIX.
     expect(
       child({ env: { A: '1' } }, { USERNAME: 'u', UNSET: undefined }, 'win32').spawnInjected,
-    ).toEqual(['USERNAME']);
+    ).toEqual([...WIN32_REQUIRED_ENV_NAMES].sort());
+    expect(child({ env: { A: '1' } }, {}, 'win32').spawnInjected).toEqual(
+      [...WIN32_REQUIRED_ENV_NAMES].sort(),
+    );
     expect(child({ env: { A: '1' } }, WIN32_PARENT, 'posix').spawnInjected).toEqual([]);
+  });
+
+  it('with the spawn layer, gives a win32 child exactly env plus blanks, never a parent value (ruling H)', () => {
+    const name = fc.constantFrom(
+      ...WIN32_REQUIRED_ENV_NAMES,
+      'Path',
+      'username',
+      'SystemRoot',
+      'APPDATA',
+      'X_VAR',
+      'ANTHROPIC_API_KEY',
+      'NODE_OPTIONS',
+    );
+    const value = fc.string({ maxLength: 8 }).filter((text) => !text.includes('\0'));
+    const form = fc.oneof(
+      fc.constantFrom('harness', 'inherit'),
+      fc.dictionary(fc.constantFrom('SYSTEMROOT', 'A', 'PATH', 'username'), value, {
+        maxKeys: 4,
+      }),
+      fc.record({
+        preset: fc.constantFrom('harness', 'inherit'),
+        remove: fc.subarray([...WIN32_REQUIRED_ENV_NAMES]),
+      }),
+    );
+    fc.assert(
+      fc.property(fc.dictionary(name, value, { maxKeys: 12 }), form, (parent, env) => {
+        let result: ChildEnv;
+        try {
+          result = child({ env }, parent, 'win32');
+        } catch (error) {
+          // Parent names that are one variable on win32 (`Path`, `PATH`).
+          expect(error).toBeInstanceOf(InvalidOptionsError);
+          return;
+        }
+        const composed = childEnv(result.env, 'win32');
+        const given = new Map(
+          Object.entries(result.env).map(([key, text]) => [key.toUpperCase(), text]),
+        );
+        for (const [key, text] of Object.entries(composed)) {
+          if (given.has(key.toUpperCase())) {
+            expect(text).toBe(given.get(key.toUpperCase()));
+          } else {
+            expect(text).toBe('');
+            expect(result.spawnInjected).toContain(key);
+          }
+        }
+        // Every name libuv would copy from the host is present: it copies nothing.
+        const names = new Set(Object.keys(composed).map((key) => key.toUpperCase()));
+        for (const required of WIN32_REQUIRED_ENV_NAMES) expect(names.has(required)).toBe(true);
+        expect(Object.keys(composed)).toHaveLength(
+          Object.keys(result.env).length + result.spawnInjected.length,
+        );
+      }),
+      { numRuns: 300 },
+    );
   });
 
   it('reports a removed libuv-required variable on win32', () => {

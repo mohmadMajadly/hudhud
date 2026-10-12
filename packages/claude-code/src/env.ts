@@ -25,12 +25,13 @@
  * On win32 names are case-insensitive, as the OS treats them: matching,
  * removal and overrides ignore case, and two option names that differ only
  * in case are refused. Dropped, added and removed variables are reported by
- * name, never by value. On win32 libuv adds some parent variables to every
- * child env that lacks them; see {@link WIN32_SPAWN_REQUIRED_ENV_NAMES}.
+ * name, never by value. On win32 libuv would add some parent variables to
+ * every child env that lacks them; the spawn layer blanks them instead (see
+ * `spawnInjected`).
  */
 
 import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhud/core';
-import type { ProcessPlatform } from '@hudhud/core/process';
+import { WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhud/core/process';
 
 import type { EffectiveConnectOptions, EffectiveSessionOptions } from './options-types.js';
 
@@ -102,35 +103,18 @@ const POSIX_EXACT = new Set([
 ]);
 const POSIX_PREFIXES = [...COMMON_PREFIXES, 'LC_', 'XDG_'];
 
-/**
- * Variables that libuv adds to a win32 child from the parent's own
- * environment whenever they are missing from the environment passed to
- * spawn (`make_program_env`, the `required_vars` table). "Absent" therefore
- * never means "not passed" for these names on win32: the `'harness'`
- * preset passes all of them explicitly (they are OS essentials the CLI and
- * its tools need), and when a form leaves one out (an explicit map, a
- * `remove`), {@link buildChildEnv} reports it in `spawnInjected` so the
- * spawn layer and the diagnostics can state what the child really
- * receives. W2-T6 verifies the list against the libuv in use.
- */
-export const WIN32_SPAWN_REQUIRED_ENV_NAMES: readonly string[] = [
-  'HOMEDRIVE',
-  'HOMEPATH',
-  'LOGONSERVER',
-  'PATH',
-  'SYSTEMDRIVE',
-  'SYSTEMROOT',
-  'TEMP',
-  'USERDOMAIN',
-  'USERNAME',
-  'USERPROFILE',
-  'WINDIR',
-];
-
+// libuv adds each of WIN32_REQUIRED_ENV_NAMES (`@hudhud/core/process`) to a
+// win32 child from the parent's own environment whenever the environment
+// passed to spawn lacks it. The `'harness'` preset passes all of them
+// explicitly (OS essentials the CLI and its tools need); when a form leaves
+// one out (an explicit map, a `remove`), the spawn layer (`childEnv`) passes
+// it as an empty string, so nothing reaches the child from the parent, and
+// buildChildEnv reports it in `spawnInjected`. One list for both layers
+// (lead ruling H).
 const WIN32_EXACT = new Set(
   [
     ...COMMON_EXACT,
-    ...WIN32_SPAWN_REQUIRED_ENV_NAMES,
+    ...WIN32_REQUIRED_ENV_NAMES,
     'SYSTEMROOT',
     'WINDIR',
     'COMSPEC',
@@ -240,9 +224,11 @@ export interface ChildEnv {
   /** Names from `env.remove` (`env.removed`). */
   readonly removed: readonly string[];
   /**
-   * win32 only: names of {@link WIN32_SPAWN_REQUIRED_ENV_NAMES} that are
-   * missing from `env` but set in the parent, so libuv adds them to the
-   * child with the parent's value unless the spawn layer sets them.
+   * win32 only: names of `WIN32_REQUIRED_ENV_NAMES` missing from `env`.
+   * libuv would copy them from the parent; the spawn layer (`childEnv` of
+   * `@hudhud/core/process`) passes each as an empty string instead, so the
+   * child's environment is `env` plus these names blank, whatever the
+   * parent holds. A missing `SYSTEMROOT` is refused by the spawn layer.
    */
   readonly spawnInjected: readonly string[];
 }
@@ -379,15 +365,7 @@ export function buildChildEnv(
     removed: sorted(removed),
     spawnInjected:
       platform === 'win32'
-        ? sorted(
-            WIN32_SPAWN_REQUIRED_ENV_NAMES.filter(
-              (name) =>
-                table.spelling(name) === undefined &&
-                Object.entries(parent).some(
-                  ([key, value]) => value !== undefined && key.toUpperCase() === name,
-                ),
-            ),
-          )
+        ? sorted(WIN32_REQUIRED_ENV_NAMES.filter((name) => table.spelling(name) === undefined))
         : [],
   };
 }
