@@ -72,8 +72,12 @@ jobs:
           if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]]; then
             auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
             echo "::add-mask::${auth}"
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
-              fetch --no-tags --depth=1 origin "$BEFORE" \
+            # The header goes through the environment, not argv, so it never
+            # appears in the process list.
+            GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+              git fetch --no-tags --depth=1 origin "$BEFORE" \
               || echo "::warning::could not fetch the push base; the classifier will choose FULL"
           fi
 
