@@ -25,7 +25,8 @@
  * On win32 names are case-insensitive, as the OS treats them: matching,
  * removal and overrides ignore case, and two option names that differ only
  * in case are refused. Dropped, added and removed variables are reported by
- * name, never by value.
+ * name, never by value. On win32 libuv adds some parent variables to every
+ * child env that lacks them; see {@link WIN32_SPAWN_REQUIRED_ENV_NAMES}.
  */
 
 import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhud/core';
@@ -101,9 +102,35 @@ const POSIX_EXACT = new Set([
 ]);
 const POSIX_PREFIXES = [...COMMON_PREFIXES, 'LC_', 'XDG_'];
 
+/**
+ * Variables that libuv adds to a win32 child from the parent's own
+ * environment whenever they are missing from the environment passed to
+ * spawn (`make_program_env`, the `required_vars` table). "Absent" therefore
+ * never means "not passed" for these names on win32: the `'harness'`
+ * preset passes all of them explicitly (they are OS essentials the CLI and
+ * its tools need), and when a form leaves one out (an explicit map, a
+ * `remove`), {@link buildChildEnv} reports it in `spawnInjected` so the
+ * spawn layer and the diagnostics can state what the child really
+ * receives. W2-T6 verifies the list against the libuv in use.
+ */
+export const WIN32_SPAWN_REQUIRED_ENV_NAMES: readonly string[] = [
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'LOGONSERVER',
+  'PATH',
+  'SYSTEMDRIVE',
+  'SYSTEMROOT',
+  'TEMP',
+  'USERDOMAIN',
+  'USERNAME',
+  'USERPROFILE',
+  'WINDIR',
+];
+
 const WIN32_EXACT = new Set(
   [
     ...COMMON_EXACT,
+    ...WIN32_SPAWN_REQUIRED_ENV_NAMES,
     'SYSTEMROOT',
     'WINDIR',
     'COMSPEC',
@@ -212,6 +239,12 @@ export interface ChildEnv {
   readonly added: readonly string[];
   /** Names from `env.remove` (`env.removed`). */
   readonly removed: readonly string[];
+  /**
+   * win32 only: names of {@link WIN32_SPAWN_REQUIRED_ENV_NAMES} that are
+   * missing from `env` but set in the parent, so libuv adds them to the
+   * child with the parent's value unless the spawn layer sets them.
+   */
+  readonly spawnInjected: readonly string[];
 }
 
 /** A name-keyed table that compares names as the OS does. */
@@ -344,6 +377,18 @@ export function buildChildEnv(
     dropped: sorted(dropped),
     added: sorted(added),
     removed: sorted(removed),
+    spawnInjected:
+      platform === 'win32'
+        ? sorted(
+            WIN32_SPAWN_REQUIRED_ENV_NAMES.filter(
+              (name) =>
+                table.spelling(name) === undefined &&
+                Object.entries(parent).some(
+                  ([key, value]) => value !== undefined && key.toUpperCase() === name,
+                ),
+            ),
+          )
+        : [],
   };
 }
 

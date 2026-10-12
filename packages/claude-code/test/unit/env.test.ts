@@ -14,6 +14,7 @@ import {
   isHarnessAllowed,
   isNeverInherited,
   PINNED_ENV_NAMES,
+  WIN32_SPAWN_REQUIRED_ENV_NAMES,
   type ChildEnv,
 } from '../../src/env.js';
 import { resolveConnectOptions, resolveSessionOptions } from '../../src/options.js';
@@ -98,8 +99,11 @@ const WIN32_PARENT: Parent = {
   claude_code_git_bash_path: 'C:\\Git\\bin\\bash.exe',
   Anthropic_Base_Url: 'http://localhost:1',
   https_proxy: 'http://proxy',
-  // Not passed:
+  // Passed: libuv would add them anyway (WIN32_SPAWN_REQUIRED_ENV_NAMES).
   USERNAME: 'u',
+  USERDOMAIN: 'D',
+  LOGONSERVER: '\\\\DC',
+  // Not passed:
   OneDrive: 'C:\\Profiles\\u\\OneDrive',
   // Never inherited, in any case:
   node_options: '--require x',
@@ -167,6 +171,9 @@ describe("'harness' preset (allowlist by rule)", () => {
       TEMP: 'C:\\T',
       TMP: 'C:\\T',
       USERPROFILE: 'C:\\Profiles\\u',
+      USERNAME: 'u',
+      USERDOMAIN: 'D',
+      LOGONSERVER: '\\\\DC',
       claude_code_git_bash_path: 'C:\\Git\\bin\\bash.exe',
       https_proxy: 'http://proxy',
       windir: 'C:\\Windows',
@@ -175,10 +182,18 @@ describe("'harness' preset (allowlist by rule)", () => {
     expect(result.dropped).toEqual([
       'ClaudeCode',
       'OneDrive',
-      'USERNAME',
       'claude_agent_sdk_x',
       'node_options',
     ]);
+    // Every variable libuv would inject is passed explicitly.
+    expect(result.spawnInjected).toEqual([]);
+  });
+
+  it('passes every libuv-required variable on win32', () => {
+    for (const name of WIN32_SPAWN_REQUIRED_ENV_NAMES) {
+      expect(isHarnessAllowed(name, 'win32')).toBe(true);
+      expect(isHarnessAllowed(name.toLowerCase(), 'win32')).toBe(true);
+    }
   });
 
   it('applies the OS lists by platform', () => {
@@ -276,7 +291,7 @@ describe("'inherit' preset", () => {
 
   it('drops never-inherited names in any case on win32', () => {
     const result = child({ env: 'inherit' }, WIN32_PARENT, 'win32');
-    expect(result.env).toMatchObject({ USERNAME: 'u', OneDrive: 'C:\\Profiles\\u\\OneDrive' });
+    expect(result.env).toMatchObject({ OneDrive: 'C:\\Profiles\\u\\OneDrive' });
     expect(result.dropped).toEqual(['ClaudeCode', 'claude_agent_sdk_x', 'node_options']);
   });
 
@@ -295,7 +310,39 @@ describe('explicit map', () => {
   it('passes exactly the map plus the pinned variables', () => {
     const result = child({ env: { PATH: '/bin', ANTHROPIC_API_KEY: 'k' } }, POSIX_PARENT, 'posix');
     expect(result.env).toEqual({ ANTHROPIC_API_KEY: 'k', PATH: '/bin', ...PINNED_DEFAULTS });
-    expect(result).toMatchObject({ dropped: [], added: [], removed: [] });
+    expect(result).toMatchObject({ dropped: [], added: [], removed: [], spawnInjected: [] });
+  });
+
+  it('reports the variables libuv adds on win32 when the map leaves them out', () => {
+    const result = child({ env: { PATH: 'C:\\bin' } }, WIN32_PARENT, 'win32');
+    expect(result.env).not.toHaveProperty('USERNAME');
+    expect(result.spawnInjected).toEqual([
+      'HOMEDRIVE',
+      'HOMEPATH',
+      'LOGONSERVER',
+      'SYSTEMDRIVE',
+      'SYSTEMROOT',
+      'TEMP',
+      'USERDOMAIN',
+      'USERNAME',
+      'USERPROFILE',
+      'WINDIR',
+    ]);
+    // Only names the parent has; never on POSIX.
+    expect(
+      child({ env: { A: '1' } }, { USERNAME: 'u', UNSET: undefined }, 'win32').spawnInjected,
+    ).toEqual(['USERNAME']);
+    expect(child({ env: { A: '1' } }, WIN32_PARENT, 'posix').spawnInjected).toEqual([]);
+  });
+
+  it('reports a removed libuv-required variable on win32', () => {
+    const result = child(
+      { env: { preset: 'harness', remove: ['username'] } },
+      WIN32_PARENT,
+      'win32',
+    );
+    expect(result.env).not.toHaveProperty('USERNAME');
+    expect(result.spawnInjected).toEqual(['USERNAME']);
   });
 
   it('refuses names that are one variable on win32 only', () => {
