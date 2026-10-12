@@ -20,7 +20,7 @@ hudhud is a TypeScript-primary monorepo that will be consumed by applications on
 | `hudhud` | Umbrella package: a zero-code re-export with exact-version dependencies, so `npm i hudhud` is the simple path. It must never contain logic (E4). |
 | `@hudhud/win32-job-x64`, `@hudhud/win32-job-arm64` | Optional platform packages carrying the prebuilt Windows job-object addon ([ADR-0009](0009-process-layer-windows.md)) |
 
-Names are subject to open owner decision 3 (npm scope `@hudhud` and the name `hudhud`; both packages returned 404 on npm at research time; scope availability unverified).
+Names are working names until the owner reserves the npm scope `@hudhud` and the name `hudhud` before the first publish (owner decision 3; both packages returned 404 on npm at research time).
 
 ### Versioning layers
 

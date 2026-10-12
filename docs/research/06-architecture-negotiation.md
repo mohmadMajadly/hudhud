@@ -122,3 +122,10 @@ H13 Documentation-pass resolutions that stand: pending permissions resolve `canc
 H14 Naming rule for security-weakening opt-ins (refines B5): BOOLEAN opt-ins use the `dangerously*` prefix (e.g. `dangerouslyAllowConfigWrites`, `dangerouslyAllowBypassPermissions`). ENUM values cannot carry a prefix, so security-weakening enum values are named descriptively (`env: 'inherit'`, `workspaceTrust: 'full'`, `permissionMode: 'auto'`, `nonessentialTraffic: 'harness-default'`) and are ALWAYS listed in `securityPosture`.
 H15 `settingSources` is a Claude-Code-specific mechanism, so it moves into the harness-namespaced tier: `claudeCode.settingSources`. `workspaceTrust` is the harness-neutral knob and maps to it ('none' -> ['user'], 'full' -> ['user','project','local']). Setting both `workspaceTrust` and `claudeCode.settingSources` is a validation error (no silent precedence). `--setting-sources` is still always passed explicitly.
 H16 Auto-update: R2 requires every way, so add option `autoUpdate: 'disabled' | 'harness-default'`, default 'disabled' (sets DISABLE_AUTOUPDATER=1); 'harness-default' is listed in securityPosture (an update can replace the binary mid-run, GH#74305).
+
+## I. Owner decisions (2026-10-12)
+
+I1 Workspace trust: both 'none' and 'full' are first-class; the application (and the user who installed it) is responsible. Default stays 'none' (R2: default is the safest way).
+I2 No live test credential for now; live suite deferred.
+I3 The owner reserves the npm names before the first publish.
+I4 Legal review confirmed by the owner.

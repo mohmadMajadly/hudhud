@@ -25,7 +25,7 @@ Conventions used in this document:
 13. [Scope: v1, v1.1, later](#scope-v1-v11-later)
 14. [Pre-v1 spike list (G4)](#pre-v1-spike-list-g4)
 15. [macOS gate list](#macos-gate-list)
-16. [Open owner decisions](#open-owner-decisions)
+16. [Owner decisions](#owner-decisions)
 
 ## Goals and owner rules
 
@@ -246,7 +246,7 @@ Principle: whoever controls the CLI's stdin has the agent's full authority; the 
 | Threat | Mechanism and evidence | Mitigation |
 |---|---|---|
 | Stdin authority | Control channel fully trusted (02 §10 item 1). | stdin private to the hudhud process; no API forwards caller frames verbatim except the unstable `/raw` tier; dangerous control subtypes never sent without explicit opt-in. |
-| Untrusted workspace (project settings, hooks, MCP, instructions) | Project/local settings `env` applies at `-p` startup without any trust dialog (01 §4.2); project `.mcp.json`, hooks and skills load by default. | Default `workspaceTrust 'none'` (maps to `--setting-sources` `user` only; pending owner decision 1); `'context'` unsupported in v1; `'full'` is a security-weakening opt-in, listed in securityPosture. |
+| Untrusted workspace (project settings, hooks, MCP, instructions) | Project/local settings `env` applies at `-p` startup without any trust dialog (01 §4.2); project `.mcp.json`, hooks and skills load by default. | Default `workspaceTrust 'none'` (maps to `--setting-sources` `user` only; owner decision 1); `'context'` unsupported in v1; `'full'` is a first-class choice of the application, listed in securityPosture. |
 | Project env redirects `ANTHROPIC_BASE_URL` to exfiltrate prompts and credentials | UNVERIFIED: not tested (C3, D18). A project `env` is applied without a trust dialog; the documented list of variables honoured only from user/managed settings does not include `ANTHROPIC_BASE_URL` (01 §4). | Same as above (project settings not loaded by default). In the `'context'` fallback design the audit refuses when project settings contain `env`. Spike required before relaxing. |
 | Ancestor `~/.claude` leak | With cwd under the user's home, `~/.claude` is also read as a project `.claude`; skill names reached the API request; not prevented by `CLAUDE_CONFIG_DIR` or HOME redirect (05 §13.1). | `--setting-sources` always explicit, default `user` only; tests use a cwd outside the home tree. |
 | Config write via control channel | `update_settings` (writes `localSettings`/`userSettings`), `apply_flag_settings`, `set_permission_mode` (bypass needs `--allow-dangerously-skip-permissions`) (02 §4.2). | `update_settings` never sent without explicit opt-in; non-session permission destinations stripped; `permission_suggestions` never auto-applied; hudhud never writes harness files (R6). |
@@ -273,8 +273,8 @@ Every default decided in the negotiation log. "securityPosture" says whether the
 |---|---|---|---|---|
 | Backend | `native` (confirmed); `agent-sdk` is available from v1.1 | `backend: 'agent-sdk'` (needs the optional peer installed by the user) | no | [0001](adr/0001-foundation-and-backends.md) |
 | Config directory | user's real config dir, never-write posture | isolated `CLAUDE_CONFIG_DIR` or `--bare` (opt-in) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
-| Setting sources | `--setting-sources` always passed explicitly; derived from `workspaceTrust` (`'none'` gives `['user']`; pending owner decision 1) | `workspaceTrust`, or the Claude-Code-specific `claudeCode.settingSources`; setting both is a validation error | yes | [0012](adr/0012-security-defaults-and-trust.md) |
-| Workspace trust | `'none'` (pending owner decision 1); `'context'` unsupported in v1 | `'full'` (maps to `['user','project','local']`; security-weakening opt-in, listed in securityPosture) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
+| Setting sources | `--setting-sources` always passed explicitly; derived from `workspaceTrust` (`'none'` gives `['user']`; owner decision 1) | `workspaceTrust`, or the Claude-Code-specific `claudeCode.settingSources`; setting both is a validation error | yes | [0012](adr/0012-security-defaults-and-trust.md) |
+| Workspace trust | `'none'` (owner decision 1); `'context'` unsupported in v1 | `'full'` (maps to `['user','project','local']`; a first-class choice, security-weakening, listed in securityPosture) | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | Permission mode | explicit `--permission-mode` always; value `default` (see Note 1) | choose another mode; `auto` is a descriptively named opt-in listed in securityPosture; bypass needs the boolean `dangerouslyAllowBypassPermissions` | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | Permission prompting | `--permission-prompt-tool=stdio` only when a handler is supplied | supply a handler | yes | [0012](adr/0012-security-defaults-and-trust.md) |
 | Settings writes | `update_settings` never sent; non-session permission destinations stripped | boolean `dangerouslyAllowConfigWrites` | yes | [0012](adr/0012-security-defaults-and-trust.md) |
@@ -305,7 +305,7 @@ Every default decided in the negotiation log. "securityPosture" says whether the
 | Diagnostics | redaction mandatory | no opt-out | no | [0016](adr/0016-observability.md) |
 | Trace propagation | off | opt-in `TRACEPARENT` | no | [0016](adr/0016-observability.md) |
 | Entrypoint identity | honest default of stream-json mode (`sdk-cli`); no spoofing | none | no | [0001](adr/0001-foundation-and-backends.md) |
-| Live test suite | none | needs an owner-provided dedicated credential (owner decision 2) | no | [0013](adr/0013-testing-strategy.md) |
+| Live test suite | none | deferred: no credential exists yet (owner decision 2) | no | [0013](adr/0013-testing-strategy.md) |
 
 Note 1: the log requires an explicit `--permission-mode` and makes `auto` a named opt-in. The default value `default` is confirmed by the lead (it is also the mode used in every spike scenario, in which mutating commands are not silently executed, 05 §6).
 
@@ -344,7 +344,7 @@ Detail: [ADR-0013](adr/0013-testing-strategy.md).
 - Hand-authored responses typed and validated against `@anthropic-ai/sdk` types (or a published spec); pluggable response provider; scenario matching on user-message markers only; the mock never assumes the last message is `user`.
 - Degradation-signal assertions classify a red canary as `mock-inadequate` or `protocol-regressed`.
 - Pinned, hash-verified CLI; golden JSONL fixtures; SDK differential oracle (from v1.1); canary against `latest` / `stable` / pinned with auto-bump PRs; fast-check; Windows CI mandatory.
-- Opt-in live suite only with an owner-provided dedicated credential (owner decision 2).
+- Opt-in live suite only with an owner-provided dedicated credential; deferred, none exists yet (owner decision 2).
 
 ## CI
 
@@ -389,11 +389,11 @@ Ratified by the lead (from the final negotiation round, part 1). Required before
 
 See [ADR-0014](adr/0014-ci-strategy.md#macos-gate-list).
 
-## Open owner decisions
+## Owner decisions
 
-These are not decided by this document.
+Decided by the owner on 2026-10-12.
 
-1. **Default `workspaceTrust 'none'` (maps to `--setting-sources` `user` only).** Recommended. Effect: project and local settings, hooks, MCP servers and env are not loaded unless the application opts in; also neutralizes the ancestor `~/.claude` leak. ([ADR-0012](adr/0012-security-defaults-and-trust.md))
-2. **Dedicated low-limit test credential for an opt-in live suite.** Default: none; without it no test calls the real API. ([ADR-0013](adr/0013-testing-strategy.md))
-3. **Reserve the npm scope `@hudhud` and the name `hudhud`.** Both packages returned 404 on npm at research time; scope availability is unverified. ([ADR-0004](adr/0004-packages-and-versioning.md))
-4. **Legal review before open-sourcing.** ([ADR-0015](adr/0015-legal-and-provenance.md))
+1. **Workspace trust: both ways are first-class.** The application (and through it the user who installed it) is responsible for what it runs, so loading project configuration is a supported, documented choice, not a discouraged one: `workspaceTrust: 'full'` loads project and local settings, hooks, MCP servers and env; `'none'` loads none of them. The library default stays `'none'` under rule R2 (the default is the safest way); `'full'` is one option away and is reported in `securityPosture` like every other non-default security setting. ([ADR-0012](adr/0012-security-defaults-and-trust.md))
+2. **Live test credential: none for now.** No test calls the real API; the opt-in live suite is deferred until the owner provides a dedicated low-limit credential. ([ADR-0013](adr/0013-testing-strategy.md))
+3. **npm names: the owner reserves `@hudhud` and `hudhud` later**, before the first publish. Until then the names are working names; nothing is published. Risk accepted: a third party could take a name in the meantime; the package names are confined to `package.json` files and the docs, so a rename is mechanical. ([ADR-0004](adr/0004-packages-and-versioning.md))
+4. **Legal review: done.** The owner confirmed the legal review; the engineering policy in ADR-0015 stays binding. ([ADR-0015](adr/0015-legal-and-provenance.md))

@@ -1,6 +1,6 @@
 # ADR-0015: Legal posture and code provenance
 
-- Status: Accepted as engineering policy. Pending owner decision 4: legal review before open-sourcing. Nothing in this ADR is legal advice.
+- Status: Accepted as engineering policy. Owner decision 4 (2026-10-12): the owner confirmed the legal review. Nothing in this ADR is legal advice.
 - Date: 2026-10-12
 - Negotiation log items: A1, A2, R1 (06 header, §A)
 - Related: [ADR-0001](0001-foundation-and-backends.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md), [ADR-0012](0012-security-defaults-and-trust.md)
@@ -19,10 +19,10 @@ The hudhud repository is private now and planned to become open source. Facts fr
 2. The TS SDK is used only as an optional peer dependency, installed by the user under Anthropic's terms. hudhud never vendors, copies or redistributes it. It is also used as the CI differential oracle, from v1.1 ([ADR-0013](0013-testing-strategy.md)); the oracle is not distributed.
 3. hudhud never bundles or redistributes the `claude` binary. It runs the user's installed, unmodified binary and does not modify it (R6).
 4. hudhud never collects, stores or proxies OAuth tokens or claude.ai session tokens. hudhud has no login flow. The SDK features `getOAuthToken` and `claude_authenticate` (02 §9) are not implemented. Each end user authenticates with their own credentials through the harness.
-5. The product name does not include "Claude Code" or "Anthropic"; describing hudhud plainly as driving Claude Code is acceptable. The name "hudhud" and the npm names are pending owner decision 3.
+5. The product name does not include "Claude Code" or "Anthropic"; describing hudhud plainly as driving Claude Code is acceptable. The owner reserves the npm names before the first publish (owner decision 3).
 6. No identity spoofing: the entrypoint stays at the honest default ([ADR-0001](0001-foundation-and-backends.md)).
 7. Binary provenance checking is advisory ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)).
-8. A legal review is a precondition of open-sourcing (owner decision 4).
+8. A legal review is a precondition of open-sourcing; the owner confirmed it (owner decision 4). This policy stays binding regardless.
 9. Third-party licenses of dependencies are tracked as part of the toolchain ([ADR-0017](0017-toolchain.md)); published packages carry provenance.
 
 ## Alternatives considered

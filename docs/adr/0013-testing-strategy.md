@@ -1,6 +1,6 @@
 # ADR-0013: Testing strategy
 
-- Status: Accepted. The opt-in live suite is pending owner decision 2 (a dedicated low-limit test credential; default: none provided).
+- Status: Accepted. The opt-in live suite is deferred (owner decision 2, 2026-10-12: no test credential exists yet).
 - Date: 2026-10-12
 - Negotiation log items: A16, F (A16), D14, D16, D12, R5 (06 header, §A, §D, §F)
 - Related: [ADR-0005](0005-schema-and-validation.md), [ADR-0012](0012-security-defaults-and-trust.md), [ADR-0014](0014-ci-strategy.md)
@@ -33,7 +33,7 @@ Spike findings that shape the design (05):
 12. Canary: scheduled runs of the suite against CLI `latest`, `stable` and the pinned version; version bumps are proposed by automatic PRs ([ADR-0004](0004-packages-and-versioning.md), [ADR-0014](0014-ci-strategy.md)).
 13. Property-based tests with fast-check for the framer, the state machines, and the argv builder.
 14. Windows CI is mandatory ([ADR-0014](0014-ci-strategy.md)); process-tree tests on Windows and Linux follow the spike (`tree` scenarios of 05 §10), including pid-plus-creation-time verification of survivors.
-15. Opt-in live suite: only with an owner-provided dedicated credential (pending owner decision 2). Without it, no test calls the real API.
+15. Opt-in live suite: only with an owner-provided dedicated credential (deferred by owner decision 2). Without it, no test calls the real API.
 
 ## Alternatives considered
 

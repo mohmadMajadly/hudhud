@@ -2,7 +2,7 @@
 
 - Status: Accepted, with two parts pending:
   - Accepted, pending spike G1: the default for `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (Decision 5).
-  - Pending owner decision 1: default `workspaceTrust 'none'` (maps to `--setting-sources` `user` only) (recommended, not yet confirmed by the owner).
+  - Owner decision 1 (2026-10-12): both `'none'` and `'full'` are first-class choices; the default is `'none'` (maps to `--setting-sources` `user` only).
 - Date: 2026-10-12
 - Negotiation log items: A8, A9, B4, B5, E7, G1, G2, D3, D4, D12-D15, D17 (06 §A, §B, §C, §D, §E, §F, §G)
 - Related: [ADR-0008](0008-turn-and-lifecycle-semantics.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md), [ADR-0013](0013-testing-strategy.md); threat model in [architecture.md](../architecture.md#security-model-and-threat-model); defaults table in [architecture.md](../architecture.md#defaults-table)
@@ -38,7 +38,9 @@ hudhud uses the user's real config directory with a never-write posture (R6). hu
 | `'context'` | Workspace context is used but executable workspace configuration (hooks, MCP servers, `env`) is not [derived from the B4 fallback design] | n/a | unsupported in v1 (F); capability-gated |
 | `'full'` | Workspace configuration is trusted; security-weakening opt-in, listed in securityPosture | `['user','project','local']` | supported |
 
-`'none'` (`--setting-sources` `user` only) also neutralizes the ancestor leak for real users whose projects live under `~` (D13). The default is recommended, pending owner decision 1.
+`'none'` (`--setting-sources` `user` only) also neutralizes the ancestor leak for real users whose projects live under `~` (D13).
+
+Owner decision 1: the application, and through it the user who installed it, is responsible for what it runs. Loading the workspace configuration (`'full'`) is therefore a first-class, documented choice, not a discouraged one; it is one option away and appears in `securityPosture` only because every non-default security setting does. The default stays `'none'` because the default is the safest way (R2).
 
 `'context'` (B4, round 3 and F): if the spike on `initialize.workspaceTrust` (an undocumented field the TS SDK sends, 02 §4.2) confirms native support, it will be `supported` natively. Otherwise the fallback is a fail-closed audit reported as `emulated`: the audit walks parent directories, covers `settings.local.json` and `.mcp.json`, refuses if project settings contain `env`, and is combined with `--strict-mcp-config` and `disableAllHooks`. No CLAUDE.md emulation by injecting text through `appendSystemPrompt` (rejected). F states that `'context'` is `unsupported` in v1.
 
@@ -98,7 +100,7 @@ Text fields from the harness (`decision_reason`, `matched_ask_rule`, plugin meta
 
 ## Consequences
 
-- Applications that want project-level configuration must opt in explicitly. This is a deliberate friction.
+- Applications that want project-level configuration choose `workspaceTrust: 'full'`; it is a single documented option.
 - Because `'harness'` env is an allowlist, tools that rely on inherited variables fail until the application adds them; dropped-name diagnostics make this visible.
 - Test and production configurations are aligned on egress (the variable is set in both) once G1 completes.
 - `securityPosture` becomes API surface that must be kept additive ([ADR-0005](0005-schema-and-validation.md)).

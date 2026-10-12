@@ -17,7 +17,7 @@ hudhud drives locally installed agent harnesses for applications; Claude Code is
    - `native`: hudhud's own protocol engine over any duplex byte stream. Sources of the stream: local spawn through hudhud's process layer, or a custom spawner supplied by the application.
    - `agent-sdk` (from v1.1): `@anthropic-ai/claude-agent-sdk` as an optional peer dependency. It is never redistributed or vendored. It is wired through the SDK's `spawnClaudeCodeProcess` option over hudhud's own process layer. It is also used as the CI differential oracle, likewise from v1.1 ([ADR-0013](0013-testing-strategy.md)).
 4. No SDK-identity or entrypoint spoofing. The CLI in stream-json mode reports the entrypoint `sdk-cli` and the user agent `claude-cli/<version> (external, sdk-cli)` (05 §2); hudhud leaves that honest default alone and does not set `CLAUDE_CODE_ENTRYPOINT` to impersonate an SDK.
-5. A legal review is required before open-sourcing (open owner decision 4, see [architecture.md](../architecture.md#open-owner-decisions)).
+5. A legal review is required before open-sourcing; the owner confirmed it (owner decision 4, see [architecture.md](../architecture.md#owner-decisions)).
 6. `native` is the foundation and the default backend (confirmed by the lead); `agent-sdk` is opt-in because its package is an optional peer. Both are specified here; the `agent-sdk` backend and the oracle ship from v1.1 to keep v1 small ([ADR-0018](0018-scope-and-roadmap.md)).
 
 ## Alternatives considered
