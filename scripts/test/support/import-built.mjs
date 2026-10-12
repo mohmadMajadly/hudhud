@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url';
  * @typedef {object} ImportSuccess
  * @property {true} ok
  * @property {string} file Resolved file, relative to the importing directory, forward slashes.
- * @property {Record<string, unknown>} exports The module namespace as JSON.
+ * @property {Record<string, unknown>} exports The module namespace as JSON
+ *   (functions and classes are dropped by JSON; see `names`).
+ * @property {string[]} names Every export name of the module, sorted.
  */
 
 /**
@@ -29,7 +31,7 @@ for (const specifier of specifiers) {
   try {
     const url = import.meta.resolve(specifier);
     const namespace = await import(specifier);
-    results[specifier] = { ok: true, url, exports: { ...namespace } };
+    results[specifier] = { ok: true, url, exports: { ...namespace }, names: Object.keys(namespace).sort() };
   } catch (error) {
     results[specifier] = { ok: false, code: String(error?.code ?? error) };
   }
@@ -62,13 +64,19 @@ export function importBuilt(fromDir, specifiers) {
     /** @type {unknown} */
     const namespace = Reflect.get(entry, 'exports');
     /** @type {unknown} */
+    const names = Reflect.get(entry, 'names');
+    /** @type {unknown} */
     const code = Reflect.get(entry, 'code');
     results[specifier] =
-      typeof url === 'string' && typeof namespace === 'object' && namespace !== null
+      typeof url === 'string' &&
+      typeof namespace === 'object' &&
+      namespace !== null &&
+      Array.isArray(names)
         ? {
             ok: true,
             file: path.relative(fromDir, fileURLToPath(url)).split(path.sep).join('/'),
             exports: { ...namespace },
+            names: names.map(String),
           }
         : { ok: false, code: typeof code === 'string' ? code : 'unknown' };
   }

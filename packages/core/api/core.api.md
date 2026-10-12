@@ -5,6 +5,650 @@
 ```ts
 
 // @public
+export class AbortError extends HudhudError {
+    constructor(message?: string, options?: HudhudErrorOptions);
+    // (undocumented)
+    static readonly code = "ABORTED";
+    // (undocumented)
+    static readonly errorName = "AbortError";
+    static fromSignal(signal: AbortSignal): AbortError;
+}
+
+// @public
 export const adapterApiVersion = 1;
+
+// @public
+export class AdapterApiVersionError extends HudhudError {
+    // (undocumented)
+    static readonly code = "ADAPTER_API_VERSION_MISMATCH";
+    // (undocumented)
+    static readonly errorName = "AdapterApiVersionError";
+}
+
+// @public
+export class AuthenticationFailedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "AUTHENTICATION_FAILED";
+    // (undocumented)
+    static readonly errorName = "AuthenticationFailedError";
+}
+
+// @public
+export class BinaryNotFoundError extends HudhudError {
+    // (undocumented)
+    static readonly code = "BINARY_NOT_FOUND";
+    // (undocumented)
+    static readonly errorName = "BinaryNotFoundError";
+}
+
+// @public
+export class BinaryProbeError extends HudhudError {
+    // (undocumented)
+    static readonly code = "BINARY_PROBE_FAILED";
+    // (undocumented)
+    static readonly errorName = "BinaryProbeError";
+}
+
+// @public
+export class BinaryRefusedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "BINARY_REFUSED";
+    // (undocumented)
+    static readonly errorName = "BinaryRefusedError";
+}
+
+// @public
+export class BinaryVerificationError extends HudhudError {
+    // (undocumented)
+    static readonly code = "BINARY_VERIFICATION_FAILED";
+    // (undocumented)
+    static readonly errorName = "BinaryVerificationError";
+}
+
+// @public
+export type Capability = 'supported' | 'emulated' | 'unsupported';
+
+// @public
+export class CapabilityUnsupportedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "CAPABILITY_UNSUPPORTED";
+    // (undocumented)
+    static readonly errorName = "CapabilityUnsupportedError";
+}
+
+// @public
+export interface CompatInfo {
+    // (undocumented)
+    readonly harness: string;
+    // (undocumented)
+    readonly knownBroken: readonly string[];
+    // (undocumented)
+    readonly maxTested: string;
+    // (undocumented)
+    readonly minTested: string;
+    // (undocumented)
+    readonly status: 'tested' | 'untested' | 'known-broken';
+    // (undocumented)
+    readonly version: string;
+}
+
+// @public
+export class ControlRequestError extends HudhudError {
+    // (undocumented)
+    static readonly code = "CONTROL_REQUEST_FAILED";
+    // (undocumented)
+    static readonly errorName = "ControlRequestError";
+}
+
+// @public
+export function credentialEnvNames(env: EnvMap): readonly string[];
+
+// @public
+export class CwdInvalidError extends HudhudError {
+    // (undocumented)
+    static readonly code = "CWD_INVALID";
+    // (undocumented)
+    static readonly errorName = "CwdInvalidError";
+}
+
+// @public
+export class CwdTooLongError extends HudhudError {
+    // (undocumented)
+    static readonly code = "CWD_TOO_LONG";
+    // (undocumented)
+    static readonly errorName = "CwdTooLongError";
+}
+
+// @public
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | (string & {});
+
+// @public
+export type EnvMap = Readonly<Record<string, string | undefined>>;
+
+// @public
+export interface ErrorData {
+    // (undocumented)
+    readonly code: HudhudErrorCode | (string & {});
+    // (undocumented)
+    readonly details?: JsonObject;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly retryable: boolean;
+}
+
+// @public
+export type EstimatedUsage = UsageTotals & {
+    readonly estimate: true;
+};
+
+// @public
+export function estimateUsageDelta(previous: UsageTotals | undefined, current: UsageTotals): EstimatedUsage;
+
+// @public
+export interface EventBase {
+    readonly seq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    readonly ts: string;
+}
+
+// @public
+export class HandshakeError extends HudhudError {
+    // (undocumented)
+    static readonly code = "HANDSHAKE_FAILED";
+    // (undocumented)
+    static readonly errorName = "HandshakeError";
+}
+
+// @public
+export class HandshakeTimeoutError extends HudhudError {
+    // (undocumented)
+    static readonly code = "HANDSHAKE_TIMEOUT";
+    // (undocumented)
+    static readonly errorName = "HandshakeTimeoutError";
+}
+
+// @public
+export interface HarnessCapabilities {
+    // (undocumented)
+    readonly fork: Capability;
+    // (undocumented)
+    readonly interrupt: Capability;
+    // (undocumented)
+    readonly multiTurn: Capability;
+    // (undocumented)
+    readonly permissionsInBand: Capability;
+    readonly processContainment: ProcessContainment;
+    readonly reasons: Readonly<Record<string, string>>;
+    // (undocumented)
+    readonly resume: Capability;
+    // (undocumented)
+    readonly workspaceTrust: {
+        readonly none: Capability;
+        readonly context: Capability;
+        readonly full: Capability;
+    };
+}
+
+// @public
+export class HarnessDisposedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "HARNESS_DISPOSED";
+    // (undocumented)
+    static readonly errorName = "HarnessDisposedError";
+}
+
+// @public
+export const HUDHUD_ERROR_CODES: readonly ["INVALID_OPTIONS", "CAPABILITY_UNSUPPORTED", "ADAPTER_API_VERSION_MISMATCH", "BINARY_NOT_FOUND", "BINARY_REFUSED", "BINARY_VERIFICATION_FAILED", "BINARY_PROBE_FAILED", "CWD_INVALID", "CWD_TOO_LONG", "PROJECT_CREDENTIAL_ENV", "SESSION_ID_IN_USE", "SPAWN_FAILED", "HANDSHAKE_TIMEOUT", "HANDSHAKE_FAILED", "SESSION_NOT_FOUND", "AUTHENTICATION_FAILED", "SESSION_POISONED", "PROTOCOL_ERROR", "OVERSIZED_FRAME", "OUTBOUND_FRAME_TOO_LARGE", "CONTROL_REQUEST_FAILED", "PROCESS_EXITED", "SESSION_CLOSED", "HARNESS_DISPOSED", "ABORTED", "SUBSCRIBER_OVERFLOW"];
+
+// @public
+export abstract class HudhudError extends Error {
+    constructor(message: string, options?: HudhudErrorOptions);
+    static readonly code: HudhudErrorCode;
+    // (undocumented)
+    readonly code: HudhudErrorCode;
+    // (undocumented)
+    readonly details?: HudhudErrorDetails;
+    static readonly errorName: string;
+    static fromData(data: KnownErrorData): HudhudError;
+    // (undocumented)
+    readonly retryable: boolean;
+    toData(): KnownErrorData;
+    toJSON(): KnownErrorData;
+}
+
+// @public
+export type HudhudErrorCode = (typeof HUDHUD_ERROR_CODES)[number];
+
+// @public
+export type HudhudErrorDetails = NonNullable<ErrorData['details']>;
+
+// @public
+export interface HudhudErrorOptions {
+    readonly cause?: unknown;
+    readonly details?: HudhudErrorDetails;
+}
+
+// @public
+export type HudhudEvent = (EventBase & {
+    readonly type: 'compat';
+    readonly compat: CompatInfo;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.started';
+    readonly mode: 'create' | 'resume' | 'fork';
+    readonly pid: number;
+    readonly cliPid?: number;
+    readonly version: string;
+    readonly apiKeySource?: string;
+    readonly permissionMode?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'turn.queued';
+    readonly turnId: string;
+}) | (EventBase & {
+    readonly type: 'turn.started';
+    readonly turnId: string;
+    readonly origin: 'application' | 'harness';
+    readonly features: readonly string[];
+    readonly model?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'message.assistant';
+    readonly turnId?: string;
+    readonly text?: string;
+    readonly aborted?: boolean;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'message.delta';
+    readonly turnId?: string;
+    readonly index: number;
+    readonly deltaType: 'text' | 'thinking' | 'input_json' | (string & {});
+    readonly text?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'tool.call';
+    readonly turnId?: string;
+    readonly toolUseId: string;
+    readonly toolName: string;
+    readonly kind: ToolKind;
+    readonly status: 'pending';
+    readonly input: JsonValue;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'tool.result';
+    readonly turnId?: string;
+    readonly toolUseId: string;
+    readonly status: 'completed' | 'failed';
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.requested';
+    readonly requestId: string;
+    readonly turnId?: string;
+    readonly toolName: string;
+    readonly toolUseId: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.resolved';
+    readonly requestId: string;
+    readonly behavior: 'allow' | 'deny' | 'cancelled';
+    readonly by: 'application' | 'harness' | 'close' | 'abort';
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.denied';
+    readonly toolName: string;
+    readonly toolUseId: string;
+    readonly reasonType?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'api.retry';
+    readonly attempt: number;
+    readonly maxRetries?: number;
+    readonly retryDelayMs?: number;
+    readonly errorStatus?: number;
+    readonly error?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'usage.update';
+    readonly turnId?: string;
+    readonly reported: UsageTotals;
+    readonly estimatedDelta: UsageTotals & {
+        readonly estimate: true;
+    };
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'turn.completed';
+    readonly turnId: string;
+    readonly result: TurnResult;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.state';
+    readonly state: 'idle' | 'running' | 'requires_action' | (string & {});
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'background.tasks';
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'stalled';
+    readonly silentForMs: number;
+    readonly turnId?: string;
+    readonly pendingPermissions: number;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'diagnostic';
+    readonly code: DiagnosticCode;
+    readonly message: string;
+    readonly data?: JsonObject;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'gap';
+    readonly dropped: number;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.terminated';
+    readonly intent: string;
+    readonly outcome: string;
+    readonly exitCode?: number;
+    readonly signal?: string;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'harness.frame';
+    readonly frameType: string;
+    readonly subtype?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: string & {};
+    readonly raw?: JsonValue;
+});
+
+// @public
+export class InvalidOptionsError extends HudhudError {
+    // (undocumented)
+    static readonly code = "INVALID_OPTIONS";
+    // (undocumented)
+    static readonly errorName = "InvalidOptionsError";
+}
+
+// @public
+export function isCredentialEnvName(name: string): boolean;
+
+// @public
+export function isHudhudError(value: unknown): value is HudhudError;
+
+// @public
+export function isSensitiveFieldName(name: string): boolean;
+
+// @public
+export type JsonObject = Readonly<Record<string, JsonValue>>;
+
+// @public
+export type JsonPrimitive = string | number | boolean | null;
+
+// @public
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | {
+    readonly [key: string]: JsonValue;
+};
+
+// @public
+export type KnownErrorData = ErrorData & {
+    readonly code: HudhudErrorCode;
+};
+
+// @public
+export const MIN_ENV_SECRET_LENGTH = 8;
+
+// @public
+export class OutboundFrameTooLargeError extends HudhudError {
+    // (undocumented)
+    static readonly code = "OUTBOUND_FRAME_TOO_LARGE";
+    // (undocumented)
+    static readonly errorName = "OutboundFrameTooLargeError";
+}
+
+// @public
+export type OverflowPolicy = 'error' | 'drop-oldest-with-gap-marker' | 'block';
+
+// @public
+export class OversizedFrameError extends ProtocolError {
+    // (undocumented)
+    static readonly code = "OVERSIZED_FRAME";
+    // (undocumented)
+    static readonly errorName = "OversizedFrameError";
+}
+
+// @public
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+
+// @public
+export class ProcessExitedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "PROCESS_EXITED";
+    // (undocumented)
+    static readonly errorName = "ProcessExitedError";
+}
+
+// @public
+export class ProjectCredentialEnvError extends HudhudError {
+    // (undocumented)
+    static readonly code = "PROJECT_CREDENTIAL_ENV";
+    // (undocumented)
+    static readonly errorName = "ProjectCredentialEnvError";
+    static fromFindings(findings: ProjectCredentialFindings): ProjectCredentialEnvError;
+}
+
+// @public
+export interface ProjectCredentialFindings {
+    // (undocumented)
+    readonly apiKeyHelper: boolean;
+    // (undocumented)
+    readonly files: readonly string[];
+    // (undocumented)
+    readonly unparseable: readonly string[];
+    readonly variables: readonly string[];
+}
+
+// @public
+export class ProtocolError extends HudhudError {
+    // (undocumented)
+    static readonly code: HudhudErrorCode;
+    // (undocumented)
+    static readonly errorName: string;
+}
+
+// @public
+export type RedactableJson = null | boolean | number | string | readonly RedactableJson[] | {
+    readonly [key: string]: RedactableJson;
+};
+
+// @public
+export const REDACTED = "<redacted>";
+
+// @public
+export interface RedactionPolicy {
+    readonly maxDepth?: number;
+    readonly secrets: readonly string[];
+}
+
+// @public
+export function redactJson(value: RedactableJson, policy: RedactionPolicy): RedactableJson;
+
+// @public
+export function redactText(text: string, secrets: readonly string[]): string;
+
+// @public
+export function sanitizeUsage(usage: UsageTotals): UsageTotals;
+
+// @public
+export function secretsFromEnv(env: EnvMap): readonly string[];
+
+// @public
+export interface SecurityPosture {
+    // (undocumented)
+    readonly entries: readonly SecurityPostureEntry[];
+}
+
+// @public
+export interface SecurityPostureEntry {
+    // (undocumented)
+    readonly defaultValue: JsonValue;
+    // (undocumented)
+    readonly deviates: boolean;
+    // (undocumented)
+    readonly setting: string;
+    // (undocumented)
+    readonly value: JsonValue;
+}
+
+// @public
+export class SessionClosedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SESSION_CLOSED";
+    // (undocumented)
+    static readonly errorName = "SessionClosedError";
+}
+
+// @public
+export class SessionIdInUseError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SESSION_ID_IN_USE";
+    // (undocumented)
+    static readonly errorName = "SessionIdInUseError";
+}
+
+// @public
+export class SessionNotFoundError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SESSION_NOT_FOUND";
+    // (undocumented)
+    static readonly errorName = "SessionNotFoundError";
+}
+
+// @public
+export class SessionPoisonedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SESSION_POISONED";
+    // (undocumented)
+    static readonly errorName = "SessionPoisonedError";
+}
+
+// @public
+export class SpawnError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SPAWN_FAILED";
+    // (undocumented)
+    static readonly errorName = "SpawnError";
+}
+
+// @public
+export class StderrTail {
+    constructor(options?: StderrTailOptions);
+    end(): void;
+    push(chunk: Uint8Array | string): void;
+    read(): string;
+    get receivedBytes(): number;
+    get retainedBound(): number;
+    get retainedCodeUnits(): number;
+    get truncated(): boolean;
+}
+
+// @public
+export interface StderrTailOptions {
+    readonly maxChars?: number;
+    readonly maxLineChars?: number;
+    readonly maxLines?: number;
+    readonly secrets?: readonly string[];
+}
+
+// @public
+export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});
+
+// @public
+export interface SubscriberOptions {
+    readonly maxBytes?: number;
+    readonly maxEvents?: number;
+    readonly overflow?: OverflowPolicy;
+    readonly signal?: AbortSignal;
+}
+
+// @public
+export class SubscriberOverflowError extends HudhudError {
+    // (undocumented)
+    static readonly code = "SUBSCRIBER_OVERFLOW";
+    // (undocumented)
+    static readonly errorName = "SubscriberOverflowError";
+}
+
+// @public
+export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
+
+// @public
+export const TRUNCATED = "<truncated>";
+
+// @public
+export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'max-budget' | 'unknown' | (string & {});
+
+// @public
+export interface TurnResult {
+    // (undocumented)
+    readonly apiErrorStatus?: number;
+    // (undocumented)
+    readonly errors?: readonly string[];
+    // (undocumented)
+    readonly isError: boolean;
+    // (undocumented)
+    readonly outcome: TurnOutcome;
+    // (undocumented)
+    readonly permissionDenials: readonly {
+        readonly toolName: string;
+        readonly toolUseId: string;
+    }[];
+    // (undocumented)
+    readonly raw?: JsonValue;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly stopReason?: StopReason;
+    readonly synthesized: boolean;
+    // (undocumented)
+    readonly terminalReason?: string;
+    // (undocumented)
+    readonly text?: string;
+    // (undocumented)
+    readonly turnId: string;
+    // (undocumented)
+    readonly usage?: UsageTotals;
+}
+
+// @public
+export class UsageEstimator {
+    observe(report: UsageTotals): UsageObservation;
+    get reported(): UsageTotals | undefined;
+}
+
+// @public
+export interface UsageObservation {
+    // (undocumented)
+    readonly estimatedDelta: EstimatedUsage;
+    // (undocumented)
+    readonly reported: UsageTotals;
+}
+
+// @public
+export interface UsageTotals {
+    // (undocumented)
+    readonly cacheCreationInputTokens?: number;
+    // (undocumented)
+    readonly cacheReadInputTokens?: number;
+    // (undocumented)
+    readonly costUsd?: number;
+    // (undocumented)
+    readonly inputTokens?: number;
+    // (undocumented)
+    readonly outputTokens?: number;
+}
+
+// @public
+export const wireSchemaVersion = 1;
 
 ```

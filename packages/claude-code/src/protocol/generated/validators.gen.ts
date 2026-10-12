@@ -2429,7 +2429,7 @@ function validate90(data, { instancePath = "", parentData, parentDataProperty, r
                     } else {
                       const _errs8 = errors;
                       for (const key1 of Object.keys(data2)) {
-                        if (!(key1 === "subtype" || key1 === "appendSystemPrompt" || key1 === "systemPrompt")) {
+                        if (!(key1 === "subtype")) {
                           validate90.errors = [{ instancePath: instancePath + "/request", schemaPath: "#/properties/request/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 } }];
                           return false;
                           break;
@@ -2438,7 +2438,6 @@ function validate90(data, { instancePath = "", parentData, parentDataProperty, r
                       if (_errs8 === errors) {
                         if (data2.subtype !== void 0 && func0.call(data2, "subtype")) {
                           let data3 = data2.subtype;
-                          const _errs9 = errors;
                           if (typeof data3 !== "string") {
                             validate90.errors = [{ instancePath: instancePath + "/request/subtype", schemaPath: "#/properties/request/properties/subtype/type", keyword: "type", params: { type: "string" } }];
                             return false;
@@ -2446,50 +2445,6 @@ function validate90(data, { instancePath = "", parentData, parentDataProperty, r
                           if ("initialize" !== data3) {
                             validate90.errors = [{ instancePath: instancePath + "/request/subtype", schemaPath: "#/properties/request/properties/subtype/const", keyword: "const", params: { allowedValue: "initialize" } }];
                             return false;
-                          }
-                          var valid1 = _errs9 === errors;
-                        } else {
-                          var valid1 = true;
-                        }
-                        if (valid1) {
-                          if (data2.appendSystemPrompt !== void 0 && func0.call(data2, "appendSystemPrompt")) {
-                            const _errs11 = errors;
-                            if (typeof data2.appendSystemPrompt !== "string") {
-                              validate90.errors = [{ instancePath: instancePath + "/request/appendSystemPrompt", schemaPath: "#/properties/request/properties/appendSystemPrompt/type", keyword: "type", params: { type: "string" } }];
-                              return false;
-                            }
-                            var valid1 = _errs11 === errors;
-                          } else {
-                            var valid1 = true;
-                          }
-                          if (valid1) {
-                            if (data2.systemPrompt !== void 0 && func0.call(data2, "systemPrompt")) {
-                              let data5 = data2.systemPrompt;
-                              const _errs13 = errors;
-                              if (errors === _errs13) {
-                                if (Array.isArray(data5)) {
-                                  var valid2 = true;
-                                  const len0 = data5.length;
-                                  for (let i0 = 0; i0 < len0; i0++) {
-                                    const _errs15 = errors;
-                                    if (typeof data5[i0] !== "string") {
-                                      validate90.errors = [{ instancePath: instancePath + "/request/systemPrompt/" + i0, schemaPath: "#/properties/request/properties/systemPrompt/items/type", keyword: "type", params: { type: "string" } }];
-                                      return false;
-                                    }
-                                    var valid2 = _errs15 === errors;
-                                    if (!valid2) {
-                                      break;
-                                    }
-                                  }
-                                } else {
-                                  validate90.errors = [{ instancePath: instancePath + "/request/systemPrompt", schemaPath: "#/properties/request/properties/systemPrompt/type", keyword: "type", params: { type: "array" } }];
-                                  return false;
-                                }
-                              }
-                              var valid1 = _errs13 === errors;
-                            } else {
-                              var valid1 = true;
-                            }
                           }
                         }
                       }
@@ -2797,7 +2752,6 @@ function validate94(data, { instancePath = "", parentData, parentDataProperty, r
   return errors === 0;
 }
 validate94.evaluated = { "props": true, "dynamicProps": false, "dynamicItems": false };
-var schema47 = { "type": "object", "required": ["type", "message", "uuid"], "properties": { "type": { "type": "string", "const": "user" }, "message": { "type": "object", "required": ["role", "content"], "properties": { "role": { "type": "string", "const": "user" }, "content": { "$ref": "#/$defs/UserContentWire" } }, "additionalProperties": false }, "parent_tool_use_id": { "type": "null" }, "session_id": { "type": "string" }, "uuid": { "type": "string", "minLength": 1 }, "priority": { "enum": ["now", "next", "later"] } }, "additionalProperties": false };
 var schema49 = { "anyOf": [{ "type": "object", "required": ["type", "text"], "properties": { "type": { "type": "string", "const": "text" }, "text": { "type": "string" } }, "additionalProperties": false }, { "type": "object", "required": ["type", "source"], "properties": { "type": { "type": "string", "const": "image" }, "source": { "type": "object", "required": ["type", "media_type", "data"], "properties": { "type": { "type": "string", "const": "base64" }, "media_type": { "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"] }, "data": { "type": "string" } }, "additionalProperties": false } }, "additionalProperties": false }] };
 function validate100(data, { instancePath = "", parentData, parentDataProperty, rootData = data, dynamicAnchors = {} } = {}) {
   let vErrors = null;
@@ -3199,7 +3153,7 @@ function validate98(data, { instancePath = "", parentData, parentDataProperty, r
       } else {
         const _errs1 = errors;
         for (const key0 of Object.keys(data)) {
-          if (!(key0 === "type" || key0 === "message" || key0 === "parent_tool_use_id" || key0 === "session_id" || key0 === "uuid" || key0 === "priority")) {
+          if (!(key0 === "type" || key0 === "message" || key0 === "parent_tool_use_id" || key0 === "session_id" || key0 === "uuid")) {
             validate98.errors = [{ instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 } }];
             return false;
             break;
@@ -3319,19 +3273,6 @@ function validate98(data, { instancePath = "", parentData, parentDataProperty, r
                     var valid0 = _errs14 === errors;
                   } else {
                     var valid0 = true;
-                  }
-                  if (valid0) {
-                    if (data.priority !== void 0 && func0.call(data, "priority")) {
-                      let data7 = data.priority;
-                      const _errs16 = errors;
-                      if (!(data7 === "now" || data7 === "next" || data7 === "later")) {
-                        validate98.errors = [{ instancePath: instancePath + "/priority", schemaPath: "#/properties/priority/enum", keyword: "enum", params: { allowedValues: schema47.properties.priority.enum } }];
-                        return false;
-                      }
-                      var valid0 = _errs16 === errors;
-                    } else {
-                      var valid0 = true;
-                    }
                   }
                 }
               }

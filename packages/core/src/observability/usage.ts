@@ -13,23 +13,9 @@
  * @packageDocumentation
  */
 
-/**
- * Cumulative usage figures as reported by a harness. Every field is optional:
- * a harness reports what it knows.
- *
- * @remarks
- * Structurally identical to the `UsageTotals` of the neutral event
- * vocabulary (plan §2.2).
- *
- * @public
- */
-export interface UsageTotals {
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly cacheCreationInputTokens?: number;
-  readonly cacheReadInputTokens?: number;
-  readonly costUsd?: number;
-}
+import type { UsageTotals } from '../protocol/events/types.js';
+
+export type { UsageTotals };
 
 /**
  * A usage delta computed by hudhud, never reported by the harness.

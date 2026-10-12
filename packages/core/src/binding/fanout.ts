@@ -47,7 +47,9 @@ import type { OverflowInfo, OverflowPolicy } from './queue.js';
 
 /**
  * The part of `AbortSignal` the fanout uses. A standard `AbortSignal`
- * satisfies it.
+ * satisfies it; tests use a controllable fake.
+ *
+ * @internal
  */
 export interface AbortSignalLike {
   readonly aborted: boolean;
@@ -61,10 +63,12 @@ export interface AbortSignalLike {
 }
 
 /**
- * Per-subscriber limits and policy (§2.2 `SubscriberOptions`).
+ * Per-subscriber limits and policy (plan §2.2, ADR-0007).
  *
  * @remarks
  * `overflow: 'block'` can stall control frames (ADR-0007).
+ *
+ * @public
  */
 export interface SubscriberOptions {
   /** Default 10,000. */
@@ -74,6 +78,16 @@ export interface SubscriberOptions {
   /** Default `'error'`; `'block'` can stall control frames. */
   readonly overflow?: OverflowPolicy;
   /** Aborting ends the subscription; its iterator rejects once with the abort error. */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * {@link SubscriberOptions} as the fanout consumes them: any signal with the
+ * `AbortSignal` members it uses.
+ *
+ * @internal
+ */
+export interface FanoutSubscriberOptions extends Omit<SubscriberOptions, 'signal'> {
   readonly signal?: AbortSignalLike;
 }
 
@@ -126,7 +140,7 @@ function toError(value: unknown): Error {
  * @throws RangeError or TypeError for an invalid limit or policy.
  */
 export function resolveSubscriberOptions(
-  options: SubscriberOptions,
+  options: FanoutSubscriberOptions,
 ): Required<Omit<SubscriberOptions, 'signal'>> {
   const maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -177,7 +191,7 @@ export class Fanout<E> {
    */
   subscribe(
     selection: Selection<E> = {},
-    options: SubscriberOptions = {},
+    options: FanoutSubscriberOptions = {},
   ): AsyncIterableIterator<E, undefined, undefined> {
     const limits = resolveSubscriberOptions(options);
     const replay = selection.replay ?? [];

@@ -4,14 +4,6 @@
  * @packageDocumentation
  */
 
-// The WHATWG `TextDecoder` global (Node 22 and every other supported
-// runtime). Declared locally because `@hudhud/core` compiles without Node
-// typings; the framer itself needs no Node built-in.
-declare const TextDecoder: new (
-  label: 'utf-8',
-  options: { readonly fatal: boolean; readonly ignoreBOM: boolean },
-) => { decode(input: Uint8Array): string };
-
 /**
  * Default inbound line cap: 64 MiB (ADR-0011 §7, 05 §11).
  *

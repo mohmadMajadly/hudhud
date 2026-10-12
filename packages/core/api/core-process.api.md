@@ -4,4 +4,345 @@
 
 ```ts
 
+// @public
+export class ArgvError extends Error {
+    constructor(reason: ArgvProblem, message: string, where?: {
+        readonly index?: number;
+        readonly flag?: string;
+    });
+    // (undocumented)
+    readonly code = "INVALID_OPTIONS";
+    readonly flag: string | undefined;
+    readonly index: number | undefined;
+    // (undocumented)
+    readonly name = "ArgvError";
+    // (undocumented)
+    readonly reason: ArgvProblem;
+}
+
+// @public
+export type ArgvProblem = 'invalid-name' | 'nul' | 'ill-formed' | 'reserved-flag' | 'end-of-options' | 'not-a-string';
+
+// @public
+export function assertNoReservedFlags(args: readonly string[], reserved: readonly string[]): void;
+
+// @public
+export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProblem | undefined;
+
+// @public
+export function checkExecutablePath(value: string, platform: ProcessPlatform): ExecutableRefusal | undefined;
+
+// @public
+export function compareStartTime(a: string, b: string): number;
+
+// @public
+export function createFramer(options: FramerOptions): Framer;
+
+// @public
+export type CwdErrorReason = CwdProblem | 'not-found' | 'not-directory' | 'unresolvable';
+
+// @public
+export interface CwdFs {
+    // (undocumented)
+    realpath(value: string): Promise<string>;
+    // (undocumented)
+    stat(value: string): Promise<FileIdentity>;
+}
+
+// @public
+export type CwdProblem = PathProblem | 'too-long';
+
+// @public
+export class CwdValidationError extends Error {
+    constructor(reason: CwdErrorReason, cwdPath: string, resolved?: string, options?: {
+        readonly cause?: unknown;
+    });
+    readonly code: 'CWD_INVALID' | 'CWD_TOO_LONG';
+    // (undocumented)
+    readonly name = "CwdValidationError";
+    readonly path: string;
+    // (undocumented)
+    readonly reason: CwdErrorReason;
+    readonly resolved: string | undefined;
+}
+
+// @public
+export const DEFAULT_LADDER_TIMING: LadderTiming;
+
+// @public
+export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number;
+
+// @public
+export function descendantsOf(records: readonly ProcessRecord[], root: ProcessIdentity): DescendantTree;
+
+// @public
+export interface DescendantTree {
+    // (undocumented)
+    readonly descendants: readonly ProcessRecord[];
+    // (undocumented)
+    readonly root: ProcessRecord | null;
+}
+
+// @public
+export interface ExecutableFs {
+    canExecute(value: string): Promise<void>;
+    // (undocumented)
+    realpath(value: string): Promise<string>;
+    // (undocumented)
+    stat(value: string): Promise<FileIdentity>;
+}
+
+// @public
+export type ExecutableRefusal = PathProblem | 'batch-file' | 'not-exe' | 'not-regular-file' | 'not-executable' | 'unresolvable';
+
+// @public
+export class ExecutableResolutionError extends Error {
+    constructor(reason: ExecutableRefusal | 'not-found', requested: string, resolved?: string, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly code: 'BINARY_NOT_FOUND' | 'BINARY_REFUSED';
+    // (undocumented)
+    readonly name = "ExecutableResolutionError";
+    readonly path: string;
+    readonly reason: ExecutableRefusal | 'not-found';
+    readonly resolved: string | undefined;
+}
+
+// @public
+export class FileChangedError extends Error {
+    constructor(filePath: string);
+    // (undocumented)
+    readonly name = "FileChangedError";
+    // (undocumented)
+    readonly path: string;
+}
+
+// @public
+export interface FileDigest {
+    readonly fileId: string;
+    readonly mtimeMs: number;
+    readonly sha256: string;
+    readonly size: number;
+}
+
+// @public
+export interface FileIdentity {
+    // (undocumented)
+    readonly dev: bigint;
+    // (undocumented)
+    readonly ino: bigint;
+    // (undocumented)
+    isDirectory(): boolean;
+    // (undocumented)
+    isFile(): boolean;
+    // (undocumented)
+    readonly mtimeMs: bigint;
+    // (undocumented)
+    readonly size: bigint;
+}
+
+// @public
+export function findIdentity(records: readonly ProcessRecord[], identity: ProcessIdentity): ProcessRecord | null;
+
+// @public
+export function formatFlag(name: string, value?: string): string;
+
+// @public
+export interface Framer {
+    end(): FramerOutput[];
+    push(chunk: Uint8Array): FramerOutput[];
+}
+
+// @public
+export interface FramerOptions {
+    readonly maxLineBytes: number;
+}
+
+// @public
+export type FramerOutput = {
+    readonly kind: 'line';
+    readonly text: string;
+    readonly bytes: number;
+} | {
+    readonly kind: 'oversized';
+    readonly bytes: number;
+    readonly details: {
+        readonly maxBytes: number;
+        readonly atLeastBytes: number;
+    };
+} | {
+    readonly kind: 'invalid-utf8';
+    readonly bytes: number;
+};
+
+// @public
+export function hostPlatform(nodePlatform?: NodeJS.Platform): ProcessPlatform;
+
+// @public
+export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
+
+// @public
+export function isCanonicalStartTime(value: string): boolean;
+
+// @public
+export function isFlagName(name: string): boolean;
+
+// @public
+export interface LadderHooks {
+    interrupt(): Promise<InterruptOutcome>;
+    onStep?(step: LadderStep): void;
+}
+
+// @public
+export interface LadderReport<Intent extends string = string> {
+    readonly exitedAfter: LadderStepName | null;
+    // (undocumented)
+    readonly intent: Intent;
+    readonly launcherDetected: boolean;
+    // (undocumented)
+    readonly platform: 'posix' | 'win32';
+    readonly signalTarget: ProcessIdentity | null;
+    // (undocumented)
+    readonly steps: readonly LadderStep[];
+    readonly sweep: LadderSweepSummary | null;
+}
+
+// @public
+export interface LadderStep {
+    readonly atMs: number;
+    readonly detail?: string;
+    // (undocumented)
+    readonly name: LadderStepName;
+    readonly outcome: 'done' | 'skipped' | 'failed';
+}
+
+// @public
+export type LadderStepName = 'intent' | 'interrupt' | 'eof' | 'snapshot-s1' | 'sigterm' | 'snapshot-s2' | 'sigkill' | 'sweep' | 'terminate-job' | 'taskkill' | 'terminate-process';
+
+// @public
+export interface LadderSweepSummary {
+    // (undocumented)
+    readonly groupsSignalled: number;
+    // (undocumented)
+    readonly processesSignalled: number;
+    // (undocumented)
+    readonly skipped: number;
+}
+
+// @public
+export interface LadderTiming {
+    readonly eofGraceMs: number;
+    readonly interruptWaitMs: number;
+    readonly taskkillGraceMs: number;
+    readonly termGraceMs: number;
+}
+
+// @public
+export const maxFramerLineBytes = 536870888;
+
+// @public
+export class NotRegularFileError extends Error {
+    constructor(filePath: string);
+    // (undocumented)
+    readonly name = "NotRegularFileError";
+    // (undocumented)
+    readonly path: string;
+}
+
+// @public
+export interface ParsedProcessTable {
+    // (undocumented)
+    readonly records: readonly ProcessRecord[];
+    // (undocumented)
+    readonly rejected: number;
+}
+
+// @public
+export function parseFlag(element: string): {
+    readonly name: string;
+    readonly value: string | undefined;
+} | undefined;
+
+// @public
+export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRecord | null;
+
+// @public
+export function parsePsOutput(output: Uint8Array): ParsedProcessTable;
+
+// @public
+export function parseWin32ProcessJson(output: Uint8Array): ParsedProcessTable;
+
+// @public
+export type PathProblem = 'empty' | 'nul' | 'ill-formed' | 'not-absolute' | 'device-namespace' | 'alternate-data-stream' | 'trailing-dot-or-space' | 'reserved-device-name';
+
+// @public
+export function pathProblem(value: string, platform: ProcessPlatform): PathProblem | undefined;
+
+// @public
+export interface ProcessIdentity {
+    // (undocumented)
+    readonly pid: number;
+    readonly startTime: string;
+}
+
+// @public
+export type ProcessPlatform = 'win32' | 'posix';
+
+// @public
+export interface ProcessRecord extends ProcessIdentity {
+    readonly name: string;
+    readonly pgid?: number;
+    // (undocumented)
+    readonly ppid: number;
+}
+
+// @public
+export interface ProcessSnapshot {
+    readonly records: readonly ProcessRecord[];
+    readonly rejected: number;
+    // (undocumented)
+    readonly source: ProcessTableSource;
+}
+
+// @public
+export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
+
+// @public
+export interface ResolvedExecutable {
+    readonly mtimeMs: number;
+    readonly path: string;
+    readonly requested: string;
+    readonly size: number;
+}
+
+// @public
+export function resolveExecutable(requested: string, options?: ResolveExecutableOptions): Promise<ResolvedExecutable>;
+
+// @public
+export interface ResolveExecutableOptions {
+    readonly fs?: ExecutableFs;
+    readonly platform?: ProcessPlatform;
+}
+
+// @public
+export function safeSearchPathEntries(value: string | undefined, platform: ProcessPlatform): string[];
+
+// @public
+export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean;
+
+// @public
+export function sha256File(filePath: string, options?: Sha256FileOptions): Promise<FileDigest>;
+
+// @public
+export interface Sha256FileOptions {
+    readonly chunkBytes?: number;
+}
+
+// @public
+export function validateCwd(cwd: string, platform: ProcessPlatform, fs?: CwdFs): Promise<string>;
+
+// @public
+export const WIN32_CWD_MAX_LENGTH = 258;
+
 ```

@@ -9,6 +9,8 @@ import type { ProcessIdentity } from '../tree/types.js';
  * Ladder timing, injected (never read from ambient state). Each ladder uses
  * its own subset: POSIX `interruptWaitMs`, `eofGraceMs`, `termGraceMs`;
  * Windows `interruptWaitMs`, `eofGraceMs`, `taskkillGraceMs`.
+ *
+ * @public
  */
 export interface LadderTiming {
   /** Longest wait for the interrupt acknowledgement before EOF. */
@@ -21,7 +23,11 @@ export interface LadderTiming {
   readonly taskkillGraceMs: number;
 }
 
-/** Initial, tunable defaults (plan §1.7, H5; option `termination.*`). */
+/**
+ * Initial, tunable defaults (plan §1.7, H5; option `termination.*`).
+ *
+ * @public
+ */
 export const DEFAULT_LADDER_TIMING: LadderTiming = Object.freeze({
   interruptWaitMs: 1000,
   eofGraceMs: 2000,
@@ -29,10 +35,18 @@ export const DEFAULT_LADDER_TIMING: LadderTiming = Object.freeze({
   taskkillGraceMs: 2000,
 });
 
-/** Result of the interrupt hook (plan §1.7: supplied by the driver from the machine). */
+/**
+ * Result of the interrupt hook (plan §1.7: supplied by the driver from the machine).
+ *
+ * @public
+ */
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
 
-/** Every step a ladder can take, in the order the ladders may take them. */
+/**
+ * Every step a ladder can take, in the order the ladders may take them.
+ *
+ * @public
+ */
 export type LadderStepName =
   | 'intent'
   | 'interrupt'
@@ -46,7 +60,11 @@ export type LadderStepName =
   | 'taskkill'
   | 'terminate-process';
 
-/** One step as it was taken. JSON data. */
+/**
+ * One step as it was taken. JSON data.
+ *
+ * @public
+ */
 export interface LadderStep {
   readonly name: LadderStepName;
   /** Clock time at which the step started. */
@@ -60,7 +78,11 @@ export interface LadderStep {
   readonly detail?: string;
 }
 
-/** Summary of a sweep (POSIX). */
+/**
+ * Summary of a sweep (POSIX).
+ *
+ * @public
+ */
 export interface LadderSweepSummary {
   readonly processesSignalled: number;
   readonly groupsSignalled: number;
@@ -72,6 +94,8 @@ export interface LadderSweepSummary {
  * the first signal (ADR-0008 E8); its type is the neutral
  * `TerminationIntent`, kept generic here so the process layer does not
  * depend on the protocol layer's outcome module.
+ *
+ * @public
  */
 export interface LadderReport<Intent extends string = string> {
   readonly intent: Intent;
@@ -87,7 +111,11 @@ export interface LadderReport<Intent extends string = string> {
   readonly sweep: LadderSweepSummary | null;
 }
 
-/** Hooks the driver gives a ladder. */
+/**
+ * Hooks the driver gives a ladder.
+ *
+ * @public
+ */
 export interface LadderHooks {
   /**
    * Requests an interrupt through the machine and resolves when it is

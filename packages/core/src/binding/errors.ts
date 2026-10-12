@@ -13,23 +13,27 @@ import {
   ERROR_RETRYABLE,
   type ErrorData,
   type HudhudErrorCode,
+  type KnownErrorData,
   makeErrorData,
 } from '../protocol/errors.js';
 
-/** The plain-JSON `details` object of an error. */
+/**
+ * The plain-JSON `details` object of an error.
+ *
+ * @public
+ */
 export type HudhudErrorDetails = NonNullable<ErrorData['details']>;
 
-/** Optional parts of an error. */
+/**
+ * Optional parts of an error.
+ *
+ * @public
+ */
 export interface HudhudErrorOptions {
   /** Plain JSON; copied on construction. */
   readonly details?: HudhudErrorDetails;
   /** The underlying failure; in memory only, never serialized. */
   readonly cause?: unknown;
-}
-
-/** The part of `AbortSignal` the errors need (no DOM or Node typings in core). */
-export interface AbortSignalLike {
-  readonly reason?: unknown;
 }
 
 /** Deep copy of plain JSON (an own `__proto__` key stays an own key). */
@@ -40,6 +44,8 @@ function cloneDetails(details: HudhudErrorDetails): HudhudErrorDetails {
 /**
  * Base of every hudhud error. Not constructible directly: use a subclass or
  * `HudhudError.fromData`.
+ *
+ * @public
  */
 export abstract class HudhudError extends Error {
   /** The taxonomy code of the class (overridden by every subclass). */
@@ -60,7 +66,7 @@ export abstract class HudhudError extends Error {
   }
 
   /** The error as plain JSON data. Never includes `cause` or `stack`. */
-  toData(): ErrorData {
+  toData(): KnownErrorData {
     return makeErrorData(
       this.code,
       this.message,
@@ -69,12 +75,16 @@ export abstract class HudhudError extends Error {
   }
 
   /** Makes `JSON.stringify(error)` produce `ErrorData`. */
-  toJSON(): ErrorData {
+  toJSON(): KnownErrorData {
     return this.toData();
   }
 
-  /** Rebuilds the class for `data.code`. Retryability comes from the code table. */
-  static fromData(data: ErrorData): HudhudError {
+  /**
+   * Rebuilds the class for `data.code`. Retryability comes from the code
+   * table. Only known codes can be rebuilt: check untrusted data with
+   * `parseErrorData` first.
+   */
+  static fromData(data: KnownErrorData): HudhudError {
     const ErrorClass = ERROR_CLASSES[data.code];
     return new ErrorClass(
       data.message,
@@ -83,12 +93,20 @@ export abstract class HudhudError extends Error {
   }
 }
 
-/** Narrows to any hudhud error. */
+/**
+ * Narrows to any hudhud error.
+ *
+ * @public
+ */
 export function isHudhudError(value: unknown): value is HudhudError {
   return value instanceof HudhudError;
 }
 
-/** Findings of the project credential guard: names only, never values. */
+/**
+ * Findings of the project credential guard: names only, never values.
+ *
+ * @public
+ */
 export interface ProjectCredentialFindings {
   readonly files: readonly string[];
   /** Variable names. */
@@ -97,151 +115,251 @@ export interface ProjectCredentialFindings {
   readonly unparseable: readonly string[];
 }
 
-/** Code `INVALID_OPTIONS` (plan §3.1). */
+/**
+ * Code `INVALID_OPTIONS` (plan §3.1).
+ *
+ * @public
+ */
 export class InvalidOptionsError extends HudhudError {
   static override readonly code = 'INVALID_OPTIONS';
   static override readonly errorName = 'InvalidOptionsError';
 }
 
-/** Code `CAPABILITY_UNSUPPORTED` (plan §3.1). */
+/**
+ * Code `CAPABILITY_UNSUPPORTED` (plan §3.1).
+ *
+ * @public
+ */
 export class CapabilityUnsupportedError extends HudhudError {
   static override readonly code = 'CAPABILITY_UNSUPPORTED';
   static override readonly errorName = 'CapabilityUnsupportedError';
 }
 
-/** Code `ADAPTER_API_VERSION_MISMATCH` (plan §3.1). */
+/**
+ * Code `ADAPTER_API_VERSION_MISMATCH` (plan §3.1).
+ *
+ * @public
+ */
 export class AdapterApiVersionError extends HudhudError {
   static override readonly code = 'ADAPTER_API_VERSION_MISMATCH';
   static override readonly errorName = 'AdapterApiVersionError';
 }
 
-/** Code `BINARY_NOT_FOUND` (plan §3.1). */
+/**
+ * Code `BINARY_NOT_FOUND` (plan §3.1).
+ *
+ * @public
+ */
 export class BinaryNotFoundError extends HudhudError {
   static override readonly code = 'BINARY_NOT_FOUND';
   static override readonly errorName = 'BinaryNotFoundError';
 }
 
-/** Code `BINARY_REFUSED` (plan §3.1). */
+/**
+ * Code `BINARY_REFUSED` (plan §3.1).
+ *
+ * @public
+ */
 export class BinaryRefusedError extends HudhudError {
   static override readonly code = 'BINARY_REFUSED';
   static override readonly errorName = 'BinaryRefusedError';
 }
 
-/** Code `BINARY_VERIFICATION_FAILED` (plan §3.1). */
+/**
+ * Code `BINARY_VERIFICATION_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class BinaryVerificationError extends HudhudError {
   static override readonly code = 'BINARY_VERIFICATION_FAILED';
   static override readonly errorName = 'BinaryVerificationError';
 }
 
-/** Code `BINARY_PROBE_FAILED` (plan §3.1). */
+/**
+ * Code `BINARY_PROBE_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class BinaryProbeError extends HudhudError {
   static override readonly code = 'BINARY_PROBE_FAILED';
   static override readonly errorName = 'BinaryProbeError';
 }
 
-/** Code `CWD_INVALID` (plan §3.1). */
+/**
+ * Code `CWD_INVALID` (plan §3.1).
+ *
+ * @public
+ */
 export class CwdInvalidError extends HudhudError {
   static override readonly code = 'CWD_INVALID';
   static override readonly errorName = 'CwdInvalidError';
 }
 
-/** Code `CWD_TOO_LONG` (plan §3.1). */
+/**
+ * Code `CWD_TOO_LONG` (plan §3.1).
+ *
+ * @public
+ */
 export class CwdTooLongError extends HudhudError {
   static override readonly code = 'CWD_TOO_LONG';
   static override readonly errorName = 'CwdTooLongError';
 }
 
-/** Code `SESSION_ID_IN_USE` (plan §3.1). */
+/**
+ * Code `SESSION_ID_IN_USE` (plan §3.1).
+ *
+ * @public
+ */
 export class SessionIdInUseError extends HudhudError {
   static override readonly code = 'SESSION_ID_IN_USE';
   static override readonly errorName = 'SessionIdInUseError';
 }
 
-/** Code `SPAWN_FAILED` (plan §3.1). */
+/**
+ * Code `SPAWN_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class SpawnError extends HudhudError {
   static override readonly code = 'SPAWN_FAILED';
   static override readonly errorName = 'SpawnError';
 }
 
-/** Code `HANDSHAKE_TIMEOUT` (plan §3.1). */
+/**
+ * Code `HANDSHAKE_TIMEOUT` (plan §3.1).
+ *
+ * @public
+ */
 export class HandshakeTimeoutError extends HudhudError {
   static override readonly code = 'HANDSHAKE_TIMEOUT';
   static override readonly errorName = 'HandshakeTimeoutError';
 }
 
-/** Code `HANDSHAKE_FAILED` (plan §3.1). */
+/**
+ * Code `HANDSHAKE_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class HandshakeError extends HudhudError {
   static override readonly code = 'HANDSHAKE_FAILED';
   static override readonly errorName = 'HandshakeError';
 }
 
-/** Code `SESSION_NOT_FOUND` (plan §3.1). */
+/**
+ * Code `SESSION_NOT_FOUND` (plan §3.1).
+ *
+ * @public
+ */
 export class SessionNotFoundError extends HudhudError {
   static override readonly code = 'SESSION_NOT_FOUND';
   static override readonly errorName = 'SessionNotFoundError';
 }
 
-/** Code `AUTHENTICATION_FAILED` (plan §3.1). */
+/**
+ * Code `AUTHENTICATION_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class AuthenticationFailedError extends HudhudError {
   static override readonly code = 'AUTHENTICATION_FAILED';
   static override readonly errorName = 'AuthenticationFailedError';
 }
 
-/** Code `SESSION_POISONED` (plan §3.1). */
+/**
+ * Code `SESSION_POISONED` (plan §3.1).
+ *
+ * @public
+ */
 export class SessionPoisonedError extends HudhudError {
   static override readonly code = 'SESSION_POISONED';
   static override readonly errorName = 'SessionPoisonedError';
 }
 
-/** Code `PROTOCOL_ERROR` (plan §3.1). */
+/**
+ * Code `PROTOCOL_ERROR` (plan §3.1).
+ *
+ * @public
+ */
 export class ProtocolError extends HudhudError {
   static override readonly code: HudhudErrorCode = 'PROTOCOL_ERROR';
   static override readonly errorName: string = 'ProtocolError';
 }
 
-/** Code `OVERSIZED_FRAME` (plan §3.1). */
+/**
+ * Code `OVERSIZED_FRAME` (plan §3.1).
+ *
+ * @public
+ */
 export class OversizedFrameError extends ProtocolError {
   static override readonly code = 'OVERSIZED_FRAME';
   static override readonly errorName = 'OversizedFrameError';
 }
 
-/** Code `OUTBOUND_FRAME_TOO_LARGE` (plan §3.1). */
+/**
+ * Code `OUTBOUND_FRAME_TOO_LARGE` (plan §3.1).
+ *
+ * @public
+ */
 export class OutboundFrameTooLargeError extends HudhudError {
   static override readonly code = 'OUTBOUND_FRAME_TOO_LARGE';
   static override readonly errorName = 'OutboundFrameTooLargeError';
 }
 
-/** Code `CONTROL_REQUEST_FAILED` (plan §3.1). */
+/**
+ * Code `CONTROL_REQUEST_FAILED` (plan §3.1).
+ *
+ * @public
+ */
 export class ControlRequestError extends HudhudError {
   static override readonly code = 'CONTROL_REQUEST_FAILED';
   static override readonly errorName = 'ControlRequestError';
 }
 
-/** Code `PROCESS_EXITED` (plan §3.1). */
+/**
+ * Code `PROCESS_EXITED` (plan §3.1).
+ *
+ * @public
+ */
 export class ProcessExitedError extends HudhudError {
   static override readonly code = 'PROCESS_EXITED';
   static override readonly errorName = 'ProcessExitedError';
 }
 
-/** Code `SESSION_CLOSED` (plan §3.1). */
+/**
+ * Code `SESSION_CLOSED` (plan §3.1).
+ *
+ * @public
+ */
 export class SessionClosedError extends HudhudError {
   static override readonly code = 'SESSION_CLOSED';
   static override readonly errorName = 'SessionClosedError';
 }
 
-/** Code `HARNESS_DISPOSED` (plan §3.1). */
+/**
+ * Code `HARNESS_DISPOSED` (plan §3.1).
+ *
+ * @public
+ */
 export class HarnessDisposedError extends HudhudError {
   static override readonly code = 'HARNESS_DISPOSED';
   static override readonly errorName = 'HarnessDisposedError';
 }
 
-/** Code `SUBSCRIBER_OVERFLOW` (plan §3.1). */
+/**
+ * Code `SUBSCRIBER_OVERFLOW` (plan §3.1).
+ *
+ * @public
+ */
 export class SubscriberOverflowError extends HudhudError {
   static override readonly code = 'SUBSCRIBER_OVERFLOW';
   static override readonly errorName = 'SubscriberOverflowError';
 }
 
-/** Code `PROJECT_CREDENTIAL_ENV` (plan §3.1, K5). Details hold names only. */
+/**
+ * Code `PROJECT_CREDENTIAL_ENV` (plan §3.1, K5). Details hold names only.
+ *
+ * @public
+ */
 export class ProjectCredentialEnvError extends HudhudError {
   static override readonly code = 'PROJECT_CREDENTIAL_ENV';
   static override readonly errorName = 'ProjectCredentialEnvError';
@@ -271,7 +389,11 @@ export class ProjectCredentialEnvError extends HudhudError {
   }
 }
 
-/** Code `ABORTED` (plan §3.1). `name` is `'AbortError'`; `cause` is `signal.reason`. */
+/**
+ * Code `ABORTED` (plan §3.1). `name` is `'AbortError'`; `cause` is `signal.reason`.
+ *
+ * @public
+ */
 export class AbortError extends HudhudError {
   static override readonly code = 'ABORTED';
   static override readonly errorName = 'AbortError';
@@ -281,7 +403,7 @@ export class AbortError extends HudhudError {
   }
 
   /** Builds the error for an aborted signal, keeping `signal.reason` as `cause`. */
-  static fromSignal(signal: AbortSignalLike): AbortError {
+  static fromSignal(signal: AbortSignal): AbortError {
     return new AbortError(undefined, { cause: signal.reason });
   }
 }

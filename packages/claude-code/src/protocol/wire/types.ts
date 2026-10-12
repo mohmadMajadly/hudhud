@@ -16,28 +16,7 @@
  * @packageDocumentation
  */
 
-/**
- * JSON value, structurally identical to `JsonValue` of `@hudhud/core/protocol`
- * (asserted by a type-level test). Local until the core entry point exports
- * its JSON types.
- *
- * @internal
- */
-export type WireJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly WireJsonValue[]
-  | { readonly [key: string]: WireJsonValue };
-
-/**
- * JSON object, structurally identical to `JsonObject` of
- * `@hudhud/core/protocol`.
- *
- * @internal
- */
-export type WireJsonObject = Readonly<Record<string, WireJsonValue>>;
+import type { JsonObject, JsonValue } from '@hudhud/core/protocol';
 
 // ---- outbound: hudhud to CLI (strict) ---------------------------------------
 
@@ -50,21 +29,22 @@ export type PermissionModeWire =
   'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions';
 
 /**
- * The `initialize` request fields hudhud sends in v1. There is no
- * `workspaceTrust` field: it cannot be sent (ADR-0012 §2, J3).
+ * The `initialize` request fields hudhud sends in v1: none. There is no
+ * `workspaceTrust` field: it cannot be sent (ADR-0012 §2, J3). System prompts are not sent in
+ * `initialize`: `appendSystemPrompt`, `systemPrompt` and the user frame
+ * `priority` were removed because no observed frame (research 05, 07) and
+ * not the MIT Python SDK carries them (ADR-0015 provenance; lead ruling at
+ * the W1 close). System prompts go through the documented CLI flags.
  *
  * @internal
  */
-export interface InitializeBody {
-  readonly appendSystemPrompt?: string;
-  readonly systemPrompt?: readonly string[];
-}
+export type InitializeBody = Readonly<Record<string, never>>;
 
 /** @internal */
 export interface InitializeRequestFrame {
   readonly type: 'control_request';
   readonly request_id: string;
-  readonly request: { readonly subtype: 'initialize' } & InitializeBody;
+  readonly request: { readonly subtype: 'initialize' };
 }
 
 /** @internal */
@@ -102,7 +82,9 @@ export type UserContentWire = string | readonly UserContentBlockWire[];
 
 /**
  * A user message on stdin. `uuid` is echoed in `result.user_message_uuid(s)`
- * and enables `command_lifecycle` frames (05 §5).
+ * and enables `command_lifecycle` frames (05 §5). There is no `priority`
+ * field (ADR-0015; lead ruling at the W1 close: not seen in observed frames
+ * or the MIT Python SDK).
  *
  * @internal
  */
@@ -112,7 +94,6 @@ export interface UserMessageFrame {
   readonly parent_tool_use_id?: null;
   readonly session_id?: string;
   readonly uuid: string;
-  readonly priority?: 'now' | 'next' | 'later';
 }
 
 /**
@@ -124,8 +105,8 @@ export interface UserMessageFrame {
 export type PermissionDecisionWire =
   | {
       readonly behavior: 'allow';
-      readonly updatedInput?: WireJsonObject;
-      readonly updatedPermissions?: readonly WireJsonObject[];
+      readonly updatedInput?: JsonObject;
+      readonly updatedPermissions?: readonly JsonObject[];
     }
   | { readonly behavior: 'deny'; readonly message: string; readonly interrupt?: boolean };
 
@@ -220,7 +201,7 @@ export interface ControlResponseSuccessFrame {
   readonly response: {
     readonly subtype: 'success';
     readonly request_id: string;
-    readonly response?: WireJsonObject;
+    readonly response?: JsonObject;
   };
 }
 
@@ -270,12 +251,12 @@ export interface InterruptResponse {
 export interface CanUseToolRequest {
   readonly subtype: 'can_use_tool';
   readonly tool_name: string;
-  readonly input: WireJsonObject;
+  readonly input: JsonObject;
   readonly tool_use_id: string;
   readonly display_name?: string;
   readonly description?: string;
   /** Passed through as raw data, never applied or shape-checked (D17). */
-  readonly permission_suggestions?: readonly WireJsonValue[];
+  readonly permission_suggestions?: readonly JsonValue[];
   readonly blocked_path?: string;
   readonly decision_reason_type?: string;
 }
@@ -365,7 +346,7 @@ export interface AssistantFrame {
   readonly session_id?: string;
   readonly uuid?: string;
   readonly parent_tool_use_id?: string | null;
-  readonly message?: WireJsonObject;
+  readonly message?: JsonObject;
   /** For example `authentication_failed` on a synthetic error message (05 §9). */
   readonly error?: string;
 }
@@ -376,7 +357,7 @@ export interface UserFrame {
   readonly session_id?: string;
   readonly uuid?: string;
   readonly parent_tool_use_id?: string | null;
-  readonly message?: WireJsonObject;
+  readonly message?: JsonObject;
 }
 
 /** @internal */
@@ -385,7 +366,7 @@ export interface StreamEventFrame {
   readonly session_id?: string;
   readonly uuid?: string;
   readonly parent_tool_use_id?: string | null;
-  readonly event?: WireJsonObject;
+  readonly event?: JsonObject;
 }
 
 /**
@@ -406,7 +387,7 @@ export interface ResultFrame {
   readonly api_error_status?: number | null;
   readonly user_message_uuid?: string;
   readonly user_message_uuids?: readonly string[];
-  readonly usage?: WireJsonObject;
+  readonly usage?: JsonObject;
   readonly total_cost_usd?: number;
   readonly num_turns?: number;
   readonly permission_denials?: readonly {

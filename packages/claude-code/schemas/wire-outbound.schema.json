@@ -40,15 +40,6 @@
             "subtype": {
               "type": "string",
               "const": "initialize"
-            },
-            "appendSystemPrompt": {
-              "type": "string"
-            },
-            "systemPrompt": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
             }
           },
           "additionalProperties": false
@@ -240,13 +231,6 @@
         "uuid": {
           "type": "string",
           "minLength": 1
-        },
-        "priority": {
-          "enum": [
-            "now",
-            "next",
-            "later"
-          ]
         }
       },
       "additionalProperties": false

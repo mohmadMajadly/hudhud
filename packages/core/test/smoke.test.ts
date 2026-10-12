@@ -1,11 +1,113 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 import { importBuilt } from '../../../scripts/test/support/import-built.mjs';
-import { adapterApiVersion } from '../src/index.js';
+import { adapterApiVersion, wireSchemaVersion } from '../src/index.js';
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url));
+
+/** Run-time export names of each entry point (types are checked by the API reports). */
+const ENTRY_NAMES = {
+  '@hudhud/core': [
+    'AbortError',
+    'AdapterApiVersionError',
+    'AuthenticationFailedError',
+    'BinaryNotFoundError',
+    'BinaryProbeError',
+    'BinaryRefusedError',
+    'BinaryVerificationError',
+    'CapabilityUnsupportedError',
+    'ControlRequestError',
+    'CwdInvalidError',
+    'CwdTooLongError',
+    'HUDHUD_ERROR_CODES',
+    'HandshakeError',
+    'HandshakeTimeoutError',
+    'HarnessDisposedError',
+    'HudhudError',
+    'InvalidOptionsError',
+    'MIN_ENV_SECRET_LENGTH',
+    'OutboundFrameTooLargeError',
+    'OversizedFrameError',
+    'ProcessExitedError',
+    'ProjectCredentialEnvError',
+    'ProtocolError',
+    'REDACTED',
+    'SessionClosedError',
+    'SessionIdInUseError',
+    'SessionNotFoundError',
+    'SessionPoisonedError',
+    'SpawnError',
+    'StderrTail',
+    'SubscriberOverflowError',
+    'TRUNCATED',
+    'UsageEstimator',
+    'adapterApiVersion',
+    'credentialEnvNames',
+    'estimateUsageDelta',
+    'isCredentialEnvName',
+    'isHudhudError',
+    'isSensitiveFieldName',
+    'redactJson',
+    'redactText',
+    'sanitizeUsage',
+    'secretsFromEnv',
+    'wireSchemaVersion',
+  ],
+  '@hudhud/core/protocol': [
+    'DEFAULT_MAX_JSON_DEPTH',
+    'DEFAULT_MAX_OUTBOUND_FRAME_BYTES',
+    'ERROR_RETRYABLE',
+    'HUDHUD_ERROR_CODES',
+    'encodeJsonLine',
+    'isHudhudErrorCode',
+    'isJsonObject',
+    'isJsonValue',
+    'isRetryable',
+    'makeErrorData',
+    'ownArray',
+    'ownBoolean',
+    'ownNumber',
+    'ownObject',
+    'ownString',
+    'parseErrorData',
+    'parseJsonLine',
+  ],
+  '@hudhud/core/process': [
+    'ArgvError',
+    'CwdValidationError',
+    'DEFAULT_LADDER_TIMING',
+    'DEFAULT_MAX_INBOUND_FRAME_BYTES',
+    'ExecutableResolutionError',
+    'FileChangedError',
+    'NotRegularFileError',
+    'WIN32_CWD_MAX_LENGTH',
+    'assertNoReservedFlags',
+    'checkCwdPath',
+    'checkExecutablePath',
+    'compareStartTime',
+    'createFramer',
+    'descendantsOf',
+    'findIdentity',
+    'formatFlag',
+    'hostPlatform',
+    'isCanonicalStartTime',
+    'isFlagName',
+    'maxFramerLineBytes',
+    'parseFlag',
+    'parseProcStat',
+    'parsePsOutput',
+    'parseWin32ProcessJson',
+    'pathProblem',
+    'resolveExecutable',
+    'safeSearchPathEntries',
+    'sameIdentity',
+    'sha256File',
+    'validateCwd',
+  ],
+} as const;
 
 describe('@hudhud/core', () => {
   it('exports the adapter API version as a positive integer', () => {
@@ -13,17 +115,62 @@ describe('@hudhud/core', () => {
     expect(Number.isSafeInteger(adapterApiVersion)).toBe(true);
   });
 
+  it('exports the wire schema version of the committed schemas', () => {
+    const version = JSON.parse(
+      readFileSync(new URL('../schemas/version.json', import.meta.url), 'utf8'),
+    ) as unknown;
+    expect(version).toEqual({ wireSchemaVersion });
+  });
+
   it('resolves every entry point of the exports map from the built output', () => {
-    const results = importBuilt(packageDir, [
-      '@hudhud/core',
-      '@hudhud/core/protocol',
-      '@hudhud/core/process',
-    ]);
+    const results = importBuilt(packageDir, Object.keys(ENTRY_NAMES));
     expect(results).toEqual({
-      '@hudhud/core': { ok: true, file: 'dist/index.js', exports: { adapterApiVersion: 1 } },
-      '@hudhud/core/protocol': { ok: true, file: 'dist/protocol/index.js', exports: {} },
-      '@hudhud/core/process': { ok: true, file: 'dist/process/index.js', exports: {} },
+      '@hudhud/core': expect.objectContaining({
+        ok: true,
+        file: 'dist/index.js',
+        names: ENTRY_NAMES['@hudhud/core'],
+      }) as unknown,
+      '@hudhud/core/protocol': expect.objectContaining({
+        ok: true,
+        file: 'dist/protocol/index.js',
+        names: ENTRY_NAMES['@hudhud/core/protocol'],
+      }) as unknown,
+      '@hudhud/core/process': expect.objectContaining({
+        ok: true,
+        file: 'dist/process/index.js',
+        names: ENTRY_NAMES['@hudhud/core/process'],
+      }) as unknown,
     });
+    expect(results['@hudhud/core']).toMatchObject({
+      exports: { adapterApiVersion: 1, wireSchemaVersion: 1, REDACTED: '<redacted>' },
+    });
+    expect(results['@hudhud/core/protocol']).toMatchObject({
+      exports: { DEFAULT_MAX_OUTBOUND_FRAME_BYTES: 33_554_432, DEFAULT_MAX_JSON_DEPTH: 512 },
+    });
+    expect(results['@hudhud/core/process']).toMatchObject({
+      exports: { DEFAULT_MAX_INBOUND_FRAME_BYTES: 67_108_864, WIN32_CWD_MAX_LENGTH: 258 },
+    });
+  });
+
+  it('does not expose internals through any entry point', () => {
+    const internals = [
+      'framerRetention',
+      'errnoCode',
+      'decodeUtf8Lossy',
+      'parsePid',
+      'indexByPid',
+      'filetimeToMicroseconds',
+      'takeSnapshot',
+      'redactNormalized',
+      'prepareSecrets',
+      'maskCutEnd',
+      'Utf8StreamDecoder',
+      'isJsonObjectValue',
+      'BoundedQueue',
+      'Fanout',
+    ];
+    const exported: readonly string[] = Object.values(ENTRY_NAMES).flat();
+    for (const name of internals) expect(exported).not.toContain(name);
   });
 
   it('does not expose files outside the exports map', () => {

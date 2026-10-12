@@ -111,6 +111,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.5
       fast-check:
         specifier: 'catalog:'
         version: 4.10.2
@@ -145,6 +148,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.5
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@22.20.5)(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@22.20.5)(esbuild@0.28.2)(yaml@2.9.1))

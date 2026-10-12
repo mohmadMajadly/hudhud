@@ -4,4 +4,374 @@
 
 ```ts
 
+// @public
+export type Capability = 'supported' | 'emulated' | 'unsupported';
+
+// @public
+export interface CompatInfo {
+    // (undocumented)
+    readonly harness: string;
+    // (undocumented)
+    readonly knownBroken: readonly string[];
+    // (undocumented)
+    readonly maxTested: string;
+    // (undocumented)
+    readonly minTested: string;
+    // (undocumented)
+    readonly status: 'tested' | 'untested' | 'known-broken';
+    // (undocumented)
+    readonly version: string;
+}
+
+// @public
+export const DEFAULT_MAX_JSON_DEPTH = 512;
+
+// @public
+export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number;
+
+// @public
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | (string & {});
+
+// @public
+export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonLineResult;
+
+// @public
+export type EncodeJsonLineResult = {
+    readonly ok: true;
+    readonly line: string;
+    readonly bytes: number;
+} | {
+    readonly ok: false;
+    readonly error: KnownErrorData;
+};
+
+// @public
+export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>>;
+
+// @public
+export interface ErrorData {
+    // (undocumented)
+    readonly code: HudhudErrorCode | (string & {});
+    // (undocumented)
+    readonly details?: JsonObject;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly retryable: boolean;
+}
+
+// @public
+export type ErrorDataFailure = 'not-object' | 'unknown-code' | 'bad-message' | 'bad-retryable' | 'bad-details';
+
+// @public
+export interface EventBase {
+    readonly seq: number;
+    // (undocumented)
+    readonly sessionId: string;
+    readonly ts: string;
+}
+
+// @public
+export interface HarnessCapabilities {
+    // (undocumented)
+    readonly fork: Capability;
+    // (undocumented)
+    readonly interrupt: Capability;
+    // (undocumented)
+    readonly multiTurn: Capability;
+    // (undocumented)
+    readonly permissionsInBand: Capability;
+    readonly processContainment: ProcessContainment;
+    readonly reasons: Readonly<Record<string, string>>;
+    // (undocumented)
+    readonly resume: Capability;
+    // (undocumented)
+    readonly workspaceTrust: {
+        readonly none: Capability;
+        readonly context: Capability;
+        readonly full: Capability;
+    };
+}
+
+// @public
+export const HUDHUD_ERROR_CODES: readonly ["INVALID_OPTIONS", "CAPABILITY_UNSUPPORTED", "ADAPTER_API_VERSION_MISMATCH", "BINARY_NOT_FOUND", "BINARY_REFUSED", "BINARY_VERIFICATION_FAILED", "BINARY_PROBE_FAILED", "CWD_INVALID", "CWD_TOO_LONG", "PROJECT_CREDENTIAL_ENV", "SESSION_ID_IN_USE", "SPAWN_FAILED", "HANDSHAKE_TIMEOUT", "HANDSHAKE_FAILED", "SESSION_NOT_FOUND", "AUTHENTICATION_FAILED", "SESSION_POISONED", "PROTOCOL_ERROR", "OVERSIZED_FRAME", "OUTBOUND_FRAME_TOO_LARGE", "CONTROL_REQUEST_FAILED", "PROCESS_EXITED", "SESSION_CLOSED", "HARNESS_DISPOSED", "ABORTED", "SUBSCRIBER_OVERFLOW"];
+
+// @public
+export type HudhudErrorCode = (typeof HUDHUD_ERROR_CODES)[number];
+
+// @public
+export type HudhudEvent = (EventBase & {
+    readonly type: 'compat';
+    readonly compat: CompatInfo;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.started';
+    readonly mode: 'create' | 'resume' | 'fork';
+    readonly pid: number;
+    readonly cliPid?: number;
+    readonly version: string;
+    readonly apiKeySource?: string;
+    readonly permissionMode?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'turn.queued';
+    readonly turnId: string;
+}) | (EventBase & {
+    readonly type: 'turn.started';
+    readonly turnId: string;
+    readonly origin: 'application' | 'harness';
+    readonly features: readonly string[];
+    readonly model?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'message.assistant';
+    readonly turnId?: string;
+    readonly text?: string;
+    readonly aborted?: boolean;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'message.delta';
+    readonly turnId?: string;
+    readonly index: number;
+    readonly deltaType: 'text' | 'thinking' | 'input_json' | (string & {});
+    readonly text?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'tool.call';
+    readonly turnId?: string;
+    readonly toolUseId: string;
+    readonly toolName: string;
+    readonly kind: ToolKind;
+    readonly status: 'pending';
+    readonly input: JsonValue;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'tool.result';
+    readonly turnId?: string;
+    readonly toolUseId: string;
+    readonly status: 'completed' | 'failed';
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.requested';
+    readonly requestId: string;
+    readonly turnId?: string;
+    readonly toolName: string;
+    readonly toolUseId: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.resolved';
+    readonly requestId: string;
+    readonly behavior: 'allow' | 'deny' | 'cancelled';
+    readonly by: 'application' | 'harness' | 'close' | 'abort';
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'permission.denied';
+    readonly toolName: string;
+    readonly toolUseId: string;
+    readonly reasonType?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'api.retry';
+    readonly attempt: number;
+    readonly maxRetries?: number;
+    readonly retryDelayMs?: number;
+    readonly errorStatus?: number;
+    readonly error?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'usage.update';
+    readonly turnId?: string;
+    readonly reported: UsageTotals;
+    readonly estimatedDelta: UsageTotals & {
+        readonly estimate: true;
+    };
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'turn.completed';
+    readonly turnId: string;
+    readonly result: TurnResult;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.state';
+    readonly state: 'idle' | 'running' | 'requires_action' | (string & {});
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'background.tasks';
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: 'stalled';
+    readonly silentForMs: number;
+    readonly turnId?: string;
+    readonly pendingPermissions: number;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'diagnostic';
+    readonly code: DiagnosticCode;
+    readonly message: string;
+    readonly data?: JsonObject;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'gap';
+    readonly dropped: number;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'session.terminated';
+    readonly intent: string;
+    readonly outcome: string;
+    readonly exitCode?: number;
+    readonly signal?: string;
+    readonly raw?: JsonValue;
+}) | (EventBase & {
+    readonly type: 'harness.frame';
+    readonly frameType: string;
+    readonly subtype?: string;
+    readonly raw: JsonValue;
+}) | (EventBase & {
+    readonly type: string & {};
+    readonly raw?: JsonValue;
+});
+
+// @public
+export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode;
+
+// @public
+export function isJsonObject(value: unknown): value is JsonObject;
+
+// @public
+export function isJsonValue(value: unknown, maxDepth?: number): value is JsonValue;
+
+// @public
+export function isRetryable(code: HudhudErrorCode): boolean;
+
+// @public
+export type JsonObject = Readonly<Record<string, JsonValue>>;
+
+// @public
+export type JsonPrimitive = string | number | boolean | null;
+
+// @public
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | {
+    readonly [key: string]: JsonValue;
+};
+
+// @public
+export type KnownErrorData = ErrorData & {
+    readonly code: HudhudErrorCode;
+};
+
+// @public
+export function makeErrorData(code: HudhudErrorCode, message: string, details?: JsonObject): KnownErrorData;
+
+// @public
+export function ownArray(obj: JsonObject, key: string): readonly JsonValue[] | undefined;
+
+// @public
+export function ownBoolean(obj: JsonObject, key: string): boolean | undefined;
+
+// @public
+export function ownNumber(obj: JsonObject, key: string): number | undefined;
+
+// @public
+export function ownObject(obj: JsonObject, key: string): JsonObject | undefined;
+
+// @public
+export function ownString(obj: JsonObject, key: string): string | undefined;
+
+// @public
+export function parseErrorData(value: unknown): {
+    readonly ok: true;
+    readonly value: KnownErrorData;
+} | {
+    readonly ok: false;
+    readonly reason: ErrorDataFailure;
+};
+
+// @public
+export function parseJsonLine(text: string, maxDepth?: number): ParseJsonLineResult;
+
+// @public
+export type ParseJsonLineResult = {
+    readonly ok: true;
+    readonly value: JsonObject;
+} | {
+    readonly ok: false;
+    readonly reason: 'not-json' | 'not-object' | 'too-deep';
+};
+
+// @public
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+
+// @public
+export interface SecurityPosture {
+    // (undocumented)
+    readonly entries: readonly SecurityPostureEntry[];
+}
+
+// @public
+export interface SecurityPostureEntry {
+    // (undocumented)
+    readonly defaultValue: JsonValue;
+    // (undocumented)
+    readonly deviates: boolean;
+    // (undocumented)
+    readonly setting: string;
+    // (undocumented)
+    readonly value: JsonValue;
+}
+
+// @public
+export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});
+
+// @public
+export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
+
+// @public
+export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'max-budget' | 'unknown' | (string & {});
+
+// @public
+export interface TurnResult {
+    // (undocumented)
+    readonly apiErrorStatus?: number;
+    // (undocumented)
+    readonly errors?: readonly string[];
+    // (undocumented)
+    readonly isError: boolean;
+    // (undocumented)
+    readonly outcome: TurnOutcome;
+    // (undocumented)
+    readonly permissionDenials: readonly {
+        readonly toolName: string;
+        readonly toolUseId: string;
+    }[];
+    // (undocumented)
+    readonly raw?: JsonValue;
+    // (undocumented)
+    readonly sessionId: string;
+    // (undocumented)
+    readonly stopReason?: StopReason;
+    readonly synthesized: boolean;
+    // (undocumented)
+    readonly terminalReason?: string;
+    // (undocumented)
+    readonly text?: string;
+    // (undocumented)
+    readonly turnId: string;
+    // (undocumented)
+    readonly usage?: UsageTotals;
+}
+
+// @public
+export interface UsageTotals {
+    // (undocumented)
+    readonly cacheCreationInputTokens?: number;
+    // (undocumented)
+    readonly cacheReadInputTokens?: number;
+    // (undocumented)
+    readonly costUsd?: number;
+    // (undocumented)
+    readonly inputTokens?: number;
+    // (undocumented)
+    readonly outputTokens?: number;
+}
+
 ```

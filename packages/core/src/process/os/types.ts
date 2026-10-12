@@ -12,9 +12,6 @@
  * the adapters to import only Node built-ins and this file.
  */
 
-/** Which process-table source produced a snapshot; start times are only comparable within one source. */
-export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
-
 /**
  * Linux: the `/proc` filesystem (ADR-0010 "Sweep").
  *
@@ -62,7 +59,8 @@ export interface DarwinPsTableCalls {
  * `ConvertTo-Json -Compress -InputObject @(...)` of one object per process:
  * `p` = `ProcessId` (number), `pp` = `ParentProcessId` (number), `t` =
  * `CreationDate.ToFileTimeUtc()` as a decimal string (FILETIME, 100 ns
- * units; a JSON number would lose precision) or `''` when absent, `n` =
+ * units; a JSON number would lose precision; the parser truncates it to the
+ * canonical microseconds, see `tree/start-time.ts`) or `''` when absent, `n` =
  * `Name` (string or null). JSON escapes control characters, so a hostile
  * name cannot forge a record. Resolves with stdout as bytes.
  */

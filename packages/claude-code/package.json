@@ -28,6 +28,7 @@
     "@hudhud/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "fast-check": "catalog:",
     "typebox": "catalog:",
     "vitest": "catalog:"

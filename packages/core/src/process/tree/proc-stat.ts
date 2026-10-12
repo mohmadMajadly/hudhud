@@ -29,6 +29,8 @@ const TAIL = /^ ([A-Za-z]) ([0-9]+) ([0-9]+)(?: -?[0-9]+){16} ([0-9]+)(?:[ \n]|$
  * @param expectedPid - when given, the pid in the file must equal it (the
  *   pid of the `/proc` entry that was read).
  * @returns the record, or `null` for anything malformed.
+ *
+ * @public
  */
 export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRecord | null {
   const open = stat.indexOf(OPEN_PAREN);

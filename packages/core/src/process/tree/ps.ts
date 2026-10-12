@@ -91,6 +91,8 @@ function parseLine(line: string): ProcessRecord | null {
  * line; such a line is either malformed (rejected) or names a pid that
  * also has its real line, and `buildSnapshot` drops every duplicated pid.
  * Start times are seconds since the epoch (one-second resolution).
+ *
+ * @public
  */
 export function parsePsOutput(output: Uint8Array): ParsedProcessTable {
   const records: ProcessRecord[] = [];

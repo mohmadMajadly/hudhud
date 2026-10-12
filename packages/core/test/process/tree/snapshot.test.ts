@@ -108,7 +108,7 @@ describe('snapshotDescendants', () => {
       queryProcesses: () => Promise.resolve(fixture('win32/cim-array.out')),
     };
     const fromCmd = await snapshotDescendants(
-      { pid: 56924, startTime: '134362484309591740' },
+      { pid: 56924, startTime: '13436248430959174' },
       { processTable },
     );
     expect(fromCmd.descendants.map((record) => record.name)).toEqual([
@@ -119,7 +119,7 @@ describe('snapshotDescendants', () => {
     ]);
     // pid 0 names itself and pid 4 as children; neither is a descendant of anything else.
     const fromIdle = await snapshotDescendants(
-      { pid: 0, startTime: '134357730538172240' },
+      { pid: 0, startTime: '13435773053817224' },
       { processTable },
     );
     expect(fromIdle.descendants.map((record) => record.pid)).toEqual([4]);

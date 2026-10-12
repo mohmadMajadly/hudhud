@@ -2,8 +2,9 @@
  * Streaming UTF-8 decoder for diagnostic byte streams (stderr).
  *
  * @remarks
- * Self-contained so the observability primitives need no host API: the core
- * compiles against the ECMAScript library only, which has no `TextDecoder`.
+ * Self-contained rather than a `TextDecoder` because the stderr tail needs the
+ * number of bytes held for an incomplete sequence ({@link Utf8StreamDecoder.pendingBytes})
+ * to account for its memory bound, which `TextDecoder` does not expose.
  * The output equals `new TextDecoder('utf-8')` with `{ stream: true }` on
  * every chunk and a final flush: ill-formed sequences become U+FFFD per the
  * WHATWG Encoding Standard ("maximal subpart" replacement), and a sequence

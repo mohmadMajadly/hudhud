@@ -17,8 +17,8 @@ describe('@hudhud/claude-code', () => {
   it('resolves every entry point of the exports map from the built output', () => {
     const results = importBuilt(packageDir, ['@hudhud/claude-code', '@hudhud/claude-code/raw']);
     expect(results).toEqual({
-      '@hudhud/claude-code': { ok: true, file: 'dist/index.js', exports: {} },
-      '@hudhud/claude-code/raw': { ok: true, file: 'dist/raw/index.js', exports: {} },
+      '@hudhud/claude-code': { ok: true, file: 'dist/index.js', exports: {}, names: [] },
+      '@hudhud/claude-code/raw': { ok: true, file: 'dist/raw/index.js', exports: {}, names: [] },
     });
   });
 

@@ -16,6 +16,11 @@ import type {
   SecurityPosture,
   SecurityPostureEntry,
 } from '../../src/protocol/capabilities.js';
+import {
+  type ErrorData,
+  HUDHUD_ERROR_CODES,
+  type HudhudErrorCode,
+} from '../../src/protocol/errors.js';
 import type {
   CompatInfo,
   DiagnosticCode,
@@ -28,6 +33,7 @@ import type {
   UsageTotals,
 } from '../../src/protocol/events/types.js';
 import {
+  type SchemaCheck,
   validateConformanceLine,
   validateErrorData,
   validateHarnessCapabilities,
@@ -159,14 +165,23 @@ describe('neutral types equal their schema sources', () => {
   });
 
   it('error data has an open code and JSON details', () => {
-    type ErrorData = Static<typeof errorSchemas.ErrorData>;
+    expectTypeOf<
+      TypesEqual<ErrorData, Static<typeof errorSchemas.ErrorData>>
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      TypesEqual<HudhudErrorCode | (string & {}), Static<typeof errorSchemas.HudhudErrorCode>>
+    >().toEqualTypeOf<true>();
     expectTypeOf<
       TypesEqual<
         ErrorData,
         { code: string; message: string; retryable: boolean; details?: JsonObject }
       >
     >().toEqualTypeOf<true>();
-    expect(errorSchemas.KNOWN_ERROR_CODES).toHaveLength(26);
+    // The closed codes of the type and the known codes of the schema agree.
+    expect(errorSchemas.KNOWN_ERROR_CODES).toEqual(HUDHUD_ERROR_CODES);
+    expectTypeOf<
+      (typeof errorSchemas.KNOWN_ERROR_CODES)[number]
+    >().toEqualTypeOf<HudhudErrorCode>();
   });
 });
 
@@ -287,9 +302,10 @@ describe('generated neutral validators', () => {
   });
 
   it('check error data with open codes', () => {
-    expect(validateErrorData({ code: 'SESSION_CLOSED', message: 'm', retryable: false }).ok).toBe(
-      true,
-    );
+    const known: ErrorData = { code: 'SESSION_CLOSED', message: 'm', retryable: false };
+    const checked = validateErrorData(known);
+    expect(checked).toEqual({ ok: true, value: known });
+    expectTypeOf(validateErrorData).returns.toEqualTypeOf<SchemaCheck<ErrorData>>();
     expect(
       validateErrorData({ code: 'LATER_CODE', message: 'm', retryable: true, details: {} }).ok,
     ).toBe(true);

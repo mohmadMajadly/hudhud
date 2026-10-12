@@ -9,12 +9,13 @@
  * (ADR-0016 §1).
  */
 
-/** Plain JSON, kept local until the shared JSON module lands (structurally identical). */
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | readonly JsonValue[] | JsonObject;
-type JsonObject = { readonly [K in string]: JsonValue };
+import { isJsonObject, isJsonValue, type JsonObject } from './json.js';
 
-/** Every error code of the v1 taxonomy (plan §3.1). The list is closed. */
+/**
+ * Every error code of the v1 taxonomy (plan §3.1). The list is closed.
+ *
+ * @public
+ */
 export const HUDHUD_ERROR_CODES = [
   'INVALID_OPTIONS',
   'CAPABILITY_UNSUPPORTED',
@@ -44,12 +45,22 @@ export const HUDHUD_ERROR_CODES = [
   'SUBSCRIBER_OVERFLOW',
 ] as const;
 
-/** One of the closed error codes. */
+/**
+ * One of the closed error codes: every code this version of hudhud raises.
+ *
+ * @remarks
+ * Data read from elsewhere (for example a newer peer) may carry codes this
+ * version does not know; {@link ErrorData} is therefore open (ADR-0005 §6).
+ *
+ * @public
+ */
 export type HudhudErrorCode = (typeof HUDHUD_ERROR_CODES)[number];
 
 /**
  * Whether repeating the same call with the same inputs may succeed without a
  * change by the application (plan §3.1). Fixed per code.
+ *
+ * @public
  */
 export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>> = {
   INVALID_OPTIONS: false,
@@ -80,62 +91,86 @@ export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>> = {
   SUBSCRIBER_OVERFLOW: false,
 };
 
-/** An error as plain JSON data. Round-trips through `JSON.stringify` / `JSON.parse`. */
+/**
+ * An error as plain JSON data. Round-trips through `JSON.stringify` /
+ * `JSON.parse`.
+ *
+ * @remarks
+ * `code` is open, as in `errors.schema.json` (ADR-0005 §6): hudhud itself only
+ * raises {@link HudhudErrorCode} values ({@link KnownErrorData}), but data
+ * read from a newer peer may carry a code this version does not know.
+ *
+ * @public
+ */
 export interface ErrorData {
-  readonly code: HudhudErrorCode;
+  readonly code: HudhudErrorCode | (string & {});
   readonly message: string;
   readonly retryable: boolean;
   readonly details?: JsonObject;
 }
+
+/**
+ * `ErrorData` whose code is one of the closed codes: what hudhud builds and
+ * what `parseErrorData` accepts.
+ *
+ * @public
+ */
+export type KnownErrorData = ErrorData & { readonly code: HudhudErrorCode };
 
 const CODE_SET: ReadonlySet<string> = new Set(HUDHUD_ERROR_CODES);
 
 /** Deepest nesting `details` may have; deeper values are refused, not walked. */
 const MAX_DETAILS_DEPTH = 64;
 
-/** Narrows to a known error code. */
+/**
+ * Narrows to a known error code.
+ *
+ * @public
+ */
 export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode {
   return typeof value === 'string' && CODE_SET.has(value);
 }
 
-/** Whether a code is retryable. */
+/**
+ * Whether a code is retryable.
+ *
+ * @public
+ */
 export function isRetryable(code: HudhudErrorCode): boolean {
   return ERROR_RETRYABLE[code];
 }
 
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function isJsonValue(value: unknown, depth: number): value is JsonValue {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (typeof value !== 'object' || depth >= MAX_DETAILS_DEPTH) return false;
-  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
-  return isPlainObject(value) && Object.values(value).every((item) => isJsonValue(item, depth + 1));
-}
-
-/** Whether a value is a plain JSON object (finite numbers, bounded depth). */
+/**
+ * Whether a value is a plain JSON object (finite numbers, bounded depth): the
+ * check applied to `details`.
+ *
+ * @internal
+ */
 export function isJsonObjectValue(value: unknown): value is JsonObject {
-  return (
-    typeof value === 'object' && value !== null && !Array.isArray(value) && isJsonValue(value, 0)
-  );
+  return isJsonObject(value) && isJsonValue(value, MAX_DETAILS_DEPTH);
 }
 
-/** Builds `ErrorData` with the retryability fixed by the code table. */
+/**
+ * Builds `ErrorData` with the retryability fixed by the code table.
+ *
+ * @public
+ */
 export function makeErrorData(
   code: HudhudErrorCode,
   message: string,
   details?: JsonObject,
-): ErrorData {
+): KnownErrorData {
   const retryable = ERROR_RETRYABLE[code];
   return details === undefined
     ? { code, message, retryable }
     : { code, message, retryable, details };
 }
 
-/** Why a value is not valid `ErrorData`. */
+/**
+ * Why a value is not valid `ErrorData`.
+ *
+ * @public
+ */
 export type ErrorDataFailure =
   'not-object' | 'unknown-code' | 'bad-message' | 'bad-retryable' | 'bad-details';
 
@@ -143,11 +178,18 @@ export type ErrorDataFailure =
  * Validates untrusted JSON as `ErrorData`. Fields are read with `Object.hasOwn`
  * and rebuilt, so unknown or `__proto__` keys on the envelope are dropped.
  * `retryable` must match the code table.
+ *
+ * @remarks
+ * Strict: only the codes this version knows are accepted (`unknown-code`
+ * otherwise), so the result can be rebuilt as an error class. The schema
+ * check `validateErrorData` is the open counterpart (ADR-0005 §6).
+ *
+ * @public
  */
 export function parseErrorData(
   value: unknown,
 ):
-  | { readonly ok: true; readonly value: ErrorData }
+  | { readonly ok: true; readonly value: KnownErrorData }
   | { readonly ok: false; readonly reason: ErrorDataFailure } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return { ok: false, reason: 'not-object' };

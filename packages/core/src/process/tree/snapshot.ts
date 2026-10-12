@@ -1,4 +1,4 @@
-import type { ProcessTableCalls, ProcessTableSource } from '../os/types.js';
+import type { ProcessTableCalls } from '../os/types.js';
 import { isPid } from './decode.js';
 import { descendantsOf, indexByPid, type DescendantTree } from './descendants.js';
 import { parseProcStat } from './proc-stat.js';
@@ -8,6 +8,7 @@ import type {
   ProcessIdentity,
   ProcessRecord,
   ProcessSnapshot,
+  ProcessTableSource,
 } from './types.js';
 import { parseWin32ProcessJson } from './win32.js';
 

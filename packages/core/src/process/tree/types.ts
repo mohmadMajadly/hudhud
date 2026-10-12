@@ -1,8 +1,17 @@
-import type { ProcessTableSource } from '../os/types.js';
+/**
+ * Which process-table source produced a snapshot. Start times of different
+ * sources are not comparable, except that every Windows source uses the
+ * canonical microseconds (see `tree/start-time.ts`).
+ *
+ * @public
+ */
+export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 
 /**
  * Identity of a process: its pid plus its start time (ADR-0010, ADR-0011
  * J9). A pid alone is never an identity, because pids are reused.
+ *
+ * @public
  */
 export interface ProcessIdentity {
   readonly pid: number;
@@ -10,13 +19,18 @@ export interface ProcessIdentity {
    * Canonical unsigned decimal (no sign, no leading zeros, at most 20
    * digits) in the unit of the snapshot's source: clock ticks since boot
    * (`linux-proc`), seconds since the epoch at one-second resolution
-   * (`darwin-ps`), FILETIME 100 ns units (`win32-cim`). Compare only within
+   * (`darwin-ps`), microseconds since 1601-01-01 UTC (`win32-cim`, the
+   * canonical Windows unit, see `tree/start-time.ts`). Compare only within
    * one source.
    */
   readonly startTime: string;
 }
 
-/** One row of a process-table snapshot. */
+/**
+ * One row of a process-table snapshot.
+ *
+ * @public
+ */
 export interface ProcessRecord extends ProcessIdentity {
   readonly ppid: number;
   /** Process-group id; absent on Windows, which has no process groups. */
@@ -29,7 +43,11 @@ export interface ProcessRecord extends ProcessIdentity {
   readonly name: string;
 }
 
-/** A process table read at one instant from one source. */
+/**
+ * A process table read at one instant from one source.
+ *
+ * @public
+ */
 export interface ProcessSnapshot {
   readonly source: ProcessTableSource;
   /** Records with unique pids (every duplicated pid is dropped, see {@link ProcessSnapshot.rejected}). */
@@ -42,7 +60,11 @@ export interface ProcessSnapshot {
   readonly rejected: number;
 }
 
-/** Output of a process-table parser before pid deduplication. */
+/**
+ * Output of a process-table parser before pid deduplication.
+ *
+ * @public
+ */
 export interface ParsedProcessTable {
   readonly records: readonly ProcessRecord[];
   readonly rejected: number;

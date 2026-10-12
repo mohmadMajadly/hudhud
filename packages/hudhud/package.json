@@ -22,6 +22,7 @@
     "@hudhud/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

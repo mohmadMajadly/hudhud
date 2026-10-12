@@ -52,6 +52,8 @@
  * `'block'` can stall control frames: it makes the session driver wait for
  * this subscriber, so permission requests and interrupts are not dispatched
  * while it waits.
+ *
+ * @public
  */
 export type OverflowPolicy = 'error' | 'drop-oldest-with-gap-marker' | 'block';
 

@@ -7,19 +7,8 @@
  * @packageDocumentation
  */
 
-// W1-T2 runs in parallel with W1-T1 (`json.ts`) and W1-T3 (`errors.ts`). The
-// two local types below are structural stand-ins for `JsonObject` and
-// `ErrorData`; the wave closer replaces them with imports from `./json.js` and
-// `./errors.js` without changing the shape of `encodeJsonLine`.
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
-type JsonObject = Readonly<Record<string, JsonValue>>;
-interface ErrorData {
-  readonly code: 'OUTBOUND_FRAME_TOO_LARGE' | 'PROTOCOL_ERROR';
-  readonly message: string;
-  readonly retryable: boolean;
-  readonly details?: JsonObject;
-}
+import { makeErrorData, type KnownErrorData } from './errors.js';
+import type { JsonObject } from './json.js';
 
 /**
  * Default outbound line cap: 32 MiB (ADR-0011 §7).
@@ -35,7 +24,7 @@ export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number = 32 * 1024 * 1024;
  */
 export type EncodeJsonLineResult =
   | { readonly ok: true; readonly line: string; readonly bytes: number }
-  | { readonly ok: false; readonly error: ErrorData };
+  | { readonly ok: false; readonly error: KnownErrorData };
 
 /**
  * UTF-8 byte length of `text`, as `TextEncoder` would produce it, without
@@ -64,12 +53,11 @@ function utf8Length(text: string, limit: number): number {
 function protocolError(reason: string): EncodeJsonLineResult {
   return {
     ok: false,
-    error: {
-      code: 'PROTOCOL_ERROR',
-      message: `Outbound frame is not a serializable JSON object (${reason}); nothing was written.`,
-      retryable: false,
-      details: { reason },
-    },
+    error: makeErrorData(
+      'PROTOCOL_ERROR',
+      `Outbound frame is not a serializable JSON object (${reason}); nothing was written.`,
+      { reason },
+    ),
   };
 }
 
@@ -122,12 +110,11 @@ export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonL
   if (bytes > maxBytes) {
     return {
       ok: false,
-      error: {
-        code: 'OUTBOUND_FRAME_TOO_LARGE',
-        message: `Outbound frame exceeds the cap of ${String(maxBytes)} bytes; nothing was written.`,
-        retryable: false,
-        details: { maxBytes, atLeastBytes: bytes },
-      },
+      error: makeErrorData(
+        'OUTBOUND_FRAME_TOO_LARGE',
+        `Outbound frame exceeds the cap of ${String(maxBytes)} bytes; nothing was written.`,
+        { maxBytes, atLeastBytes: bytes },
+      ),
     };
   }
   return { ok: true, line, bytes };

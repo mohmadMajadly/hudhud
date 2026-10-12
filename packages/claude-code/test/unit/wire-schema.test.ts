@@ -6,7 +6,7 @@
 import type { Static } from 'typebox';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import type { JsonObject, JsonValue } from '../../../core/src/protocol/json.js';
+import type { JsonObject } from '../../../core/src/protocol/json.js';
 import type { TypesEqual } from '../../../core/test/unit/type-equality.js';
 import type * as inbound from '../../schema-src/wire-inbound.js';
 import type * as outbound from '../../schema-src/wire-outbound.js';
@@ -28,11 +28,6 @@ import {
 import type * as wire from '../../src/protocol/wire/types.js';
 
 describe('wire types equal their schema sources', () => {
-  it('local JSON types equal the core JSON types', () => {
-    expectTypeOf<TypesEqual<wire.WireJsonValue, JsonValue>>().toEqualTypeOf<true>();
-    expectTypeOf<TypesEqual<wire.WireJsonObject, JsonObject>>().toEqualTypeOf<true>();
-  });
-
   it('outbound frames', () => {
     expectTypeOf<
       TypesEqual<wire.PermissionModeWire, Static<typeof outbound.PermissionModeWire>>
@@ -154,15 +149,16 @@ describe('wire types equal their schema sources', () => {
     type Differs<A, B> = TypesEqual<A, B> extends true ? false : true;
     // One optional property more: mutual assignability would miss this.
     expectTypeOf<
-      Differs<wire.InitializeBody, wire.InitializeBody & { workspaceTrust?: boolean }>
+      Differs<
+        wire.InitializeRequestFrame['request'],
+        wire.InitializeRequestFrame['request'] & { workspaceTrust?: boolean }
+      >
     >().toEqualTypeOf<true>();
     expectTypeOf<Differs<{ a?: string }, { a: string }>>().toEqualTypeOf<true>();
     expectTypeOf<
       Differs<wire.PermissionModeWire, wire.PermissionModeWire | 'manual'>
     >().toEqualTypeOf<true>();
-    expectTypeOf<
-      Differs<wire.WireJsonObject, Readonly<Record<string, string>>>
-    >().toEqualTypeOf<true>();
+    expectTypeOf<Differs<JsonObject, Readonly<Record<string, string>>>>().toEqualTypeOf<true>();
     // Readonly-ness of properties and arrays does not change accepted values.
     expectTypeOf<
       TypesEqual<{ readonly a: readonly string[] }, { a: string[] }>
@@ -174,11 +170,6 @@ describe('wire types equal their schema sources', () => {
 
 const OUTBOUND_SAMPLES: readonly wire.OutboundFrame[] = [
   { type: 'control_request', request_id: 'hudhud_1', request: { subtype: 'initialize' } },
-  {
-    type: 'control_request',
-    request_id: 'hudhud_1',
-    request: { subtype: 'initialize', appendSystemPrompt: 'x', systemPrompt: ['a', 'b'] },
-  },
   {
     type: 'control_request',
     request_id: 'hudhud_2',
@@ -195,7 +186,6 @@ const OUTBOUND_SAMPLES: readonly wire.OutboundFrame[] = [
     parent_tool_use_id: null,
     session_id: '',
     uuid: '00000000-0000-4000-8000-000000000001',
-    priority: 'now',
   },
   {
     type: 'user',
@@ -295,6 +285,19 @@ describe('outbound validator (strict)', () => {
         keyword: 'additionalProperties',
       },
     });
+  });
+
+  it('cannot carry system prompts or a user priority (ADR-0015 provenance ruling)', () => {
+    const initialize = { type: 'control_request', request_id: 'hudhud_1' };
+    for (const request of [
+      { subtype: 'initialize', appendSystemPrompt: 'x' },
+      { subtype: 'initialize', systemPrompt: ['a'] },
+    ]) {
+      expect(validateOutboundFrame({ ...initialize, request }).ok).toBe(false);
+    }
+    const user = { type: 'user', message: { role: 'user', content: 'x' }, uuid: 'u-1' };
+    expect(validateOutboundFrame(user).ok).toBe(true);
+    expect(validateOutboundFrame({ ...user, priority: 'now' }).ok).toBe(false);
   });
 
   it('refuses wrong values', () => {

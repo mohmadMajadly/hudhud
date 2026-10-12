@@ -1,5 +1,5 @@
 import { decodeUtf8Lossy, isPid } from './decode.js';
-import { isCanonicalStartTime } from './start-time.js';
+import { filetimeToMicroseconds, isCanonicalStartTime } from './start-time.js';
 import type { ParsedProcessTable, ProcessRecord } from './types.js';
 
 const BOM = String.fromCharCode(0xfeff);
@@ -20,7 +20,7 @@ function parseEntry(entry: unknown): ProcessRecord | null {
   ) {
     return null;
   }
-  return { pid, ppid, startTime, name: name ?? '' };
+  return { pid, ppid, startTime: filetimeToMicroseconds(startTime), name: name ?? '' };
 }
 
 /**
@@ -33,8 +33,12 @@ function parseEntry(entry: unknown): ProcessRecord | null {
  * are counted in `rejected`, as is a document that is not JSON (one
  * rejection, no records). `ParentProcessId` on Windows is never updated
  * when the parent exits, so it may name a reused pid; `descendantsOf`
- * guards against that with start times. Start times are FILETIME 100 ns
- * units (the CIM value has microsecond resolution).
+ * guards against that with start times. The query writes FILETIME 100 ns
+ * units; start times are returned in the canonical Windows unit,
+ * microseconds (the CIM value has microsecond resolution, so the truncation
+ * is exact).
+ *
+ * @public
  */
 export function parseWin32ProcessJson(output: Uint8Array): ParsedProcessTable {
   let document: unknown;

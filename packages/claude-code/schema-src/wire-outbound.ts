@@ -29,11 +29,10 @@ export const PermissionModeWire = Type.Enum([
 export const InitializeRequestFrame = strict({
   type: Type.Literal('control_request'),
   request_id: RequestId,
-  request: strict({
-    subtype: Type.Literal('initialize'),
-    appendSystemPrompt: Type.Optional(Type.String()),
-    systemPrompt: Type.Optional(list(Type.String())),
-  }),
+  // No appendSystemPrompt / systemPrompt and no user `priority`: not seen in
+  // observed frames (research 05, 07) or the MIT Python SDK (ADR-0015; lead
+  // ruling at the W1 close). System prompts go through the CLI flags.
+  request: strict({ subtype: Type.Literal('initialize') }),
 });
 
 export const InterruptRequestFrame = strict({
@@ -68,7 +67,6 @@ export const UserMessageFrame = strict({
   parent_tool_use_id: Type.Optional(Type.Null()),
   session_id: Type.Optional(Type.String()),
   uuid: Type.String({ minLength: 1 }),
-  priority: Type.Optional(Type.Enum(['now', 'next', 'later'])),
 });
 
 export const PermissionDecisionWire = Type.Union([

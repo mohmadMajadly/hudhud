@@ -6,6 +6,7 @@
 // are part of the module interface.
 
 import type { HarnessCapabilities, SecurityPosture } from '../capabilities.js';
+import type { ErrorData } from '../errors.js';
 import type { HudhudEvent } from '../events/types.js';
 import type { JsonObject } from '../json.js';
 
@@ -5382,7 +5383,7 @@ export const validateKnownHudhudEvent: (value: unknown) => SchemaCheck<HudhudEve
   __hudhudValidators.validateKnownHudhudEvent;
 
 /** Checks a value against `errors.schema.json#/$defs/ErrorData`. */
-export const validateErrorData: (value: unknown) => SchemaCheck<JsonObject> =
+export const validateErrorData: (value: unknown) => SchemaCheck<ErrorData> =
   __hudhudValidators.validateErrorData;
 
 /** Checks a value against `capabilities.schema.json#/$defs/HarnessCapabilities`. */

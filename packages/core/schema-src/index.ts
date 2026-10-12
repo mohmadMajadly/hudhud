@@ -37,7 +37,7 @@ export const schemaSource: SchemaSource = {
       name: 'validateErrorData',
       schema: 'errors.schema.json',
       def: 'ErrorData',
-      type: { from: '../json.js', name: 'JsonObject' },
+      type: { from: '../errors.js', name: 'ErrorData' },
     },
     {
       name: 'validateHarnessCapabilities',

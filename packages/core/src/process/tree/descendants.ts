@@ -5,6 +5,8 @@ import type { ProcessIdentity, ProcessRecord } from './types.js';
  * Indexes records by pid, dropping **every** record of a pid that occurs
  * more than once. Two live processes never share a pid, so a duplicate means
  * a forged or torn read and neither copy can be trusted.
+ *
+ * @internal
  */
 export function indexByPid(records: readonly ProcessRecord[]): {
   readonly byPid: ReadonlyMap<number, ProcessRecord>;
@@ -24,12 +26,20 @@ export function indexByPid(records: readonly ProcessRecord[]): {
   return { byPid, duplicates };
 }
 
-/** True when both name the same process: equal pid and equal start time. */
+/**
+ * True when both name the same process: equal pid and equal start time.
+ *
+ * @public
+ */
 export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean {
   return a.pid === b.pid && a.startTime === b.startTime;
 }
 
-/** The record of `identity` in `records` when pid and start time both match (and the pid is unique). */
+/**
+ * The record of `identity` in `records` when pid and start time both match (and the pid is unique).
+ *
+ * @public
+ */
 export function findIdentity(
   records: readonly ProcessRecord[],
   identity: ProcessIdentity,
@@ -38,7 +48,11 @@ export function findIdentity(
   return record?.startTime === identity.startTime ? record : null;
 }
 
-/** The root's record (identity-matched) and its strict descendants in breadth-first order. */
+/**
+ * The root's record (identity-matched) and its strict descendants in breadth-first order.
+ *
+ * @public
+ */
 export interface DescendantTree {
   readonly root: ProcessRecord | null;
   readonly descendants: readonly ProcessRecord[];
@@ -56,6 +70,8 @@ export interface DescendantTree {
  * not adopted. Each pid is visited once, so cycles terminate. Residual: a
  * pid reused within one start-time tick (one second on macOS) is not
  * distinguishable.
+ *
+ * @public
  */
 export function descendantsOf(
   records: readonly ProcessRecord[],

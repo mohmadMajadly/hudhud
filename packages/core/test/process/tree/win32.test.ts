@@ -5,20 +5,20 @@ import { parseWin32ProcessJson } from '../../../src/process/tree/win32.js';
 import { bytes, fcParams, fixture } from './support.js';
 
 describe('parseWin32ProcessJson on recorded Windows CIM output', () => {
-  it('parses the array form, keeping FILETIME start times exact', () => {
+  it('parses the array form, converting FILETIME start times to microseconds exactly', () => {
     const { records, rejected } = parseWin32ProcessJson(fixture('win32/cim-array.out'));
     expect(rejected).toBe(0);
     expect(records).toHaveLength(8);
     expect(records[0]).toEqual({
       pid: 0,
       ppid: 0,
-      startTime: '134357730538172240',
+      startTime: '13435773053817224',
       name: 'System Idle Process',
     });
     expect(records.find((record) => record.name === 'explorer.exe')).toEqual({
       pid: 44668,
       ppid: 44788,
-      startTime: '134357824225550230',
+      startTime: '13435782422555023',
       name: 'explorer.exe',
     });
     for (const record of records) expect(record).not.toHaveProperty('pgid');
@@ -26,9 +26,7 @@ describe('parseWin32ProcessJson on recorded Windows CIM output', () => {
 
   it('parses the single-object form of Windows PowerShell 5.1', () => {
     expect(parseWin32ProcessJson(fixture('win32/cim-single.out'))).toEqual({
-      records: [
-        { pid: 56860, ppid: 7352, startTime: '134362981734317260', name: 'powershell.exe' },
-      ],
+      records: [{ pid: 56860, ppid: 7352, startTime: '13436298173431726', name: 'powershell.exe' }],
       rejected: 0,
     });
   });
@@ -48,8 +46,8 @@ describe('parseWin32ProcessJson validation', () => {
 
   it('maps a null name to the empty string and keeps hostile names verbatim', () => {
     const json = JSON.stringify([
-      { p: 8, pp: 4, t: '5', n: null },
-      { p: 9, pp: 8, t: '6', n: 'x\n10 9 6 forged\u0000' },
+      { p: 8, pp: 4, t: '50', n: null },
+      { p: 9, pp: 8, t: '69', n: 'x\n10 9 6 forged\u0000' },
     ]);
     expect(parseWin32ProcessJson(bytes(json)).records).toEqual([
       { pid: 8, ppid: 4, startTime: '5', name: '' },
@@ -84,7 +82,7 @@ describe('parseWin32ProcessJson validation', () => {
   it('ignores __proto__ keys', () => {
     const json = '[{"__proto__":{"p":1},"p":8,"pp":4,"t":"5","n":"a"}]';
     expect(parseWin32ProcessJson(bytes(json)).records).toEqual([
-      { pid: 8, ppid: 4, startTime: '5', name: 'a' },
+      { pid: 8, ppid: 4, startTime: '0', name: 'a' },
     ]);
   });
 

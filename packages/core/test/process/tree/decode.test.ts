@@ -8,7 +8,11 @@ import {
   MAX_PID,
   parsePid,
 } from '../../../src/process/tree/decode.js';
-import { compareStartTime, isCanonicalStartTime } from '../../../src/process/tree/start-time.js';
+import {
+  compareStartTime,
+  filetimeToMicroseconds,
+  isCanonicalStartTime,
+} from '../../../src/process/tree/start-time.js';
 import { bytes, fcParams, referenceDecode } from './support.js';
 
 describe('decodeUtf8Lossy', () => {
@@ -118,5 +122,26 @@ describe('start times', () => {
     expect(compareStartTime('9', '10')).toBeLessThan(0);
     expect(compareStartTime('10', '10')).toBe(0);
     expect(compareStartTime('11', '10')).toBeGreaterThan(0);
+  });
+});
+
+describe('filetimeToMicroseconds', () => {
+  it('truncates 100 ns units to canonical microseconds', () => {
+    expect(filetimeToMicroseconds('134357730538172240')).toBe('13435773053817224');
+    expect(filetimeToMicroseconds('134357730538172249')).toBe('13435773053817224');
+    expect(filetimeToMicroseconds('10')).toBe('1');
+    expect(filetimeToMicroseconds('9')).toBe('0');
+    expect(filetimeToMicroseconds('0')).toBe('0');
+  });
+
+  it('keeps the canonical form for every canonical input', () => {
+    fc.assert(
+      fc.property(fc.bigInt({ min: 0n, max: 10n ** 20n - 1n }), (value) => {
+        const micro = filetimeToMicroseconds(value.toString());
+        expect(isCanonicalStartTime(micro)).toBe(true);
+        expect(micro).toBe((value / 10n).toString());
+      }),
+      fcParams(),
+    );
   });
 });
