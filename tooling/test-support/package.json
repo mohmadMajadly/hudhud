@@ -1,0 +1,25 @@
+{
+  "name": "@hudhud/test-support",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Test infrastructure of the hudhud repository (mock API, pinned CLI, sandboxed launcher). Never published.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "fast-check": "catalog:"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

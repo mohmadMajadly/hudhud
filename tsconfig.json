@@ -15,11 +15,14 @@
     ".dependency-cruiser.mjs",
     "scripts/**/*.mjs",
     "scripts/**/*.ts",
-    "packages/*/test/**/*.ts"
+    "packages/*/test/**/*.ts",
+    "packages/*/schema-src/**/*.ts",
+    "tooling/*/test/**/*.ts"
   ],
   "references": [
     { "path": "packages/core" },
     { "path": "packages/claude-code" },
-    { "path": "packages/hudhud" }
+    { "path": "packages/hudhud" },
+    { "path": "tooling/test-support" }
   ]
 }

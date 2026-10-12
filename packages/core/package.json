@@ -18,14 +18,19 @@
       "types": "./dist/process/index.d.ts",
       "default": "./dist/process/index.js"
     },
+    "./schemas/*": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "src",
+    "schemas",
+    "!schemas/.baseline",
     "!**/*.tsbuildinfo"
   ],
   "devDependencies": {
+    "fast-check": "catalog:",
+    "typebox": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

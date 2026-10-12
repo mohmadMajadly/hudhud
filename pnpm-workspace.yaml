@@ -1,19 +1,27 @@
 packages:
   - packages/*
+  # Private repository tooling, never published (test support, plan §1.1).
+  - tooling/*
 
 # Single source of truth for every third-party version (ADR-0017).
 # Exact pins only; every entry was older than minimumReleaseAge when chosen.
 catalogMode: strict
 catalog:
+  '@anthropic-ai/sdk': 0.131.0
   '@changesets/cli': 3.0.3
   '@eslint/js': 10.0.1
   '@microsoft/api-extractor': 7.59.3
   '@types/node': 22.20.5
   '@vitest/coverage-v8': 5.0.3
+  ajv: 8.20.0
   dependency-cruiser: 18.5.0
+  esbuild: 0.28.2
   eslint: 10.12.0
+  fast-check: 4.10.2
   markdownlint-cli2: 0.23.3
   prettier: 3.9.9
+  # TypeBox 1.x under its current package name (the major is pinned, ADR-0005).
+  typebox: 1.3.34
   typescript: 6.0.3
   typescript-eslint: 8.71.0
   vitest: 5.0.3
@@ -22,7 +30,15 @@ catalog:
 # pnpm 11 changelog: `allowBuilds` replaces `onlyBuiltDependencies`.
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
-allowBuilds: {}
+allowBuilds:
+  # Explicit deny, not a weakening (K14). esbuild's postinstall (install.js)
+  # only checks the native binary, downloads one when the platform package
+  # is missing, and on POSIX swaps the JS launcher for the binary as a speed
+  # optimization. The binary comes from the matching optional platform
+  # package (@esbuild/<platform>-<arch>), which pnpm installs as an ordinary
+  # dependency, so the script is never needed. Verified on Windows and in a
+  # Linux container with the postinstall denied (W0-T1).
+  esbuild: false
 strictDepBuilds: true
 blockExoticSubdeps: true
 trustPolicy: no-downgrade

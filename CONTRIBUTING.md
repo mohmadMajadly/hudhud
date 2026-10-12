@@ -16,7 +16,9 @@ pnpm hooks:install
 pnpm check
 ```
 
-`pnpm install` never runs dependency install scripts: `allowBuilds` is empty and `strictDepBuilds` makes any dependency that wants one fail the install.
+`pnpm install` never runs dependency install scripts: `allowBuilds` allows none and `strictDepBuilds` makes any dependency that wants one fail the install. Its single entry, `esbuild: false`, is an explicit deny (K14): esbuild takes its binary from its optional platform package (`@esbuild/<platform>-<arch>`), so its postinstall is never needed. This was verified on Windows and Linux.
+
+The workspace has the published packages under `packages/` and private repository tooling under `tooling/` (for example `@hudhud/test-support`). Published sources never import `tooling/`.
 
 ## Git hooks and the privacy gate
 
@@ -41,16 +43,16 @@ Run the gate by hand with `pnpm privacy:staged` (index) or `pnpm privacy:tree` (
 
 `pnpm check` runs, in order:
 
-| Step                | Command              | What it enforces                                                                                                                  |
-| ------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Format              | `pnpm format:check`  | Prettier                                                                                                                          |
-| Build and typecheck | `pnpm build`         | `tsc --build`, maximal strictness, project references                                                                             |
-| Lint                | `pnpm lint`          | ESLint with typescript-eslint `strict-type-checked` and `stylistic-type-checked`; sans-IO rules for `packages/core/src/protocol/` |
-| Markdown            | `pnpm lint:md`       | markdownlint and an offline link and anchor checker                                                                               |
-| Layers              | `pnpm depcruise`     | dependency-cruiser: core never imports adapters, protocol never imports process or Node built-ins, no cycles                      |
-| Tests               | `pnpm test:coverage` | Vitest with 100 % v8 coverage thresholds                                                                                          |
-| API                 | `pnpm api:check`     | API Extractor reports under `packages/*/api/` match the build                                                                     |
-| Privacy             | `pnpm privacy:tree`  | the privacy gate over the whole tree                                                                                              |
+| Step                | Command              | What it enforces                                                                                                                                                                                                     |
+| ------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format              | `pnpm format:check`  | Prettier                                                                                                                                                                                                             |
+| Build and typecheck | `pnpm build`         | `tsc --build`, maximal strictness, project references                                                                                                                                                                |
+| Lint                | `pnpm lint`          | ESLint with typescript-eslint `strict-type-checked` and `stylistic-type-checked`; sans-IO rules for `packages/core/src/protocol/` and `packages/claude-code/src/protocol/`; integration tests use `testConnect` only |
+| Markdown            | `pnpm lint:md`       | markdownlint and an offline link and anchor checker                                                                                                                                                                  |
+| Layers              | `pnpm depcruise`     | dependency-cruiser: the layer rules of the [v1 plan §1.2](docs/plan/v1-implementation.md#12-layering-dependency-cruiser-and-eslint), tested by `scripts/test/depcruise-rules.test.ts`                                |
+| Tests               | `pnpm test:coverage` | Vitest projects `unit`, `conformance`, `scripts` with 100 % v8 coverage thresholds; `integration` runs separately                                                                                                    |
+| API                 | `pnpm api:check`     | API Extractor reports under `packages/*/api/` match the build                                                                                                                                                        |
+| Privacy             | `pnpm privacy:tree`  | the privacy gate over the whole tree                                                                                                                                                                                 |
 
 It must pass from a clean clone on Windows and Linux. To check Linux from Windows or macOS, run it in a throw-away `node:22` container on a copy of the repository, never on your working copy or host pnpm store.
 
@@ -58,7 +60,7 @@ The design documents under `docs/` are covered by the link checker and the priva
 
 ## Public API changes
 
-Every entry point in a package's `exports` map has an API Extractor config and a committed report. After an intended API change, run `pnpm build && pnpm api:update`, review the diff of `packages/*/api/*.api.md`, and commit it with the change. `pnpm api:check` fails on any unreviewed difference, on an exported entry point without a config, and on a report without a config.
+Every entry point in a package's `exports` map has an API Extractor config and a committed report. After an intended API change, run `pnpm build && pnpm api:update`, review the diff of `packages/*/api/*.api.md`, and commit it with the change. `pnpm api:check` fails on any unreviewed difference, on an exported entry point without a config, and on a report without a config. JSON subpaths such as `./schemas/*` are data and have no report; a package without `exports` is skipped unless it has configs or reports.
 
 ## Releases and changesets
 

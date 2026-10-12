@@ -14,17 +14,22 @@
       "types": "./dist/raw/index.d.ts",
       "default": "./dist/raw/index.js"
     },
+    "./schemas/*": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "src",
+    "schemas",
+    "!schemas/.baseline",
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
     "@hudhud/core": "workspace:*"
   },
   "devDependencies": {
+    "fast-check": "catalog:",
+    "typebox": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

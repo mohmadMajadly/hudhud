@@ -12,6 +12,8 @@ coverage/
 packages/*/temp/
 
 # Logs and local tooling state
+# Pinned Claude Code CLI cache of the integration tests (plan §4.6)
+.cache/
 .claude/worktrees/
 *.log
 .eslintcache
