@@ -119,3 +119,49 @@ export function pinDocument(...releases: Release[]): unknown {
   }
   return { version: releases[0]?.version, platforms };
 }
+
+export const SDK = '@anthropic-ai/claude-agent-sdk';
+export const SDK_LATEST = `https://registry.npmjs.org/${SDK}/latest`;
+
+/** A manifest.json as the Agent SDK ships it, listing the given releases. */
+export function manifestFor(cliVersion: string, ...releases: Release[]): unknown {
+  const platforms: Record<string, unknown> = {};
+  for (const r of releases) {
+    platforms[r.platform] = { binary: r.file, checksum: r.sha256, size: r.size };
+  }
+  return { version: cliVersion, platforms };
+}
+
+/**
+ * Serves a fake Agent SDK release whose `latest` bundles `claudeCodeVersion`
+ * and whose tarball holds `manifest` (raw text when a string; omitted when
+ * undefined). Returns the SDK tarball URL.
+ */
+export function serveSdk(
+  registry: FakeRegistry,
+  sdkVersion: string,
+  claudeCodeVersion: unknown,
+  manifest?: unknown,
+  tamper?: (tgz: Uint8Array) => Uint8Array,
+): string {
+  const files = [
+    entry({ name: 'package/sdk.mjs', body: bytes('throw new Error("never imported");\n') }),
+    entry({ name: 'package/package.json', body: bytes(`{"name":"${SDK}"}`) }),
+  ];
+  if (manifest !== undefined) {
+    const text = typeof manifest === 'string' ? manifest : JSON.stringify(manifest);
+    files.push(entry({ name: 'package/manifest.json', body: bytes(text) }));
+  }
+  const tgz = gzip(archive(...files));
+  const tarballUrl = `https://registry.npmjs.org/${SDK}/-/claude-agent-sdk-${sdkVersion}.tgz`;
+  const doc = {
+    name: SDK,
+    version: sdkVersion,
+    claudeCodeVersion,
+    dist: { tarball: tarballUrl, integrity: sri(tgz) },
+  };
+  registry.routes.set(SDK_LATEST, json(doc));
+  registry.routes.set(`https://registry.npmjs.org/${SDK}/${sdkVersion}`, json(doc));
+  registry.routes.set(tarballUrl, binary(tamper === undefined ? tgz : tamper(tgz)));
+  return tarballUrl;
+}

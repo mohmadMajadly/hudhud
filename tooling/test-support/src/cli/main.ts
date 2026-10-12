@@ -5,14 +5,18 @@
  *
  * ```
  * fetch-cli [--platform <key>]... [--all] [--channel pinned|newest]
- *           [--cache <dir>] [--pin <file>]
+ *           [--cache <dir>] [--pin <file>] [--libc glibc|musl]
  * ```
  *
  * - `pinned` (default, or `HUDHUD_CLI_CHANNEL`): fetch and verify the pinned
  *   version for the host platform, each `--platform`, or every platform with
  *   digests (`--all`). A cached copy is re-hashed and reused when it verifies.
- * - `newest`: the canary variant (K16); records the registry integrity, writes
- *   it to stdout and, when set, to `$GITHUB_STEP_SUMMARY`.
+ * - `newest`: the canary variant (K16): the `latest` dist-tag; records the
+ *   registry integrity and the Agent SDK cross-check result, writes them to
+ *   stdout and, when set, to `$GITHUB_STEP_SUMMARY`.
+ * - Host platform (without `--platform`): `<platform>-<arch>`, plus `-musl`
+ *   on a musl Linux, detected from the Node.js diagnostic report; `--libc`
+ *   or `HUDHUD_CLI_LIBC` overrides the detection.
  * - Cache root: `--cache`, else `HUDHUD_CLI_CACHE`, else `.cache/claude-cli`
  *   under the repository root.
  *
@@ -24,7 +28,7 @@ import { parseArgs } from 'node:util';
 
 import { CliFetchError } from './errors.js';
 import { fetchNewestCli, runPinSummary } from './newest.js';
-import { hostPlatform, loadPin } from './pin.js';
+import { hostPlatform, libcFromReport, loadPin } from './pin.js';
 import { ensurePinnedCli } from './pinned.js';
 import type { CliBinary } from './pinned.js';
 import type { FetchLike, RegistryOptions } from './registry.js';
@@ -41,6 +45,8 @@ export interface FetchCliHost {
   readonly fetch: FetchLike;
   readonly platform: NodeJS.Platform;
   readonly arch: string;
+  /** The Node.js diagnostic report (`process.report.getReport()`), read on Linux only. */
+  readonly report: () => unknown;
   readonly now: () => Date;
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
@@ -48,7 +54,7 @@ export interface FetchCliHost {
 }
 
 const USAGE =
-  'usage: fetch-cli [--platform <key>]... [--all] [--channel pinned|newest] [--cache <dir>] [--pin <file>]\n';
+  'usage: fetch-cli [--platform <key>]... [--all] [--channel pinned|newest] [--cache <dir>] [--pin <file>] [--libc glibc|musl]\n';
 
 function nonEmpty(value: string | undefined): string | undefined {
   return value === '' ? undefined : value;
@@ -70,6 +76,7 @@ export async function runFetchCli(host: FetchCliHost): Promise<number> {
         channel: { type: 'string' },
         cache: { type: 'string' },
         pin: { type: 'string' },
+        libc: { type: 'string' },
         help: { type: 'boolean' },
       },
       strict: true,
@@ -92,6 +99,17 @@ export async function runFetchCli(host: FetchCliHost): Promise<number> {
     host.stderr(`fetch-cli: --all applies to the pinned channel only\n${USAGE}`);
     return 2;
   }
+  const libc = values.libc ?? nonEmpty(host.env['HUDHUD_CLI_LIBC']);
+  if (libc !== undefined && libc !== 'glibc' && libc !== 'musl') {
+    host.stderr(`fetch-cli: unknown libc ${JSON.stringify(libc)}\n${USAGE}`);
+    return 2;
+  }
+  const hostKey = (): string =>
+    hostPlatform(
+      host.platform,
+      host.arch,
+      libc ?? (host.platform === 'linux' ? libcFromReport(host.report()) : 'glibc'),
+    );
   const cacheRoot = path.resolve(
     host.repoRoot,
     values.cache ?? nonEmpty(host.env['HUDHUD_CLI_CACHE']) ?? '.cache/claude-cli',
@@ -105,11 +123,12 @@ export async function runFetchCli(host: FetchCliHost): Promise<number> {
   try {
     if (channel === 'newest') {
       const summaryFile = nonEmpty(host.env['GITHUB_STEP_SUMMARY']);
-      for (const platform of values.platform ?? [hostPlatform(host.platform, host.arch)]) {
+      for (const platform of values.platform ?? [hostKey()]) {
         const { runPin, binary } = await fetchNewestCli({ ...options, platform, now: host.now });
         host.stdout(
           `recorded ${runPin.package}@${runPin.version} integrity=${runPin.integrity} at ${runPin.recordedAt}\n`,
         );
+        host.stdout(`cross-check=${runPin.crossCheck} ${runPin.crossCheckDetail}\n`);
         host.stdout(line(binary));
         if (summaryFile !== undefined) await host.appendFile(summaryFile, runPinSummary(runPin));
       }
@@ -119,7 +138,7 @@ export async function runFetchCli(host: FetchCliHost): Promise<number> {
     const platforms =
       values.all === true
         ? [...pin.platforms].filter(([, entry]) => !('pendingGate' in entry)).map(([key]) => key)
-        : (values.platform ?? [hostPlatform(host.platform, host.arch)]);
+        : (values.platform ?? [hostKey()]);
     for (const platform of platforms) {
       host.stdout(line(await ensurePinnedCli({ ...options, pin, platform })));
     }

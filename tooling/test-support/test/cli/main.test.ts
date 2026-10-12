@@ -7,7 +7,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runFetchCli } from '../../src/cli/main.js';
 import type { FetchCliHost } from '../../src/cli/main.js';
 import type { FakeRegistry } from './fake-registry.js';
-import { fakeRegistry, json, pinDocument, release, serve } from './fake-registry.js';
+import {
+  fakeRegistry,
+  json,
+  manifestFor,
+  pinDocument,
+  release,
+  serve,
+  serveSdk,
+} from './fake-registry.js';
 
 const LINUX = release('linux-x64', '9.9.9');
 const WIN = release('win32-x64', '9.9.9');
@@ -54,6 +62,7 @@ function host(
     fetch: registry.fetch,
     platform: process.platform,
     arch: 'x64',
+    report: () => ({ header: { glibcVersionRuntime: '2.36' } }),
     now: () => new Date('2026-10-12T03:00:00.000Z'),
     stdout: (text) => {
       out += text;
@@ -135,6 +144,43 @@ describe('runFetchCli pinned', () => {
     expect(err).toContain('[platform-unavailable] unsupported host platform aix-ppc64');
   });
 
+  it('detects musl on Linux and honours the libc override', async () => {
+    // The pin has no linux-*-musl entry and the Linux key fails on the second
+    // pin, so the error names the platform key that was derived.
+    const winOnly = path.join(root, 'win-only.json');
+    await writeFile(winOnly, JSON.stringify(pinDocument(WIN)));
+    const linux = { platform: 'linux' as const };
+    const run = async (
+      argv: string[],
+      env: Record<string, string>,
+      overrides: Partial<FetchCliHost>,
+    ): Promise<string> => {
+      err = '';
+      expect(await runFetchCli(host(['--pin', winOnly, ...argv], env, overrides))).toBe(1);
+      return err;
+    };
+    const musl = { ...linux, report: () => ({ header: {} }) };
+    expect(await run([], {}, musl)).toContain('no pin entry for platform linux-x64-musl');
+    expect(await run([], {}, linux)).toContain('no pin entry for platform linux-x64\n');
+    expect(await run(['--libc', 'glibc'], {}, musl)).toContain('platform linux-x64\n');
+    expect(await run([], { HUDHUD_CLI_LIBC: 'musl' }, linux)).toContain('linux-x64-musl');
+    let reported = false;
+    const watched = {
+      platform: 'darwin' as const,
+      report: () => {
+        reported = true;
+        return {};
+      },
+    };
+    expect(await run([], {}, watched)).toContain('no pin entry for platform darwin-x64\n');
+    expect(reported).toBe(false);
+  });
+
+  it('rejects an unknown libc', async () => {
+    expect(await runFetchCli(host(['--libc', 'uclibc']))).toBe(2);
+    expect(err).toContain('unknown libc "uclibc"');
+  });
+
   it('reports other failures and exits 1', async () => {
     expect(await runFetchCli(host(['--pin', path.join(root, 'missing.json')]))).toBe(1);
     expect(err).toMatch(/fetch-cli: Error: ENOENT/);
@@ -146,6 +192,18 @@ describe('runFetchCli newest', () => {
 
   beforeEach(() => {
     registry.routes.set(LATEST, json({ name: '@anthropic-ai/claude-code', version: '9.9.9' }));
+    serveSdk(registry, '0.9.9', '9.9.9', manifestFor('9.9.9', LINUX, WIN));
+  });
+
+  it('prints the cross-check result', async () => {
+    expect(await runFetchCli(host(['--channel', 'newest', '--platform', 'linux-x64']))).toBe(0);
+    expect(out).toContain(
+      'cross-check=verified @anthropic-ai/claude-agent-sdk@0.9.9 manifest.json',
+    );
+    out = '';
+    serveSdk(registry, '0.9.10', '9.9.8');
+    expect(await runFetchCli(host(['--channel', 'newest', '--platform', 'linux-x64']))).toBe(0);
+    expect(out).toContain('cross-check=unavailable @anthropic-ai/claude-agent-sdk@0.9.10 (latest)');
   });
 
   it('records the integrity and writes the job summary', async () => {

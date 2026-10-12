@@ -10,7 +10,7 @@ import {
   MAX_DOCUMENT_BYTES,
   assertRegistryUrl,
   downloadTarball,
-  fetchLatestVersion,
+  fetchLatest,
   fetchVersionDocument,
   tarballUrl,
 } from '../../src/cli/registry.js';
@@ -220,14 +220,33 @@ describe('fetchVersionDocument', () => {
   });
 });
 
-describe('fetchLatestVersion', () => {
+describe('fetchLatest', () => {
   const latest = 'https://registry.npmjs.org/@anthropic-ai/claude-code/latest';
 
   it('returns the version behind the latest dist-tag', async () => {
     const registry = fakeRegistry(
       new Map([[latest, json({ name: '@anthropic-ai/claude-code', version: '2.2.0' })]]),
     );
-    expect(await fetchLatestVersion(registry.options, '@anthropic-ai/claude-code')).toBe('2.2.0');
+    expect(await fetchLatest(registry.options, '@anthropic-ai/claude-code')).toEqual({
+      version: '2.2.0',
+      claudeCodeVersion: undefined,
+    });
+  });
+
+  it('returns a valid claudeCodeVersion and drops an invalid one', async () => {
+    const doc = (cc: unknown): unknown => ({
+      name: '@anthropic-ai/claude-code',
+      version: '2.2.0',
+      claudeCodeVersion: cc,
+    });
+    const valid = fakeRegistry(new Map([[latest, json(doc('2.1.296'))]]));
+    expect((await fetchLatest(valid.options, '@anthropic-ai/claude-code')).claudeCodeVersion).toBe(
+      '2.1.296',
+    );
+    const invalid = fakeRegistry(new Map([[latest, json(doc('2.1.296/..'))]]));
+    expect(
+      (await fetchLatest(invalid.options, '@anthropic-ai/claude-code')).claudeCodeVersion,
+    ).toBeUndefined();
   });
 
   it.each([
@@ -236,9 +255,7 @@ describe('fetchLatestVersion', () => {
     [{ name: 'other', version: '2.2.0' }],
   ])('refuses %j', async (doc) => {
     const registry = fakeRegistry(new Map([[latest, json(doc)]]));
-    await expect(
-      fetchLatestVersion(registry.options, '@anthropic-ai/claude-code'),
-    ).rejects.toMatchObject({
+    await expect(fetchLatest(registry.options, '@anthropic-ai/claude-code')).rejects.toMatchObject({
       code: 'registry',
     });
   });

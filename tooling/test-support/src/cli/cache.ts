@@ -4,7 +4,11 @@
  *
  * - Directories are created owner-only; the version and platform directories
  *   must be real directories (not links) and, on POSIX, not group- or
- *   world-writable. The root itself is the caller's choice.
+ *   world-writable. The root itself is the caller's choice. On Windows, file
+ *   modes carry no access control: the cache relies on the ACLs of the
+ *   user's profile folder (the default root lies under the repository, the
+ *   test root under the user's temp folder), so keep a custom
+ *   `HUDHUD_CLI_CACHE` in a folder only the user can write.
  * - Installation is atomic: the binary is staged in the same file system and
  *   renamed into place; the stamp is written to a temporary file and renamed.
  * - A cached binary is never trusted without re-hashing it on every use. The

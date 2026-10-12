@@ -23,6 +23,7 @@ process.exitCode = await runFetchCli({
   fetch: (url, init) => fetch(url, init),
   platform: process.platform,
   arch: process.arch,
+  report: () => process.report.getReport(),
   now: () => new Date(),
   stdout: (text) => process.stdout.write(text),
   stderr: (text) => process.stderr.write(text),

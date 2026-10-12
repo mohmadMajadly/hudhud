@@ -96,12 +96,30 @@ export function binaryFileName(platform: string): string {
   return platform.startsWith('win32-') ? 'claude.exe' : 'claude';
 }
 
+/** The C library of a Linux host. */
+export type Libc = 'glibc' | 'musl';
+
 /**
- * The platform key of a host. Linux maps to the glibc package; musl hosts
- * must pass `--platform linux-<arch>-musl` explicitly.
+ * The C library a Linux Node.js runs on, from its diagnostic report
+ * (`process.report.getReport()`): glibc builds state `glibcVersionRuntime` in
+ * the header, musl builds do not.
  */
-export function hostPlatform(platform: string, arch: string): string {
-  const key = `${platform}-${arch}`;
+export function libcFromReport(report: unknown): Libc {
+  const header: unknown =
+    typeof report === 'object' && report !== null ? Reflect.get(report, 'header') : undefined;
+  const glibc: unknown =
+    typeof header === 'object' && header !== null
+      ? Reflect.get(header, 'glibcVersionRuntime')
+      : undefined;
+  return typeof glibc === 'string' && glibc !== '' ? 'glibc' : 'musl';
+}
+
+/**
+ * The platform key of a host; on Linux, `libc` selects the glibc or the
+ * `-musl` package (ignored elsewhere).
+ */
+export function hostPlatform(platform: string, arch: string, libc: Libc): string {
+  const key = `${platform}-${arch}${platform === 'linux' && libc === 'musl' ? '-musl' : ''}`;
   if (!isValidPlatform(key)) {
     throw new CliFetchError('platform-unavailable', `unsupported host platform ${key}`);
   }

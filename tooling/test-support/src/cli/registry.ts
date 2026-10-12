@@ -188,15 +188,35 @@ export async function fetchVersionDocument(
   return { tarball, integrity };
 }
 
-/** The version the `latest` dist-tag of `pkg` points to. */
-export async function fetchLatestVersion(options: RegistryOptions, pkg: string): Promise<string> {
+/** What the `latest` dist-tag of a package points to. */
+export interface LatestDocument {
+  readonly version: string;
+  /**
+   * The `claudeCodeVersion` field of the document when it is a valid version
+   * (the Agent SDK states the CLI version it bundles there).
+   */
+  readonly claudeCodeVersion: string | undefined;
+}
+
+/**
+ * The version behind the `latest` dist-tag of `pkg`: what `npm install`
+ * gives users, which is the meaning of "newest" for the canary (K16).
+ */
+export async function fetchLatest(options: RegistryOptions, pkg: string): Promise<LatestDocument> {
   const url = `${REGISTRY_ORIGIN}/${pkg}/latest`;
   const document = await getDocument(options, url);
   const version = document['version'];
   if (document['name'] !== pkg || typeof version !== 'string' || !isValidVersion(version)) {
     throw new CliFetchError('registry', `${url}: no valid version for ${pkg}`);
   }
-  return version;
+  const claudeCodeVersion = document['claudeCodeVersion'];
+  return {
+    version,
+    claudeCodeVersion:
+      typeof claudeCodeVersion === 'string' && isValidVersion(claudeCodeVersion)
+        ? claudeCodeVersion
+        : undefined,
+  };
 }
 
 /**

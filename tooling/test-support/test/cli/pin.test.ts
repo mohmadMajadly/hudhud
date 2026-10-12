@@ -9,6 +9,7 @@ import {
   MAX_BINARY_BYTES,
   binaryFileName,
   hostPlatform,
+  libcFromReport,
   isValidVersion,
   loadPin,
   parsePin,
@@ -148,9 +149,23 @@ describe('helpers', () => {
     expect(platformPackage('win32-x64')).toBe('@anthropic-ai/claude-code-win32-x64');
     expect(binaryFileName('win32-arm64')).toBe('claude.exe');
     expect(binaryFileName('linux-x64')).toBe('claude');
-    expect(hostPlatform('linux', 'x64')).toBe('linux-x64');
-    expect(hostPlatform('win32', 'arm64')).toBe('win32-arm64');
-    expect(code(() => hostPlatform('aix', 'ppc64'))).toBe('platform-unavailable');
+    expect(hostPlatform('linux', 'x64', 'glibc')).toBe('linux-x64');
+    expect(hostPlatform('linux', 'arm64', 'musl')).toBe('linux-arm64-musl');
+    expect(hostPlatform('win32', 'arm64', 'musl')).toBe('win32-arm64');
+    expect(code(() => hostPlatform('aix', 'ppc64', 'glibc'))).toBe('platform-unavailable');
+  });
+
+  it('detects musl from a diagnostic report without glibcVersionRuntime', () => {
+    expect(libcFromReport({ header: { glibcVersionRuntime: '2.36' } })).toBe('glibc');
+    expect(libcFromReport({ header: { glibcVersionRuntime: '' } })).toBe('musl');
+    expect(libcFromReport({ header: {} })).toBe('musl');
+    expect(libcFromReport({ header: null })).toBe('musl');
+    expect(libcFromReport({})).toBe('musl');
+    expect(libcFromReport(null)).toBe('musl');
+    // The real report of this host: glibc on the Linux CI image, no glibc elsewhere.
+    expect(libcFromReport(process.report.getReport())).toBe(
+      process.platform === 'linux' ? 'glibc' : 'musl',
+    );
   });
 });
 

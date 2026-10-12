@@ -18,7 +18,9 @@ export type CliFetchErrorCode =
   /** The extracted binary's sha256 or size differs from the expected value. */
   | 'binary-mismatch'
   /** The cached copy is missing, altered or not trustworthy. */
-  | 'cache-invalid';
+  | 'cache-invalid'
+  /** The independent cross-check source (the Agent SDK manifest) is malformed or inconsistent. */
+  | 'cross-check-failed';
 
 /** Error raised by every step of the pinned-CLI fetch. */
 export class CliFetchError extends Error {

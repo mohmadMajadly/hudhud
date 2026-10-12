@@ -24,6 +24,7 @@ import { MAX_BINARY_BYTES } from './pin.js';
 import { downloadTarball } from './registry.js';
 import type { RegistryOptions, VersionDocument } from './registry.js';
 import { extractTarEntry } from './tar.js';
+import type { TarExtractOptions } from './tar.js';
 
 /** Upper bound for a platform tarball (the 2.1.296 tarballs are ~80-90 MiB). */
 export const MAX_TARBALL_BYTES: number = 512 * 1024 * 1024;
@@ -31,7 +32,8 @@ export const MAX_TARBALL_BYTES: number = 512 * 1024 * 1024;
 /** Limits for the non-binary entries of a platform package (README, LICENSE, package.json). */
 const MAX_OTHER_ENTRY_BYTES = 4 * 1024 * 1024;
 const MAX_ENTRIES = 64;
-const MAX_TRAILING_BYTES = 1024 * 1024;
+/** Upper bound for the zero padding after a tarball's end-of-archive marker. */
+export const MAX_TRAILING_BYTES: number = 1024 * 1024;
 
 /** What to install; `sha256` and `size` are checked when given (pinned mode). */
 export interface InstallTarget {
@@ -52,6 +54,32 @@ export interface InstallContext {
   readonly hostPlatform: NodeJS.Platform;
 }
 
+/**
+ * Gunzips the verified tarball `tgz` and streams the one entry
+ * `options.wanted` to `options.onData` with the in-repo ustar reader. Returns
+ * the entry's size. Every failure is a {@link CliFetchError}.
+ */
+export async function extractFromTarball(
+  tgz: string,
+  label: string,
+  options: TarExtractOptions,
+): Promise<number> {
+  let size = 0;
+  try {
+    await pipeline(
+      createReadStream(tgz),
+      createGunzip(),
+      async (source: AsyncIterable<Uint8Array>) => {
+        ({ size } = await extractTarEntry(source, options));
+      },
+    );
+  } catch (error) {
+    if (error instanceof CliFetchError) throw error;
+    throw new CliFetchError('archive-refused', `${label}: unreadable tarball`, { cause: error });
+  }
+  return size;
+}
+
 /** Extracts `package/<file>` of the gzipped tarball `tgz` into the new file `out`. */
 async function extractBinary(
   tgz: string,
@@ -60,32 +88,21 @@ async function extractBinary(
 ): Promise<{ readonly sha256: string; readonly size: number }> {
   const hash = createHash('sha256');
   const handle = await open(out, 'wx', 0o700);
-  let size = 0;
+  let size: number;
   try {
-    await pipeline(
-      createReadStream(tgz),
-      createGunzip(),
-      async (source: AsyncIterable<Uint8Array>) => {
-        ({ size } = await extractTarEntry(source, {
-          wanted: `package/${target.file}`,
-          ...(target.size === undefined ? {} : { expectedSize: target.size }),
-          maxWantedSize: MAX_BINARY_BYTES,
-          maxOtherSize: MAX_OTHER_ENTRY_BYTES,
-          maxEntries: MAX_ENTRIES,
-          maxTrailingBytes: MAX_TRAILING_BYTES,
-          onData: async (chunk) => {
-            hash.update(chunk);
-            await handle.write(chunk);
-          },
-        }));
+    size = await extractFromTarball(tgz, target.package, {
+      wanted: `package/${target.file}`,
+      ...(target.size === undefined ? {} : { expectedSize: target.size }),
+      maxWantedSize: MAX_BINARY_BYTES,
+      maxOtherSize: MAX_OTHER_ENTRY_BYTES,
+      maxEntries: MAX_ENTRIES,
+      maxTrailingBytes: MAX_TRAILING_BYTES,
+      onData: async (chunk) => {
+        hash.update(chunk);
+        await handle.write(chunk);
       },
-    );
-    await handle.sync();
-  } catch (error) {
-    if (error instanceof CliFetchError) throw error;
-    throw new CliFetchError('archive-refused', `${target.package}: unreadable tarball`, {
-      cause: error,
     });
+    await handle.sync();
   } finally {
     await handle.close();
   }
