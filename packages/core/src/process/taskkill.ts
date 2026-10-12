@@ -224,50 +224,69 @@ export async function resolveTaskkillPath(
   return { path: resolved, systemRoot: root.root };
 }
 
+/** Refuses pids that must never be passed to `taskkill`. */
+function checkPid(pid: number): string {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === 4 || pid > 0xffff_ffff) {
+    throw new RangeError(`refusing to taskkill pid ${String(pid)}`);
+  }
+  return String(pid);
+}
+
 /**
- * The argv of `taskkill.exe` for a tree kill of `pid`.
+ * The argv of `taskkill.exe`: a tree kill (`/T /F /PID <pid>`) or, with
+ * `tree: false`, a kill of that one process (`/F /PID <pid>`).
  *
  * @throws RangeError when `pid` is not a positive safe integer, or is 0 or 4
  * @public
  */
-export function taskkillArgv(pid: number): readonly string[] {
-  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === 4 || pid > 0xffff_ffff) {
-    throw new RangeError(`refusing to taskkill pid ${String(pid)}`);
-  }
-  return ['/T', '/F', '/PID', String(pid)];
+export function taskkillArgv(pid: number, tree = true): readonly string[] {
+  const value = checkPid(pid);
+  return tree ? ['/T', '/F', '/PID', value] : ['/F', '/PID', value];
 }
 
 /**
- * The best-effort tree kill as {@link Win32TerminateCalls}. Resolves with
- * `exitCode` 0 on success, the non-zero exit code on failure (128: no such
- * process), or `null` when `taskkill` was killed by the timeout or could
- * not run. Rejects with {@link TaskkillUnavailableError} when the
- * executable is refused, and with `RangeError` for a refused pid; nothing is
- * spawned then.
+ * The `taskkill` calls of the Windows ladder: the tree kill of
+ * {@link Win32TerminateCalls} plus a kill of one process (no `/T`), used by
+ * the sweep for identity-verified descendants.
  *
  * @public
  */
-export function createTaskkillCalls(deps: TaskkillDeps): Win32TerminateCalls {
-  return {
-    async taskkillTree(pid: number): Promise<TaskkillResult> {
-      const args = taskkillArgv(pid);
-      const { path, systemRoot } = await resolveTaskkillPath(deps);
-      const options: TaskkillExecOptions = {
-        shell: false,
-        windowsHide: true,
-        windowsVerbatimArguments: false,
-        cwd: `${systemRoot}\\System32`,
-        env: { SystemRoot: systemRoot },
-        timeout: deps.timeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS,
-        killSignal: 'SIGKILL',
-        maxBuffer: MAX_OUTPUT_BYTES,
-      };
-      return new Promise<TaskkillResult>((resolve) => {
-        deps.execFile(path, args, options, (error) => {
-          if (error === null) resolve({ exitCode: 0 });
-          else resolve({ exitCode: typeof error.code === 'number' ? error.code : null });
-        });
+export interface TaskkillCalls extends Win32TerminateCalls {
+  taskkillProcess(pid: number): Promise<TaskkillResult>;
+}
+
+/**
+ * The `taskkill` calls. Each resolves with `exitCode` 0 on success, the
+ * non-zero exit code on failure (128: no such process), or `null` when
+ * `taskkill` was killed by the timeout or could not run. Each rejects with
+ * {@link TaskkillUnavailableError} when the executable is refused, and with
+ * `RangeError` for a refused pid; nothing is spawned then.
+ *
+ * @public
+ */
+export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls {
+  const run = async (args: readonly string[]): Promise<TaskkillResult> => {
+    const { path, systemRoot } = await resolveTaskkillPath(deps);
+    const options: TaskkillExecOptions = {
+      shell: false,
+      windowsHide: true,
+      windowsVerbatimArguments: false,
+      cwd: `${systemRoot}\\System32`,
+      env: { SystemRoot: systemRoot },
+      timeout: deps.timeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+      maxBuffer: MAX_OUTPUT_BYTES,
+    };
+    return new Promise<TaskkillResult>((resolve) => {
+      deps.execFile(path, args, options, (error) => {
+        if (error === null) resolve({ exitCode: 0 });
+        else resolve({ exitCode: typeof error.code === 'number' ? error.code : null });
       });
-    },
+    });
+  };
+  return {
+    // The argv is built (and the pid checked) before anything is resolved or spawned.
+    taskkillTree: async (pid) => run(taskkillArgv(pid)),
+    taskkillProcess: async (pid) => run(taskkillArgv(pid, false)),
   };
 }

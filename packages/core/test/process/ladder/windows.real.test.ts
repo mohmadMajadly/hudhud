@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runWindowsLadder, type LadderClock } from '../../../src/process/ladder/windows.js';
+import type { LadderReport } from '../../../src/process/ladder/types.js';
 import type { Win32CimTableCalls } from '../../../src/process/os/types.js';
 import {
   createTaskkillCalls,
@@ -63,11 +64,14 @@ const realClock: LadderClock = {
 };
 
 // Each level prints `pid:<n>` for itself and forwards its descendants'
-// lines; it ignores stdin EOF and stays alive until killed.
+// lines, and stays alive until killed. The top level ignores stdin EOF, or
+// with `exit-on-eof` exits gracefully on it (a CLI that drains and leaves its
+// detached tool tree behind, 07 §2).
 const LEVEL = String.raw`
 const { spawn } = require('node:child_process');
 const depth = Number(process.argv[1]);
 process.stdin.on('error', () => {});
+if (process.argv[2] === 'exit-on-eof') process.stdin.on('end', () => process.exit(0));
 if (process.stdin.readable) process.stdin.resume();
 process.stdout.write('pid:' + process.pid + '\n');
 if (depth > 0) {
@@ -104,7 +108,7 @@ afterEach(async () => {
 });
 
 /** Spawns the three-level tree and records every process under the child by identity. */
-async function spawnTree(): Promise<{
+async function spawnTree(mode: 'ignore-eof' | 'exit-on-eof' = 'ignore-eof'): Promise<{
   child: ChildProcessWithoutNullStreams;
   exited: Promise<void>;
   table: Win32CimTableCalls;
@@ -112,7 +116,7 @@ async function spawnTree(): Promise<{
   nodePids: number[];
   identities: ProcessIdentity[];
 }> {
-  const child = spawn(process.execPath, ['-e', LEVEL, '2'], {
+  const child = spawn(process.execPath, ['-e', LEVEL, '2', mode], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     env: { ...process.env, HUDHUD_LEVEL: LEVEL },
@@ -152,6 +156,70 @@ async function spawnTree(): Promise<{
   return { child, exited, table, root, nodePids, identities };
 }
 
+function summary(report: LadderReport): string[] {
+  return report.steps.map((step) => `${step.name}:${step.outcome}`);
+}
+
+/** The recorded identities still alive (pid and start time), polled until none or 5 s. */
+async function survivorsOf(
+  table: Win32CimTableCalls,
+  identities: readonly ProcessIdentity[],
+): Promise<ProcessIdentity[]> {
+  let survivors = [...identities];
+  for (let i = 0; i < 10 && survivors.length > 0; i += 1) {
+    const after = await takeSnapshot(table);
+    survivors = identities.filter((id) => findIdentity(after.records, id) !== null);
+    if (survivors.length > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return survivors;
+}
+
+interface ExecCall {
+  readonly file: string;
+  readonly args: readonly string[];
+  readonly options: TaskkillExecOptions;
+}
+
+/** Runs the best-effort ladder on a spawned tree with the real taskkill, recording each run. */
+async function runLadderOn(
+  tree: Awaited<ReturnType<typeof spawnTree>>,
+): Promise<{ report: LadderReport; execCalls: ExecCall[] }> {
+  const { child, exited, table, root } = tree;
+  const execCalls: ExecCall[] = [];
+  const recordingExecFile: TaskkillExecFile = (file, args, options, callback) => {
+    execCalls.push({ file, args, options });
+    return nodeTaskkillDeps.execFile(file, args, options, callback);
+  };
+  const report = await runWindowsLadder(
+    {
+      identity: root,
+      hasExited: () => child.exitCode !== null || child.signalCode !== null,
+      exited,
+      closeStdin: () => child.stdin.end(),
+      terminate: () => child.kill(),
+    },
+    { interrupt: () => Promise.resolve('not-applicable') },
+    { interruptWaitMs: 100, eofGraceMs: 3000, termGraceMs: 0, taskkillGraceMs: 5000 },
+    null,
+    {
+      intent: 'abort',
+      initializePid: null,
+      clock: realClock,
+      os: {
+        platform: 'win32',
+        hostPid: process.pid,
+        processTable: table,
+        terminate: createTaskkillCalls({
+          env: process.env,
+          fs: nodeTaskkillDeps.fs,
+          execFile: recordingExecFile,
+        }),
+      },
+    },
+  );
+  return { report, execCalls };
+}
+
 describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => {
   it('control: TerminateProcess of the child alone leaves the detached descendants', async () => {
     const { child, exited, table, identities, nodePids } = await spawnTree();
@@ -166,68 +234,68 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
     expect(alive).toEqual(expect.arrayContaining(nodePids.slice(1)));
   }, 60_000);
 
-  it('leaves zero survivors (child, grandchild, great-grandchild)', async () => {
-    const { child, exited, table, root, identities } = await spawnTree();
+  it('taskkill /T leaves zero survivors (child, grandchild, great-grandchild)', async () => {
+    const tree = await spawnTree();
+    const { report, execCalls } = await runLadderOn(tree);
 
-    const execCalls: { file: string; args: readonly string[]; options: TaskkillExecOptions }[] = [];
-    const recordingExecFile: TaskkillExecFile = (file, args, options, callback) => {
-      execCalls.push({ file, args, options });
-      return nodeTaskkillDeps.execFile(file, args, options, callback);
-    };
-
-    const report = await runWindowsLadder(
-      {
-        identity: root,
-        hasExited: () => child.exitCode !== null || child.signalCode !== null,
-        exited,
-        closeStdin: () => child.stdin.end(),
-        terminate: () => child.kill(),
-      },
-      { interrupt: () => Promise.resolve('not-applicable') },
-      { interruptWaitMs: 100, eofGraceMs: 500, termGraceMs: 0, taskkillGraceMs: 5000 },
-      null,
-      {
-        intent: 'abort',
-        initializePid: null,
-        clock: realClock,
-        os: {
-          platform: 'win32',
-          hostPid: process.pid,
-          processTable: table,
-          terminate: createTaskkillCalls({
-            env: process.env,
-            fs: nodeTaskkillDeps.fs,
-            execFile: recordingExecFile,
-          }),
-        },
-      },
-    );
-
-    expect(report.steps.map((s) => `${s.name}:${s.outcome}`)).toEqual([
+    expect(summary(report).slice(0, 5)).toEqual([
       'intent:done',
       'interrupt:skipped',
+      'snapshot-s1:done',
       'eof:done',
       'taskkill:done',
     ]);
+    // Whatever the sweep finds afterwards is only ever an S1 descendant, killed without /T.
+    for (const step of report.steps.slice(5)) expect(step.name).toBe('sweep');
     expect(report.exitedAfter).toBe('taskkill');
 
     // taskkill ran from the absolute System32 path, without a shell.
     const expected = await resolveTaskkillPath({ env: process.env, ...nodeTaskkillDeps });
-    expect(execCalls).toHaveLength(1);
     expect(execCalls[0]?.file).toBe(expected.path);
     expect(execCalls[0]?.file.toLowerCase()).toBe(
       `${expected.systemRoot}\\System32\\taskkill.exe`.toLowerCase(),
     );
     expect(execCalls[0]?.options.shell).toBe(false);
-    expect(execCalls[0]?.args).toEqual(['/T', '/F', '/PID', String(root.pid)]);
+    expect(execCalls[0]?.args).toEqual(['/T', '/F', '/PID', String(tree.root.pid)]);
+    for (const call of execCalls.slice(1)) expect(call.args).not.toContain('/T');
 
-    // Zero survivors, by pid and start time.
-    let survivors = identities;
-    for (let i = 0; i < 10 && survivors.length > 0; i += 1) {
-      const after = await takeSnapshot(table);
-      survivors = identities.filter((id) => findIdentity(after.records, id) !== null);
-      if (survivors.length > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await survivorsOf(tree.table, tree.identities)).toEqual([]);
+  }, 60_000);
+
+  it('the sweep leaves zero survivors after a graceful exit during the EOF grace', async () => {
+    const tree = await spawnTree('exit-on-eof');
+    const { report, execCalls } = await runLadderOn(tree);
+
+    expect(summary(report).slice(0, 4)).toEqual([
+      'intent:done',
+      'interrupt:skipped',
+      'snapshot-s1:done',
+      'eof:done',
+    ]);
+    expect(report.exitedAfter).toBe('eof');
+    const swept = report.steps.slice(4);
+    for (const step of swept) expect(step.name).toBe('sweep');
+    // Both detached node descendants were alive and verified: each was killed.
+    for (const pid of tree.nodePids.slice(1)) {
+      expect(swept).toContainEqual(
+        expect.objectContaining({ outcome: 'done', detail: `pid-${String(pid)}` }),
+      );
     }
-    expect(survivors).toEqual([]);
+    // Leaf first: the great-grandchild before the grandchild.
+    const order = swept.map((step) => step.detail);
+    expect(order.indexOf(`pid-${String(tree.nodePids[2])}`)).toBeLessThan(
+      order.indexOf(`pid-${String(tree.nodePids[1])}`),
+    );
+    expect(report.sweep?.processesSignalled).toBeGreaterThanOrEqual(2);
+    // Never /T, never the host, only from the absolute System32 path.
+    expect(execCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of execCalls) {
+      expect(call.args).not.toContain('/T');
+      expect(call.args).not.toContain(String(process.pid));
+      expect(call.options.shell).toBe(false);
+      expect(call.file.toLowerCase()).toMatch(/^[a-z]:\\.+\\system32\\taskkill\.exe$/);
+    }
+
+    expect(await survivorsOf(tree.table, tree.identities)).toEqual([]);
   }, 60_000);
 });

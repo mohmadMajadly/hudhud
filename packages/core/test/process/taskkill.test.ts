@@ -206,6 +206,11 @@ describe('taskkillArgv', () => {
     expect(taskkillArgv(0xffff_ffff)).toEqual(['/T', '/F', '/PID', '4294967295']);
   });
 
+  it('builds /F /PID <pid> without /T for one process', () => {
+    expect(taskkillArgv(1234, false)).toEqual(['/F', '/PID', '1234']);
+    expect(() => taskkillArgv(4, false)).toThrow(RangeError);
+  });
+
   it.each([0, 4, -8, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 32])(
     'refuses pid %d',
     (pid) => {
@@ -234,6 +239,24 @@ describe('createTaskkillCalls', () => {
         },
       },
     ]);
+  });
+
+  it('kills one process without /T for the sweep, with the same hardening', async () => {
+    const d = deps({ SystemRoot: 'C:\\Windows', PATH: 'C:\\evil' });
+    const calls = createTaskkillCalls(d);
+    expect(await calls.taskkillProcess(4243)).toEqual({ exitCode: 0 });
+    await calls.taskkillTree(4244);
+    expect(d.calls.map((call) => call.args)).toEqual([
+      ['/F', '/PID', '4243'],
+      ['/T', '/F', '/PID', '4244'],
+    ]);
+    expect(d.calls[0]?.file).toBe(EXE);
+    expect(d.calls[0]?.options).toEqual(d.calls[1]?.options);
+    expect(d.calls[0]?.options.shell).toBe(false);
+
+    const badPid = deps({});
+    await expect(createTaskkillCalls(badPid).taskkillProcess(0)).rejects.toThrow(RangeError);
+    expect(badPid.calls).toEqual([]);
   });
 
   it('honours a custom timeout', async () => {
