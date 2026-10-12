@@ -1,0 +1,30 @@
+{
+  "$comment": "Pinned Claude Code CLI under test (plan 4.6, research 05 section 1). Fetched at test time only, never redistributed (ADR-0015). integrity: npm sha512 SRI of the platform tarball; sha256 and size: the extracted binary. Changed only through a reviewed bump PR prepared by the lead (K16).",
+  "version": "2.1.296",
+  "platforms": {
+    "linux-x64": {
+      "package": "@anthropic-ai/claude-code-linux-x64",
+      "file": "claude",
+      "integrity": "sha512-+m01urgelnI+VJxPaKPEK0wixgq42uZ8PeCaUk5tX/8YoDBvSmC/REVQG2jQfJAr8dxunpjJ600FvLrcj1WWTw==",
+      "sha256": "24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de",
+      "size": 257068216
+    },
+    "win32-x64": {
+      "package": "@anthropic-ai/claude-code-win32-x64",
+      "file": "claude.exe",
+      "integrity": "sha512-g2aYBzYM5YTDio0ulAoGIGgtGRMa08WAecer4wuOUrKPwVPRfyRdmoZI01BNS8jF9yupDmQycBMuBcVui/VGNw==",
+      "sha256": "76de74f7694a5bdc03378a5f837c9e132827bf004c98c276bc4e9094ff06769a",
+      "size": 260489376
+    },
+    "darwin-arm64": {
+      "package": "@anthropic-ai/claude-code-darwin-arm64",
+      "file": "claude",
+      "pendingGate": true
+    },
+    "darwin-x64": {
+      "package": "@anthropic-ai/claude-code-darwin-x64",
+      "file": "claude",
+      "pendingGate": true
+    }
+  }
+}
