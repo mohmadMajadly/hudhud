@@ -15,7 +15,12 @@
  */
 
 import { InvalidOptionsError } from '@hudhud/core';
-import { ArgvError, assertNoReservedFlags, formatFlag } from '@hudhud/core/process';
+import {
+  ArgvError,
+  assertNoReservedFlags,
+  formatFlag,
+  type ProcessPlatform,
+} from '@hudhud/core/process';
 
 import {
   checkSessionId,
@@ -131,6 +136,85 @@ export function buildArgv(
     argv.push(flag('append-system-prompt', cc.appendSystemPrompt));
   }
   return argv;
+}
+
+/**
+ * Longest Windows command line hudhud starts the CLI with, in UTF-16 code
+ * units. `CreateProcess` refuses a command line of more than 32,767 units
+ * including its terminating NUL; the margin keeps hudhud clear of that
+ * boundary (lead ruling F1).
+ */
+export const WIN32_MAX_COMMAND_LINE = 32_000;
+
+/**
+ * One argument as libuv quotes it for `CreateProcess` (`quote_cmd_arg` in
+ * `src/win/process.c`, the MSVCRT parsing rules): unchanged without space,
+ * tab or quote; in quotes when it holds no quote and no backslash; else in
+ * quotes with every quote escaped and the backslashes before a quote or the
+ * closing quote doubled. An empty argument is `""`.
+ */
+export function quoteWin32Arg(arg: string): string {
+  if (arg === '') return '""';
+  if (!/[ \t"]/.test(arg)) return arg;
+  if (!/["\\]/.test(arg)) return `"${arg}"`;
+  // Built back to front, as libuv does: a backslash is doubled while only
+  // backslashes stand between it and a quote or the closing quote.
+  const reversed: string[] = [];
+  let quoteHit = true;
+  for (let index = arg.length - 1; index >= 0; index -= 1) {
+    const unit = arg.charAt(index);
+    reversed.push(unit);
+    if (quoteHit && unit === '\\') {
+      reversed.push('\\');
+    } else if (unit === '"') {
+      quoteHit = true;
+      reversed.push('\\');
+    } else {
+      quoteHit = false;
+    }
+  }
+  return `"${reversed.reverse().join('')}"`;
+}
+
+/**
+ * The command line `CreateProcess` receives for `file` and `args` from
+ * Node's `child_process.spawn` (`shell: false`, no verbatim arguments): the
+ * executable as argv[0], then every argument, each quoted by
+ * {@link quoteWin32Arg}, separated by one space.
+ */
+export function win32CommandLine(file: string, args: readonly string[]): string {
+  return [file, ...args].map(quoteWin32Arg).join(' ');
+}
+
+/**
+ * Refuses, before anything is spawned, a launch whose Windows command line
+ * would exceed {@link WIN32_MAX_COMMAND_LINE} (long `--append-system-prompt`
+ * values, many `--add-dir` entries). Nothing is checked on POSIX, where the
+ * limit is the far larger `ARG_MAX` of the whole environment block.
+ *
+ * @throws `InvalidOptionsError` rule `command-line-too-long`, with the
+ *   length and the limit in `details`
+ */
+export function checkCommandLine(
+  file: string,
+  args: readonly string[],
+  platform: ProcessPlatform,
+): void {
+  if (platform !== 'win32') return;
+  const length = win32CommandLine(file, args).length;
+  if (length > WIN32_MAX_COMMAND_LINE) {
+    throw new InvalidOptionsError(
+      `the CLI command line would be ${String(length)} UTF-16 code units on Windows; the limit is ${String(WIN32_MAX_COMMAND_LINE)} (shorten appendSystemPrompt, additionalDirectories or the tool rules)`,
+      {
+        details: {
+          path: 'argv',
+          rule: 'command-line-too-long',
+          length,
+          limit: WIN32_MAX_COMMAND_LINE,
+        },
+      },
+    );
+  }
 }
 
 /**

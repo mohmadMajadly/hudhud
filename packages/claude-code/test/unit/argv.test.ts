@@ -5,7 +5,16 @@ import { parseFlag } from '@hudhud/core/process';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { buildArgv, checkExtraArgs, RESERVED_FLAGS, type LaunchSpec } from '../../src/argv.js';
+import {
+  buildArgv,
+  checkCommandLine,
+  checkExtraArgs,
+  quoteWin32Arg,
+  RESERVED_FLAGS,
+  WIN32_MAX_COMMAND_LINE,
+  win32CommandLine,
+  type LaunchSpec,
+} from '../../src/argv.js';
 import {
   resolveConnectOptions,
   resolveConnectSessionOptions,
@@ -57,6 +66,12 @@ describe('argv per option row (plan §2.4, §2.5)', () => {
       undefined,
       ['--permission-mode=bypassPermissions', '+--allow-dangerously-skip-permissions'],
     ],
+    [
+      'dangerouslyAllowBypassPermissions with another initial mode',
+      { permissionMode: 'plan', dangerouslyAllowBypassPermissions: true },
+      undefined,
+      ['--permission-mode=plan', '+--allow-dangerously-skip-permissions'],
+    ],
     ['onPermission', { onPermission: handler }, undefined, ['+--permission-prompt-tool=stdio']],
     ['workspaceTrust none', { workspaceTrust: 'none' }, undefined, ['--setting-sources=user']],
     [
@@ -69,7 +84,7 @@ describe('argv per option row (plan §2.4, §2.5)', () => {
       'claudeCode.settingSources',
       { claudeCode: { settingSources: ['project', 'user'] } },
       undefined,
-      ['--setting-sources=project,user'],
+      ['--setting-sources=user,project'],
     ],
     [
       'claudeCode.settingSources empty',
@@ -451,5 +466,139 @@ describe('no option value can inject a flag (property)', () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+/**
+ * The MSVCRT / `CommandLineToArgvW` reading of the arguments after argv[0]
+ * (the rules libuv quotes for): whitespace separates outside quotes; 2n
+ * backslashes before a quote are n backslashes and the quote toggles
+ * quoting; 2n+1 are n backslashes and a literal quote; other backslashes
+ * are literal.
+ */
+function parseWin32Args(commandLine: string): string[] {
+  const args: string[] = [];
+  let index = 0;
+  const at = (i: number): string => commandLine.charAt(i);
+  while (index < commandLine.length) {
+    while (at(index) === ' ' || at(index) === '\t') index += 1;
+    if (index >= commandLine.length) break;
+    let current = '';
+    let quoted = false;
+    while (index < commandLine.length && (quoted || (at(index) !== ' ' && at(index) !== '\t'))) {
+      if (at(index) === '\\') {
+        let count = 0;
+        while (at(index) === '\\') {
+          count += 1;
+          index += 1;
+        }
+        if (at(index) === '"') {
+          current += '\\'.repeat(Math.floor(count / 2));
+          if (count % 2 === 1) current += '"';
+          else quoted = !quoted;
+          index += 1;
+        } else {
+          current += '\\'.repeat(count);
+        }
+      } else if (at(index) === '"') {
+        quoted = !quoted;
+        index += 1;
+      } else {
+        current += at(index);
+        index += 1;
+      }
+    }
+    args.push(current);
+  }
+  return args;
+}
+
+describe('Windows command-line length (lead ruling F1)', () => {
+  const EXE = 'C:\\Program Files\\claude\\claude.exe';
+
+  it.each([
+    ['', '""'],
+    ['plain', 'plain'],
+    ['a\\b', 'a\\b'],
+    ['two words', '"two words"'],
+    ['tab\there', '"tab\there"'],
+    ['say "hi"', '"say \\"hi\\""'],
+    ['C:\\dir with space\\', '"C:\\dir with space\\\\"'],
+    ['a\\\\"b', '"a\\\\\\\\\\"b"'],
+    ['--append-system-prompt=x "y" z\\', '"--append-system-prompt=x \\"y\\" z\\\\"'],
+  ])('quotes %j as libuv does', (arg, quoted) => {
+    expect(quoteWin32Arg(arg)).toBe(quoted);
+  });
+
+  it('round-trips every argument through the MSVCRT parsing rules', () => {
+    const unit = fc.constantFrom('a', 'Z', ' ', '\t', '"', '\\', '=', '-', 'é', '😀');
+    const arg = fc.array(unit, { maxLength: 12 }).map((units) => units.join(''));
+    fc.assert(
+      fc.property(fc.array(arg, { maxLength: 6 }), (args) => {
+        const line = win32CommandLine('claude.exe', args);
+        expect(parseWin32Args(line).slice(1)).toEqual(args);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it('counts UTF-16 code units of the whole command line, argv[0] included', () => {
+    expect(win32CommandLine(EXE, ['--verbose', 'a b'])).toBe(`"${EXE}" --verbose "a b"`);
+    expect(win32CommandLine('x.exe', ['😀'])).toHaveLength('x.exe 😀'.length);
+  });
+
+  it('refuses a command line above the limit before anything is spawned, on win32 only', () => {
+    const base = win32CommandLine(EXE, ['--append-system-prompt=']).length;
+    const fits = `--append-system-prompt=${'p'.repeat(WIN32_MAX_COMMAND_LINE - base)}`;
+    expect(win32CommandLine(EXE, [fits])).toHaveLength(WIN32_MAX_COMMAND_LINE);
+    expect(() => {
+      checkCommandLine(EXE, [fits], 'win32');
+    }).not.toThrow();
+    const over = `${fits}p`;
+    let caught: unknown;
+    try {
+      checkCommandLine(EXE, [over], 'win32');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(InvalidOptionsError);
+    expect((caught as InvalidOptionsError).details).toEqual({
+      path: 'argv',
+      rule: 'command-line-too-long',
+      length: WIN32_MAX_COMMAND_LINE + 1,
+      limit: WIN32_MAX_COMMAND_LINE,
+    });
+    expect(() => {
+      checkCommandLine(EXE, [over], 'posix');
+    }).not.toThrow();
+  });
+
+  it('counts the quoting: escaped quotes push a command line over the limit', () => {
+    const quotes = '"'.repeat(Math.floor(WIN32_MAX_COMMAND_LINE / 2));
+    // Raw length below the limit, quoted length (each quote escaped) above it.
+    expect(EXE.length + 1 + quotes.length).toBeLessThan(WIN32_MAX_COMMAND_LINE);
+    expect(() => {
+      checkCommandLine(EXE, [quotes], 'win32');
+    }).toThrow(InvalidOptionsError);
+  });
+
+  it('measures a realistic launch with a long system prompt and many directories whole', () => {
+    const argv = buildArgv(
+      { bare: false },
+      resolveSessionOptions({
+        claudeCode: {
+          appendSystemPrompt: 'Be "careful" with C:\\paths\\. '.repeat(1000),
+          additionalDirectories: Array.from(
+            { length: 200 },
+            (_, i) => `C:\\work space\\dir ${String(i)}`,
+          ),
+        },
+      }).effective,
+      CREATE,
+    );
+    expect(win32CommandLine(EXE, argv).length).toBeGreaterThan(WIN32_MAX_COMMAND_LINE);
+    expect(() => {
+      checkCommandLine(EXE, argv, 'win32');
+    }).toThrow(InvalidOptionsError);
   });
 });

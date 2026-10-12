@@ -360,6 +360,14 @@ function envPosture(env: EffectiveEnv): PostureField[] {
   ];
 }
 
+/** The order in which `--setting-sources` lists the sources (lead ruling F3). */
+const SETTING_SOURCE_ORDER: readonly SettingSource[] = ['user', 'project', 'local'];
+
+/** The given sources in canonical order (`user,project,local`), each once. */
+function canonicalSources(sources: readonly SettingSource[]): readonly SettingSource[] {
+  return SETTING_SOURCE_ORDER.filter((source) => sources.includes(source));
+}
+
 /** `workspaceTrust` that the given sources amount to, or `null` for any other set. */
 function trustOf(sources: readonly SettingSource[]): WorkspaceTrust | null {
   const set = new Set(sources);
@@ -396,16 +404,15 @@ function resolveSession(
       'options.permissionMode "bypassPermissions" requires options.dangerouslyAllowBypassPermissions: true',
     );
   }
-  if (bypass && permissionMode !== 'bypassPermissions') {
-    throw invalid(
-      'dangerouslyAllowBypassPermissions',
-      'bypass-permissions',
-      'options.dangerouslyAllowBypassPermissions is only valid with options.permissionMode "bypassPermissions"',
-    );
-  }
+  // The flag authorizes bypass for the whole session: as the initial mode or
+  // through a later setPermissionMode('bypassPermissions') (lead ruling F2),
+  // so it is valid with any initial mode.
 
   const trust = data.workspaceTrust ?? OPTION_DEFAULTS.workspaceTrust;
-  const settingSources: readonly SettingSource[] = cc.settingSources ?? SOURCES_BY_TRUST[trust];
+  // Canonical order and no duplicates, whatever order the option lists.
+  const settingSources: readonly SettingSource[] = canonicalSources(
+    cc.settingSources ?? SOURCES_BY_TRUST[trust],
+  );
   const settingSourcesFrom =
     cc.settingSources === undefined ? 'workspaceTrust' : 'claudeCode.settingSources';
   const projectSources = settingSources.includes('project') || settingSources.includes('local');

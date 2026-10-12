@@ -2,6 +2,7 @@
 // (plan §2.3, §2.4; ADR-0012).
 
 import { CapabilityUnsupportedError, InvalidOptionsError, type JsonObject } from '@hudhud/core';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -581,15 +582,42 @@ describe('cross-field rules (plan §2.3)', () => {
       'local',
     ]);
     const explicit = session({ claudeCode: { settingSources: ['project', 'user'] } });
-    expect(explicit.settingSources).toEqual(['project', 'user']);
+    // Canonical order user,project,local whatever order the option lists (ruling F3).
+    expect(explicit.settingSources).toEqual(['user', 'project']);
     expect(explicit.settingSourcesFrom).toBe('claudeCode.settingSources');
+    expect(
+      session({ claudeCode: { settingSources: ['local', 'project', 'user'] } }).settingSources,
+    ).toEqual(['user', 'project', 'local']);
+    expect(session({ claudeCode: { settingSources: ['local', 'user'] } }).settingSources).toEqual([
+      'user',
+      'local',
+    ]);
+  });
+
+  it('normalizes setting sources in every order to one canonical, duplicate-free list', () => {
+    fc.assert(
+      fc.property(
+        fc
+          .subarray(['user', 'project', 'local'] as const)
+          .chain((set) =>
+            fc.shuffledSubarray(set, { minLength: set.length, maxLength: set.length }),
+          ),
+        (sources) => {
+          const resolved = session({ claudeCode: { settingSources: sources } }).settingSources;
+          expect(resolved).toEqual(
+            (['user', 'project', 'local'] as const).filter((s) => sources.includes(s)),
+          );
+          expect(new Set(resolved).size).toBe(resolved.length);
+        },
+      ),
+    );
   });
 
   it('reports workspaceTrust "context" as unsupported', () => {
     unsupported(() => session({ workspaceTrust: 'context' }), 'workspaceTrust.context');
   });
 
-  it('requires dangerouslyAllowBypassPermissions for bypassPermissions and vice versa', () => {
+  it('requires dangerouslyAllowBypassPermissions for bypassPermissions, and allows the flag with any initial mode', () => {
     invalid(
       () => session({ permissionMode: 'bypassPermissions' }),
       'permissionMode',
@@ -601,16 +629,23 @@ describe('cross-field rules (plan §2.3)', () => {
       'permissionMode',
       'bypass-permissions',
     );
-    invalid(
-      () => session({ dangerouslyAllowBypassPermissions: true }),
-      'dangerouslyAllowBypassPermissions',
-      'bypass-permissions',
-    );
-    invalid(
-      () => session({ permissionMode: 'auto', dangerouslyAllowBypassPermissions: true }),
-      'dangerouslyAllowBypassPermissions',
-      'bypass-permissions',
-    );
+    // Ruling F2: the flag authorizes a later setPermissionMode('bypassPermissions')
+    // too, so it is valid with another initial mode.
+    for (const permissionMode of [
+      undefined,
+      'default',
+      'acceptEdits',
+      'plan',
+      'dontAsk',
+      'auto',
+    ] as const) {
+      const resolved = session({
+        ...(permissionMode === undefined ? {} : { permissionMode }),
+        dangerouslyAllowBypassPermissions: true,
+      });
+      expect(resolved.dangerouslyAllowBypassPermissions).toBe(true);
+      expect(resolved.permissionMode).toBe(permissionMode ?? 'default');
+    }
     expect(
       session({ permissionMode: 'bypassPermissions', dangerouslyAllowBypassPermissions: true })
         .dangerouslyAllowBypassPermissions,
