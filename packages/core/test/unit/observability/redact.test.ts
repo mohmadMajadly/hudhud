@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import {
+  MIN_ENV_SECRET_LENGTH,
   REDACTED,
   credentialEnvNames,
   isCredentialEnvName,
@@ -43,6 +44,23 @@ describe('environment names and values', () => {
       PATH: '/usr/bin',
     };
     expect(secretsFromEnv(env)).toEqual(['fake-key-1']);
+  });
+
+  it('uses values of at least MIN_ENV_SECRET_LENGTH (8) code units for literal masking', () => {
+    expect(MIN_ENV_SECRET_LENGTH).toBe(8);
+    const env = { SEVEN_TOKEN: 'abcdefg', EIGHT_TOKEN: 'abcdefgh', FLAG_AUTH: '1' };
+    expect(secretsFromEnv(env)).toEqual(['abcdefgh']);
+    const text = 'id abcdefg, key abcdefgh, count 1';
+    expect(redactText(text, secretsFromEnv(env))).toBe(`id abcdefg, key ${R}, count 1`);
+  });
+
+  it('still applies shape rules to short values', () => {
+    const shortShape = { SHORT_TOKEN: 'abc1234' };
+    expect(secretsFromEnv(shortShape)).toEqual([]);
+    expect(redactText('Authorization: Bearer abc1234', secretsFromEnv(shortShape))).toBe(
+      `Authorization: ${R}`,
+    );
+    expect(redactText('SHORT_TOKEN=abc1234', [])).toBe(`SHORT_TOKEN=${R}`);
   });
 
   it('reports credential variable names sorted, never values', () => {

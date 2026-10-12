@@ -35,6 +35,11 @@
  *   {@link isCredentialEnvName}, unless their shape matches a rule above.
  * - Whitespace-only secret values (masking them would erase all spacing);
  *   such values carry no usable secret.
+ * - Values of credential variables shorter than {@link MIN_ENV_SECRET_LENGTH}
+ *   (8) code units: {@link secretsFromEnv} leaves them out of literal
+ *   masking, because they cannot be real API credentials and masking every
+ *   occurrence of, say, `1` would destroy diagnostics. Shape rules still
+ *   apply to them.
  * - Unquoted `name=value` values that contain whitespace: only the part up to
  *   the first whitespace is masked (rule 6). Literal secrets are unaffected.
  * - JSON escaped more than once (`\\\"token\\\"`): only the literal and
@@ -78,12 +83,30 @@ export function isCredentialEnvName(name: string): boolean {
   return CREDENTIAL_ENV_NAME.test(name);
 }
 
-/** An environment map as passed to a child process. */
+/**
+ * An environment map as passed to a child process.
+ *
+ * @public
+ */
 export type EnvMap = Readonly<Record<string, string | undefined>>;
 
 /**
- * The values of every credential variable of `env` (non-empty, not
- * whitespace-only), for use as the `secrets` of {@link redactText}.
+ * Shortest value of a credential variable that {@link secretsFromEnv} returns
+ * for literal masking: 8 UTF-16 code units (lead ruling on W1-T5).
+ *
+ * @remarks
+ * Shorter values cannot be real API credentials (flags such as `1` or
+ * `true`, short modes) and masking every occurrence of them would destroy
+ * diagnostics. The shape rules of {@link redactText} still apply to them.
+ *
+ * @public
+ */
+export const MIN_ENV_SECRET_LENGTH = 8;
+
+/**
+ * The values of every credential variable of `env` that are at least
+ * {@link MIN_ENV_SECRET_LENGTH} code units long and not whitespace-only, for
+ * use as the `secrets` of {@link redactText}.
  *
  * @remarks
  * The returned values are secrets themselves: keep them in memory only and
@@ -94,7 +117,12 @@ export type EnvMap = Readonly<Record<string, string | undefined>>;
 export function secretsFromEnv(env: EnvMap): readonly string[] {
   const values = new Set<string>();
   for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined && isCredentialEnvName(name) && value.trim() !== '') {
+    if (
+      value !== undefined &&
+      isCredentialEnvName(name) &&
+      value.length >= MIN_ENV_SECRET_LENGTH &&
+      value.trim() !== ''
+    ) {
       values.add(value);
     }
   }
