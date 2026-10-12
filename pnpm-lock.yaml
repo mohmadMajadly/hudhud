@@ -123,6 +123,9 @@ importers:
 
   packages/core:
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.5
       fast-check:
         specifier: 'catalog:'
         version: 4.10.2
