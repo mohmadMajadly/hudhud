@@ -1,0 +1,96 @@
+# macOS gate (ADR-0014 "macOS gate list", plan §5.4 M1). One-off, dispatched
+# by the lead; never triggered by pushes, pull requests or schedules.
+#
+# Each job fetches the pinned darwin CLI binaries (npm integrity and the
+# Agent SDK manifest.json, digests recorded while the pin is `pendingGate`),
+# runs the seven gate items against the in-process mock in an isolated
+# sandbox with a fake key and the egress trap, kills every process it started
+# by verified identity, and uploads one JSON result per item plus the digests
+# (artifacts kept 3 days). The harness is tooling/macos-gate (bin/ is the thin
+# host wrapper, src/ the unit-tested procedures).
+#
+# Runners (standard GitHub-hosted labels, verified 2026-10-12 against
+# docs.github.com "Standard GitHub-hosted runners for private repositories"
+# and actions/runner-images): macos-15 is arm64 (M1), mandatory; macos-15-intel
+# is x64. darwin-x64 is declared in maxTested only when its job has run
+# (ADR-0014 item 7).
+#
+# Least privilege: contents: read only, no secrets, no write token, no cache
+# writes (the setup action saves the pnpm store only on pushes to main), and
+# the CLI binaries are cached nowhere but the job's own temp directory.
+name: macOS gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk-version:
+        description: >-
+          @anthropic-ai/claude-agent-sdk version whose manifest.json describes the
+          pinned CLI (0.3.296 bundles CLI 2.1.296)
+        type: string
+        default: '0.3.296'
+
+permissions: {}
+
+concurrency:
+  group: macos-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate:
+    name: gate (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin-arm64
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin-x64
+            arch: x64
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+
+      - name: Bundle the harness
+        timeout-minutes: 5
+        run: >-
+          pnpm exec esbuild tooling/macos-gate/bin/macos-gate.mjs --bundle --platform=node
+          --format=esm --target=node22 --outfile="$RUNNER_TEMP/macos-gate/macos-gate.mjs"
+
+      - name: Run the seven gate items
+        timeout-minutes: 35
+        env:
+          EXPECT_ARCH: ${{ matrix.arch }}
+          SDK_VERSION: ${{ inputs.sdk-version }}
+        run: >-
+          node "$RUNNER_TEMP/macos-gate/macos-gate.mjs"
+          --out "$RUNNER_TEMP/macos-gate/results"
+          --cache "$RUNNER_TEMP/macos-gate/cli-cache"
+          --expect-arch "$EXPECT_ARCH"
+          --sdk-version "$SDK_VERSION"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-gate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/macos-gate/results
+          retention-days: 3
+          if-no-files-found: error
