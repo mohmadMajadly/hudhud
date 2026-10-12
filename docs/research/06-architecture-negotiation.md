@@ -172,3 +172,11 @@ K20 Compat is exposed as `harness.compat` and replayed as the first event of eve
 K21 `ask()` and `turn.done` resolve for error results and reject only for session-level failures.
 K22 hudhud installs no signal handlers; a terminal Ctrl+C on POSIX ends as outcome unknown with PROCESS_EXITED; documented.
 K23 For posture, hudhud parses the user's settings files read-only for ANTHROPIC_BASE_URL and provider switches only; values are never logged or stored; nothing is written.
+
+## L. Settings lookup spike rulings (2026-10-12)
+
+Evidence: research/08-settings-lookup-spike.md (CLI 2.1.296, Windows and Linux; macOS not covered). Narrows K5.
+L1 The `projectCredentialEnv` guard scan set (narrowed by evidence, 08): `settings.json` and `settings.local.json` in (a) the cwd, (b) the nearest git root (walk up to the first `.git` directory or file), (c) the main worktree root (follow a `.git` file's gitdir/commondir). If the git root cannot be resolved, fall back to the K5 superset (cwd and every ancestor) and report it as a diagnostic. Ancestors, outer repos and `--add-dir` entries are dropped with evidence. Applies on every OS (Windows reads only the cwd today; scanning more is harmless). The narrowing is tied to the tested CLI version: the newest-version canary re-runs the lookup check (t21) and a change fails the canary.
+L2 D13 wording corrected: ancestors are read for CLAUDE.md, `.mcp.json` and skills, NOT for settings files.
+L3 `--add-dir` directories' settings files are read for plugin and marketplace entries (never `env`); plugins can carry hooks and MCP servers. Recorded as an open item for the plugin posture (v1.x), not covered by the credential guard.
+L4 The undocumented `--project-config-root` flag moves the project config root: hudhud never passes it, and the `/raw` argv passthrough rejects it (and K-style reserved flags) with a typed error.
