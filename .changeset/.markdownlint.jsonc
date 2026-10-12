@@ -1,0 +1,10 @@
+// Changeset fragments are YAML front matter plus one changelog entry, which
+// Changesets copies into CHANGELOG.md (itself not linted, see the root
+// .markdownlint-cli2.jsonc). They have no heading by design, so only MD041
+// (first line is a heading) is off here; every other rule of the root config
+// applies.
+{
+  "default": true,
+  "MD013": false,
+  "MD041": false,
+}
