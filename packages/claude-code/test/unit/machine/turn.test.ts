@@ -10,11 +10,11 @@ import type { JsonObject } from '@hudhud/core/protocol';
 import {
   INTERRUPT_RETRY_DELAY_MS,
   initialTurnState,
-  outcomeOf,
   turnStep,
   type TurnEffect,
   type TurnInput,
 } from '../../../src/protocol/machine/turn.js';
+import { classifyResult } from '../../../src/protocol/events/normalize.js';
 import {
   CAPS_WITH_LIFECYCLE,
   Runner,
@@ -618,10 +618,18 @@ describe('result frame mapping (K21: an error result is a TurnResult)', () => {
     [{ subtype: 'success', is_error: true, api_error_status: 401 }, false, 'error', true],
     [{ subtype: 'error_max_turns', is_error: true }, false, 'max-turns', true],
     [{ subtype: 'error_max_budget_usd', is_error: true }, false, 'max-budget', true],
+    // One mapping (classifyResult): an aborted terminal reason is cancelled,
+    // with or without hudhud's own interrupt.
     [
       { subtype: 'error_during_execution', is_error: true, terminal_reason: 'aborted_tools' },
       false,
-      'error',
+      'cancelled',
+      true,
+    ],
+    [
+      { subtype: 'error_during_execution', is_error: true, terminal_reason: 'aborted_streaming' },
+      true,
+      'cancelled',
       true,
     ],
     [
@@ -634,7 +642,7 @@ describe('result frame mapping (K21: an error result is a TurnResult)', () => {
     [{ subtype: 'error_max_structured_output_retries' }, false, 'error', true],
     [{ subtype: 'something_new', is_error: true }, false, 'error', true],
     [{ subtype: 'something_new', is_error: false }, false, 'unknown', false],
-    [{}, false, 'unknown', true],
+    [{}, false, 'unknown', false],
   ] satisfies [JsonObject, boolean, string, boolean][])(
     '%j (interrupted: %s) -> %s',
     (frame, interrupted, outcome, isError) => {
@@ -709,11 +717,25 @@ describe('result frame mapping (K21: an error result is a TurnResult)', () => {
     expect(mapped({ subtype: 'success', total_cost_usd: 1 }).usage).toEqual({ costUsd: 1 });
   });
 
-  it('outcomeOf is total over odd frames', () => {
-    expect(outcomeOf({ subtype: 7 }, true)).toBe('unknown');
-    expect(
-      outcomeOf({ subtype: 'error_during_execution', terminal_reason: 'aborted_streaming' }, true),
-    ).toBe('cancelled');
+  it('takes outcome, isError and stop reason from classifyResult, also for odd frames', () => {
+    for (const frame of [
+      { subtype: 7 },
+      { subtype: 'error_during_execution', terminal_reason: 'aborted_streaming' },
+      { subtype: 'success', stop_reason: 'end_turn', terminal_reason: 'completed' },
+      { subtype: 'error_max_budget_usd', is_error: true, stop_reason: 'max_tokens' },
+    ] satisfies JsonObject[]) {
+      const { outcome, isError, stopReason } = classifyResult({ type: 'result', ...frame });
+      const value = mapped(frame, true);
+      expect(value).toMatchObject({ outcome, isError, synthesized: false });
+      expect(value.stopReason).toBe(stopReason);
+    }
+  });
+
+  it('keeps isError: true on a synthesized result', () => {
+    const run = new Runner();
+    run.step(send(T1), init());
+    const idle = settled(run.step(sessionState('idle')), T1);
+    expect(idle).toMatchObject({ outcome: 'unknown', isError: true, synthesized: true });
   });
 });
 

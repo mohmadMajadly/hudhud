@@ -36,10 +36,12 @@
  *   turn; `end` (process exit, decided by the composing machine) settles or
  *   fails every remaining turn. A `cancelled` list in an interrupt response
  *   settles the named queued turns. Every turn terminates exactly once.
- * - Outcomes are mapped from the observed `result` frame; an error result is
- *   a `TurnResult`, never a failure (K21). `error_during_execution` with
- *   `terminal_reason` `aborted_streaming`/`aborted_tools` after an interrupt
- *   is `cancelled`, the raw frame kept.
+ * - Outcomes, `isError` and the stop reason of an observed `result` frame
+ *   come from `classifyResult` (`../events/normalize.ts`), the one mapping of
+ *   result frames (an `aborted*` `terminal_reason` is `cancelled`); an error
+ *   result is a `TurnResult`, never a failure (K21), the raw frame kept.
+ *   Results hudhud synthesizes (idle, `cancelled` list, end) are built here
+ *   and always carry `isError: true`.
  *
  * @packageDocumentation
  */
@@ -48,17 +50,17 @@ import {
   isJsonObject,
   makeErrorData,
   ownArray,
-  ownBoolean,
   ownNumber,
   ownObject,
   ownString,
   type ErrorData,
   type JsonObject,
   type JsonValue,
-  type TurnOutcome,
   type TurnResult,
   type UsageTotals,
 } from '@hudhud/core/protocol';
+
+import { classifyResult } from '../events/normalize.js';
 
 /**
  * Delay before the single re-send of an interrupt whose response still lists
@@ -305,11 +307,6 @@ interface Draft {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const ABORTED_TERMINAL_REASONS: ReadonlySet<string> = new Set([
-  'aborted_streaming',
-  'aborted_tools',
-]);
 
 /**
  * Advances the turn machine by one input.
@@ -722,44 +719,20 @@ function strings(values: readonly JsonValue[] | undefined): string[] {
 
 // ---- result mapping -------------------------------------------------------------
 
-/**
- * Maps a `result` frame to the outcome of `turn` (05 §7, §9; 01 result
- * subtypes).
- *
- * @internal
- */
-export function outcomeOf(frame: JsonObject, interrupted: boolean): TurnOutcome {
-  const subtype = ownString(frame, 'subtype');
-  const isError = ownBoolean(frame, 'is_error');
-  const terminalReason = ownString(frame, 'terminal_reason');
-  if (
-    subtype === 'error_during_execution' &&
-    interrupted &&
-    terminalReason !== undefined &&
-    ABORTED_TERMINAL_REASONS.has(terminalReason)
-  ) {
-    return 'cancelled';
-  }
-  if (subtype === 'success') return isError === true ? 'error' : 'completed';
-  if (subtype === 'error_max_turns') return 'max-turns';
-  if (subtype === 'error_max_budget_usd') return 'max-budget';
-  return isError === true || subtype?.startsWith('error') === true ? 'error' : 'unknown';
-}
-
+/** The `TurnResult` of an observed `result` frame (classification: `classifyResult`). */
 function resultFromFrame(sessionId: string, turn: TurnEntry, frame: JsonObject): TurnResult {
-  const outcome = outcomeOf(frame, turn.phase === 'interrupting');
+  const { outcome, isError, stopReason } = classifyResult(frame);
   const result: Mutable<TurnResult> = {
     turnId: turn.turnId,
     sessionId,
     outcome,
-    isError: ownBoolean(frame, 'is_error') ?? outcome !== 'completed',
+    isError,
     permissionDenials: denialsOf(frame),
     synthesized: false,
     raw: frame,
   };
   const text = ownString(frame, 'result');
   if (text !== undefined) result.text = text;
-  const stopReason = stopReasonOf(outcome);
   if (stopReason !== undefined) result.stopReason = stopReason;
   const terminalReason = ownString(frame, 'terminal_reason');
   if (terminalReason !== undefined) result.terminalReason = terminalReason;
@@ -773,12 +746,6 @@ function resultFromFrame(sessionId: string, turn: TurnEntry, frame: JsonObject):
 }
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-function stopReasonOf(outcome: TurnOutcome): string | undefined {
-  if (outcome === 'cancelled') return 'cancelled';
-  if (outcome === 'max-turns') return 'max_turn_requests';
-  return undefined;
-}
 
 const USAGE_FIELDS: readonly (readonly [string, keyof UsageTotals])[] = [
   ['input_tokens', 'inputTokens'],
