@@ -1,0 +1,10 @@
+      1       0       1 Mon Oct 12 17:02:31 2026 docker-init
+      8       1       8 Mon Oct 12 17:02:31 2026 bash
+     16       8      16 Mon Oct 12 17:02:31 2026 a) (b c
+     17       8      17 Mon Oct 12 17:02:31 2026 x) R 1 1 1 0
+     18       8      18 Mon Oct 12 17:02:31 2026 nl.9 1 9 Z
+     19       8      19 Mon Oct 12 17:02:31 2026 ??-bad
+     20       8      20 Mon Oct 12 17:02:31 2026 bash
+     22      20      20 Mon Oct 12 17:02:31 2026 plain
+     23      20      20 Mon Oct 12 17:02:31 2026 plain
+     34       8      34 Mon Oct 12 17:02:32 2026 ps
