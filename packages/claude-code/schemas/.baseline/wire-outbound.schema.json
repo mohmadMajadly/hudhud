@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/claude-code/schema-src/wire.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "Claude Code wire frames written by hudhud",
+  "description": "Strict: every frame hudhud writes to the CLI stdin must match, and unknown keys are refused.",
+  "$ref": "#/$defs/OutboundFrame",
+  "$defs": {
+    "PermissionModeWire": {
+      "enum": [
+        "default",
+        "acceptEdits",
+        "plan",
+        "dontAsk",
+        "auto",
+        "bypassPermissions"
+      ]
+    },
+    "InitializeRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id",
+        "request"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_request"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "subtype"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "initialize"
+            },
+            "appendSystemPrompt": {
+              "type": "string"
+            },
+            "systemPrompt": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "InterruptRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id",
+        "request"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_request"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "cancel_queued"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "interrupt"
+            },
+            "cancel_queued": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "SetPermissionModeRequestFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "request_id",
+        "request"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_request"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "mode"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "set_permission_mode"
+            },
+            "mode": {
+              "$ref": "#/$defs/PermissionModeWire"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "UserContentBlockWire": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "text"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "text"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "source"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "image"
+            },
+            "source": {
+              "type": "object",
+              "required": [
+                "type",
+                "media_type",
+                "data"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "base64"
+                },
+                "media_type": {
+                  "enum": [
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp"
+                  ]
+                },
+                "data": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "UserContentWire": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UserContentBlockWire"
+          }
+        }
+      ]
+    },
+    "UserMessageFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "message",
+        "uuid"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "user"
+        },
+        "message": {
+          "type": "object",
+          "required": [
+            "role",
+            "content"
+          ],
+          "properties": {
+            "role": {
+              "type": "string",
+              "const": "user"
+            },
+            "content": {
+              "$ref": "#/$defs/UserContentWire"
+            }
+          },
+          "additionalProperties": false
+        },
+        "parent_tool_use_id": {
+          "type": "null"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "enum": [
+            "now",
+            "next",
+            "later"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PermissionDecisionWire": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "behavior"
+          ],
+          "properties": {
+            "behavior": {
+              "type": "string",
+              "const": "allow"
+            },
+            "updatedInput": {
+              "type": "object"
+            },
+            "updatedPermissions": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "maxItems": 4096
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "behavior",
+            "message"
+          ],
+          "properties": {
+            "behavior": {
+              "type": "string",
+              "const": "deny"
+            },
+            "message": {
+              "type": "string"
+            },
+            "interrupt": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PermissionResponseFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "response"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_response"
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "request_id",
+            "response"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "success"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "response": {
+              "$ref": "#/$defs/PermissionDecisionWire"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ControlErrorResponseFrame": {
+      "type": "object",
+      "required": [
+        "type",
+        "response"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_response"
+        },
+        "response": {
+          "type": "object",
+          "required": [
+            "subtype",
+            "request_id",
+            "error"
+          ],
+          "properties": {
+            "subtype": {
+              "type": "string",
+              "const": "error"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "OutboundFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InitializeRequestFrame"
+        },
+        {
+          "$ref": "#/$defs/InterruptRequestFrame"
+        },
+        {
+          "$ref": "#/$defs/SetPermissionModeRequestFrame"
+        },
+        {
+          "$ref": "#/$defs/UserMessageFrame"
+        },
+        {
+          "$ref": "#/$defs/PermissionResponseFrame"
+        },
+        {
+          "$ref": "#/$defs/ControlErrorResponseFrame"
+        }
+      ]
+    }
+  }
+}

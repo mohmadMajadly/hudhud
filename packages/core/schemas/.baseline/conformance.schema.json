@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Generated from packages/core/schema-src/index.ts by scripts/schema/build.mjs. Do not edit.",
+  "title": "hudhud conformance fixture line",
+  "description": "One line of a language-neutral golden conformance suite (JSONL): record lines replayed against a machine, then an expect line.",
+  "$ref": "#/$defs/ConformanceLine",
+  "$defs": {
+    "ConformanceRecordLine": {
+      "type": "object",
+      "required": [
+        "t",
+        "dir",
+        "v"
+      ],
+      "properties": {
+        "t": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dir": {
+          "enum": [
+            "config",
+            "in",
+            "out",
+            "err",
+            "exit",
+            "cmd",
+            "timer"
+          ]
+        },
+        "v": {}
+      },
+      "additionalProperties": false
+    },
+    "ConformanceExpectLine": {
+      "type": "object",
+      "required": [
+        "dir",
+        "effects",
+        "events"
+      ],
+      "properties": {
+        "dir": {
+          "type": "string",
+          "const": "expect"
+        },
+        "effects": {
+          "type": "array",
+          "items": {}
+        },
+        "events": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConformanceLine": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConformanceRecordLine"
+        },
+        {
+          "$ref": "#/$defs/ConformanceExpectLine"
+        }
+      ]
+    }
+  }
+}
