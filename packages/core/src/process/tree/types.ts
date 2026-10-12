@@ -1,0 +1,49 @@
+import type { ProcessTableSource } from '../os/types.js';
+
+/**
+ * Identity of a process: its pid plus its start time (ADR-0010, ADR-0011
+ * J9). A pid alone is never an identity, because pids are reused.
+ */
+export interface ProcessIdentity {
+  readonly pid: number;
+  /**
+   * Canonical unsigned decimal (no sign, no leading zeros, at most 20
+   * digits) in the unit of the snapshot's source: clock ticks since boot
+   * (`linux-proc`), seconds since the epoch at one-second resolution
+   * (`darwin-ps`), FILETIME 100 ns units (`win32-cim`). Compare only within
+   * one source.
+   */
+  readonly startTime: string;
+}
+
+/** One row of a process-table snapshot. */
+export interface ProcessRecord extends ProcessIdentity {
+  readonly ppid: number;
+  /** Process-group id; absent on Windows, which has no process groups. */
+  readonly pgid?: number;
+  /**
+   * Command name as reported by the OS, decoded from bytes with U+FFFD for
+   * ill-formed UTF-8. Untrusted: may hold spaces, parentheses, newlines and
+   * control characters. Informational only; never used for a decision.
+   */
+  readonly name: string;
+}
+
+/** A process table read at one instant from one source. */
+export interface ProcessSnapshot {
+  readonly source: ProcessTableSource;
+  /** Records with unique pids (every duplicated pid is dropped, see {@link ProcessSnapshot.rejected}). */
+  readonly records: readonly ProcessRecord[];
+  /**
+   * Entries that could not be used: unparseable lines or files, records
+   * without a start time, and every record of a pid that appeared more than
+   * once (a sign of a forged line).
+   */
+  readonly rejected: number;
+}
+
+/** Output of a process-table parser before pid deduplication. */
+export interface ParsedProcessTable {
+  readonly records: readonly ProcessRecord[];
+  readonly rejected: number;
+}
