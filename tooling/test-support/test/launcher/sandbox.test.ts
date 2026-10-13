@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { DARWIN_CHILD_SET_ENV_NAMES } from '@hudhud/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { FAKE_API_KEY } from '../../src/launcher/env.js';
@@ -306,7 +307,13 @@ describe('launching the pinned binary', () => {
     // variable per name), exactly on POSIX (`HTTPS_PROXY` and `https_proxy`
     // are two variables there, and the sandbox sets both).
     const fold = (k: string): string => (process.platform === 'win32' ? k.toUpperCase() : k);
-    const childKeys = Object.keys(v.env).map(fold).sort();
+    // On darwin the child's CoreFoundation sets these itself at startup
+    // (core DARWIN_CHILD_SET_ENV_NAMES); only they may appear beyond the map.
+    const childSet = process.platform === 'darwin' ? DARWIN_CHILD_SET_ENV_NAMES : [];
+    const childKeys = Object.keys(v.env)
+      .filter((k) => !(childSet.includes(k) && !Object.hasOwn(expected, k)))
+      .map(fold)
+      .sort();
     const expectedKeys = [...new Set(Object.keys(expected).map(fold))].sort();
     expect(childKeys).toEqual(expectedKeys);
     expect(v.env['ANTHROPIC_API_KEY']).toBe(FAKE_API_KEY);
