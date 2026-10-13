@@ -13,6 +13,7 @@ These files are point-in-time research snapshots dated 2026-10-12. They record w
 | [07-pre-v1-spikes.md](07-pre-v1-spikes.md) | Pre-v1 spike results against the pinned CLI 2.1.296 (resume/fork, host crash, nonessential traffic, pid, concurrency, long paths, background ceiling, hook timeout, project env base URL, workspaceTrust; Windows and Linux, no macOS) |
 | [08-settings-lookup-spike.md](08-settings-lookup-spike.md) | Spike W0-T2: which settings files CLI 2.1.296 loads (cwd, git root, main worktree, ancestors, `--add-dir`), precedence, `.mcp.json` and CLAUDE.md lookup; Windows and Linux, no macOS |
 | [09-macos-gate-run1.md](09-macos-gate-run1.md) | First macOS gate run (2026-10-13, arm64): `ps` column padding, zombie `(name)` entries, SIGINT error result, `security(1)` with an API key, resume write order, pnpm on Intel macOS; what the next run must confirm |
+| [10-macos-gate-run2.md](10-macos-gate-run2.md) | Second macOS gate run (2026-10-13, arm64 and x64): item 3 verdict vs ADR-0014 amendment 5, Keychain shim and search-list findings, resume stalls caused by a re-used user-message `uuid` (reproduced on Linux), round-1 fixes confirmed, darwin digests and Team ID |
 
 Rules for reading them:
 

@@ -88,6 +88,8 @@ On a developer Mac, the real-CLI test suites would run the CLI with the develope
 
 **Verdict.** The harness diverged from the verified method in the one respect that differs between the start run and the resume runs: the write order on a resumed session. The likely cause is a CLI race: a user message that arrives while the resumed session is still being loaded is queued (one `command_lifecycle`, presumably `queued`; run 1 did not record lifecycle states) and never started. Whether this race is macOS-only is unknown, because neither Windows nor Linux was ever tested with this write order on resume.
 
+**Superseded (research 10 §3).** This verdict is wrong. The cause is the user message's `uuid`, not the write order: every gate process numbered its messages from 1, so each resume re-sent the start run's `uuid`, and CLI 2.1.296 drops a message whose `uuid` the resumed transcript already holds (one `command_lifecycle` `completed`, no turn). Reproduced on Linux in both write orders.
+
 **Gate change.** Resume runs wait for the `initialize` response before the first user message. One extra evidence-only run repeats the run-1 order (`eagerResume`, 30 s limit). Lifecycle states are now recorded (`command_lifecycle:queued`).
 
 **Implication for hudhud.** Until `eagerResume` shows otherwise, the session layer must not write the first user message of a resumed session before the `initialize` response, and should not do so for any session. This needs a decision for the session machine; it is not changed here.

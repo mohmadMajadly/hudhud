@@ -24,7 +24,7 @@ Measured behaviour of CLI 2.1.296 (05):
 1. hudhud always generates a session UUID and passes `--session-id` (A8). Collisions with an existing id are rejected by the CLI, but two simultaneous starts with the same id are not (07 §1 d), so hudhud owns id uniqueness.
 2. hudhud always sends `initialize` first, even though the CLI does not require it (F amendment to A11). Reasons recorded in the log or implied by it: the first-frame watchdog is armed on the `initialize` write; `initialize.pid`, `claude_code_version`, `account.apiKeySource` and capability data come from its response; `initialize.pid` selects the POSIX SIGTERM target behind a launcher, while containment and the sweep stay rooted at the spawned pid (K1, 06 §K; [ADR-0010](0010-process-layer-posix.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)); `onAuthFailure` depends on `apiKeySource` ([ADR-0012](0012-security-defaults-and-trust.md)).
 3. `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` is always set (not `CLAUDE_CODE_SDK_READS_SESSION_STATE`, which adds `sdk_host_only` marking), pinning the reliable "idle" run-end signal (D11).
-4. Every user message carries a `uuid`. The CLI echoes it in `result.user_message_uuid(s)` and in `command_lifecycle` frames; hudhud uses it to correlate turns and interrupts (05 §5).
+4. Every user message carries a `uuid`. The CLI echoes it in `result.user_message_uuid(s)` and in `command_lifecycle` frames; hudhud uses it to correlate turns and interrupts (05 §5). The `uuid` must be unique across the session's whole transcript, including messages written by earlier processes of a resumed session: CLI 2.1.296 drops a user message whose `uuid` the resumed transcript already holds. It answers with a single `command_lifecycle` `completed` frame, starts no turn and writes no `result`, before any `system/init` (research 10 §3, reproduced on Linux; the cause of the item 6 stalls of macOS gate runs 1 and 2). Forked sessions were not measured. hudhud therefore never re-sends a stored `uuid`: the binding generates a fresh random UUID for every send (the binding contract on `cmd.send`).
 5. Every depended-on behaviour is pinned by an explicit flag or environment variable, never by an unrecorded default (A8; see [ADR-0012](0012-security-defaults-and-trust.md) for the table).
 
 ### Resume, continue and fork (J6, J7; 07 §1)
@@ -92,5 +92,6 @@ Inbound NDJSON framer: bounded and UTF-8 safe, per-line cap 64 MiB by default an
 
 - 05 §5, §7, §8, §9, §11, §12, §15.
 - 07 §1 (resume/fork matrix), §2 (host crash), §7 (background wait ceiling), §11 item 3-4; 06 §J5-J8.
+- 10 §3 (a reused user-message `uuid` on resume is dropped).
 - 02 §6.1 (stdin close), §6.3 (SDK close ladder).
 - 01 §2.9 (interrupt and priority), §3 (exit codes), §7 (hang reports: GH#99194, GH#86074).
