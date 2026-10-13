@@ -29,10 +29,12 @@ import {
   claudePostureEntries,
   managedPolicyOf,
   nodeSettingsFileReader,
+  projectSettingsFlagsOf,
   scanUserSettingsEnv,
   USER_SETTINGS_MAX_BYTES,
   userConfigDir,
   type ClaudePostureInput,
+  type ProjectSettingsEnvFlags,
   type RawPostureInput,
   type SettingsFileReader,
   type UserSettingsEnvScan,
@@ -52,6 +54,7 @@ interface Build {
   readonly env?: Readonly<Record<string, string>>;
   readonly userSettings?: UserSettingsEnvScan;
   readonly raw?: RawPostureInput;
+  readonly projectSettings?: ProjectSettingsEnvFlags;
 }
 
 function effective(build: Build): {
@@ -72,6 +75,7 @@ function posture(build: Build = {}): SecurityPosture {
     env: build.env ?? {},
     userSettings: build.userSettings ?? CLEAN,
     ...(build.raw === undefined ? {} : { raw: build.raw }),
+    ...(build.projectSettings === undefined ? {} : { projectSettings: build.projectSettings }),
     platform: 'posix',
   };
   return buildPosture(claudePostureEntries(input));
@@ -499,6 +503,64 @@ describe('managedPolicyOf', () => {
     expect(managedPolicyOf({ ...base, userSettings: unreadable })).toBe(
       'unknown-user-settings-unreadable',
     );
+  });
+
+  it('reports guard findings in project or local settings under allow (ruling 3)', () => {
+    expect(projectSettingsFlagsOf([])).toEqual({ customBaseUrl: false, thirdPartyProvider: false });
+    expect(projectSettingsFlagsOf(['anthropic_base_url', 'ANTHROPIC_API_KEY'])).toEqual({
+      customBaseUrl: true,
+      thirdPartyProvider: false,
+    });
+    expect(projectSettingsFlagsOf(['Claude_Code_Use_Bedrock'])).toEqual({
+      customBaseUrl: false,
+      thirdPartyProvider: true,
+    });
+    // Other credential or routing names are refused by the guard but do not
+    // decide the managed-policy fetch.
+    expect(projectSettingsFlagsOf(['ANTHROPIC_BEDROCK_BASE_URL', 'HTTPS_PROXY'])).toEqual({
+      customBaseUrl: false,
+      thirdPartyProvider: false,
+    });
+    expect(
+      managedPolicyOf({ ...base, projectSettings: projectSettingsFlagsOf(['ANTHROPIC_BASE_URL']) }),
+    ).toBe('not-fetched-custom-base-url');
+    expect(
+      managedPolicyOf({
+        ...base,
+        projectSettings: projectSettingsFlagsOf(['CLAUDE_CODE_USE_VERTEX']),
+      }),
+    ).toBe('not-applicable-third-party-provider');
+    const p = posture({
+      session: { workspaceTrust: 'full', projectCredentialEnv: 'allow' },
+      projectSettings: projectSettingsFlagsOf(['ANTHROPIC_BASE_URL']),
+    });
+    expect(valueOf(p, 'managedPolicy')).toBe('not-fetched-custom-base-url');
+    expect(valueOf(posture({ projectSettings: projectSettingsFlagsOf([]) }), 'managedPolicy')).toBe(
+      'fetched-if-eligible',
+    );
+  });
+
+  it('reports raw --settings as unknown, after the known causes (ruling 3)', () => {
+    for (const extraArgs of [['--settings=/x.json'], ['--settings', '/x.json']]) {
+      expect(valueOf(posture({ raw: { extraArgs } }), 'managedPolicy')).toBe(
+        'unknown-raw-settings',
+      );
+    }
+    // Not a --settings flag: a value, another flag, or a prefix of another name.
+    for (const extraArgs of [['settings'], ['--setting-sources=user'], ['--settingsx=1']]) {
+      expect(valueOf(posture({ raw: { extraArgs } }), 'managedPolicy')).toBe('fetched-if-eligible');
+    }
+    const unreadable = { ...CLEAN, present: true, readable: false };
+    expect(managedPolicyOf({ ...base, rawSettings: true, userSettings: unreadable })).toBe(
+      'unknown-raw-settings',
+    );
+    expect(
+      managedPolicyOf({ ...base, rawSettings: true, env: { ANTHROPIC_BASE_URL: 'http://h' } }),
+    ).toBe('not-fetched-custom-base-url');
+    expect(
+      managedPolicyOf({ ...base, rawSettings: true, env: { CLAUDE_CODE_USE_VERTEX: '1' } }),
+    ).toBe('not-applicable-third-party-provider');
+    expect(managedPolicyOf({ ...base, rawSettings: false })).toBe('fetched-if-eligible');
   });
 
   it('follows env remove: a removed base URL is not in the child env', () => {

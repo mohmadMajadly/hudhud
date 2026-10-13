@@ -45,13 +45,21 @@ import type {
  *   seen; the CLI fetches it when the account is eligible.
  * - `'not-fetched-custom-base-url'`: `ANTHROPIC_BASE_URL` is set.
  * - `'not-applicable-third-party-provider'`: a `CLAUDE_CODE_USE_*` switch is on.
+ * - `'unknown-raw-settings'`: the `/raw` `extraArgs` pass `--settings`, whose
+ *   content hudhud does not read, so a base URL in it cannot be ruled out.
  * - `'unknown-user-settings-unreadable'`: the user settings file exists but
  *   could not be read or parsed, so a base URL in it cannot be ruled out.
+ *
+ * Precedence: a known custom base URL, then a known third-party provider
+ * (both decide the fetch whatever else is configured), then the two unknowns.
+ * The user settings file is `<config dir>/settings.json` only: that is the
+ * one user-scope file whose `env` the CLI applies (plan §1.9, 08).
  */
 export type ManagedPolicy =
   | 'fetched-if-eligible'
   | 'not-fetched-custom-base-url'
   | 'not-applicable-third-party-provider'
+  | 'unknown-raw-settings'
   | 'unknown-user-settings-unreadable';
 
 /** Default of the `managedPolicy` entry. */
@@ -131,6 +139,33 @@ function envFlags(
   return { customBaseUrl, thirdPartyProvider };
 }
 
+/**
+ * What the project credential guard found in the project and local settings
+ * when `projectCredentialEnv: 'allow'` let the session run with them (W3-Z
+ * ruling 3). Booleans only; built by {@link projectSettingsFlagsOf} from the
+ * variable names of the guard's findings.
+ */
+export interface ProjectSettingsEnvFlags {
+  /** A scanned project or local settings file sets `ANTHROPIC_BASE_URL`. */
+  readonly customBaseUrl: boolean;
+  /** A scanned project or local settings file names a `CLAUDE_CODE_USE_*` switch. */
+  readonly thirdPartyProvider: boolean;
+}
+
+/**
+ * The managed-policy flags of the variable names the guard found in project
+ * and local settings. Names only (the guard never keeps values), compared
+ * case-insensitively; a named provider switch counts as on (its value is not
+ * known), which can only make the posture more cautious.
+ */
+export function projectSettingsFlagsOf(names: readonly string[]): ProjectSettingsEnvFlags {
+  const upper = names.map((name) => name.toUpperCase());
+  return Object.freeze({
+    customBaseUrl: upper.includes(BASE_URL),
+    thirdPartyProvider: upper.some((name) => name.startsWith(PROVIDER_PREFIX)),
+  });
+}
+
 /** Input of {@link managedPolicyOf}. */
 export interface ManagedPolicyInput {
   /** The environment the CLI runs with (see {@link ClaudePostureInput.env}). */
@@ -138,23 +173,30 @@ export interface ManagedPolicyInput {
   /** Variables the options name explicitly (env map, `env.add`, `/raw` `extraEnv`). */
   readonly named: readonly Readonly<Record<string, string>>[];
   readonly userSettings: UserSettingsEnvScan;
+  /** Guard findings in project and local settings under `'allow'`; absent when none apply. */
+  readonly projectSettings?: ProjectSettingsEnvFlags;
+  /** The `/raw` `extraArgs` pass `--settings` (content not read by hudhud). */
+  readonly rawSettings?: boolean;
   readonly platform: ProcessPlatform;
 }
 
 /**
  * The managed-policy state (K23). A custom base URL from any source wins,
- * then a third-party provider, then an unreadable user settings file.
+ * then a third-party provider, then raw `--settings`, then an unreadable
+ * user settings file.
  */
 export function managedPolicyOf(input: ManagedPolicyInput): ManagedPolicy {
   const sources: EnvFlags[] = [
     envFlags(Object.entries(input.env), input.platform),
     ...input.named.map((variables) => envFlags(Object.entries(variables), input.platform)),
     input.userSettings,
+    ...(input.projectSettings === undefined ? [] : [input.projectSettings]),
   ];
   if (sources.some((flags) => flags.customBaseUrl)) return 'not-fetched-custom-base-url';
   if (sources.some((flags) => flags.thirdPartyProvider)) {
     return 'not-applicable-third-party-provider';
   }
+  if (input.rawSettings === true) return 'unknown-raw-settings';
   if (!input.userSettings.readable) return 'unknown-user-settings-unreadable';
   return 'fetched-if-eligible';
 }
@@ -304,6 +346,12 @@ export interface ClaudePostureInput {
   readonly env: EnvMap;
   /** From {@link scanUserSettingsEnv}. */
   readonly userSettings: UserSettingsEnvScan;
+  /**
+   * From {@link projectSettingsFlagsOf} over the guard's findings when the
+   * session runs with `projectCredentialEnv: 'allow'` (wired by the adapter
+   * assembly); absent otherwise.
+   */
+  readonly projectSettings?: ProjectSettingsEnvFlags;
   readonly raw?: RawPostureInput;
   readonly platform: ProcessPlatform;
 }
@@ -339,6 +387,8 @@ export function claudePostureEntries(input: ClaudePostureInput): readonly Postur
     env: input.env,
     named: namedVariables(input),
     userSettings: input.userSettings,
+    ...(input.projectSettings === undefined ? {} : { projectSettings: input.projectSettings }),
+    rawSettings: flagNames(input.raw?.extraArgs ?? []).includes('--settings'),
     platform: input.platform,
   });
   return [
