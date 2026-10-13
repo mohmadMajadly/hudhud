@@ -975,6 +975,42 @@
       "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
     },
     {
+      "suite": "resume-duplicate-uuid",
+      "case": "main",
+      "file": "resume-duplicate-uuid/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1, one turn with user-message uuid N1; main: --resume=U1 and a user message with uuid N1 again: command_lifecycle completed only, no turn",
+      "research": "10 §3",
+      "recordedOn": "2026-10-13",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "dbbdda5",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": []
+    },
+    {
+      "suite": "resume-duplicate-uuid",
+      "case": "setup",
+      "file": "resume-duplicate-uuid/linux.setup.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1, one turn with user-message uuid N1; main: --resume=U1 and a user message with uuid N1 again: command_lifecycle completed only, no turn",
+      "research": "10 §3",
+      "recordedOn": "2026-10-13",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "dbbdda5",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": []
+    },
+    {
       "suite": "resume-not-found",
       "case": "main",
       "file": "resume-not-found/linux.jsonl",
