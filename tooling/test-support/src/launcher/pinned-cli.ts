@@ -15,12 +15,15 @@ import type { BigIntStats } from 'node:fs';
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
 
+import { sha256File } from '@hudhud/core/process';
+
 import { CliFetchError } from '../cli/errors.js';
 import { hostPlatform, libcFromReport, loadPin } from '../cli/pin.js';
+import type { CliPin } from '../cli/pin.js';
 import { verifyPinnedCli } from '../cli/pinned.js';
 import type { CliBinary } from '../cli/pinned.js';
 import { SandboxRefusedError } from './errors.js';
-import { assertRealCliHostAllowed } from './host-policy.js';
+import { assertRealCliHostAllowed, realCliHostRefusal } from './host-policy.js';
 
 /** A pinned binary verified in this process, with the file identity it had then. */
 export interface VerifiedCli extends CliBinary {
@@ -110,15 +113,36 @@ function pinFileOf(options: PinnedCliOptions): string {
   return options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json');
 }
 
+/** sha256 of the running Node.js binary, read once per process. */
+let standInDigest: Promise<string> | undefined;
+
+function runningNodeDigest(): Promise<string> {
+  standInDigest ??= sha256File(process.execPath).then((digest) => digest.sha256);
+  return standInDigest;
+}
+
 /**
- * The repository pin names the real Claude Code CLI: refuse it on a local
- * macOS host (host-policy.ts, W3-Z ruling 10). A test's own pin (the fake
- * CLI) is not the real binary.
+ * Refuses the real Claude Code CLI on a host where real-CLI runs are refused
+ * (a local Mac, `host-policy.ts`, W3-Z ruling 10), keyed on what would run,
+ * not on where the pin lives: default deny. The only binary allowed there
+ * is the stand-in CLI of the unit tests, which is a copy of the running
+ * Node.js binary, so a pin entry passes only when its pinned sha256 is the
+ * sha256 of `process.execPath`; a pending entry (no digest) or any other
+ * digest is presumed real. The host markers (`CI`, `RUNNER_ENVIRONMENT`,
+ * the opt-in) are read from the real process environment, never from the
+ * caller's `env`, which may be a constructed one.
  */
-function refuseRealCliHost(pinFile: string, options: PinnedCliOptions): void {
-  if (path.resolve(pinFile) === path.resolve(options.repoRoot, 'tooling', 'cli-pin.json')) {
-    assertRealCliHostAllowed(options.hostPlatform ?? process.platform, options.env);
+async function refuseRealCliHost(
+  pin: CliPin,
+  platformKey: string,
+  hostPlatformName: NodeJS.Platform,
+): Promise<void> {
+  if (realCliHostRefusal(hostPlatformName, process.env) === undefined) return;
+  const entry = pin.platforms.get(platformKey);
+  if (entry !== undefined && !('pendingGate' in entry)) {
+    if (entry.sha256 === (await runningNodeDigest())) return;
   }
+  assertRealCliHostAllowed(hostPlatformName, process.env);
 }
 
 /** Every {@link VerifiedCli} issued by {@link resolvePinnedCli} in this process. */
@@ -132,15 +156,16 @@ const ISSUED = new WeakSet<VerifiedCli>();
  *   a verifying copy (run `pnpm cli:fetch`).
  */
 export async function resolvePinnedCli(options: PinnedCliOptions): Promise<VerifiedCli> {
-  const pinFile = pinFileOf(options);
-  refuseRealCliHost(pinFile, options);
   const cacheRoot = options.cacheRoot ?? defaultCacheRoot(options.repoRoot, options.env);
-  const pin = await loadPin(pinFile);
+  const pin = await loadPin(pinFileOf(options));
+  const platform = options.platformKey ?? hostPlatformKey(options.env);
+  const hostPlatformName = options.hostPlatform ?? process.platform;
+  await refuseRealCliHost(pin, platform, hostPlatformName);
   const binary = await verifyPinnedCli({
     pin,
-    platform: options.platformKey ?? hostPlatformKey(options.env),
+    platform,
     cacheRoot,
-    hostPlatform: options.hostPlatform ?? process.platform,
+    hostPlatform: hostPlatformName,
   });
   const verified: VerifiedCli = Object.freeze({
     ...binary,

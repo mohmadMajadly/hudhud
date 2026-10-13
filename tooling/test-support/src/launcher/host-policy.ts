@@ -14,6 +14,8 @@
  * the fake CLI of the unit tests is not the real binary and is not refused.
  */
 
+import process from 'node:process';
+
 import { SandboxRefusedError } from './errors.js';
 
 /** The explicit opt-in for real-CLI runs on a local macOS host. */
@@ -22,12 +24,18 @@ export const LOCAL_MACOS_OPT_IN = 'HUDHUD_ALLOW_LOCAL_MACOS_REAL_CLI';
 /**
  * Why a real-CLI run is refused on this host, or `undefined` when it may
  * run.
+ *
+ * @remarks
+ * `platform` is a test seam that can only make the policy stricter: the run
+ * counts as a macOS run when EITHER the injected `platform` OR the real
+ * `process.platform` (read at each call) is `darwin`. Tests can simulate a
+ * Mac on any host; nothing can claim another platform on a real Mac.
  */
 export function realCliHostRefusal(
   platform: NodeJS.Platform,
   env: Readonly<Record<string, string | undefined>>,
 ): string | undefined {
-  if (platform !== 'darwin') return undefined;
+  if (platform !== 'darwin' && process.platform !== 'darwin') return undefined;
   if (env['CI'] === 'true' && env['RUNNER_ENVIRONMENT'] === 'github-hosted') return undefined;
   if (env[LOCAL_MACOS_OPT_IN] === '1') return undefined;
   return (
