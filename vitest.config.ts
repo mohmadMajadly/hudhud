@@ -70,12 +70,23 @@ const OFF_PLATFORM_OS_ADAPTERS = [
   ...(process.platform === 'darwin' ? [] : ['packages/core/src/process/os/darwin.ts']),
 ];
 
+// A test timeout is a hang guard, not a performance budget (owner ruling,
+// W3-Z ruling 4): tests assert behaviour, and CPU-bound property tests (hash,
+// redaction, decoders, tar, schema builds, model checks) legitimately take
+// several seconds when every worker shares a loaded machine with coverage on.
+// Their run counts are never lowered to fit a budget. 60 s stops a hang; a
+// test that needs a time bound asserts it itself, with an injected clock.
+const HANG_GUARD_MS = 60_000;
+// Inline projects do not inherit the root test options, so each project spreads it.
+const HANG_GUARD = { testTimeout: HANG_GUARD_MS, hookTimeout: HANG_GUARD_MS } as const;
+
 export default defineConfig({
   test: {
     passWithNoTests,
     projects: [
       {
         test: {
+          ...HANG_GUARD,
           name: 'unit',
           include: PROJECTS.unit.map((dir) => `${dir}/**/*.test.ts`),
           exclude: [
@@ -87,18 +98,21 @@ export default defineConfig({
       },
       {
         test: {
+          ...HANG_GUARD,
           name: 'conformance',
           include: PROJECTS.conformance.map((dir) => `${dir}/**/*.test.ts`),
         },
       },
       {
         test: {
+          ...HANG_GUARD,
           name: 'integration',
           include: PROJECTS.integration.map((dir) => `${dir}/**/*.test.ts`),
         },
       },
       {
         test: {
+          ...HANG_GUARD,
           name: 'scripts',
           include: PROJECTS.scripts.map((dir) => `${dir}/**/*.test.ts`),
         },

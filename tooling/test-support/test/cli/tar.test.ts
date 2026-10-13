@@ -520,8 +520,8 @@ describe('extractTarEntry: fuzzing', () => {
       ),
       { numRuns: 300 },
     );
-    // 300 full extractions of a 1 MiB-bounded archive, up to 31 chunks each.
-    // Measured on Windows under the default --maxWorkers with coverage: max
-    // 3.70 s over 4 runs; x2.
-  }, 8_000);
+    // 300 full extractions of a 1 MiB-bounded archive, up to 31 chunks each
+    // (about 4 s on Windows with coverage). The timeout is a hang guard, not a
+    // performance budget (W3-Z ruling 4).
+  }, 60_000);
 });

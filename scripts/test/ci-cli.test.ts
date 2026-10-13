@@ -141,9 +141,10 @@ describe('ci-classify.mjs', () => {
     expect(push('f'.repeat(40), docsHead)).toContain('tier=FULL');
     // tags are always FULL, even docs-only
     expect(push(base, docsHead, { GITHUB_REF: 'refs/tags/v1.0.0' })).toContain('tier=FULL');
-    // Real git and node processes (8 git, 8 node). Measured on Windows under
-    // the default --maxWorkers with coverage: max 3.44 s over 4 runs; x2.
-  }, 7_000);
+    // Real git and node processes (8 git, 8 node; about 3.5 s on Windows with
+    // coverage). The timeout is a hang guard, not a performance budget (W3-Z
+    // ruling 4).
+  }, 60_000);
 
   it('classifies a local file list', () => {
     const result = node('ci-classify.mjs', ['--files', 'docs/a.md', 'README.md'], {});
