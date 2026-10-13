@@ -58,7 +58,7 @@ export type {
   ProcessTableSource,
 } from './tree/types.js';
 export { parseProcStat } from './tree/proc-stat.js';
-export { parsePsOutput } from './tree/ps.js';
+export { parsePsOutput, type PsDialect } from './tree/ps.js';
 export { parseWin32ProcessJson } from './tree/win32.js';
 export { compareStartTime, isCanonicalStartTime } from './tree/start-time.js';
 export type { DescendantTree } from './tree/descendants.js';

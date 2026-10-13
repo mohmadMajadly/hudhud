@@ -48,5 +48,12 @@ export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRe
   const startTime = group(tail, 4);
   if (ppid === null || pgid === null || !isCanonicalStartTime(startTime)) return null;
 
-  return { pid, ppid, pgid, startTime, name: decodeUtf8Lossy(stat, open + 1, close) };
+  const record: ProcessRecord = {
+    pid,
+    ppid,
+    pgid,
+    startTime,
+    name: decodeUtf8Lossy(stat, open + 1, close),
+  };
+  return group(tail, 1) === 'Z' ? { ...record, zombie: true } : record;
 }

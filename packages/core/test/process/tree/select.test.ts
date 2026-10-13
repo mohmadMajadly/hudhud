@@ -1,9 +1,10 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { maySignal, planSweep, selectSignalTarget } from '../../../src/process/tree/select.js';
 import { takeSnapshot } from '../../../src/process/tree/snapshot.js';
 import type { ProcessRecord, ProcessSnapshot } from '../../../src/process/tree/types.js';
-import { fixture, fixtureProcTable } from './support.js';
+import { fcParams, fixture, fixtureProcTable } from './support.js';
 
 function rec(pid: number, ppid: number, pgid: number, startTime: string): ProcessRecord {
   return { pid, ppid, pgid, startTime, name: `p${String(pid)}` };
@@ -314,9 +315,62 @@ describe('planSweep', () => {
       recorded: [snapshot],
       latest: snapshot,
     });
+    // 532 is the zombie '(security)': verified, never signalled by pid.
     expect(plan.processes.map((identity) => identity.pid)).toEqual([
-      502, 510, 511, 520, 521, 530, 531,
+      502, 510, 511, 520, 521, 530, 531, 533, 534,
     ]);
+    expect(plan.skippedProcesses).toContainEqual({ pid: 532, reason: 'zombie' });
     expect(plan.groups.map((group) => group.pgid)).toEqual([510, 520, 530]);
+  });
+});
+
+describe('planSweep with zombies (research 09)', () => {
+  const zombie = (record: ProcessRecord): ProcessRecord => ({ ...record, zombie: true });
+
+  it('never signals a zombie by pid, but still signals its group', () => {
+    // The tool's shell exited unreaped (zombie leader); its sleep still runs.
+    const latest = snap([rec(1, 0, 1, '0'), HOST, LAUNCHER, CLI, zombie(TOOL), SLEEP, FOREIGN]);
+    const plan = planSweep({
+      spawned,
+      signalTarget: cliIdentity,
+      hostPid: 100,
+      recorded: [S1],
+      latest,
+    });
+    expect(plan.processes).toEqual([
+      { pid: CLI.pid, startTime: CLI.startTime },
+      { pid: SLEEP.pid, startTime: SLEEP.startTime },
+    ]);
+    expect(plan.skippedProcesses).toContainEqual({ pid: TOOL.pid, reason: 'zombie' });
+    expect(plan.groups).toEqual([
+      { pgid: TOOL.pid, leader: { pid: TOOL.pid, startTime: TOOL.startTime } },
+    ]);
+  });
+
+  it('for any zombie marking: processes are the live verified ones, zombies are skipped, groups do not change', () => {
+    fc.assert(
+      fc.property(fc.array(fc.boolean(), { minLength: 3, maxLength: 3 }), (marks) => {
+        const [cli, tool, sleep] = [CLI, TOOL, SLEEP].map((record, index) =>
+          marks[index] === true ? zombie(record) : record,
+        ) as [ProcessRecord, ProcessRecord, ProcessRecord];
+        const input = { spawned, signalTarget: cliIdentity, hostPid: 100, recorded: [S1] };
+        const plan = planSweep({
+          ...input,
+          latest: snap([rec(1, 0, 1, '0'), HOST, LAUNCHER, cli, tool, sleep, FOREIGN]),
+        });
+        const base = planSweep({ ...input, latest: S1 });
+        const all = [cli, tool, sleep];
+        expect(plan.processes.map((identity) => identity.pid)).toEqual(
+          all.filter((record) => record.zombie !== true).map((record) => record.pid),
+        );
+        expect(plan.skippedProcesses.filter((skip) => skip.reason === 'zombie')).toEqual(
+          all
+            .filter((record) => record.zombie === true)
+            .map((record) => ({ pid: record.pid, reason: 'zombie' })),
+        );
+        expect(plan.groups).toEqual(base.groups);
+      }),
+      fcParams(),
+    );
   });
 });

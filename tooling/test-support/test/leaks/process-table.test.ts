@@ -224,9 +224,12 @@ describe('host commands', () => {
 });
 
 describe('darwin source', () => {
-  /** One `ps` line in the core layout: pid ppid pgid lstart (C locale, UTC) and the last column. */
+  /**
+   * One `ps` line in the macOS layout of the core: pid ppid pgid stat, then
+   * lstart (C locale, UTC) padded to 28 columns, and the last column.
+   */
   const line = (pid: number, ppid: number, lstart: string, last: string): string =>
-    `${String(pid).padStart(5)} ${String(ppid).padStart(5)} ${String(pid).padStart(5)} ${lstart} ${last}`;
+    `${String(pid).padStart(5)} ${String(ppid).padStart(5)} ${String(pid).padStart(5)} S    ${lstart.padEnd(28)} ${last}`;
   const START = 'Mon Oct 12 17:02:31 2026';
   const LATER = 'Mon Oct 12 17:02:32 2026';
   const bytes = (lines: readonly string[]): Uint8Array =>
@@ -282,7 +285,7 @@ describe('darwin source', () => {
 
   it('runs /bin/ps by absolute path in the core ps contract, with args for comm', () => {
     expect(DARWIN_PS_PATH).toBe('/bin/ps');
-    expect(DARWIN_ARGS_PS).toEqual(['-A', '-ww', '-o', 'pid=,ppid=,pgid=,lstart=,args=']);
+    expect(DARWIN_ARGS_PS).toEqual(['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,args=']);
     expect(DARWIN_PS_ENV).toEqual({ LC_ALL: 'C', TZ: 'UTC0' });
   });
 });

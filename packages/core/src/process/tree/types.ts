@@ -39,8 +39,18 @@ export interface ProcessRecord extends ProcessIdentity {
    * Command name as reported by the OS, decoded from bytes with U+FFFD for
    * ill-formed UTF-8. Untrusted: may hold spaces, parentheses, newlines and
    * control characters. Informational only; never used for a decision.
+   * On macOS, `(<name>)` in parentheses means `ps` could not read the
+   * process's arguments (a zombie, or a process the caller may not inspect).
    */
   readonly name: string;
+  /**
+   * `true` for a zombie: the process exited and its parent has not reaped it
+   * yet (state `Z`, read from `/proc/<pid>/stat` or the `ps` `stat` column).
+   * A zombie still holds its pid, so its identity stays valid, but it runs
+   * nothing and signals have no effect on it. Absent for a live process and
+   * on Windows, which has no zombies.
+   */
+  readonly zombie?: true;
 }
 
 /**

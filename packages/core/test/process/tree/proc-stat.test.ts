@@ -85,6 +85,19 @@ describe('parseProcStat on malformed input', () => {
       name: 'k',
     });
   });
+
+  it('marks state Z as a zombie, and only state Z (a name ending in " Z" is not one)', () => {
+    const zombie = '21 (bash) Z 20 20 7 0 -1 4227084 0 0 0 0 0 0 0 0 20 0 1 0 35 0 0\n';
+    expect(parseProcStat(stat(zombie))).toEqual({
+      pid: 21,
+      ppid: 20,
+      pgid: 20,
+      startTime: '35',
+      name: 'bash',
+      zombie: true,
+    });
+    expect(parseProcStat(stat(`18 (nl 9 1 9 Z) ${REST}`))).not.toHaveProperty('zombie');
+  });
 });
 
 describe('parseProcStat on arbitrary command names', () => {
@@ -96,10 +109,11 @@ describe('parseProcStat on arbitrary command names', () => {
         fc.integer({ min: 0, max: 4_194_304 }),
         fc.integer({ min: 0, max: 4_194_304 }),
         fc.bigInt({ min: 0n, max: 2n ** 64n - 1n }),
-        (name, pid, ppid, pgid, start) => {
+        fc.constantFrom('S', 'Z', 'R', 'D'),
+        (name, pid, ppid, pgid, start, state) => {
           const head = bytes(`${String(pid)} (`);
           const tail = bytes(
-            `) Z ${String(ppid)} ${String(pgid)} 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(start)} 1 2 3\n`,
+            `) ${state} ${String(ppid)} ${String(pgid)} 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(start)} 1 2 3\n`,
           );
           const file = new Uint8Array([...head, ...name, ...tail]);
           expect(parseProcStat(file, pid)).toEqual({
@@ -108,6 +122,7 @@ describe('parseProcStat on arbitrary command names', () => {
             pgid,
             startTime: String(start),
             name: referenceDecode(name),
+            ...(state === 'Z' ? { zombie: true } : {}),
           });
         },
       ),
