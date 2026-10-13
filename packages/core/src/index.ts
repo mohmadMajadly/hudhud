@@ -83,6 +83,7 @@ export {
   HandshakeError,
   HandshakeTimeoutError,
   HarnessDisposedError,
+  HarnessVersionKnownBrokenError,
   HudhudError,
   InvalidOptionsError,
   isHudhudError,

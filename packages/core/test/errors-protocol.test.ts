@@ -11,9 +11,9 @@ import {
 } from '../src/protocol/errors.js';
 
 describe('error code table', () => {
-  it('lists 26 unique codes and a retryability entry for each', () => {
-    expect(HUDHUD_ERROR_CODES).toHaveLength(27);
-    expect(new Set(HUDHUD_ERROR_CODES).size).toBe(27);
+  it('lists 28 unique codes and a retryability entry for each', () => {
+    expect(HUDHUD_ERROR_CODES).toHaveLength(28);
+    expect(new Set(HUDHUD_ERROR_CODES).size).toBe(28);
     expect(Object.keys(ERROR_RETRYABLE).sort()).toEqual([...HUDHUD_ERROR_CODES].sort());
   });
 

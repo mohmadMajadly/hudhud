@@ -186,6 +186,20 @@ export class BinaryProbeError extends HudhudError {
 }
 
 /**
+ * Code `HARNESS_VERSION_KNOWN_BROKEN` (plan §3.1, ADR-0004 §4): the probed
+ * harness version is listed as known-broken in the adapter's tested window
+ * and the application did not opt in to running it. `details.version` is the
+ * probed version, `details.reason` the committed reason of the listing. Not
+ * retryable: the same binary stays known-broken.
+ *
+ * @public
+ */
+export class HarnessVersionKnownBrokenError extends HudhudError {
+  static override readonly code = 'HARNESS_VERSION_KNOWN_BROKEN';
+  static override readonly errorName = 'HarnessVersionKnownBrokenError';
+}
+
+/**
  * Code `CWD_INVALID` (plan §3.1).
  *
  * @public
@@ -433,6 +447,7 @@ const ERROR_CLASSES: Readonly<Record<HudhudErrorCode, ErrorClass>> = {
   BINARY_REFUSED: BinaryRefusedError,
   BINARY_VERIFICATION_FAILED: BinaryVerificationError,
   BINARY_PROBE_FAILED: BinaryProbeError,
+  HARNESS_VERSION_KNOWN_BROKEN: HarnessVersionKnownBrokenError,
   CWD_INVALID: CwdInvalidError,
   CWD_TOO_LONG: CwdTooLongError,
   PROJECT_CREDENTIAL_ENV: ProjectCredentialEnvError,

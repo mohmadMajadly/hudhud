@@ -1,0 +1,9 @@
+---
+'@hudhud/core': minor
+'hudhud': minor
+---
+
+Wave 4 of the harness-neutral core.
+
+- `@hudhud/core`: the generic, harness-neutral binding layer (W4-T1). The root gains the public handle types `Session`, `Turn`, `Harness`, `SessionInfo`, `BinaryInfo`, `BinaryVerification`, `VerificationMode`, `UserInput`, `UserContentBlock` and the permission types `PermissionRequest`, `PermissionDecision`, `PermissionHandler`, plus `defineAdapter` and `AdapterDefinition` (beta), which refuse an unsupported `adapterApiVersion` at definition time. Behind them: a session driver that runs any neutral machine over a transport (one input at a time; stdout always read; `ask()` and `turn.done` never wait on a subscriber; only a `'block'` subscriber can hold input, and abort or dispose cut through it), a permission bridge (one `AbortSignal` per request, strict copy of the decision), the process transport (graceful close: snapshot, then EOF, then the sweep after the exit; the platform ladders on abort), the loopback binding with its JSON round-trip check, manual and system clocks, and a single host-exit hook (no signal handlers, K22). New diagnostic codes `stdout.error`, `termination.ladder`, `termination.sweep-after-exit` and `binding.machine-error` (additive in the events schema). The `session.terminated` event documents that `intent` and `outcome` are deterministic while `exitCode` and `signal` are raw observations: decide on `outcome`.
+- `@hudhud/core`: error code `HARNESS_VERSION_KNOWN_BROKEN` (class `HarnessVersionKnownBrokenError`, not retryable; `details.version`, `details.reason`), additive in the errors schema. An adapter refuses a harness version its tested window lists as known-broken with it, unless the application opts in (Claude Code: `claudeCode.dangerouslyAllowKnownBrokenVersion`, wired in Wave 5); an untested version stays a warning (ADR-0004 §4 amendment).

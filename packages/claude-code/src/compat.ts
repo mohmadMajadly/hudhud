@@ -9,13 +9,14 @@
  * `tooling/cli-pin.json` and `known-binaries.ts`; a unit test keeps the three
  * in agreement.
  *
- * Policy: a version outside the window is reported, never refused. The
- * status `'untested'` or `'known-broken'` goes into the `compat` event and
- * `harness.compat`; the connect pipeline does not fail on it (ADR-0004 §4: a
- * daily-moving CLI would make hudhud unusable between canary runs, and the
- * error taxonomy of plan §3 has no code for it). A version that cannot be
- * parsed is `'untested'`. Applications that want to refuse read
- * `harness.compat.status`.
+ * Policy (ADR-0004 §4 and its amendment, plan §1.8): the status goes into
+ * the `compat` event and `harness.compat`. A version outside the window, or
+ * one that cannot be parsed, is `'untested'`: reported, never refused (a
+ * daily-moving CLI would make hudhud unusable between canary runs). A version
+ * listed in `knownBroken` is `'known-broken'`: the connect pipeline (Wave 5)
+ * refuses it with `HARNESS_VERSION_KNOWN_BROKEN` unless the application sets
+ * `claudeCode.dangerouslyAllowKnownBrokenVersion: true`. This module only
+ * computes the status.
  */
 
 import type { CompatInfo } from '@hudhud/core';

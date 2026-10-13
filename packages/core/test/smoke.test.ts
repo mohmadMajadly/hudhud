@@ -26,6 +26,7 @@ const ENTRY_NAMES = {
     'HandshakeError',
     'HandshakeTimeoutError',
     'HarnessDisposedError',
+    'HarnessVersionKnownBrokenError',
     'HudhudError',
     'InvalidOptionsError',
     'MIN_ENV_SECRET_LENGTH',

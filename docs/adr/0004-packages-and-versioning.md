@@ -28,6 +28,8 @@ Names are working names until the owner reserves the npm scope `@hudhud` and the
 2. Wire-schema version: an integer, plus capability strings for fine-grained features (03 §5 item 4).
 3. Adapter API: an integer `adapterApiVersion`, negotiated at adapter registration. An adapter built against an unsupported integer is refused at registration, not at first use.
 4. Per-adapter tested window: `minTested`, `maxTested`, `knownBroken` harness versions, reported as a `compat` event at connect. An untested version is a warning event, never a hard failure (03 §5 item 10). Feature detection uses `system/init.capabilities` and `initialize.claude_code_version`, not version sniffing.
+
+   Amendment (lead decision, Wave 4 closer, 2026-10-14): a version listed in `knownBroken` is refused at connect by default, with the registered error code `HARNESS_VERSION_KNOWN_BROKEN` (not retryable; `details.version`, `details.reason`, the committed reason of the listing). An explicit boolean opt-in per adapter runs it anyway (Claude Code: `claudeCode.dangerouslyAllowKnownBrokenVersion: true`); the opt-in is listed in `securityPosture` and the `compat` status stays `known-broken`. Reason: a `knownBroken` entry is a deliberate, reviewed statement that the version misbehaves with hudhud, unlike an untested version, so the safe default is to refuse it while still providing every way to run it. Untested versions stay a warning, as above.
 5. The `/raw` tier is exempt from compatibility promises.
 
 ### Operational duty

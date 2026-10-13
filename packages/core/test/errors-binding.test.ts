@@ -30,6 +30,7 @@ const EXPECTED: readonly (readonly [string, HudhudErrorCode, boolean])[] = [
   ['BinaryRefusedError', 'BINARY_REFUSED', false],
   ['BinaryVerificationError', 'BINARY_VERIFICATION_FAILED', false],
   ['BinaryProbeError', 'BINARY_PROBE_FAILED', true],
+  ['HarnessVersionKnownBrokenError', 'HARNESS_VERSION_KNOWN_BROKEN', false],
   ['CwdInvalidError', 'CWD_INVALID', false],
   ['CwdTooLongError', 'CWD_TOO_LONG', false],
   ['ProjectCredentialEnvError', 'PROJECT_CREDENTIAL_ENV', false],
