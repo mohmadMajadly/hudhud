@@ -647,6 +647,12 @@ function onInterruptResponse(
     strings(ownArray(response, 'still_queued')).includes(target.turnId)
   ) {
     removeInflight(d, entry);
+    if (!d.stdinOpen) {
+      // Stdin closed while the interrupt was in flight: it cannot be re-sent,
+      // so it fails as a retry that was waiting when stdin closed does.
+      failCorrelations(d, entry.correlations, sessionClosed());
+      return;
+    }
     d.inflight.push({ ...entry, waitingRetry: true });
     d.effects.push(
       {

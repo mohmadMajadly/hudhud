@@ -376,6 +376,29 @@ describe('still_queued retry (05 §7)', () => {
     ]);
   });
 
+  it('a still_queued answer that arrives after stdin closed fails the interrupt, no retry', () => {
+    // The shrunk counterexample of the turn-machine model check (seed
+    // 1704925574): the retry was armed after stdin had closed, so its timer
+    // wrote an interrupt to a closed stdin.
+    const run = new Runner();
+    run.step(send(T1), interrupt('c1', T1), init());
+    run.step({ type: 'stdin.closed' });
+    expect(run.step(ack('int-1', { still_queued: [T1] }))).toEqual([
+      {
+        type: 'interrupt.settle',
+        correlation: 'c1',
+        ok: false,
+        error: {
+          code: 'SESSION_CLOSED',
+          message: 'stdin is closed; nothing more can be written',
+          retryable: false,
+        },
+      },
+    ]);
+    expect(run.state.inflight).toEqual([]);
+    expect(run.step({ type: 'timer', name: 'turn.interrupt-retry:int-1' })).toEqual([]);
+  });
+
   it('no retry when still_queued names another turn', () => {
     const run = new Runner();
     run.step(send(T1), init(), interrupt('c1', T1));
