@@ -250,10 +250,12 @@ describe('launching the pinned binary', () => {
     expect(v.argv).toEqual([...STREAM_ARGS, '--setting-sources=', '--permission-mode=default']);
     expect(path.resolve(v.cwd).toLowerCase()).toBe(path.resolve(sandbox.dirs.work).toLowerCase());
     const expected = { ...sandbox.env, EXTRA_FLAG: '1' };
-    const childKeys = Object.keys(v.env)
-      .map((k) => k.toUpperCase())
-      .sort();
-    const expectedKeys = [...new Set(Object.keys(expected).map((k) => k.toUpperCase()))].sort();
+    // Names compare as the OS does: case-insensitively on Windows (one
+    // variable per name), exactly on POSIX (`HTTPS_PROXY` and `https_proxy`
+    // are two variables there, and the sandbox sets both).
+    const fold = (k: string): string => (process.platform === 'win32' ? k.toUpperCase() : k);
+    const childKeys = Object.keys(v.env).map(fold).sort();
+    const expectedKeys = [...new Set(Object.keys(expected).map(fold))].sort();
     expect(childKeys).toEqual(expectedKeys);
     expect(v.env['ANTHROPIC_API_KEY']).toBe(FAKE_API_KEY);
     expect(v.env['ANTHROPIC_BASE_URL']).toBe(MOCK.url);
