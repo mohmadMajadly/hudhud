@@ -135,8 +135,12 @@ describe('the Windows Authenticode check', () => {
       '[Console]::Out.Write([string]$s.Status + "`n" + [string]$s.SignerCertificate.Subject)',
     );
     expect(AUTHENTICODE_SCRIPT).toContain(
-      '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+      '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
     );
+    // The only cmdlet is the module-qualified Get-AuthenticodeSignature: no
+    // other module (New-Object would auto-load Microsoft.PowerShell.Utility
+    // and its script module) is loaded.
+    expect(AUTHENTICODE_SCRIPT).not.toContain('New-Object');
   });
 
   it.each(['\n', '\r', '\u0085', '\u2028', '\u2029', '\u0000', '\u001b', '\u007f'])(
@@ -336,6 +340,26 @@ describe('other platforms', () => {
 
 // The real check on a Windows host: a signed binary (a copy of node.exe)
 // under a name full of PowerShell syntax, and an unsigned file.
+//
+// Each test's timeout is a hang guard sized from the product bound it
+// legitimately consumes (vitest.config.ts HANG_GUARD_MS, W3-Z ruling 4): its
+// sequential checks times DEFAULT_SIGNATURE_TIMEOUT_MS, plus a margin for the
+// test's own file work. A check took 0.4 s (small file) to 1 s (node.exe) on
+// a Windows 11 workstation, but 19 s to 50 s on GitHub-hosted runners, where
+// two sequential checks under a 60 s guard timed out (see the os-signature.ts
+// remarks). Each check logs its duration, so CI records it.
+/**
+ * The test's own file work: creating a directory and copying node.exe
+ * (93 MB; 30 ms measured on a workstation, not yet measured on a runner, so
+ * the allowance is generous).
+ */
+const FILE_WORK_MARGIN_MS = 30_000;
+
+/** The hang guard of a test that runs `checks` real checks one after another. */
+function guardFor(checks: number): number {
+  return checks * DEFAULT_SIGNATURE_TIMEOUT_MS + FILE_WORK_MARGIN_MS;
+}
+
 describe.runIf(process.platform === 'win32')('the Authenticode check on this Windows host', () => {
   let root = '';
 
@@ -347,7 +371,7 @@ describe.runIf(process.platform === 'win32')('the Authenticode check on this Win
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
-  function capturing(): { outputs: CommandOutcome[]; deps: SignatureDeps } {
+  function capturing(label: string): { outputs: CommandOutcome[]; deps: SignatureDeps } {
     const outputs: CommandOutcome[] = [];
     return {
       outputs,
@@ -356,7 +380,10 @@ describe.runIf(process.platform === 'win32')('the Authenticode check on this Win
         hostEnv: process.env,
         fs: nodeSignatureDeps.fs,
         run: async (command) => {
+          const started = performance.now();
           const outcome = await nodeSignatureDeps.run(command);
+          const ms = Math.round(performance.now() - started);
+          console.log(`authenticode check (${label}): ${String(ms)} ms, ${outcome.kind}`);
           outputs.push(outcome);
           return outcome;
         },
@@ -364,35 +391,43 @@ describe.runIf(process.platform === 'win32')('the Authenticode check on this Win
     };
   }
 
-  it('reports Valid for a signed binary whose name holds PowerShell syntax, and runs nothing from the name', async () => {
-    const dir = path.join(root, "d $(x) ; & 'q' [w]");
-    await mkdir(dir);
-    const binary = path.join(dir, "n $(Write-Output INJECTED) ; `b' #.exe");
-    await copyFile(process.execPath, binary);
-    // Unpinned: the signature is valid, but any publisher is refused.
-    const first = capturing();
-    const unpinned = await checkOsSignature(binary, first.deps);
-    expect(unpinned).toMatchObject({
-      kind: 'invalid',
-      detail: 'authenticode Valid, but no publisher is pinned',
-    });
-    const signer = unpinned.kind === 'invalid' ? (unpinned.signer ?? '') : '';
-    expect(signer).toMatch(/^CN=/);
-    expect(first.outputs).toEqual([
-      { kind: 'exited', exitCode: 0, signal: null, stdout: `Valid\n${signer}` },
-    ]);
-    // Pinned to node's own publisher: valid.
-    const second = capturing();
-    await expect(
-      checkOsSignature(binary, { ...second.deps, publisher: { windowsSubject: signer } }),
-    ).resolves.toEqual({ kind: 'valid', detail: 'authenticode Valid, pinned publisher', signer });
-  }, 60_000);
+  it(
+    'reports Valid for a signed binary whose name holds PowerShell syntax, and runs nothing from the name',
+    async () => {
+      const dir = path.join(root, "d $(x) ; & 'q' [w]");
+      await mkdir(dir);
+      const binary = path.join(dir, "n $(Write-Output INJECTED) ; `b' #.exe");
+      await copyFile(process.execPath, binary);
+      // Unpinned: the signature is valid, but any publisher is refused.
+      const first = capturing('node.exe, unpinned');
+      const unpinned = await checkOsSignature(binary, first.deps);
+      expect(unpinned).toMatchObject({
+        kind: 'invalid',
+        detail: 'authenticode Valid, but no publisher is pinned',
+      });
+      const signer = unpinned.kind === 'invalid' ? (unpinned.signer ?? '') : '';
+      expect(signer).toMatch(/^CN=/);
+      expect(first.outputs).toEqual([
+        { kind: 'exited', exitCode: 0, signal: null, stdout: `Valid\n${signer}` },
+      ]);
+      // Pinned to node's own publisher: valid.
+      const second = capturing('node.exe, pinned');
+      await expect(
+        checkOsSignature(binary, { ...second.deps, publisher: { windowsSubject: signer } }),
+      ).resolves.toEqual({ kind: 'valid', detail: 'authenticode Valid, pinned publisher', signer });
+    },
+    guardFor(2),
+  );
 
-  it('fails for an unsigned file', async () => {
-    const binary = path.join(root, 'plain.exe');
-    await writeFile(binary, 'MZ not a signed image');
-    const { deps } = capturing();
-    const result = await checkOsSignature(binary, deps);
-    expect(result.kind).toBe('invalid');
-  }, 60_000);
+  it(
+    'fails for an unsigned file',
+    async () => {
+      const binary = path.join(root, 'plain.exe');
+      await writeFile(binary, 'MZ not a signed image');
+      const { deps } = capturing('unsigned 21 B');
+      const result = await checkOsSignature(binary, deps);
+      expect(result.kind).toBe('invalid');
+    },
+    guardFor(1),
+  );
 });

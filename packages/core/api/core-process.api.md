@@ -252,7 +252,7 @@ export const DEFAULT_LADDER_TIMING: LadderTiming;
 export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number;
 
 // @public
-export const DEFAULT_SIGNATURE_TIMEOUT_MS = 60000;
+export const DEFAULT_SIGNATURE_TIMEOUT_MS = 120000;
 
 // @public
 export const DEFAULT_TASKKILL_TIMEOUT_MS = 10000;

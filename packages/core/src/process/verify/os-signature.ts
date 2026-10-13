@@ -25,7 +25,31 @@
  * - The cmdlet is called module-qualified, with `PSModulePath` limited to
  *   the in-box modules of `%SystemRoot%` (no user or application module can
  *   shadow it), `-NoProfile`, and the restricted environment of the process
- *   table query (`os/win32.ts`).
+ *   table query (`os/win32.ts`). It is the script's only cmdlet, so
+ *   `Microsoft.PowerShell.Security` (a manifest and its binary) is the only
+ *   module PowerShell loads; everything else is plain .NET. `New-Object`
+ *   would also auto-load `Microsoft.PowerShell.Utility` and compile its
+ *   script module (measured on Windows 11, PowerShell 5.1: about 100 ms of a
+ *   400 ms check of a small file).
+ * - Cost (measured): on a Windows 11 workstation one check takes about
+ *   0.3 s to start PowerShell, 0.15 s to load the module and check a small
+ *   file, and 0.5 s more for a 90 MB signed binary (node.exe). On
+ *   GitHub-hosted `windows-2025` runners one check of a 21-byte unsigned
+ *   file took 19 s, and 50 s while a second check ran; one of node.exe took
+ *   about 24 s. PowerShell launches of the process table query on the same
+ *   runners (with and without the `Get-CimInstance` module auto-load) took
+ *   0.3 to 1.3 s, so the runner's cost is in loading the Security module or
+ *   in `Get-AuthenticodeSignature` itself (`WTGetSignatureInfo`, which also
+ *   searches the system catalogs, then `WinVerifyTrust` unless that found a
+ *   valid signature), not in starting PowerShell.
+ * - Revocation: the cmdlet passes `fdwRevocationChecks = 0` and
+ *   `dwProvFlags = 0` (PowerShell source, `InitWintrustDataStructFromFile`).
+ *   Without `WTD_CACHE_ONLY_URL_RETRIEVAL`, `WinVerifyTrust` may fetch
+ *   revocation data over the network for a signed file (WINTRUST_DATA
+ *   documentation). This is kept: a revoked publisher certificate must fail.
+ * - {@link DEFAULT_SIGNATURE_TIMEOUT_MS} is sized from these measurements;
+ *   `verify.ts` caches the verdict per file identity, so one Harness checks
+ *   a given binary once.
  * - The script writes the `Status` and, on a second line, the signer
  *   certificate's `Subject` (UTF-8 without BOM); nothing else is parsed.
  *   `Valid` is the only passing status; every other status, an unknown word,
@@ -70,9 +94,17 @@ import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './c
 /**
  * Upper bound on one signature check before the checker is killed.
  *
+ * @remarks
+ * A hang bound, not a latency budget: a check that is cut off fails closed,
+ * so the bound must clear the slowest legitimate check. The slowest one
+ * measured took 50 s (a small file on a GitHub-hosted Windows runner, see the
+ * module remarks); 120 s leaves more than twice that. The verdict is cached
+ * per file identity (`verify.ts`), so the bound is paid at most once per
+ * binary and Harness.
+ *
  * @public
  */
-export const DEFAULT_SIGNATURE_TIMEOUT_MS = 60_000;
+export const DEFAULT_SIGNATURE_TIMEOUT_MS = 120_000;
 
 /** Bound on the checker's stdout: a status word and one certificate subject. */
 const MAX_SIGNATURE_OUTPUT_BYTES = 4096;
@@ -201,7 +233,7 @@ export const AUTHENTICODE_SCRIPT: string = [
   '$a = [Environment]::GetCommandLineArgs()',
   `if ($a.Length -ne ${String(ARG_COUNT)}) { exit 3 }`,
   `$s = Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $a[${String(ARG_COUNT - 1)}]`,
-  '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+  '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
   '[Console]::Out.Write([string]$s.Status + "`n" + [string]$s.SignerCertificate.Subject)',
   '#',
 ].join('\n');
