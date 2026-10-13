@@ -17,8 +17,9 @@
  *   sandbox root (`command-line`, the 07 §13 sweep).
  *
  * Leaks fail the test and are then killed, each only after its pid and
- * start time were confirmed again in a fresh snapshot. The tracker never
- * reports or kills its own process.
+ * start time were confirmed again in a fresh snapshot, within one deadline
+ * per leak ({@link KILL_DEADLINE_MS}); the {@link LeakError} names what
+ * happened to each one. The tracker never reports or kills its own process.
  */
 
 import type { ProcessRow, ProcessTable } from './process-table.js';
@@ -37,8 +38,8 @@ export interface ProcessIdentity {
   readonly startTime: string;
 }
 
-/** Outcome of one verified kill. */
-export type KillOutcome = 'killed' | 'gone' | 'survived';
+/** Outcome of one verified kill ({@link killVerified}). */
+export type KillOutcome = 'killed' | 'gone' | 'survived' | 'unconfirmed' | 'unverified';
 
 /** Thrown by {@link LeakTracker.assertNoLeaks} and {@link assertNoSurvivors}. */
 export class LeakError extends Error {
@@ -67,6 +68,8 @@ export interface LeakHost {
   readonly kill?: ((pid: number) => void) | undefined;
   /** Waits between the post-kill checks. Default a real timer. */
   readonly sleep?: ((ms: number) => Promise<void>) | undefined;
+  /** The clock of the kill deadline, in milliseconds. Default `Date.now`. */
+  readonly now?: (() => number) | undefined;
 }
 
 /** Options of {@link LeakTracker}. */
@@ -80,11 +83,20 @@ export interface LeakTrackerOptions extends LeakHost {
 }
 
 /**
- * How many times {@link killVerified} reads the table after a kill, at most
- * (it reads once more before the kill).
+ * The one deadline of a {@link killVerified}: the identity check, the kill
+ * and every check that the process is gone run within it.
+ *
+ * @remarks
+ * Sized from measurements: a table read took 0.3 to 1.3 s on GitHub-hosted
+ * Windows runners (the CIM query), well under 0.1 s on Linux, and a process
+ * ended by `SIGKILL` or `TerminateProcess` leaves the table within one read.
+ * 15 s leaves room for ten reads at the slowest measured speed, with
+ * {@link KILL_CHECK_MS} between them. Each read is cut off at the time left
+ * (a read cut off keeps running in the background, bounded by its own read
+ * limits, `process-table.ts`).
  */
-export const KILL_CHECKS = 20;
-/** The wait after each of those reads that still lists the process. */
+export const KILL_DEADLINE_MS = 15_000;
+/** The wait after a check that still lists the process (or less, at the deadline). */
 export const KILL_CHECK_MS = 100;
 
 function key(identity: ProcessIdentity): string {
@@ -117,31 +129,67 @@ function markerMatcher(
   };
 }
 
+/** Resolves with `promise`, or with `undefined` after `ms` (a real timer, cleared on settle). */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(undefined);
+        }, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Kills `identity` only if a fresh snapshot still shows that pid with that
- * start time, then waits until it is gone.
+ * start time, then waits until it is gone, all within `deadlineMs`
+ * ({@link KILL_DEADLINE_MS}).
+ *
+ * @returns `gone` (not listed, or the host itself: nothing killed),
+ * `killed` (listed, killed, then no longer listed), `survived` (still
+ * listed by the last read at the deadline), `unconfirmed` (killed, but no
+ * read answered before the deadline), `unverified` (no read answered before
+ * the deadline, so nothing was killed). Only `gone` and `killed` mean the
+ * process is not running.
+ * @throws whatever a table read throws
  */
 export async function killVerified(
   identity: ProcessIdentity,
   host: LeakHost,
+  deadlineMs: number = KILL_DEADLINE_MS,
 ): Promise<KillOutcome> {
   const kill = host.kill ?? defaultKill;
   const sleep = host.sleep ?? defaultSleep;
-  const alive = async (): Promise<boolean> =>
-    (await host.table.read()).some(
-      (row) => row.pid === identity.pid && row.startTime === identity.startTime,
-    );
-  if (identity.pid === (host.selfPid ?? process.pid) || !(await alive())) return 'gone';
+  const now = host.now ?? Date.now;
+  const end = now() + deadlineMs;
+  /** Whether the identity is listed; `undefined` when the read did not answer by the deadline. */
+  const listed = async (): Promise<boolean | undefined> => {
+    const rows = await within(host.table.read(), end - now());
+    return rows?.some((row) => row.pid === identity.pid && row.startTime === identity.startTime);
+  };
+  if (identity.pid === (host.selfPid ?? process.pid)) return 'gone';
+  const before = await listed();
+  if (before === undefined) return 'unverified';
+  if (!before) return 'gone';
   try {
     kill(identity.pid);
   } catch {
     // exited between the check and the kill; confirmed below
   }
-  for (let check = 0; check < KILL_CHECKS; check += 1) {
-    if (!(await alive())) return 'killed';
-    await sleep(KILL_CHECK_MS);
+  for (;;) {
+    const after = await listed();
+    if (after === undefined) return 'unconfirmed';
+    if (!after) return 'killed';
+    // Listed: wait, but never past the deadline; at the deadline it survived.
+    await sleep(Math.max(0, Math.min(KILL_CHECK_MS, end - now())));
+    if (now() >= end) return 'survived';
   }
-  return 'survived';
 }
 
 async function killAll(leaks: readonly LeakedProcess[], host: LeakHost): Promise<KillOutcome[]> {

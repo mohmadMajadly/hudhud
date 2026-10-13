@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hostProcessTable } from '../../src/leaks/process-table.js';
 import type { ProcessRow, ProcessTable } from '../../src/leaks/process-table.js';
@@ -12,7 +12,7 @@ import {
   assertNoSurvivors,
   findSurvivors,
   KILL_CHECK_MS,
-  KILL_CHECKS,
+  KILL_DEADLINE_MS,
   killVerified,
   LeakError,
   LeakTracker,
@@ -176,16 +176,109 @@ describe('killVerified', () => {
   it('reports a process that survives the kill, and tolerates a kill that throws', async () => {
     const table = new FakeTable();
     table.rows = [row(500, 1, 7)];
+    // An injected clock that the waits advance.
+    let clock = 0;
     const outcome = await killVerified(identity, {
       table,
       selfPid: SELF,
       kill: () => {
         throw new Error('ESRCH');
       },
-      sleep: noSleep,
+      now: () => clock,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
     });
     expect(outcome).toBe('survived');
-    expect(table.reads).toBe(21);
+    // The identity check, then one check every KILL_CHECK_MS until the deadline.
+    expect(table.reads).toBe(1 + KILL_DEADLINE_MS / KILL_CHECK_MS);
+    expect(clock).toBe(KILL_DEADLINE_MS);
+  });
+
+  describe('on the fake clock with the default timers', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** A table that lists `identity`; every read after the first `hangAfter` never answers. */
+    function scripted(hangAfter: number): FakeTable {
+      const table = new FakeTable();
+      table.rows = [row(500, 1, 7)];
+      const read = table.read.bind(table);
+      table.read = () => (table.reads >= hangAfter ? new Promise(() => undefined) : read());
+      return table;
+    }
+
+    it('fails as survived at the deadline, not a moment before', async () => {
+      vi.useFakeTimers();
+      const kills: number[] = [];
+      let settled: string | undefined;
+      void killVerified(identity, {
+        table: scripted(Number.POSITIVE_INFINITY),
+        selfPid: SELF,
+        kill: (pid) => kills.push(pid),
+      }).then((outcome) => (settled = outcome));
+      await vi.advanceTimersByTimeAsync(KILL_DEADLINE_MS - 1);
+      expect(settled).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe('survived');
+      expect(kills).toEqual([500]);
+    });
+
+    it('kills nothing when no read confirms the identity by the deadline', async () => {
+      vi.useFakeTimers();
+      const kills: number[] = [];
+      const outcome = killVerified(identity, {
+        table: scripted(0),
+        selfPid: SELF,
+        kill: (pid) => kills.push(pid),
+      });
+      await vi.advanceTimersByTimeAsync(KILL_DEADLINE_MS);
+      await expect(outcome).resolves.toBe('unverified');
+      expect(kills).toEqual([]);
+    });
+
+    it('reports a kill no read confirmed by the deadline as unconfirmed', async () => {
+      vi.useFakeTimers();
+      const kills: number[] = [];
+      const outcome = killVerified(identity, {
+        table: scripted(1),
+        selfPid: SELF,
+        kill: (pid) => kills.push(pid),
+      });
+      await vi.advanceTimersByTimeAsync(KILL_DEADLINE_MS);
+      await expect(outcome).resolves.toBe('unconfirmed');
+      expect(kills).toEqual([500]);
+    });
+
+    it('takes its deadline as an argument', async () => {
+      vi.useFakeTimers();
+      const outcome = killVerified(identity, { table: scripted(0), selfPid: SELF }, 1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(outcome).resolves.toBe('unverified');
+    });
+
+    it('fails a leak whose kill cannot be verified by the deadline, naming the outcome', async () => {
+      vi.useFakeTimers();
+      // Reads: begin, findLeaks; the kill's identity check hangs.
+      const table = scripted(2);
+      const tracker = new LeakTracker({
+        table,
+        selfPid: SELF,
+        marker: '/marker/run',
+        kill: () => undefined,
+      });
+      table.rows = [];
+      await tracker.begin();
+      table.rows = [row(500, 1, 7, 'cli /marker/run')];
+      const failure = tracker.assertNoLeaks().catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(KILL_DEADLINE_MS);
+      const error = await failure;
+      expect(error).toBeInstanceOf(LeakError);
+      expect((error as LeakError).outcomes).toEqual(['unverified']);
+      expect((error as LeakError).message).toMatch(/-> unverified$/);
+    });
   });
 
   it('waits with a real timer between checks by default', async () => {
@@ -226,10 +319,8 @@ describe('suite sweep', () => {
   });
 });
 
-// Hang guards: every table read is bounded by HOST_TABLE_READ_MS; killVerified
-// reads the table at most 1 + KILL_CHECKS times with KILL_CHECK_MS between.
-/** The bound of one killVerified. */
-const KILL_VERIFIED_MS = (1 + KILL_CHECKS) * HOST_TABLE_READ_MS + KILL_CHECKS * KILL_CHECK_MS;
+// Hang guards: every table read is bounded by HOST_TABLE_READ_MS; each
+// killVerified runs within KILL_DEADLINE_MS.
 /** How long the sampling test polls for the child (100 polls, 100 ms apart). */
 const SAMPLING_POLL_MS = 100 * 100;
 
@@ -240,11 +331,13 @@ describe('a planted orphan on the real host', () => {
   let orphan: ProcessIdentity | undefined;
 
   afterEach(async () => {
-    if (orphan !== undefined) await killVerified(orphan, host);
+    // Cleanup never passes silently: the orphan is gone or verifiably killed.
+    if (orphan !== undefined)
+      expect(['gone', 'killed']).toContain(await killVerified(orphan, host));
     orphan = undefined;
     if (marker !== '') await rm(marker, { recursive: true, force: true, maxRetries: 10 });
     marker = '';
-  }, hangGuard(KILL_VERIFIED_MS));
+  }, hangGuard(KILL_DEADLINE_MS));
 
   /** Spawns a node parent that starts a detached node child, prints its pid, and exits on EOF. */
   async function plant(): Promise<{
@@ -306,7 +399,7 @@ describe('a planted orphan on the real host', () => {
       // Reads: begin, recordRoot, the sample in flight at stop, findLeaks, the
       // final one; the poll; killVerified of the one leak.
     },
-    hangGuard(5 * HOST_TABLE_READ_MS, SAMPLING_POLL_MS, KILL_VERIFIED_MS),
+    hangGuard(5 * HOST_TABLE_READ_MS, SAMPLING_POLL_MS, KILL_DEADLINE_MS),
   );
 
   it(
@@ -327,6 +420,6 @@ describe('a planted orphan on the real host', () => {
       expect((error as LeakError).outcomes.every((o) => o === 'killed')).toBe(true);
       // Reads: begin, recordRoot, the child's row, findLeaks; killVerified of the one leak.
     },
-    hangGuard(4 * HOST_TABLE_READ_MS, KILL_VERIFIED_MS),
+    hangGuard(4 * HOST_TABLE_READ_MS, KILL_DEADLINE_MS),
   );
 });
