@@ -54,9 +54,13 @@ jobs:
           - runner: macos-15
             platform: darwin-arm64
             arch: arm64
+            pnpm-installer: action-setup
+          # pnpm 11 ships no native binary for Intel macOS, so the
+          # action-setup self-update cannot verify one (run 1, research 09).
           - runner: macos-15-intel
             platform: darwin-x64
             arch: x64
+            pnpm-installer: corepack
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +71,7 @@ jobs:
         uses: ./.github/actions/setup
         with:
           node-version: '22'
+          pnpm-installer: ${{ matrix.pnpm-installer }}
 
       - name: Bundle the harness
         timeout-minutes: 5

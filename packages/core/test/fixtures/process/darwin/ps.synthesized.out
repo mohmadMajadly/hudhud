@@ -1,14 +1,18 @@
-    1     0     1 Mon Oct  5 06:41:09 2026 /sbin/launchd
-  480     1   480 Mon Oct 12 16:58:40 2026 -zsh
-  500   480   480 Mon Oct 12 17:00:01 2026 /usr/local/bin/node
-  501   500   480 Mon Oct 12 17:00:02 2026 /usr/local/bin/node
-  502   501   480 Mon Oct 12 17:00:02 2026 /opt/claude/versions/2.1.296
-  510   502   510 Mon Oct 12 17:00:09 2026 /bin/bash
-  511   510   510 Mon Oct 12 17:00:09 2026 /bin/sleep
-  520   502   520 Mon Oct 12 17:00:11 2026 /Applications/Tool (beta) Helper.app/Contents/MacOS/Tool (beta) Helper
-  521   520   520 Mon Oct 12 17:00:11 2026 /tmp/x) R 1 1 ??bad
-  530   502   530 Mon Oct 12 17:00:12 2026 /tmp/evil
-  480     1   480 Mon Oct 12 17:00:12 2026 forged-line-from-a-newline-in-a-name
-  531   530   530 Mon Oct 12 17:00:12 2026
-  612     1   612 Sun Oct 12 17:00:13 2026 wrong-weekday
+    1     0     1 Ss   Mon Oct  5 06:41:09 2026     /sbin/launchd
+  480     1   480 Ss   Mon Oct 12 16:58:40 2026     -zsh
+  500   480   480 S+   Mon Oct 12 17:00:01 2026     /usr/local/bin/node
+  501   500   480 S+   Mon Oct 12 17:00:02 2026     /usr/local/bin/node
+  502   501   480 S+   Mon Oct 12 17:00:02 2026     /opt/claude/versions/2.1.296
+  510   502   510 Ss   Mon Oct 12 17:00:09 2026     /bin/bash
+  511   510   510 S    Mon Oct 12 17:00:09 2026     /bin/sleep
+  520   502   520 Ss   Mon Oct 12 17:00:11 2026     /Applications/Tool (beta) Helper.app/Contents/MacOS/Tool (beta) Helper
+  521   520   520 R    Mon Oct 12 17:00:11 2026     /tmp/x) R 1 1 ??bad
+  530   502   530 Ss   Mon Oct 12 17:00:12 2026     /tmp/evil
+  480     1   480 S    Mon Oct 12 17:00:12 2026     forged-line-from-a-newline-in-a-name
+  531   530   530 S    Mon Oct 12 17:00:12 2026     
+  532   502   480 Z    Mon Oct 12 17:00:12 2026     (security)
+  533   502   480 S    Mon Oct 12 17:00:12 2026       lead
+  534   502   480 S<+Ns Mon Oct 12 17:00:13 2026     /bin/flags
+  612     1   612 S    Sun Oct 12 17:00:13 2026     wrong-weekday
+  613     1   613 S    Mon Oct 12 17:00:13 2026 procps-gap
 garbage line without columns

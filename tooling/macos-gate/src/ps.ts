@@ -29,7 +29,7 @@ import type { GateHost } from './host.js';
 
 /** The `ps` contract of the core (`DarwinPsTableCalls`), confirmed by gate item 2. */
 export const PS_PATH = '/bin/ps';
-export const PS_ARGS: readonly string[] = ['-A', '-o', 'pid=,ppid=,pgid=,lstart=,comm='];
+export const PS_ARGS: readonly string[] = ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm='];
 export const PS_ENV: Readonly<Record<string, string>> = { LC_ALL: 'C', TZ: 'UTC0' };
 
 /** One `ps` read through the core parser. Rejects when `ps` fails. */
@@ -48,9 +48,54 @@ export async function psSnapshot(host: GateHost): Promise<ProcessSnapshot> {
   });
 }
 
-/** The basename of a `comm` value, without the leading `-` of a login shell. */
+const MAX_RAW_LINES = 32;
+
+/**
+ * Evidence of the exact `ps` format: the raw output lines (padding kept,
+ * as JSON strings in the report) of the given pids, at most 32. Rejects when
+ * `ps` fails.
+ */
+export async function psRawLines(host: GateHost, pids: readonly number[]): Promise<string[]> {
+  const result = await host.run(PS_PATH, PS_ARGS, { env: PS_ENV, timeoutMs: 15_000 });
+  if (result.code !== 0) throw new Error(`${PS_PATH} failed: code ${String(result.code)}`);
+  const wanted = new Set(pids);
+  return new TextDecoder()
+    .decode(result.stdout)
+    .split('\n')
+    .filter((line) => wanted.has(Number(/^ *([0-9]+) /.exec(line)?.[1] ?? '-1')))
+    .slice(0, MAX_RAW_LINES);
+}
+
+/** `(<p_comm>)`: how macOS `ps` prints a process whose arguments it cannot read. */
+const KERNEL_NAME = /^\(([\s\S]*)\)$/;
+
+/**
+ * The command name of a `comm` value: the basename without the leading `-`
+ * of a login shell, or the kernel name inside the parentheses that macOS
+ * `ps` prints when it cannot read the arguments (every zombie; gate run 1
+ * saw `(security)`, `(git)`, `(xcodebuild)`). The kernel name is at most 16
+ * bytes and has no directory.
+ */
 export function commandName(name: string): string {
+  if (KERNEL_NAME.test(name)) return name.slice(1, -1);
   return path.posix.basename(name).replace(/^-/, '');
+}
+
+/** How a record appears in the evidence: its `comm` value, plus ` [zombie]` for a zombie. */
+export function recordLabel(record: ProcessRecord): string {
+  return record.zombie === true ? `${record.name} [zombie]` : record.name;
+}
+
+/**
+ * The record of `identity` when it is still present and alive: a zombie
+ * holds its pid but runs nothing, so it is not a survivor.
+ */
+export function liveIdentity(
+  records: readonly ProcessRecord[],
+  identity: ProcessIdentity,
+): ProcessRecord | null {
+  const record = findIdentity(records, identity);
+  return record?.zombie === true ? null : record;
 }
 
 /** `pid@startTime`. */
@@ -163,7 +208,7 @@ export class ProcessLedger {
       }
     }
     const survivors = [...watched.entries()]
-      .filter(([, identity]) => findIdentity(final.records, identity) !== null)
+      .filter(([, identity]) => liveIdentity(final.records, identity) !== null)
       .map(([label]) => label);
     entry.done = survivors.length === 0;
     return { signalled, survivors };

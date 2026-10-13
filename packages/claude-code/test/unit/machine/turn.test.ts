@@ -546,6 +546,33 @@ describe('synthesized turn ends', () => {
     expect(run.step(send(T3))).toEqual([{ type: 'turn.fail', turnId: T3, error }]);
   });
 
+  it('macOS SIGINT from outside: the error result settles the turn once; the exit settles nothing', () => {
+    // Research 09 (macOS gate run 1): result/error_during_execution, then exit 0.
+    const error = {
+      code: 'PROCESS_EXITED',
+      message: 'process exited',
+      retryable: true,
+      details: { exitCode: 0 },
+    };
+    const run = new Runner();
+    run.step(send(T1), init());
+    const settle = run.step(
+      result({
+        subtype: 'error_during_execution',
+        is_error: true,
+        terminal_reason: 'aborted_streaming',
+        user_message_uuid: T1,
+      }),
+    );
+    expect(settled(settle, T1)).toMatchObject({
+      outcome: 'cancelled',
+      isError: true,
+      synthesized: false,
+    });
+    expect(run.step({ type: 'end', disposition: { kind: 'fail', error } })).toEqual([]);
+    expect(run.state.turns).toEqual([]);
+  });
+
   it('after end: frames, timers, stdin and a second end do nothing; interrupts are no-ops', () => {
     const run = new Runner();
     run.step({ type: 'end', disposition: { kind: 'settle', outcome: 'cancelled' } });

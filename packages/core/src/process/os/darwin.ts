@@ -4,7 +4,7 @@
  *
  * @remarks
  * Runs exactly the command documented on {@link DarwinPsTableCalls}:
- * `/bin/ps -A -o pid=,ppid=,pgid=,lstart=,comm=`, `shell: false`, with an
+ * `/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=`, `shell: false`, with an
  * environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`, stdin and stderr
  * ignored, a 30 s timeout and a 64 MiB output cap. No logic: parsing is
  * `tree/ps.ts`.
@@ -27,7 +27,7 @@ export const PS_PATH = '/bin/ps';
 export const PS_ARGS: readonly string[] = Object.freeze([
   '-A',
   '-o',
-  'pid=,ppid=,pgid=,lstart=,comm=',
+  'pid=,ppid=,pgid=,stat=,lstart=,comm=',
 ]);
 
 /** The complete `ps` environment of the contract. */

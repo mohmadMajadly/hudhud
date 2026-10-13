@@ -16,7 +16,15 @@ import { fitsSunPath, isInside, LONG_TMP_NAME, socketPathItem } from '../src/ite
 import { ProcessLedger } from '../src/ps.js';
 import { ItemRecorder, type GateItemId, type ItemResult } from '../src/report.js';
 import type { SessionContext } from '../src/session.js';
-import { clearSessions, result, SimCli, SimHost, type CliFlags, type SimOptions } from './sim.js';
+import {
+  clearSessions,
+  result,
+  SimCli,
+  SimHost,
+  type CliFlags,
+  type SimChild,
+  type SimOptions,
+} from './sim.js';
 
 const BINARY = '/cache/2.1.296/darwin-arm64/claude';
 
@@ -200,6 +208,87 @@ describe('item 2: process tree', () => {
     noSurvivors(sim);
   });
 
+  it('records the Linux SIGINT shape (no result) and the core classification', async () => {
+    const { context } = world();
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.evidence['sigintShape']).toEqual({ shape: 'no-result', results: [] });
+    expect(outcome.evidence['sigintClassification']).toEqual({
+      outcome: 'unknown',
+      turnSynthesis: 'error',
+      error: 'PROCESS_EXITED',
+    });
+  });
+
+  it('passes on the gate run 1 macOS shapes: (name) tool rows, zombie children, error result then exit 0 on SIGINT', async () => {
+    const { sim, context } = world({
+      hiddenToolArgs: true,
+      zombieSecurity: true,
+      intErrorResultExit0: true,
+    });
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    const seen = (outcome.evidence['sigtermSession'] as { descendantsSeen: string[] })
+      .descendantsSeen;
+    expect(seen).toEqual(expect.arrayContaining(['(security) [zombie]', '(zsh)', '(sleep)']));
+    expect(outcome.evidence['sigintShape']).toEqual({
+      shape: 'error-result',
+      results: [{ subtype: 'error_during_execution', is_error: true, terminal_reason: undefined }],
+    });
+    expect(outcome.evidence['sigintClassification']).toEqual({
+      outcome: 'unknown',
+      turnSynthesis: 'none',
+      error: 'PROCESS_EXITED',
+    });
+    const lines = outcome.evidence['psLinesBeforeSigterm'] as string[];
+    expect(
+      lines.some((text) => / Z {4}\w{3} \w{3} [ \d]\d [\d:]{8} \d{4} {5}\(security\)$/.test(text)),
+    ).toBe(true);
+    noSurvivors(sim);
+  });
+
+  it('fails when SIGINT yields a success result', async () => {
+    class SuccessOnInt extends SimCli {
+      private readonly own: SimChild;
+      constructor(child: SimChild, host: SimHost) {
+        super(child, host, {});
+        this.own = child;
+      }
+      override signal(name: NodeJS.Signals): void {
+        if (name !== 'SIGINT') {
+          super.signal(name);
+          return;
+        }
+        this.own.emit({ type: 'result', subtype: 'success', is_error: false });
+        this.own.exit(0, null);
+      }
+    }
+    const { sim, context } = world({}, { cli: (child, host) => new SuccessOnInt(child, host) });
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    // A success result and exit 0 would read as a normal close: both checks fail.
+    expect(outcome.failed).toEqual([
+      'SIGINT mid-stream: no result, or exactly one error result (recorded shape)',
+      'SIGINT mid-stream: the core exit classifier ends the session with PROCESS_EXITED and settles the turn once',
+    ]);
+    expect(outcome.evidence['sigintShape']).toMatchObject({ shape: 'other' });
+    noSurvivors(sim);
+  });
+
+  it('fails when the CLI path carries column padding (the gate run 1 parser fault)', async () => {
+    const { context } = world({}, { cli: (child, host) => new SimCli(child, host, {}) });
+    const host = context.host as SimHost;
+    const spawn = host.spawn.bind(host);
+    host.spawn = (file, args, options) => {
+      const child = spawn(file, args, options);
+      const record = child.pid === undefined ? undefined : host.table.get(child.pid);
+      if (record !== undefined) record.name = `    ${record.name}`;
+      return child;
+    };
+    const outcome = await item(2, (r) => processTreeItem(context, r));
+    expect(outcome.failed).toContain(
+      'ps: the CLI name is its executable path, without column padding',
+    );
+  });
+
   it('fails on a shared group, a SIGTERM that leaves tools, and a SIGINT with a result', async () => {
     const { sim, context } = world({ sharedGroup: true, termLeavesTools: true, intResult: true });
     const outcome = await item(2, (r) => processTreeItem(context, r));
@@ -207,7 +296,7 @@ describe('item 2: process tree', () => {
       'process groups: the Bash tool leads its own group',
       'SIGTERM: the CLI cleans its tool groups (no survivor by pid + start time)',
       'SIGINT mid-stream: exit code 0',
-      'SIGINT mid-stream: no result frame',
+      'SIGINT mid-stream: the core exit classifier ends the session with PROCESS_EXITED and settles the turn once',
     ]);
     noSurvivors(sim);
   });
@@ -246,7 +335,7 @@ describe('item 2: process tree', () => {
     expect(calls).toBeGreaterThan(0);
     expect(outcome.failed).toEqual(
       expect.arrayContaining([
-        'ps: every line parses (LC_ALL=C, TZ=UTC0, pid ppid pgid lstart comm)',
+        'ps: every line parses (LC_ALL=C, TZ=UTC0, pid ppid pgid stat lstart comm)',
         'ps: the lstart start time of the CLI matches its spawn',
         'SIGTERM: the CLI exits',
       ]),
@@ -287,7 +376,11 @@ describe('item 3: keychain', () => {
     expect(outcome.failed).toEqual([]);
     expect(outcome.evidence['keychainsDirInIsolatedHome']).toBeNull();
     expect(outcome.evidence['limitation']).toMatch(/security\(1\) child processes/);
-    expect(outcome.evidence['apiKeySession']).toMatchObject({ descendants: ['helper'] });
+    expect(outcome.evidence['apiKeySession']).toMatchObject({
+      descendants: ['/usr/libexec/helper'],
+      security: [],
+    });
+    expect(outcome.evidence['securityShim']).toMatchObject({ invoked: false, argv: [] });
     noSurvivors(sim);
   });
 
@@ -299,6 +392,55 @@ describe('item 3: keychain', () => {
       'API key: no security(1) child at any sample (no Keychain access)',
     ]);
     noSurvivors(sim);
+  });
+
+  it('catches the gate run 1 shape: a (security) zombie with the API key, and records the shim argv', async () => {
+    const { sim, context } = world({ zombieSecurity: true });
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([
+      'API key: no security(1) child at any sample (no Keychain access)',
+    ]);
+    expect(outcome.evidence['apiKeySession']).toMatchObject({
+      descendants: ['(security) [zombie]'],
+      security: [expect.objectContaining({ name: '(security)', zombie: true })],
+    });
+    expect(outcome.evidence['controlSession']).toMatchObject({ securitySeen: true });
+    expect(outcome.evidence['securityShim']).toMatchObject({
+      invoked: true,
+      argv: ['[find-generic-password][-s][Claude Code-credentials]'],
+      securitySeen: false,
+      result: 'success',
+    });
+    const probes = outcome.evidence['keychainSearchList'] as { env: string; command: string }[];
+    expect(probes.map((probe) => `${probe.env}: ${probe.command}`)).toEqual([
+      'runner HOME: security list-keychains -d user',
+      'runner HOME: security default-keychain -d user',
+      'sandbox HOME: security list-keychains -d user',
+      'sandbox HOME: security default-keychain -d user',
+      'sandbox HOME + CFFIXED_USER_HOME: security list-keychains -d user',
+      'sandbox HOME + CFFIXED_USER_HOME: security default-keychain -d user',
+    ]);
+    const security = sim.runs.filter((run) => run.file === '/usr/bin/security');
+    // Read-only: never `-s` (which would change the user's search list).
+    expect(security.every((run) => !run.args.includes('-s'))).toBe(true);
+    expect(security.at(-1)?.options.env['CFFIXED_USER_HOME']).toMatch(/\/home$/);
+    const chmod = sim.runs.find((run) => run.file === '/bin/chmod');
+    expect(chmod?.args[0]).toBe('700');
+    expect(String(chmod?.args[1])).toMatch(/\/shim\/security$/);
+    noSurvivors(sim);
+  });
+
+  it('writes a shim that logs each argument and answers not found', async () => {
+    const { securityShim } = await import('../src/items/keychain.js');
+    expect(securityShim("/tmp/it's/log")).toBe(
+      [
+        '#!/bin/sh',
+        `for a in "$@"; do printf '[%s]' "$a"; done >> '/tmp/it'\\''s/log'`,
+        `printf '\\n' >> '/tmp/it'\\''s/log'`,
+        'exit 44',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('names a control-run hang on a security(1) child keychain-access', async () => {
@@ -469,6 +611,17 @@ describe('item 6: path identity', () => {
     expect(outcome.failed).toEqual([]);
     expect(outcome.evidence['caseInsensitiveVolume']).toBe(true);
     expect(outcome.evidence['aliasResume']).toMatchObject({ environmentUpdate: true });
+    noSurvivors(sim);
+  });
+
+  it('resumes after the initialize response; the gate run 1 eager write is recorded, not failed', async () => {
+    const { sim, context } = world({ resumeEagerStall: true });
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['eagerResume']).toMatchObject({ ok: false, messages: 0 });
+    expect(outcome.evidence['eagerResumeSession']).toMatchObject({
+      frames: ['command_lifecycle:queued', 'control_response'],
+    });
     noSurvivors(sim);
   });
 

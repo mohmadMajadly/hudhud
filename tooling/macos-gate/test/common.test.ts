@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { errorMessage, isSuccess, pollUntil, shellSnapshotReady } from '../src/items/common.js';
+import {
+  addBounded,
+  errorMessage,
+  frameLabel,
+  isSuccess,
+  MAX_SEEN,
+  pollUntil,
+  shellSnapshotReady,
+} from '../src/items/common.js';
 import { createSandbox } from '../src/sandbox.js';
 import { SimHost } from './sim.js';
 
@@ -47,5 +55,22 @@ describe('item helpers', () => {
     expect(isSuccess({ at: 0, value: { type: 'result', subtype: 'success' } })).toBe(true);
     expect(errorMessage(new Error('x'))).toBe('x');
     expect(errorMessage(7)).toBe('7');
+  });
+
+  it('bounds evidence lists at MAX_SEEN distinct names', () => {
+    const set = new Set<string>();
+    for (let index = 0; index < MAX_SEEN + 10; index += 1) addBounded(set, `n${String(index)}`);
+    expect(set.size).toBe(MAX_SEEN);
+    expect(set.has(`n${String(MAX_SEEN)}`)).toBe(false);
+  });
+
+  it('labels command_lifecycle frames with their state', () => {
+    expect(frameLabel({ at: 0, value: { type: 'command_lifecycle', state: 'queued' } })).toBe(
+      'command_lifecycle:queued',
+    );
+    expect(frameLabel({ at: 0, value: { type: 'command_lifecycle' } })).toBe('command_lifecycle');
+    expect(frameLabel({ at: 0, value: { type: 'system', subtype: 'init', state: 'x' } })).toBe(
+      'system/init',
+    );
   });
 });

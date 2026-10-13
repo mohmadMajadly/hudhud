@@ -37,12 +37,14 @@ export interface LinuxProcTableCalls {
  *
  * @remarks
  * Contract of `runPs`: run `/bin/ps` with argv
- * `['-A', '-o', 'pid=,ppid=,pgid=,lstart=,comm=']`, `shell: false`, and an
- * environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`. `LC_ALL=C` fixes the
- * `lstart` format (`Mon Oct 12 17:02:31 2026`); `TZ=UTC0` makes `lstart`
+ * `['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']`, `shell: false`, and
+ * an environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`. `LC_ALL=C` fixes
+ * the `lstart` format (`Mon Oct 12 17:02:31 2026`); `TZ=UTC0` makes `lstart`
  * unambiguous across DST changes (plan decision of W1-T9, additive to the
- * plan's `LC_ALL=C`). The exact field list is to be confirmed by the macOS
- * gate. Resolves with stdout as bytes; rejects on a non-zero exit.
+ * plan's `LC_ALL=C`). `stat` marks zombies, which macOS otherwise shows only
+ * through a parenthesized name. macOS gate run 1 confirmed the
+ * `pid ppid pgid lstart comm` layout with `lstart` padded to 28 columns
+ * (research 09); the `stat` column is to be confirmed by the next gate run. Resolves with stdout as bytes; rejects on a non-zero exit.
  *
  * @public
  */

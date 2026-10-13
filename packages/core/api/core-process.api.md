@@ -382,7 +382,7 @@ export function parseFlag(element: string): {
 export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRecord | null;
 
 // @public
-export function parsePsOutput(output: Uint8Array): ParsedProcessTable;
+export function parsePsOutput(output: Uint8Array, dialect?: PsDialect): ParsedProcessTable;
 
 // @public
 export function parseWin32ProcessJson(output: Uint8Array): ParsedProcessTable;
@@ -451,6 +451,7 @@ export interface ProcessRecord extends ProcessIdentity {
     readonly pgid?: number;
     // (undocumented)
     readonly ppid: number;
+    readonly zombie?: true;
 }
 
 // @public
@@ -497,6 +498,9 @@ export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 
 // @public
 export function processTableStartTime(table: ProcessTableCalls): StartTimeReader;
+
+// @public
+export type PsDialect = 'bsd' | 'procps';
 
 // @public
 export interface ResolvedExecutable {
@@ -681,7 +685,13 @@ export type SweepSkipReason =
 /** The pid is present with another start time (reused). */
 | 'identity-changed'
 /** pid 0 or 1, the host, or the spawned process. */
-| 'protected';
+| 'protected'
+/**
+* A verified descendant that is a zombie (exited, not yet reaped): it
+* runs nothing and a signal has no effect, so it is not signalled. It
+* still counts as a verified member of its group.
+*/
+| 'zombie';
 
 // @public
 export function systemRootFrom(env: Readonly<Record<string, string | undefined>>): {

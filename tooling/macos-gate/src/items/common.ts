@@ -9,7 +9,7 @@ import type {
   ProcessSnapshot,
 } from '../../../../packages/core/src/process/tree/types.js';
 import type { GateHost } from '../host.js';
-import { commandName } from '../ps.js';
+import { commandName, recordLabel } from '../ps.js';
 import type { Sandbox } from '../sandbox.js';
 import {
   field,
@@ -46,12 +46,21 @@ export function isSuccess(frame: Frame | undefined): boolean {
   return frame?.value['subtype'] === 'success' && frame.value['is_error'] !== true;
 }
 
+/** {@link frameKind} plus the `state` of a `command_lifecycle` frame (`queued`, `started`, ...). */
+export function frameLabel(frame: Frame): string {
+  const kind = frameKind(frame);
+  const state = frame.value['state'];
+  return frame.value['type'] === 'command_lifecycle' && typeof state === 'string'
+    ? `${kind}:${state}`
+    : kind;
+}
+
 /** A compact, bounded description of a session for the evidence. */
 export function sessionEvidence(session: CliSession): Record<string, unknown> {
   return {
     pid: session.pid,
     identity: session.identity,
-    frames: session.frames.slice(0, 80).map(frameKind),
+    frames: session.frames.slice(0, 80).map(frameLabel),
     frameCount: session.frames.length,
     nonFrames: session.nonFrames,
     exit: session.exit,
@@ -83,15 +92,26 @@ export interface NamedTree {
   readonly match: ProcessRecord;
 }
 
+/** Most distinct names an evidence list keeps. */
+export const MAX_SEEN = 64;
+
+/** Adds `value` to `set` while it holds fewer than {@link MAX_SEEN} entries (bounded evidence). */
+export function addBounded(set: Set<string>, value: string): void {
+  if (set.size < MAX_SEEN) set.add(value);
+}
+
 /**
- * Samples the session's tree until a descendant whose command name is
- * `name` appears; `undefined` on timeout, exit, or an unknown identity.
+ * Samples the session's tree until a live (non-zombie) descendant whose
+ * command name is `name` appears; `undefined` on timeout, exit, or an
+ * unknown identity. Every descendant seen is added to `seen` (as
+ * {@link recordLabel}, at most 64), so a miss is explained in the evidence.
  */
 export async function waitForDescendant(
   context: SessionContext,
   session: CliSession,
   name: string,
   timeoutMs: number,
+  seen = new Set<string>(),
 ): Promise<NamedTree | undefined> {
   const identity = session.identity;
   if (identity === null) return undefined;
@@ -102,7 +122,10 @@ export async function waitForDescendant(
     timeoutMs,
     async () => {
       const tree = await context.ledger.tree(identity);
-      const match = tree.descendants.find((record) => commandName(record.name) === name);
+      for (const record of tree.descendants) addBounded(seen, recordLabel(record));
+      const match = tree.descendants.find(
+        (record) => record.zombie !== true && commandName(record.name) === name,
+      );
       if (tree.root !== null && match !== undefined) {
         found = { snapshot: tree.snapshot, root: tree.root, descendants: tree.descendants, match };
       }

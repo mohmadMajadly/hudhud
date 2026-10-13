@@ -103,7 +103,13 @@ export type SweepSkipReason =
   /** The pid is present with another start time (reused). */
   | 'identity-changed'
   /** pid 0 or 1, the host, or the spawned process. */
-  | 'protected';
+  | 'protected'
+  /**
+   * A verified descendant that is a zombie (exited, not yet reaped): it
+   * runs nothing and a signal has no effect, so it is not signalled. It
+   * still counts as a verified member of its group.
+   */
+  | 'zombie';
 
 /**
  * Why the sweep left a group alone.
@@ -124,7 +130,7 @@ export type GroupSkipReason =
  * @public
  */
 export interface SweepPlan {
-  /** Verified descendants, each with its identity from the latest snapshot, ordered by pid. */
+  /** Verified live (non-zombie) descendants, each with its identity from the latest snapshot, ordered by pid. */
   readonly processes: readonly ProcessIdentity[];
   /** Groups led by a verified descendant whose every current member is a verified descendant. */
   readonly groups: readonly GroupTarget[];
@@ -164,7 +170,10 @@ function pgidOf(identity: ProcessIdentity, snapshots: readonly ProcessSnapshot[]
  *    the same start time.
  * 3. Processes that descend, in the latest snapshot, from a verified
  *    candidate (forked after the recorded snapshots) are verified too.
- * 4. A group is selected only when its leader (`pid === pgid`) is verified,
+ * 4. Verified zombies are not signalled by pid (reason `zombie`): they run
+ *    nothing and a zombie's pid cannot be reused before it is reaped. They
+ *    still count as verified group members.
+ * 5. A group is selected only when its leader (`pid === pgid`) is verified,
  *    its id is not protected, the host's group is known, and every member of
  *    that group in the latest snapshot is verified; otherwise its members
  *    are still signalled one by one.
@@ -235,10 +244,16 @@ export function planSweep(input: SweepInput): SweepPlan {
 
   return {
     processes: [...verified.values()]
+      .filter((record) => record.zombie !== true)
       .map((record) => ({ pid: record.pid, startTime: record.startTime }))
       .sort((a, b) => a.pid - b.pid),
     groups: groups.sort((a, b) => a.pgid - b.pgid),
-    skippedProcesses: [...skippedProcesses]
+    skippedProcesses: [
+      ...skippedProcesses,
+      ...[...verified.values()]
+        .filter((record) => record.zombie === true)
+        .map((record): [number, SweepSkipReason] => [record.pid, 'zombie']),
+    ]
       .map(([pid, reason]) => ({ pid, reason }))
       .sort((a, b) => a.pid - b.pid),
     skippedGroups: skippedGroups.sort((a, b) => a.pgid - b.pgid),

@@ -32,6 +32,9 @@ export const SESSION_ARGS: readonly string[] = [
   '--permission-prompt-tool=stdio',
 ];
 
+/** The `PATH` of every CLI run: system directories only. */
+export const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+
 /** Directories of one run. */
 export interface Sandbox {
   readonly root: string;
@@ -69,13 +72,15 @@ export interface SandboxEnvInput {
   readonly user: string;
   /** `false` omits `ANTHROPIC_API_KEY` (item 3 control run). */
   readonly apiKey?: boolean;
+  /** A directory searched before the system `PATH` (item 3 `security` shim). */
+  readonly pathPrefix?: string;
 }
 
 /** The complete environment of a CLI run. */
 export function sandboxEnv(input: SandboxEnvInput): Record<string, string> {
   const { sandbox, mockUrl } = input;
   return {
-    PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+    PATH: input.pathPrefix === undefined ? SYSTEM_PATH : `${input.pathPrefix}:${SYSTEM_PATH}`,
     HOME: sandbox.home,
     USER: input.user,
     LOGNAME: input.user,

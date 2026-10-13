@@ -145,7 +145,7 @@ export function parseLinuxProcess(stat: string, cmdline: string): ProcessRow | n
 
 /**
  * Parses the two `ps` outputs of {@link darwinProcessTable}: the identity
- * table (`pid ppid pgid lstart comm`, the core parser) and the same layout
+ * table (`pid ppid pgid stat lstart comm`, the core parser) and the same layout
  * with `args` for `comm`, joined by pid and start time, so a pid reused
  * between the two runs never gets another process's command line. A pid
  * listed twice in either output (a forged line) is dropped, as the core
@@ -189,7 +189,7 @@ export const DARWIN_ARGS_PS: readonly string[] = [
   '-A',
   '-ww',
   '-o',
-  'pid=,ppid=,pgid=,lstart=,args=',
+  'pid=,ppid=,pgid=,stat=,lstart=,args=',
 ];
 
 /** The complete environment of {@link DARWIN_ARGS_PS} (as the core `ps` contract). */

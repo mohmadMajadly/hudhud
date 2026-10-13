@@ -12,6 +12,8 @@
  *   working directory (no "Environment update" injected, research 07 a8).
  * - Evidence only: the same resume from the `/tmp` alias, showing whether the
  *   CLI treats the alias as another directory.
+ * - Evidence only: a resume whose user message is written before the
+ *   `initialize` response (the order of gate run 1, research 09).
  */
 
 import path from 'node:path';
@@ -59,6 +61,19 @@ export function turnMessages(
   return longest;
 }
 
+/**
+ * How the first user message is written: `after-init` waits for the
+ * `initialize` response first (research 07 §1, where every resume worked);
+ * `eager` writes it right behind `initialize`, before any response. Gate run
+ * 1 wrote resumed sessions eagerly, and on macOS the resumed CLI then
+ * answered `initialize` and one `command_lifecycle` frame and nothing else
+ * for 90 s (research 09).
+ */
+type FirstWrite = 'after-init' | 'eager';
+
+/** Time allowed for the evidence-only eager resume (gate run 1 waited 90 s for nothing). */
+const EAGER_RESUME_MS = 30_000;
+
 async function oneRun(
   context: SessionContext,
   sandbox: Sandbox,
@@ -66,15 +81,18 @@ async function oneRun(
   resume: string | undefined,
   label: string,
   r: ItemRecorder,
+  firstWrite: FirstWrite = 'after-init',
+  timeoutMs: number = TURN_MS,
 ): Promise<RunView & { readonly survivors: number; readonly violations: number }> {
   const outcome = await runScenario(
     context,
     { sandbox, cwd: () => cwd, ...(resume === undefined ? {} : { args: [`--resume=${resume}`] }) },
     async ({ session, mock }) => {
       session.initialize();
+      if (firstWrite === 'after-init') await session.initialized(timeoutMs);
       const text = `gate item 6 ${label}`;
       session.user(`${mockMarker('echo')} ${text}`);
-      const result = await session.waitKind('result', TURN_MS);
+      const result = await session.waitKind('result', timeoutMs);
       const messages = turnMessages(mock.requests, text);
       r.note(`${label}Session`, sessionEvidence(session));
       return {
@@ -153,10 +171,24 @@ export async function pathIdentityItem(context: SessionContext, r: ItemRecorder)
   );
   const alias = await oneRun(context, sandbox, sandbox.work, sessionId, 'aliasResume', r);
   r.note('aliasResume', alias);
+  // Evidence only: the gate run 1 write order (user message before the
+  // initialize response) on a resumed session, to tell a CLI race from a
+  // harness fault (research 09).
+  const eager = await oneRun(
+    context,
+    sandbox,
+    canonical,
+    sessionId,
+    'eagerResume',
+    r,
+    'eager',
+    EAGER_RESUME_MS,
+  );
+  r.note('eagerResume', eager);
   r.check(
     'no egress violation, nothing survives',
-    first.violations + resumed.violations + alias.violations === 0 &&
-      first.survivors + resumed.survivors + alias.survivors === 0,
-    JSON.stringify({ first, resumed, alias }),
+    first.violations + resumed.violations + alias.violations + eager.violations === 0 &&
+      first.survivors + resumed.survivors + alias.survivors + eager.survivors === 0,
+    JSON.stringify({ first, resumed, alias, eager }),
   );
 }

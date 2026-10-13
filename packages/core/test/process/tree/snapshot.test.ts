@@ -49,8 +49,12 @@ describe('takeSnapshot (reads only, through injected calls)', () => {
     });
     expect(snapshot.source).toBe('darwin-ps');
     expect(snapshot.records.some((record) => record.pid === 480)).toBe(false);
-    // two malformed lines plus both copies of pid 480
-    expect(snapshot.rejected).toBe(4);
+    // three malformed lines (wrong weekday, procps gap, garbage) plus both copies of pid 480
+    expect(snapshot.rejected).toBe(5);
+    expect(snapshot.records.find((record) => record.pid === 532)).toMatchObject({
+      name: '(security)',
+      zombie: true,
+    });
   });
 
   it('parses the Windows CIM output', async () => {
