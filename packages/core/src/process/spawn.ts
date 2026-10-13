@@ -249,7 +249,7 @@ export interface HarnessProcess {
   readonly identitySource: ProcessTableSource;
   /**
    * Writes to stdin. Writes are serialized; each resolves once its bytes
-   * were handed to the OS and rejects with {@link ProcessStreamError} when
+   * were handed to the OS and rejects with `ProcessStreamError` when
    * stdin was ended or the pipe failed (for example `EPIPE` after the child
    * exited). Strings are encoded as UTF-8.
    */
@@ -259,7 +259,7 @@ export interface HarnessProcess {
   /**
    * The stdout bytes. Single consumer: a second iteration throws. Reading is
    * the backpressure: an unread pipe blocks the child. A pipe error ends the
-   * iteration with {@link ProcessStreamError}, except `ENOTCONN`, which ends it
+   * iteration with `ProcessStreamError`, except `ENOTCONN`, which ends it
    * normally.
    */
   readonly stdout: AsyncIterable<Uint8Array>;

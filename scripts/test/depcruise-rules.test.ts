@@ -49,6 +49,8 @@ const SUPPORT: Record<string, string> = {
   'packages/core/dist/protocol/index.d.ts': 'export {};\n',
   'packages/core/dist/process/index.js': 'export {};\n',
   'packages/core/dist/process/index.d.ts': 'export {};\n',
+  'packages/core/dist/binding/index.js': 'export {};\n',
+  'packages/core/dist/binding/index.d.ts': 'export {};\n',
   'packages/core/node_modules/third-party/package.json':
     '{ "name": "third-party", "version": "1.0.0", "main": "index.js" }\n',
   'packages/core/node_modules/third-party/index.js': 'module.exports = {};\n',
@@ -128,6 +130,12 @@ const CASES: readonly Case[] = [
     rules: ['protocol-no-workspace-deps', 'protocol-not-to-binding', 'protocol-not-to-process'],
   },
   {
+    title: 'Claude protocol importing @hudhud/core/binding',
+    file: 'packages/claude-code/src/protocol/planted-binding.ts',
+    code: "import {} from '@hudhud/core/binding';\n",
+    rules: ['protocol-no-workspace-deps', 'protocol-not-to-binding'],
+  },
+  {
     title: 'Claude protocol importing a Node built-in',
     file: 'packages/claude-code/src/protocol/planted-builtin.ts',
     code: "import {} from 'node:fs';\n",
@@ -164,6 +172,7 @@ const CASES: readonly Case[] = [
       "import {} from '@hudhud/core';",
       "import {} from '@hudhud/core/protocol';",
       "import {} from '@hudhud/core/process';",
+      "import {} from '@hudhud/core/binding';",
       "import {} from './options.js';",
       '',
     ].join('\n'),
@@ -415,6 +424,7 @@ describe('ESLint layer rules', () => {
     ['a Node built-in', "import {} from 'node:fs';\n"],
     ['a bare Node built-in', "import {} from 'fs';\n"],
     ['@hudhud/core/process', "import type {} from '@hudhud/core/process';\n"],
+    ['@hudhud/core/binding', "import {} from '@hudhud/core/binding';\n"],
     ['the @hudhud/core root entry', "import {} from '@hudhud/core';\n"],
     ['another core subpath', "import {} from '@hudhud/core/schemas/events.schema';\n"],
     ['the adapter entry', "import {} from '@hudhud/claude-code';\n"],

@@ -244,7 +244,7 @@ function blockOf(item: JsonValue): UserContentBlock {
  * Checks user input strictly and returns a fresh copy (the application
  * cannot change it after the call).
  *
- * @throws {@link InvalidOptionsError} (`details.rule`) for anything else
+ * @throws `InvalidOptionsError` (`details.rule`) for anything else
  * @beta
  */
 export function normalizeUserInput(input: unknown): UserInput {

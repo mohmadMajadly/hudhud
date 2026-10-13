@@ -18,6 +18,10 @@
       "types": "./dist/process/index.d.ts",
       "default": "./dist/process/index.js"
     },
+    "./binding": {
+      "types": "./dist/binding/index.d.ts",
+      "default": "./dist/binding/index.js"
+    },
     "./schemas/*": "./schemas/*.json",
     "./package.json": "./package.json"
   },

@@ -4,8 +4,8 @@
  *
  * @remarks
  * Pre-alpha: the harness-neutral handles (`Harness`, `Session`, `Turn`) and
- * adapter registration are here; the session driver behind them is reached
- * by the adapters (wave 5). The design is described in docs/architecture.md
+ * adapter registration are here; adapters reach the session driver behind
+ * them through the beta entry `@hudhud/core/binding`. The design is described in docs/architecture.md
  * and the ADRs under docs/adr/.
  *
  * @packageDocumentation

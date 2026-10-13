@@ -105,7 +105,7 @@ export async function snapshotAtEof(
 }
 
 /**
- * Why {@link sweepAfterExit} signalled nothing.
+ * Why `sweepAfterExit` signalled nothing.
  *
  * @public
  */
@@ -133,7 +133,7 @@ export interface AfterExitKill {
 }
 
 /**
- * What {@link sweepAfterExit} did. JSON data.
+ * What `sweepAfterExit` did. JSON data.
  *
  * @public
  */

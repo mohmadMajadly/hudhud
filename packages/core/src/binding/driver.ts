@@ -157,10 +157,18 @@ export interface SessionEnd {
   readonly error?: ErrorData;
 }
 
-/** Default of {@link DriverOptions.outputDrainMs}. */
+/**
+ * Default of {@link DriverOptions.outputDrainMs}.
+ *
+ * @beta
+ */
 export const DEFAULT_OUTPUT_DRAIN_MS = 2000;
 
-/** Queue bytes of an event that does not carry a frame (plan §1.6). */
+/**
+ * Queue bytes of an event that does not carry a frame (plan §1.6).
+ *
+ * @beta
+ */
 export const SYNTHESIZED_EVENT_BYTES = 256;
 
 // ---- fanout items --------------------------------------------------------------------------

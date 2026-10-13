@@ -87,6 +87,29 @@ const ENTRY_NAMES = {
     'parseJsonLine',
     'sanitizeForDisplay',
   ],
+  '@hudhud/core/binding': [
+    'DEFAULT_OUTPUT_DRAIN_MS',
+    'HUDHUD_ERROR_CODES',
+    'HarnessBase',
+    'HostExitHook',
+    'LoopbackTransport',
+    'LoopbackViolation',
+    'ManualClock',
+    'SYNTHESIZED_EVENT_BYTES',
+    'SessionDriver',
+    'TransportWriteError',
+    'counterIds',
+    'createLoopbackDriver',
+    'createProcessTransport',
+    'createSession',
+    'cryptoIds',
+    'hostExit',
+    'loopbackLadder',
+    'loopbackMachine',
+    'normalizeUserInput',
+    'openSession',
+    'systemClock',
+  ],
   '@hudhud/core/process': [
     'ArgvError',
     'BinaryChangedError',
@@ -198,11 +221,19 @@ describe('@hudhud/core', () => {
         file: 'dist/protocol/index.js',
         names: ENTRY_NAMES['@hudhud/core/protocol'],
       }) as unknown,
+      '@hudhud/core/binding': expect.objectContaining({
+        ok: true,
+        file: 'dist/binding/index.js',
+        names: ENTRY_NAMES['@hudhud/core/binding'],
+      }) as unknown,
       '@hudhud/core/process': expect.objectContaining({
         ok: true,
         file: 'dist/process/index.js',
         names: ENTRY_NAMES['@hudhud/core/process'],
       }) as unknown,
+    });
+    expect(results['@hudhud/core/binding']).toMatchObject({
+      exports: { DEFAULT_OUTPUT_DRAIN_MS: 2000, SYNTHESIZED_EVENT_BYTES: 256 },
     });
     expect(results['@hudhud/core']).toMatchObject({
       exports: { adapterApiVersion: 1, wireSchemaVersion: 1, REDACTED: '<redacted>' },
@@ -231,6 +262,10 @@ describe('@hudhud/core', () => {
       'isJsonObjectValue',
       'BoundedQueue',
       'Fanout',
+      // The permission bridge and the decision copy stay inside the driver.
+      'PermissionBridge',
+      'validateDecision',
+      'copyJson',
     ];
     const exported: readonly string[] = Object.values(ENTRY_NAMES).flat();
     for (const name of internals) expect(exported).not.toContain(name);

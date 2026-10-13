@@ -19,8 +19,9 @@ const CORE_PROTOCOL_ENTRY = String.raw`^(packages/core/(src|dist)/protocol/|node
 // Everything of the core outside the sans-IO protocol: the root entry (the
 // binding layer) and the binding, process, observability, security layers.
 const CORE_NON_PROTOCOL = String.raw`^(packages/core/(src|dist)/((binding|process|observability|security)/|index\.)|node_modules/@hudhud/core/(src|dist)/((binding|process|observability|security)/|index\.))`;
-// The public entry points of the core that an adapter may use (ADR-0004).
-const CORE_PUBLIC_ENTRIES = String.raw`^(packages/core|node_modules/@hudhud/core)/dist/((protocol|process)/)?index\.(d\.ts|js)$`;
+// The public entry points of the core that an adapter may use (ADR-0004):
+// the root, /protocol, /process and the beta /binding entry (W4-Z).
+const CORE_PUBLIC_ENTRIES = String.raw`^(packages/core|node_modules/@hudhud/core)/dist/((protocol|process|binding)/)?index\.(d\.ts|js)$`;
 /** @type {import('dependency-cruiser').DependencyType[]} */
 const NPM = ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-no-pkg', 'npm-unknown'];
 
@@ -219,7 +220,7 @@ export default {
       name: 'adapter-public-entry-only',
       severity: 'error',
       comment:
-        'The adapter uses the core through its public entries only: @hudhud/core, @hudhud/core/protocol, @hudhud/core/process (ADR-0004).',
+        'The adapter uses the core through its public entries only: @hudhud/core, @hudhud/core/protocol, @hudhud/core/process, @hudhud/core/binding (ADR-0004).',
       from: { path: '^packages/claude-code/src/' },
       to: {
         path: String.raw`^(packages/core/|node_modules/@hudhud/core/)`,
