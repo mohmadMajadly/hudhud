@@ -20,13 +20,14 @@ export interface AfterExitKill {
     readonly outcome: 'done' | 'failed' | 'skipped-exited' | 'skipped-identity-changed' | 'skipped-protected';
     // (undocumented)
     readonly pid: number;
+    readonly source: 'eof-snapshot' | 'started-after-eof';
 }
 
 // @public
 export type AfterExitSkipReason =
 /** No EOF snapshot (no identity, root gone, table unreadable). */
 'no-snapshot'
-/** The snapshot recorded no descendant. */
+/** Nothing to sweep: no descendant in the snapshot and (Windows) none found by the walk. */
 | 'no-descendants'
 /** The fresh table could not be read. */
 | 'table-failed'
@@ -41,7 +42,7 @@ export type AfterExitSweepReport = {
     readonly status: 'done';
     readonly summary: LadderSweepSummary;
     readonly posix?: SweepResult;
-    readonly win32?: readonly AfterExitKill[];
+    readonly kills: readonly AfterExitKill[];
 };
 
 // @public
