@@ -144,7 +144,8 @@ export function identity(record: ProcessIdentity): ProcessIdentity {
 
 function statBytes(record: ProcessRecord): Uint8Array {
   const pgid = record.pgid ?? record.pid;
-  const line = `${String(record.pid)} (${record.name}) S ${String(record.ppid)} ${String(pgid)} 0 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 ${record.startTime} 0 0\n`;
+  const state = record.zombie === true ? 'Z' : 'S';
+  const line = `${String(record.pid)} (${record.name}) ${state} ${String(record.ppid)} ${String(pgid)} 0 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 ${record.startTime} 0 0\n`;
   return new Uint8Array(Buffer.from(line, 'utf8'));
 }
 
