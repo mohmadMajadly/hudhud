@@ -10,11 +10,14 @@
  *
  * Argument: `term` (the CLI cleans its tool group on SIGTERM and exits, like
  * the real CLI) or `kill` (the CLI records SIGTERM and stays, so the ladder
- * reaches SIGKILL and the sweep). Writes JSON lines to stdout. Every signal
+ * reaches SIGKILL and the sweep); then optionally the race of the launcher's
+ * end in `kill` mode (`natural`, `launcher-first`, `sigkill-first`, see
+ * {@link Race}). Writes JSON lines to stdout. Every signal
  * the ladder sends goes through the logging adapter below and is reported.
  * Linux only.
  */
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { createInterface } from 'node:readline';
@@ -52,13 +55,47 @@ process.stdout.write(JSON.stringify({ kind: 'cli-ready', pid: process.pid, tool:
 setInterval(() => {}, 1 << 30);
 `;
 
-// The launcher: forwards no signals, ignores stdin EOF, exits 7 when the CLI exits.
+// The launcher: forwards no signals, ignores stdin EOF, exits 7 when the CLI
+// exits (with the race `sigkill-first`: never exits by itself, so only the
+// ladder's SIGKILL ends it).
 const LAUNCHER_CODE = `
 const { spawn } = require('node:child_process');
 const child = spawn(process.execPath, ['-e', ${JSON.stringify(CLI_CODE)}, process.argv[1]], { stdio: ['ignore', 'inherit', 'inherit'] });
-child.on('exit', () => process.exit(7));
+child.on('exit', () => { if (process.argv[2] !== 'sigkill-first') process.exit(7); });
 process.stdin.resume();
 `;
+
+/**
+ * The order of the launcher's end in `kill` mode. The ladder SIGKILLs the
+ * CLI (the K1 target), then the launcher, with no `await` between; the
+ * launcher exits 7 as soon as it sees the CLI's exit, so either can come
+ * first (`natural`). `launcher-first` makes the launcher's own exit win:
+ * after the CLI's SIGKILL the signal adapter blocks until the launcher is a
+ * zombie. `sigkill-first` makes the SIGKILL win: the launcher never exits by
+ * itself.
+ */
+type Race = 'natural' | 'launcher-first' | 'sigkill-first';
+const RACES: readonly Race[] = ['natural', 'launcher-first', 'sigkill-first'];
+const race: Race = RACES.find((value) => value === process.argv[3]) ?? 'natural';
+
+/** The launcher's pid once spawned. */
+let launcherPid = 0;
+
+/** Blocks the host (no reaping meanwhile) until the launcher is a zombie, at most 10 s. */
+function awaitLauncherZombie(): boolean {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 0; attempt < 2000; attempt += 1) {
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${String(launcherPid)}/stat`, 'latin1');
+    } catch {
+      return false;
+    }
+    if (stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) === 'Z') return true;
+    Atomics.wait(pause, 0, 0, 5);
+  }
+  return false;
+}
 
 async function readStat(pid: number): Promise<Uint8Array | null> {
   try {
@@ -86,6 +123,16 @@ function kill(kind: 'process' | 'group', id: number, signal: PosixSignal): Signa
     else throw error;
   }
   emit({ kind: 'signal', target: kind, id, signal, outcome });
+  if (
+    race === 'launcher-first' &&
+    kind === 'process' &&
+    signal === 'SIGKILL' &&
+    id !== launcherPid &&
+    outcome === 'sent'
+  ) {
+    // The CLI was just SIGKILLed: let the launcher's own exit win.
+    if (!awaitLauncherZombie()) emit({ kind: 'host-race-timeout' });
+  }
   return outcome;
 }
 
@@ -113,7 +160,7 @@ async function main(): Promise<void> {
   if (self === null) throw new Error('cannot read own /proc entry');
   emit({ kind: 'host', pid: self.pid, startTime: self.startTime, pgid: self.pgid });
 
-  const child = spawn(process.execPath, ['-e', LAUNCHER_CODE, mode], {
+  const child = spawn(process.execPath, ['-e', LAUNCHER_CODE, mode, race], {
     stdio: ['pipe', 'pipe', 'inherit'],
   });
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -122,6 +169,7 @@ async function main(): Promise<void> {
     });
   });
   const childPid = child.pid;
+  launcherPid = childPid ?? 0;
   if (childPid === undefined) throw new Error('spawn failed');
   const spawnedRecord = parseProcStat((await readStat(childPid)) ?? new Uint8Array(), childPid);
   if (spawnedRecord === null) throw new Error('cannot read the launcher /proc entry');

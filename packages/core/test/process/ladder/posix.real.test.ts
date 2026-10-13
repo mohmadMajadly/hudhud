@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { LadderReport } from '../../../src/process/ladder/types.js';
+import { classifyExit } from '../../../src/protocol/machine/outcome.js';
 import { parseProcStat } from '../../../src/process/tree/proc-stat.js';
 import type { ProcessIdentity } from '../../../src/process/tree/types.js';
 
@@ -87,8 +88,11 @@ async function survivors(identities: readonly ProcessIdentity[]): Promise<Proces
   return identities.filter(alive);
 }
 
-function runHost(mode: 'term' | 'kill'): Promise<HostRun> {
-  const host = spawn(process.execPath, [...hostArgs, mode], {
+function runHost(
+  mode: 'term' | 'kill',
+  race: 'natural' | 'launcher-first' | 'sigkill-first' = 'natural',
+): Promise<HostRun> {
+  const host = spawn(process.execPath, [...hostArgs, mode, race], {
     detached: true, // setsid: the host leads its own process group
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -203,10 +207,22 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
     expect(await survivors(tree)).toEqual([]);
   }, 30_000);
 
-  it('a CLI that survives SIGTERM is SIGKILLed with the launcher; the sweep kills the tool group', async () => {
-    const run = await runHost('kill');
+  /**
+   * The SIGKILL path (ADR-0010 step 5): SIGKILL to the K1 target, then to
+   * the spawned launcher, then the sweep. The contract: both signals sent in
+   * that order, the whole tree gone, and the launcher's exit classified as
+   * `aborted` under the recorded `abort` intent (ADR-0008 E8: the outcome
+   * comes from the intent, never the exit code). How the launcher ends is
+   * its own race: SIGKILL, or its own exit 7 when it sees the CLI die
+   * between the two signals (seen once on node 26). Both are legitimate.
+   */
+  async function sigkillPath(
+    race: 'natural' | 'launcher-first' | 'sigkill-first',
+  ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+    const run = await runHost('kill', race);
     const { report, tree, cliPid, toolPgid, signals } = commonChecks(run);
-    const spawnedPid = only(run, 'spawned')['pid'];
+    const spawned = only(run, 'spawned');
+    const spawnedPid = spawned['pid'];
 
     expect(only(run, 'cli-sigterm')['pid']).toBe(cliPid);
     expect(signals.slice(0, 3).map((sent) => [sent['target'], sent['id'], sent['signal']])).toEqual(
@@ -216,6 +232,8 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
         ['process', spawnedPid, 'SIGKILL'],
       ],
     );
+    // Both SIGKILLs were delivered: an exited but unreaped launcher still accepts one.
+    expect(signals.slice(1, 3).map((sent) => sent['outcome'])).toEqual(['sent', 'sent']);
     expect(signals).toContainEqual(
       expect.objectContaining({
         target: 'group',
@@ -236,7 +254,34 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
       'sweep',
     ]);
     expect(report.sweep?.groupsSignalled).toBe(1);
-    expect(only(run, 'launcher-exit')).toMatchObject({ code: null, signal: 'SIGKILL' });
-    expect(await survivors(tree)).toEqual([]);
+    // The launcher, the CLI and the tool group are all gone (verified identities).
+    const launcher = { pid: spawnedPid as number, startTime: spawned['startTime'] as string };
+    expect(await survivors([...tree, launcher])).toEqual([]);
+    const exit = only(run, 'launcher-exit');
+    const observed = {
+      code: exit['code'] as number | null,
+      signal: exit['signal'] as NodeJS.Signals | null,
+    };
+    // Either way the application sees one outcome: aborted, no error.
+    expect(
+      classifyExit({ intent: 'abort', exit: observed, turnActive: true, platform: 'posix' }),
+    ).toEqual({ outcome: 'aborted', turnSynthesis: 'cancelled', error: 'none' });
+    return observed;
+  }
+
+  it('a CLI that survives SIGTERM is SIGKILLed with the launcher; the sweep kills the tool group', async () => {
+    // Whichever way the launcher ends, it is one of the two legitimate ends.
+    expect([
+      { code: null, signal: 'SIGKILL' },
+      { code: 7, signal: null },
+    ]).toContainEqual(await sigkillPath('natural'));
+  }, 30_000);
+
+  it('the same when the launcher exits by itself before its SIGKILL lands', async () => {
+    expect(await sigkillPath('launcher-first')).toEqual({ code: 7, signal: null });
+  }, 30_000);
+
+  it('the same when the SIGKILL ends the launcher', async () => {
+    expect(await sigkillPath('sigkill-first')).toEqual({ code: null, signal: 'SIGKILL' });
   }, 30_000);
 });
