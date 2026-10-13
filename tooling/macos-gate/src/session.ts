@@ -73,7 +73,6 @@ export class CliSession {
   readonly spawnedAt: number;
   private turnOpen = false;
   private toolOpen = false;
-  private userSeq = 0;
   private readonly host: GateHost;
   private readonly child: ChildHandle;
   private readonly framer: Framer;
@@ -173,16 +172,33 @@ export class CliSession {
     );
   }
 
-  /** Sends a user message and opens a turn. */
-  user(text: string): void {
-    this.userSeq += 1;
+  /**
+   * Sends a user message and opens a turn; returns its `uuid`. The `uuid` is
+   * fresh from {@link GateHost.uuid} unless `uuid` is given: gate run 2
+   * numbered the messages of each process from 1, so every resumed session
+   * reused the start run's `uuid` and CLI 2.1.296 dropped the message
+   * (`command_lifecycle` `completed`, no turn; research 10). Only the
+   * evidence run that reproduces this passes an old `uuid` on purpose.
+   */
+  user(text: string, uuid: string = this.host.uuid()): string {
     this.turnOpen = true;
     this.send({
       type: 'user',
       message: { role: 'user', content: text },
       parent_tool_use_id: null,
-      uuid: `00000000-0000-4000-8000-${String(this.userSeq).padStart(12, '0')}`,
+      uuid,
     });
+    return uuid;
+  }
+
+  /** The `command_lifecycle` states reported for `uuid`, in order. */
+  lifecycle(uuid: string): string[] {
+    return this.frames
+      .filter(
+        (frame) =>
+          frame.value['type'] === 'command_lifecycle' && frame.value['command_uuid'] === uuid,
+      )
+      .map((frame) => String(frame.value['state']));
   }
 
   /** True while a tool use has no result yet. */

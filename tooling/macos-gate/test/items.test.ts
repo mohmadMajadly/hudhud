@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { GateDigest } from '../src/digests.js';
-import { keychainItem } from '../src/items/keychain.js';
+import { keychainItem, keychainPaths, searchListIsolation } from '../src/items/keychain.js';
 import { pathIdentityItem, turnMessages } from '../src/items/path-identity.js';
 import { processTreeItem } from '../src/items/process-tree.js';
 import {
@@ -52,6 +52,11 @@ async function item(
     ...finished,
     failed: finished.checks.filter((check) => !check.ok).map((check) => check.name),
   };
+}
+
+/** The detail of the one check whose name starts with `prefix`. */
+function detail(outcome: ItemResult, prefix: string): string | undefined {
+  return outcome.checks.find((check) => check.name.startsWith(prefix))?.detail;
 }
 
 function noSurvivors(sim: SimHost): void {
@@ -362,7 +367,7 @@ describe('item 2: process tree', () => {
 });
 
 describe('item 3: keychain', () => {
-  it('passes with an API key and no security(1) child; the control run ends', async () => {
+  it('passes with an API key and no security(1) child; the control run ends; the search list is isolated', async () => {
     const { sim, context } = world(
       {},
       {
@@ -381,25 +386,35 @@ describe('item 3: keychain', () => {
       security: [],
     });
     expect(outcome.evidence['securityShim']).toMatchObject({ invoked: false, argv: [] });
+    expect(detail(outcome, 'API key: Keychain access recorded')).toMatch(
+      /^no security\(1\) child in \d+ samples$/,
+    );
+    expect(outcome.evidence['keychainIsolation']).toMatchObject({
+      cffixedUserHome: 'isolated',
+      homeAlone: 'isolated',
+      proven: true,
+    });
+    expect(detail(outcome, 'search-list probes')).toMatch(
+      /^CFFIXED_USER_HOME: isolated, HOME alone: isolated; isolation proven \(/,
+    );
     noSurvivors(sim);
   });
 
-  it('fails when a security(1) child appears with the API key', async () => {
+  it('records a security(1) child with the API key (ADR-0014 amendment 5); fails on another key source', async () => {
     const { sim, context } = world({ security: true, apiKeySource: 'none' });
     const outcome = await item(3, (r) => keychainItem(context, r));
-    expect(outcome.failed).toEqual([
-      'API key: apiKeySource is ANTHROPIC_API_KEY',
-      'API key: no security(1) child at any sample (no Keychain access)',
-    ]);
+    expect(outcome.failed).toEqual(['API key: apiKeySource is ANTHROPIC_API_KEY']);
+    expect(detail(outcome, 'API key: Keychain access recorded')).toMatch(
+      /^security\(1\) seen 1x, first at \d+ ms after the spawn \(\d+ samples\)$/,
+    );
     noSurvivors(sim);
   });
 
-  it('catches the gate run 1 shape: a (security) zombie with the API key, and records the shim argv', async () => {
+  it('records the gate run 1 and 2 shape: a (security) zombie with the API key, and the shim argv', async () => {
     const { sim, context } = world({ zombieSecurity: true });
     const outcome = await item(3, (r) => keychainItem(context, r));
-    expect(outcome.failed).toEqual([
-      'API key: no security(1) child at any sample (no Keychain access)',
-    ]);
+    // Access is recorded, not failed (ADR-0014 item 3, amendment 5).
+    expect(outcome.failed).toEqual([]);
     expect(outcome.evidence['apiKeySession']).toMatchObject({
       descendants: ['(security) [zombie]'],
       security: [expect.objectContaining({ name: '(security)', zombie: true })],
@@ -441,6 +456,92 @@ describe('item 3: keychain', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('does not count isolation as proven when CFFIXED_USER_HOME keeps the runner keychain', async () => {
+    const { sim, context } = world(
+      {},
+      {
+        run: (file, args, options) =>
+          file === '/usr/bin/security' &&
+          options.env['CFFIXED_USER_HOME'] !== undefined &&
+          args[0] === 'default-keychain'
+            ? result('    "/Users/runner/Library/Keychains/login.keychain-db"\n')
+            : undefined,
+      },
+    );
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['keychainIsolation']).toMatchObject({
+      cffixedUserHome: 'not-isolated',
+      homeAlone: 'isolated',
+      proven: false,
+    });
+    noSurvivors(sim);
+  });
+
+  it('fails when a search-list probe does not run, and calls the verdict inconclusive', async () => {
+    const { context } = world(
+      {},
+      {
+        run: (file, _args, options) =>
+          file === '/usr/bin/security' && options.env['CFFIXED_USER_HOME'] !== undefined
+            ? result('', { code: null, error: 'ETIMEDOUT' })
+            : undefined,
+      },
+    );
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual(['search-list probes: every read-only query ran']);
+    expect(outcome.evidence['keychainIsolation']).toMatchObject({
+      cffixedUserHome: 'inconclusive',
+      proven: false,
+    });
+  });
+
+  it('calls the verdict inconclusive without a runner HOME (the baseline then lists nothing)', async () => {
+    const { sim, context } = world();
+    delete sim.env['HOME'];
+    const outcome = await item(3, (r) => keychainItem(context, r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['keychainIsolation']).toMatchObject({
+      cffixedUserHome: 'inconclusive',
+      homeAlone: 'inconclusive',
+      proven: false,
+    });
+    const runnerProbe = sim.runs.find((run) => run.file === '/usr/bin/security');
+    expect(runnerProbe?.options.env['HOME']).toBe('');
+  });
+
+  it('calls every verdict inconclusive when the runner HOME baseline lists no keychain', () => {
+    const probe = (env: string, command: string, stdout: string, code: number | null = 0) => ({
+      env,
+      command,
+      code,
+      stdout,
+      stderr: '',
+    });
+    const list = 'security list-keychains -d user';
+    const fallback = 'security default-keychain -d user';
+    const isolated = [
+      probe('sandbox HOME', list, ''),
+      probe('sandbox HOME', fallback, '', 1),
+      probe('sandbox HOME + CFFIXED_USER_HOME', list, '"/s/home/Library/Keychains/x.keychain-db"'),
+      probe('sandbox HOME + CFFIXED_USER_HOME', fallback, '', 1),
+    ];
+    expect(
+      searchListIsolation([probe('runner HOME', list, ''), ...isolated], '/s/home'),
+    ).toMatchObject({ cffixedUserHome: 'inconclusive', homeAlone: 'inconclusive', proven: false });
+    const login = '"/Users/runner/Library/Keychains/login.keychain-db"';
+    expect(
+      searchListIsolation([probe('runner HOME', list, login, 1), ...isolated], '/s/home'),
+    ).toMatchObject({ cffixedUserHome: 'inconclusive' });
+    expect(
+      searchListIsolation([probe('runner HOME', list, login), ...isolated], '/s/home'),
+    ).toMatchObject({ cffixedUserHome: 'isolated', homeAlone: 'isolated', proven: true });
+    expect(
+      searchListIsolation([probe('runner HOME', list, login), ...isolated.slice(1)], '/s/home'),
+    ).toMatchObject({ homeAlone: 'inconclusive' });
+    expect(keychainPaths('    "/a b/k"\n\n  "/c"  \nplain\n')).toEqual(['/a b/k', '/c', 'plain']);
   });
 
   it('names a control-run hang on a security(1) child keychain-access', async () => {
@@ -486,11 +587,17 @@ describe('item 3: keychain', () => {
     noSurvivors(sim);
   });
 
-  it('copes with a failed spawn', async () => {
+  it('copes with a failed spawn: nothing was sampled, so no access was recorded', async () => {
     const { sim, context } = world();
     sim.spawnFails = true;
     const outcome = await item(3, (r) => keychainItem(context, r));
     expect(outcome.failed).toContain('API key: the turn completes');
+    expect(outcome.failed).toContain(
+      'API key: Keychain access recorded (the tree was sampled from the spawn to the result)',
+    );
+    expect(detail(outcome, 'API key: Keychain access recorded')).toBe(
+      'no security(1) child in 0 samples',
+    );
     expect(outcome.failed).not.toContain(
       'control (no credential): the CLI ends, or its stall is named',
     );
@@ -611,6 +718,36 @@ describe('item 6: path identity', () => {
     expect(outcome.failed).toEqual([]);
     expect(outcome.evidence['caseInsensitiveVolume']).toBe(true);
     expect(outcome.evidence['aliasResume']).toMatchObject({ environmentUpdate: true });
+    expect(outcome.evidence['eagerResume']).toMatchObject({ ok: true, result: 'result/success' });
+    expect(outcome.evidence['duplicateUuidResume']).toMatchObject({
+      ok: false,
+      result: undefined,
+      lifecycle: ['completed'],
+      dropped: true,
+    });
+    expect(outcome.evidence['duplicateUuidResumeSession']).toMatchObject({
+      frames: ['control_response', 'command_lifecycle:completed'],
+    });
+    noSurvivors(sim);
+  });
+
+  it('fails fast on the gate run 2 shape: every message reuses one uuid, so the CLI drops each resumed one', async () => {
+    const { sim, context } = world();
+    sim.uuid = () => '00000000-0000-4000-8000-000000000001';
+    const started = sim.now();
+    const outcome = await item(6, (r) => pathIdentityItem(context, r));
+    expect(outcome.failed).toEqual([
+      'resume (canonical cwd): same session, turn completes',
+      'resume (canonical cwd): the history is loaded',
+      'resume (canonical cwd): the CLI sees the same working directory',
+    ]);
+    expect(outcome.checks.find((check) => check.name.startsWith('resume (canonical'))).toEqual({
+      name: 'resume (canonical cwd): same session, turn completes',
+      ok: false,
+      detail: 'session undefined, no result, lifecycle [completed]',
+    });
+    // Each dropped message ends the wait at once; run 2 waited 90 s per resume.
+    expect(sim.now() - started).toBeLessThan(60_000);
     noSurvivors(sim);
   });
 

@@ -98,6 +98,13 @@ export interface GateHost {
   /** Milliseconds since the epoch. */
   now(): number;
   sleep(ms: number): Promise<void>;
+  /**
+   * A fresh random v4 UUID (`crypto.randomUUID`), the `uuid` of each user
+   * message. It must never repeat within a gate run: CLI 2.1.296 drops a
+   * user message whose `uuid` is already in a resumed session's transcript
+   * (gate run 2, research 10).
+   */
+  uuid(): string;
   /** Runs `file` (an absolute path, no shell) to completion. */
   run(file: string, args: readonly string[], options: RunOptions): Promise<RunResult>;
   /** Spawns `file` (an absolute path, no shell, not detached) with piped stdio. */

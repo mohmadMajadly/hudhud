@@ -1,15 +1,27 @@
 /**
- * Gate item 3, Keychain (ADR-0014; research 01 §5: credentials live in the
- * macOS Keychain, keyed by config dir).
+ * Gate item 3, Keychain (ADR-0014 item 3 as changed by amendment 5; research
+ * 01 §5: credentials live in the macOS Keychain, keyed by config dir;
+ * research 09 §4 and §8, research 10 §2).
  *
- * With API-key auth and an isolated `CLAUDE_CONFIG_DIR` and `HOME`, the CLI
- * must not touch the Keychain headless: no `security` child process appears
- * at any sample of its tree (live or zombie: macOS `ps` shows an exited,
- * unreaped child as `(security)`, which gate run 1 missed), the first frame
- * arrives within the first-frame watchdog, and the turn completes. A control
- * run without any credential records whether the CLI then reaches for the
- * Keychain, and whether a stall would be named `keychain-access` by the
- * watchdog's classifier. An evidence-only run puts a `security` shim first
+ * Gate run 1 showed CLI 2.1.296 calling `security(1)` even with an API key,
+ * so the item records the Keychain access instead of requiring its absence
+ * (the lead's ruling, ADR-0014 amendment 5). With API-key auth and an
+ * isolated `CLAUDE_CONFIG_DIR` and `HOME`:
+ *
+ * - the first frame arrives within the first-frame watchdog, the key source
+ *   is `ANTHROPIC_API_KEY` and the turn completes (a GUI prompt would stall
+ *   it);
+ * - the Keychain access is recorded: the CLI's tree is sampled from the
+ *   spawn to the result and every `security` child is listed (live or
+ *   zombie: macOS `ps` shows an exited, unreaped child as `(security)`); a
+ *   run whose tree was never sampled recorded nothing and fails;
+ * - the read-only search-list probes all ran, and the report states whether
+ *   the `CFFIXED_USER_HOME` probe proves the search list isolated
+ *   ({@link searchListIsolation}); isolation counts as possible only then.
+ *
+ * A control run without any credential records whether the CLI then reaches
+ * for the Keychain, and whether a stall would be named `keychain-access` by
+ * the watchdog's classifier. An evidence-only run puts a `security` shim first
  * on `PATH` that records its argv and answers "not found" (exit 44) without
  * touching any keychain, so the report shows what the CLI asks for and
  * whether it resolves `security` through `PATH` at all.
@@ -48,7 +60,9 @@ interface SecuritySighting {
 }
 
 /** What {@link sampleUntilResult} saw. */
-interface Sampled {
+export interface Sampled {
+  /** Snapshots of the CLI's tree taken while it ran. */
+  readonly samples: number;
   readonly names: ReadonlySet<string>;
   readonly securitySeen: boolean;
   readonly security: readonly SecuritySighting[];
@@ -63,6 +77,7 @@ async function sampleUntilResult(
   const names = new Set<string>();
   const security = new Map<number, SecuritySighting>();
   const identity = session.identity;
+  let samples = 0;
   await pollUntil(
     context.host,
     () => session.findKind('result') !== undefined || session.exit !== undefined,
@@ -70,6 +85,7 @@ async function sampleUntilResult(
     async () => {
       if (identity === null || session.exit !== undefined) return;
       const tree = await context.ledger.tree(identity);
+      samples += 1;
       for (const record of tree.descendants) {
         addBounded(names, recordLabel(record));
         if (commandName(record.name) === 'security' && !security.has(record.pid)) {
@@ -83,7 +99,15 @@ async function sampleUntilResult(
       }
     },
   );
-  return { names, securitySeen: security.size > 0, security: [...security.values()] };
+  return { samples, names, securitySeen: security.size > 0, security: [...security.values()] };
+}
+
+/** The Keychain access of a sampled run, in one line. */
+export function accessSummary(sampled: Sampled): string {
+  const first = sampled.security[0];
+  return first === undefined
+    ? `no security(1) child in ${String(sampled.samples)} samples`
+    : `security(1) seen ${String(sampled.security.length)}x, first at ${String(first.atMs)} ms after the spawn (${String(sampled.samples)} samples)`;
 }
 
 /** The shim's directory and log inside the sandbox. */
@@ -106,8 +130,13 @@ export function securityShim(log: string): string {
   ].join('\n');
 }
 
+const RUNNER_ENV = 'runner HOME';
+const SANDBOX_ENV = 'sandbox HOME';
+const CFFIXED_ENV = 'sandbox HOME + CFFIXED_USER_HOME';
+const LIST_COMMAND = 'security list-keychains -d user';
+
 /** One read-only `security` query of the keychain search list. */
-interface SearchListProbe {
+export interface SearchListProbe {
   readonly env: string;
   readonly command: string;
   readonly code: number | null;
@@ -128,12 +157,9 @@ export async function probeSearchList(
 ): Promise<SearchListProbe[]> {
   const base = { PATH: '/usr/bin:/bin', USER: context.host.user, LOGNAME: context.host.user };
   const envs: [string, Record<string, string>][] = [
-    ['runner HOME', { ...base, HOME: context.host.env['HOME'] ?? '' }],
-    ['sandbox HOME', { ...base, HOME: sandbox.home }],
-    [
-      'sandbox HOME + CFFIXED_USER_HOME',
-      { ...base, HOME: sandbox.home, CFFIXED_USER_HOME: sandbox.home },
-    ],
+    [RUNNER_ENV, { ...base, HOME: context.host.env['HOME'] ?? '' }],
+    [SANDBOX_ENV, { ...base, HOME: sandbox.home }],
+    [CFFIXED_ENV, { ...base, HOME: sandbox.home, CFFIXED_USER_HOME: sandbox.home }],
   ];
   const probes: SearchListProbe[] = [];
   for (const [label, env] of envs) {
@@ -152,6 +178,79 @@ export async function probeSearchList(
     }
   }
   return probes;
+}
+
+/** The search-list verdict of one probed environment. */
+export type IsolationVerdict = 'isolated' | 'not-isolated' | 'inconclusive';
+
+/** What {@link searchListIsolation} decided. */
+export interface SearchListIsolation {
+  /** Sandbox `HOME` plus `CFFIXED_USER_HOME`: the probe ADR-0014 item 3 names. */
+  readonly cffixedUserHome: IsolationVerdict;
+  /** Sandbox `HOME` alone, to show what `CFFIXED_USER_HOME` adds. */
+  readonly homeAlone: IsolationVerdict;
+  /** Isolation counts as possible only when the `CFFIXED_USER_HOME` probe proves it. */
+  readonly proven: boolean;
+  readonly scope: string;
+}
+
+/** What the verdict covers, and what it cannot. */
+export const ISOLATION_SCOPE =
+  'the user search list and default keychain of security(1) only; not an in-process Security framework call or an explicit keychain path';
+
+/** The keychain paths `security list-keychains` or `default-keychain` printed, one quoted path per line. */
+export function keychainPaths(stdout: string): string[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim().replace(/^"(.*)"$/, '$1'))
+    .filter((line) => line !== '');
+}
+
+/**
+ * The verdict for the probes of environment `env`.
+ *
+ * - `inconclusive`: the runner-`HOME` baseline did not list a keychain (an
+ *   empty list elsewhere then proves nothing), or a probe of `env` is
+ *   missing or did not run.
+ * - `not-isolated`: a probe of `env` named a keychain outside `home`.
+ * - `isolated`: both probes ran and every keychain they named lies inside
+ *   `home` (an empty search list and "no default keychain" included).
+ */
+export function envIsolation(
+  probes: readonly SearchListProbe[],
+  env: string,
+  home: string,
+): IsolationVerdict {
+  const baseline = probes.find(
+    (probe) => probe.env === RUNNER_ENV && probe.command === LIST_COMMAND && probe.code === 0,
+  );
+  const own = probes.filter((probe) => probe.env === env);
+  if (
+    baseline === undefined ||
+    keychainPaths(baseline.stdout).length === 0 ||
+    own.length !== 2 ||
+    own.some((probe) => probe.code === null)
+  ) {
+    return 'inconclusive';
+  }
+  const named = own
+    .filter((probe) => probe.code === 0)
+    .flatMap((probe) => keychainPaths(probe.stdout));
+  return named.every((file) => file.startsWith(`${home}/`)) ? 'isolated' : 'not-isolated';
+}
+
+/** The isolation verdicts of the search-list probes for the sandbox `home`. */
+export function searchListIsolation(
+  probes: readonly SearchListProbe[],
+  home: string,
+): SearchListIsolation {
+  const cffixedUserHome = envIsolation(probes, CFFIXED_ENV, home);
+  return {
+    cffixedUserHome,
+    homeAlone: envIsolation(probes, SANDBOX_ENV, home),
+    proven: cffixedUserHome === 'isolated',
+    scope: ISOLATION_SCOPE,
+  };
 }
 
 /** Runs item 3. */
@@ -183,16 +282,25 @@ export async function keychainItem(context: SessionContext, r: ItemRecorder): Pr
       String(source),
     );
     r.check('API key: the turn completes', isSuccess(session.findKind('result')), 'result/success');
+    // ADR-0014 item 3 (amendment 5): the access is recorded, not forbidden.
     r.check(
-      'API key: no security(1) child at any sample (no Keychain access)',
-      !sampled.securitySeen,
-      [...sampled.names].join(', '),
+      'API key: Keychain access recorded (the tree was sampled from the spawn to the result)',
+      sampled.samples > 0,
+      accessSummary(sampled),
     );
     r.note(
       'keychainsDirInIsolatedHome',
       await context.host.fs.kind(path.posix.join(sandbox.home, 'Library', 'Keychains')),
     );
-    r.note('keychainSearchList', await probeSearchList(context, sandbox));
+    const probes = await probeSearchList(context, sandbox);
+    r.note('keychainSearchList', probes);
+    const isolation = searchListIsolation(probes, sandbox.home);
+    r.note('keychainIsolation', isolation);
+    r.check(
+      'search-list probes: every read-only query ran',
+      probes.every((probe) => probe.code !== null),
+      `CFFIXED_USER_HOME: ${isolation.cffixedUserHome}, HOME alone: ${isolation.homeAlone}; isolation ${isolation.proven ? 'proven' : 'not proven'} (${ISOLATION_SCOPE})`,
+    );
   });
   r.check('API key run: no egress violation', keyed.violations === 0, String(keyed.violations));
 

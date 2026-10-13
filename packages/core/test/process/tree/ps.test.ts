@@ -49,6 +49,37 @@ describe('parsePsOutput on the recorded Linux procps output (dialect procps)', (
   });
 });
 
+describe('parsePsOutput on the macOS output recorded by gate run 2 (research 10)', () => {
+  it('parses the arm64 and x64 lines exactly: stat width 4, lstart width 28, bare names kept', () => {
+    const t = (iso: string): string => utc(`2026-10-13T${iso}`);
+    expect(parsePsOutput(fixture('darwin/ps.recorded-arm64.out'))).toEqual({
+      records: [
+        {
+          pid: 1471,
+          ppid: 1342,
+          pgid: 948,
+          startTime: t('16:27:46'),
+          name: '/Users/runner/work/_temp/macos-gate/cli-cache/2.1.296/darwin-arm64/claude',
+        },
+        { pid: 1507, ppid: 1471, pgid: 1507, startTime: t('16:27:47'), name: '/bin/zsh' },
+        { pid: 1509, ppid: 1507, pgid: 1507, startTime: t('16:27:47'), name: 'sleep' },
+      ],
+      rejected: 0,
+    });
+    const x64 = parsePsOutput(fixture('darwin/ps.recorded-x64.out'));
+    expect(x64.rejected).toBe(0);
+    expect(x64.records.map((record) => `${String(record.pid)} ${record.name}`)).toEqual([
+      '3173 /Users/runner/work/_temp/macos-gate/cli-cache/2.1.296/darwin-x64/claude',
+      '3233 /usr/bin/git',
+      '3237 sh',
+      '3239 /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild',
+      '3336 /bin/zsh',
+      '3337 sleep',
+    ]);
+    expect(x64.records.every((record) => record.zombie === undefined)).toBe(true);
+  });
+});
+
 describe('parsePsOutput on the synthesized macOS output (BSD layout; see manifest.json)', () => {
   const parsed = parsePsOutput(fixture('darwin/ps.synthesized.out'));
   const byPid = new Map(parsed.records.map((record) => [record.pid, record]));

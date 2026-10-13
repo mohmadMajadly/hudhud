@@ -1,0 +1,6 @@
+ 3173  3013  1032 S<   Tue Oct 13 16:28:36 2026     /Users/runner/work/_temp/macos-gate/cli-cache/2.1.296/darwin-x64/claude
+ 3233  3173  1032 S<   Tue Oct 13 16:28:39 2026     /usr/bin/git
+ 3237  3233  1032 S<   Tue Oct 13 16:28:39 2026     sh
+ 3239  3237  1032 R<   Tue Oct 13 16:28:39 2026     /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild
+ 3336  3173  3336 S<s  Tue Oct 13 16:28:40 2026     /bin/zsh
+ 3337  3336  3336 S<   Tue Oct 13 16:28:40 2026     sleep

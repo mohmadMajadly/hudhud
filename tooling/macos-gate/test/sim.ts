@@ -202,6 +202,7 @@ export class SimHost implements GateHost {
     RUNNER_ARCH: 'ARM64',
     CI: 'true',
     RUNNER_ENVIRONMENT: 'github-hosted',
+    HOME: '/Users/runner',
   };
   readonly nodeVersion = 'v22.20.0';
   time = T0;
@@ -219,6 +220,9 @@ export class SimHost implements GateHost {
   spawnFails = false;
   private nextPid = 1000;
   private tempSeq = 0;
+  private uuidSeq = 0;
+  /** The user-message uuids in each simulated session's transcript. */
+  readonly transcripts = new Map<string, Set<unknown>>();
   private readonly events: { at: number; fn: () => void }[] = [];
   private readonly controls = new Map<number, SimCli>();
   private readonly options: SimOptions;
@@ -243,6 +247,12 @@ export class SimHost implements GateHost {
 
   now(): number {
     return this.time;
+  }
+
+  /** Distinct v4-shaped UUIDs, numbered across the whole simulated run. */
+  uuid(): string {
+    this.uuidSeq += 1;
+    return `00000000-0000-4000-8000-${String(this.uuidSeq).padStart(12, '0')}`;
   }
 
   at(delayMs: number, fn: () => void): void {
@@ -326,7 +336,7 @@ export class SimHost implements GateHost {
       return Promise.resolve(this.psFails ? result('', { code: 1 }) : result(this.ps()));
     }
     return Promise.resolve(this.options.run?.(file, args, options)).then(
-      (handled) => handled ?? defaultRun(this, file, args),
+      (handled) => handled ?? defaultRun(this, file, args, options),
     );
   }
 
@@ -506,7 +516,12 @@ async function flush(): Promise<void> {
 }
 
 /** The default answers of the macOS tools the harness runs. */
-function defaultRun(sim: SimHost, file: string, args: readonly string[]): RunResult {
+function defaultRun(
+  sim: SimHost,
+  file: string,
+  args: readonly string[],
+  options: RunOptions,
+): RunResult {
   switch (file) {
     case '/usr/bin/codesign':
       if (args[0] === '-dv')
@@ -529,6 +544,16 @@ function defaultRun(sim: SimHost, file: string, args: readonly string[]): RunRes
     case '/bin/chmod':
       return result();
     case '/usr/bin/security':
+      // Gate run 2: the search list follows HOME; a sandbox HOME has none.
+      if (options.env['HOME'] !== sim.env['HOME']) {
+        return args[0] === 'list-keychains'
+          ? result('')
+          : result('', {
+              code: 1,
+              stderr:
+                'security: SecKeychainCopyDomainDefault user: A default keychain could not be found.',
+            });
+      }
       return result('    "/Users/runner/Library/Keychains/login.keychain-db"\n');
     case '/usr/bin/uname':
       return result(sim.arch === 'x64' ? 'x86_64\n' : 'arm64\n');
@@ -566,7 +591,11 @@ export interface CliFlags {
   zombieSecurity?: boolean;
   /** `ps` cannot read the Bash tool's arguments: the shell and `sleep` show as `(zsh)`, `(sleep)`. */
   hiddenToolArgs?: boolean;
-  /** A resumed session never starts a user message written before the initialize response. */
+  /**
+   * A resumed session never starts a user message written before the
+   * initialize response: the hypothesis of research 09, refuted on Linux by
+   * research 10 and kept so the evidence-only eager run stays tested.
+   */
   resumeEagerStall?: boolean;
   /** SIGTERM is ignored. */
   ignoreTerm?: boolean;
@@ -662,6 +691,16 @@ export class SimCli {
         });
         return;
       }
+      // CLI 2.1.296 (research 10): a user message whose uuid the session's
+      // transcript already holds is dropped, answered by `completed` alone.
+      const uuid = frame['uuid'];
+      const seen = this.sim.transcripts.get(this.sessionId) ?? new Set<unknown>();
+      if (seen.has(uuid)) {
+        this.child.emit({ type: 'command_lifecycle', command_uuid: uuid, state: 'completed' });
+        return;
+      }
+      seen.add(uuid);
+      this.sim.transcripts.set(this.sessionId, seen);
       const message = frame['message'] as { content: string };
       this.turn(message.content);
     }

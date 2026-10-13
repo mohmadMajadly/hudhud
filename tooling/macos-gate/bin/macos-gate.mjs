@@ -16,6 +16,7 @@
 // started by verified identity before it exits.
 
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   appendFile,
   copyFile,
@@ -197,6 +198,7 @@ const host = {
   nodeVersion: process.version,
   now: () => Date.now(),
   sleep: (ms) => delay(ms),
+  uuid: () => randomUUID(),
   run,
   spawn: spawnChild,
   signal,

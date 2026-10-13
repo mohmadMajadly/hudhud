@@ -65,6 +65,26 @@ describe('CliSession', () => {
     expect(session.pid).toBe(child.pid);
   });
 
+  it('gives every user message a uuid that never repeats across sessions, and reads its lifecycle', async () => {
+    const { sim } = setup();
+    const a = await open(sim);
+    const b = await open(sim);
+    const written: string[] = [];
+    for (const session of [a.session, b.session]) {
+      session.initialize();
+      written.push(session.user(`${mockMarker('text')} one`));
+      written.push(session.user(`${mockMarker('text')} two`));
+    }
+    // Gate run 2 numbered each process's messages from 1 (research 10).
+    expect(new Set(written).size).toBe(4);
+    const old = written[0] ?? '';
+    expect(a.session.lifecycle(old)).toEqual([]);
+    // An explicit uuid is written as given: the simulated CLI drops it as a repeat.
+    expect(a.session.user('again', old)).toBe(old);
+    expect(a.session.lifecycle(old)).toEqual(['completed']);
+    expect(a.session.lifecycle(written[1] ?? '')).toEqual([]);
+  });
+
   it('counts an invalid UTF-8 line as noise and caps stderr', async () => {
     const { sim } = setup();
     const { session, child } = await open(sim);

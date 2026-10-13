@@ -32,7 +32,21 @@
     {
       "path": "darwin/ps.synthesized.out",
       "provenance": "synthesized",
-      "how": "Written by hand in the BSD layout of '/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=' under LC_ALL=C and TZ=UTC0: numbers right-aligned (width 5), stat left-justified (width 4), lstart '%a %b %e %H:%M:%S %Y' left-justified in width 28 (4 padding spaces after the date), one space between columns, comm last (the executable path, or '(<p_comm>)' when ps cannot read the arguments). The lstart padding is confirmed by macOS gate run 1 (every parsed name carried exactly 4 extra leading spaces, research 09); the stat column is NOT yet recorded on macOS and the next gate run must confirm it (its raw ps lines are in the item 2 evidence). It also contains hostile cases: a name with spaces and parentheses, a forged line (pid 480 repeated, as a newline in a name could produce if ps did not escape it), an empty name, a zombie '(security)' (stat Z, the shape run 1 saw), a name with its own leading spaces, a stat with flag characters, a wrong weekday, a line with the procps gap and a malformed line."
+      "how": "Written by hand in the BSD layout of '/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=' under LC_ALL=C and TZ=UTC0: numbers right-aligned (width 5), stat left-justified (width 4), lstart '%a %b %e %H:%M:%S %Y' left-justified in width 28 (4 padding spaces after the date), one space between columns, comm last (the executable path, or '(<p_comm>)' when ps cannot read the arguments). The lstart padding is confirmed by macOS gate run 1 (every parsed name carried exactly 4 extra leading spaces, research 09); the stat column (width 4) and the lstart width 28 are confirmed by the lines macOS gate run 2 recorded on arm64 and x64 (darwin/ps.recorded-*.out, research 10). It also contains hostile cases: a name with spaces and parentheses, a forged line (pid 480 repeated, as a newline in a name could produce if ps did not escape it), an empty name, a zombie '(security)' (stat Z, the shape run 1 saw), a name with its own leading spaces, a stat with flag characters, a wrong weekday, a line with the procps gap and a malformed line."
+    },
+    {
+      "path": "darwin/ps.recorded-arm64.out",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-13",
+      "host": "macos-15 (arm64), GitHub-hosted runner, macOS gate run 38430627507 on commit 1da35d5, CLI 2.1.296",
+      "how": "The 'psLinesBeforeSigterm' evidence of gate item 2 (research 10), copied byte for byte: the lines of LC_ALL=C TZ=UTC0 /bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm= that belong to the CLI's process tree while its Bash tool ran 'sleep' (the harness keeps only the tree). Paths are public GitHub runner paths. Shows the BSD layout: stat left-justified in width 4 with flag characters ('S<', 'S<s'), lstart in width 28, and comm as a bare name ('sleep') when the program was started by name."
+    },
+    {
+      "path": "darwin/ps.recorded-x64.out",
+      "provenance": "recorded",
+      "recordedOn": "2026-10-13",
+      "host": "macos-15-intel (x64), GitHub-hosted runner, macOS gate run 38430627507 on commit 1da35d5, CLI 2.1.296",
+      "how": "The 'psLinesBeforeSigterm' evidence of gate item 2 (research 10), copied byte for byte: the lines of LC_ALL=C TZ=UTC0 /bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm= that belong to the CLI's process tree while its Bash tool ran 'sleep' (the harness keeps only the tree). Paths are public GitHub runner paths. Shows the BSD layout: stat left-justified in width 4 with flag characters ('S<', 'S<s', 'R<'), lstart in width 28, and comm as a bare name ('sleep', 'sh') when the program was started by name."
     }
   ]
 }
