@@ -325,7 +325,7 @@ export interface ClaudeSessionConfig {
   readonly maxOutboundBytes: number;          // 33554432
   readonly onOversizedFrame: 'fail' | 'skip';
   readonly onAuthFailure: 'fail-fast' | 'harness-retry';
-  readonly authFailFastSources: readonly string[];  // ['ANTHROPIC_API_KEY'] in v1 (K10)
+  readonly authFailFastSources: readonly string[];  // ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] (K10, matched against apiKeySource and tokenSource)
   readonly permissionHandler: boolean;
   readonly allowConfigWrites: boolean;
   readonly platform: 'win32' | 'posix';
@@ -341,7 +341,7 @@ Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> termi
 - Handshake: the init `control_response` clears `first-frame`, records `pid`, `claude_code_version`, `apiKeySource`, `capabilities`, emits `handshake.ok` and `session.started`. A `result` before the response (J7) is `SESSION_NOT_FOUND` when `mode` is `resume`/`fork` and the frame is `error_during_execution` with `num_turns` 0, otherwise `HANDSHAKE_FAILED` cause `result-before-response`. Exit or `stdout.end` first: `HANDSHAKE_FAILED` cause `exited-before-response` (or `SESSION_NOT_FOUND` if the matching `result` was seen). Timer: `HANDSHAKE_TIMEOUT`, `ladder.start` intent `watchdog`.
 - Identity: the first `system/init.session_id` must equal the expected id (`fork`: the hudhud-chosen new id); mismatch is diagnostic `session.id-mismatch`, and a `ProtocolError` for `create`.
 - Idle watchdog: while a turn is queued or started, every frame re-arms `idle`; on fire emit `stalled` once per silence period with `pendingPermissions`; never kills (ADR-0008).
-- Auth fail-fast (ADR-0012 §6, K10): applies when `onAuthFailure` is `fail-fast` and `apiKeySource` is in `authFailFastSources` (`ANTHROPIC_API_KEY` only in v1; `ANTHROPIC_AUTH_TOKEN` is added only after its `apiKeySource` string is observed in a recorded fixture). Trigger: the first of `system/api_retry` with `error === "authentication_failed"`, `assistant` with `error === "authentication_failed"`, `result` with `api_error_status === 401`; 403 is not a trigger. Effect: session poisoned, active turns fail `AUTHENTICATION_FAILED`, `ladder.start` intent `auth-fail-fast`, later commands fail `SESSION_POISONED`. `system/api_retry` is always surfaced as `api.retry`.
+- Auth fail-fast (ADR-0012 §6, K10): applies when `onAuthFailure` is `fail-fast` and the `initialize` response's `account.apiKeySource` or `account.tokenSource` is in `authFailFastSources`, default `['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']` (lead decision after the `auth-token-source` fixture (W3-Z review): a static env credential that got a 401 does not succeed on retry, for the token as for the key; the fixture shows the token as `tokenSource: "ANTHROPIC_AUTH_TOKEN"`). OAuth (`apiKeySource` `none`, no listed token source) and `apiKeyHelper` stay excluded because they can refresh. The machine records `tokenSource` with `apiKeySource` (state, `SessionInfoData`, `session.started`), and the `AUTHENTICATION_FAILED` details name the triggering credential (`credentialSource`). Trigger: the first of `system/api_retry` with `error === "authentication_failed"`, `assistant` with `error === "authentication_failed"`, `result` with `api_error_status === 401`; 403 is not a trigger. Effect: session poisoned, active turns fail `AUTHENTICATION_FAILED`, `ladder.start` intent `auth-fail-fast`, later commands fail `SESSION_POISONED`. `system/api_retry` is always surfaced as `api.retry`.
 - Oversized frame: `fail` gives `OVERSIZED_FRAME` and `ladder.start` intent `oversized-frame`; `skip` gives diagnostic `frame.skipped-oversized` (byte count only).
 - Close (drain, K13): reject new sends; set the `close` timer to `closeTimeoutMs` at the `cmd.close` instant (single deadline); pending permissions are cancelled with the non-interrupting deny (K12); wait for no active turn and `session_state_changed` `idle`, then `stdin.end`; keep consuming frames and accept harness-originated turns after EOF (07 §7); on timer `ladder.start` intent `close-timeout`.
 - Abort/dispose: record the intent first; if the handshake completed and stdin is open, write `interrupt{cancel_queued:true}` and set `interrupt-wait`; emit `ladder.start`; pending permissions cancel with reason `abort`, nothing written (K12).
@@ -580,7 +580,7 @@ export type DiagnosticCode =
 
 export type HudhudEvent =
   | (EventBase & { type: 'compat'; compat: CompatInfo; raw?: JsonValue })
-  | (EventBase & { type: 'session.started'; mode: 'create' | 'resume' | 'fork'; pid: number; cliPid?: number; version: string; apiKeySource?: string; permissionMode?: string; raw: JsonValue })
+  | (EventBase & { type: 'session.started'; mode: 'create' | 'resume' | 'fork'; pid: number; cliPid?: number; version: string; apiKeySource?: string; tokenSource?: string; permissionMode?: string; raw: JsonValue })
   | (EventBase & { type: 'turn.queued'; turnId: string })
   | (EventBase & { type: 'turn.started'; turnId: string; origin: 'application' | 'harness'; features: readonly string[]; model?: string; raw: JsonValue })
   | (EventBase & { type: 'message.assistant'; turnId?: string; text?: string; aborted?: boolean; raw: JsonValue })
@@ -647,6 +647,7 @@ export interface SessionInfo {
   readonly cliPid?: number;               // initialize.pid (informational)
   readonly version: string;
   readonly apiKeySource?: string;
+  readonly tokenSource?: string;          // K10: the auth token shows here (W3-Z)
   readonly features: readonly string[];
   readonly containment: ProcessContainment;   // what this session got (K2)
 }
@@ -799,7 +800,7 @@ Cross-field validation (`INVALID_OPTIONS` unless noted): `workspaceTrust` and `c
 | `autoUpdate` | `'disabled'` | `DISABLE_AUTOUPDATER=1` | yes | 0012 §4 |
 | `nonessentialTraffic` | `'disabled'` | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | yes, plus `managedPolicy` | K23, 0012 §5 |
 | `dangerouslyAllowConfigWrites` | `false` | keep non-session permission destinations | yes | 0012 §3 |
-| `onAuthFailure` | `'fail-fast'` (API key source only in v1) | §1.5 trigger | no | K10, 0012 §6 |
+| `onAuthFailure` | `'fail-fast'` (`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`; not OAuth or `apiKeyHelper`) | §1.5 trigger | no | K10, 0012 §6 |
 | `onOversizedFrame` | `'fail'` | | no | 0011 §7 |
 | `maxFrameBytes` | 67108864 | inbound cap | no | 0011 §7 |
 | `maxOutboundFrameBytes` | 33554432 | outbound cap | no | 0011 §7 |
@@ -951,7 +952,7 @@ Exit codes never prove success (05 §9, 07 §2). The redacted stderr tail is att
 | claude `machine/control` | unknown response id, duplicate inbound id, cancel of unknown id, unsupported subtype answered, silent set | random request/response/cancel interleavings keep the table consistent |
 | claude `machine/permission` | allow, deny, deny+interrupt, error, cancel by CLI, by signal, by close (non-interrupting deny written, K12), by abort (nothing written), destination stripping, 4097 updates | every ask ends exactly once |
 | claude `machine/turn` | FIFO start, `command_lifecycle` correlation, background turn, interrupt before and after init, on settled turn, `still_queued` retry once, idle-synthesized end | random interleavings never settle twice or before the write |
-| claude `machine/session` | handshake success, `result` before response (resume vs create), exit before response, first-frame timer, auth fail-fast per trigger with `ANTHROPIC_API_KEY`, no fail-fast for `ANTHROPIC_AUTH_TOKEN`, `apiKeyHelper`, OAuth `none` (K10), oversized fail/skip, close with pending permission, close deadline from the call (K13), abort before/after handshake, queued commands | the contract invariants via `machine-kit` with a fake clock; JSON round-trip of every state and effect |
+| claude `machine/session` | handshake success, `result` before response (resume vs create), exit before response, first-frame timer, auth fail-fast per trigger with `ANTHROPIC_API_KEY` and with `ANTHROPIC_AUTH_TOKEN` (`tokenSource`, replayed from the recorded fixture), no fail-fast for `apiKeyHelper` or OAuth `none` (K10), oversized fail/skip, close with pending permission, close deadline from the call (K13), abort before/after handshake, queued commands | the contract invariants via `machine-kit` with a fake clock; JSON round-trip of every state and effect |
 | claude `events/normalize` | every fixture frame maps as specified; unknown frames to `harness.frame`; raw always present | arbitrary frames never throw |
 | core `binding/queue`, `fanout` | count and byte limits, each policy, gap counts, `'block'` resumes, `return()` releases, signal abort | random push/pull schedules within bounds, order preserved |
 | core `binding/driver` | fake transport and timers driving a test machine: effect order, no re-entrancy, permission bridge (throws, invalid decision, signal), ladder hand-off, `ask()` independent of subscribers | microtask-order permutations |
@@ -971,7 +972,7 @@ Exit codes never prove success (05 §9, 07 §2). The redacted stderr tail is att
 
 ### 4.3 Golden fixtures (ADR-0006, ADR-0013 §10)
 
-Recorded by `tooling/test-support/src/fixtures/recorder.ts` from the pinned CLI on Windows and Linux, normalized, hand-minimized, stored in `packages/claude-code/conformance/`. Suites: `handshake`, `text-turn`, `two-turns`, `partial-messages`, `tool-bash`, `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response`, `permission-never-answered-interrupt`, `permission-eof`, `interrupt-midstream`, `interrupt-queued`, `interrupt-cancel-queued`, `interrupt-same-write` (GH#98713), `eof-idle`, `eof-midstream`, `eof-midtool`, `resume`, `resume-not-found`, `fork`, `fork-session-id`, `auth-401-no-retry`, `auth-401-retries` (shortened timing), `overloaded-529`, `max-turns`, `bg-shell-turn-after-eof`, `session-state-events`, `big-frame-5mb` (stored compressed), `utf8-arabic`, `crlf-bom`. Both OSes are recorded where the sequence differs (05 §14). A fixture with `apiKeySource: "ANTHROPIC_AUTH_TOKEN"` is recorded when the mock harness can produce it; only then is that source added to `authFailFastSources` (K10). As built (W3-Z): suite `auth-token-source` (sandbox credential `fake-auth-token`, then a 401 with no retries) recorded on Windows and Linux: `account.apiKeySource` is `"none"` and the token shows as `account.tokenSource: "ANTHROPIC_AUTH_TOKEN"`; the 401 yields the same `authentication_failed` assistant frame and `api_error_status: 401`. Extending fail-fast to the token needs the machine to read `tokenSource` (open lead decision); `authFailFastSources` stays `['ANTHROPIC_API_KEY']`. Fixtures are re-recorded by the lead's local bump (K16) and the diff is reviewed.
+Recorded by `tooling/test-support/src/fixtures/recorder.ts` from the pinned CLI on Windows and Linux, normalized, hand-minimized, stored in `packages/claude-code/conformance/`. Suites: `handshake`, `text-turn`, `two-turns`, `partial-messages`, `tool-bash`, `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response`, `permission-never-answered-interrupt`, `permission-eof`, `interrupt-midstream`, `interrupt-queued`, `interrupt-cancel-queued`, `interrupt-same-write` (GH#98713), `eof-idle`, `eof-midstream`, `eof-midtool`, `resume`, `resume-not-found`, `fork`, `fork-session-id`, `auth-401-no-retry`, `auth-401-retries` (shortened timing), `overloaded-529`, `max-turns`, `bg-shell-turn-after-eof`, `session-state-events`, `big-frame-5mb` (stored compressed), `utf8-arabic`, `crlf-bom`. Both OSes are recorded where the sequence differs (05 §14). A fixture with `apiKeySource: "ANTHROPIC_AUTH_TOKEN"` is recorded when the mock harness can produce it; only then is that source added to `authFailFastSources` (K10). As built (W3-Z): suite `auth-token-source` (sandbox credential `fake-auth-token`, then a 401 with no retries) recorded on Windows and Linux: `account.apiKeySource` is `"none"` and the token shows as `account.tokenSource: "ANTHROPIC_AUTH_TOKEN"`; the 401 yields the same `authentication_failed` assistant frame and `api_error_status: 401`. Lead decision (W3-Z review): fail-fast extends to the token; the machine reads `tokenSource`, and `authFailFastSources` defaults to `['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']`. Fixtures are re-recorded by the lead's local bump (K16) and the diff is reviewed.
 
 ### 4.4 Integration tests (pinned CLI + in-process mock)
 
@@ -1279,7 +1280,7 @@ Never throws. Harness capability `processContainment` is `'job'` when loaded, el
 | R6 | CI minutes and time limits with real-CLI integration and ~250 MB binaries per OS | budget overrun, timeouts | cache the binary; measure in W6; size timeouts as p95 x 2 (K15) | Waves 6-7 |
 | R7 | CLI drift during development | stale expectations | pinned 2.1.296; nightly canary against the newest version; lead bumps locally (K16) | continuous |
 | R8 | Flaky timing tests | red CI without regressions | fake clocks for order, 3x margins, no retries | all waves |
-| R9 | Auth fail-fast for `ANTHROPIC_AUTH_TOKEN` and OAuth never observed | narrower protection | fail-fast limited to `ANTHROPIC_API_KEY` until a fixture exists (K10), documented | Wave 3 |
+| R9 | Auth fail-fast for `ANTHROPIC_AUTH_TOKEN` and OAuth never observed | narrower protection | fail-fast limited to `ANTHROPIC_API_KEY` until a fixture exists (K10), documented; resolved in W3-Z: the token was observed (`tokenSource`) and is fail-fast; OAuth stays excluded | Wave 3 |
 | R10 | Windows arm64 hosts | no containment beyond best-effort | documented capability `'best-effort'` on arm64 in v1 (K17) | v1 |
 | R11 | Electron or non-Node hosts load the addon | crash on load | delay-load hook in A1; Electron smoke test deferred, documented | Wave 1 |
 | R12 | K3 split leaks Claude vocabulary into the core | multi-harness design broken | neutrality test, depcruise rules, review in every closer | all waves |
@@ -1303,7 +1304,7 @@ Rulings of 2026-10-12 on the open points of the first draft (recorded in 06 §K)
 | K7 | Discovery: option, native installer launcher, sanitized `PATH`; no `node_modules` probing. | §1.8; ADR-0011 |
 | K8 | Committed digest table for the tested window, updated by the bump PR, plus application digests; never fetched at run time. The OS-signature check runs only under `'strict'`; advisory uses the digest table only. | §1.7, §1.8, W3-T2; ADR-0011 |
 | K9 | `binaryVerification: 'advisory' \| 'strict'`, default `'advisory'`. | §2.3, §2.4; ADR-0011 |
-| K10 | Fail-fast trigger set accepted; 403 is not a trigger; fail-fast applies to `ANTHROPIC_API_KEY` only until the `ANTHROPIC_AUTH_TOKEN` source string is observed in a fixture; documented. | §1.5, §4.3; ADR-0012 |
+| K10 | Fail-fast trigger set accepted; 403 is not a trigger; fail-fast applies to `ANTHROPIC_API_KEY` only until the `ANTHROPIC_AUTH_TOKEN` source string is observed in a fixture; documented. Observed in W3-Z (`account.tokenSource`); fail-fast now covers both (lead decision). | §1.5, §4.3; ADR-0012 |
 | K11 | Permission modes: `default`, `acceptEdits`, `plan`, `dontAsk`, `auto`, and `bypassPermissions` only with `dangerouslyAllowBypassPermissions`; no `manual` in v1. | §2.3 |
 | K12 | Pending permissions on drain get a non-interrupting deny; on abort nothing is written. | §1.5; ADR-0007 |
 | K13 | `close()` has a single deadline from the call, default 30 s; documented. | §1.5, §2.2; ADR-0008 |

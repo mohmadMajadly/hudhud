@@ -158,6 +158,8 @@ export interface SessionInfoData {
   readonly cliPid?: number;
   readonly version: string;
   readonly apiKeySource?: string;
+  /** The harness's token source (for Claude Code `ANTHROPIC_AUTH_TOKEN`), informational. */
+  readonly tokenSource?: string;
   readonly features: readonly string[];
 }
 

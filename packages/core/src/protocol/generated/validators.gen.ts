@@ -228,7 +228,7 @@ function validate55(data, { instancePath = "", parentData, parentDataProperty, r
   return errors === 0;
 }
 validate55.evaluated = { "props": { "seq": true, "ts": true, "sessionId": true, "type": true, "compat": true, "raw": true }, "dynamicProps": false, "dynamicItems": false };
-var schema24 = { "type": "object", "required": ["seq", "ts", "sessionId", "type", "mode", "pid", "version", "raw"], "properties": { "seq": { "type": "integer", "minimum": 0 }, "ts": { "type": "string" }, "sessionId": { "type": "string" }, "type": { "type": "string", "const": "session.started" }, "mode": { "enum": ["create", "resume", "fork"] }, "pid": { "type": "integer", "minimum": 0 }, "cliPid": { "type": "integer", "minimum": 0 }, "version": { "type": "string" }, "apiKeySource": { "type": "string" }, "permissionMode": { "type": "string" }, "raw": {} } };
+var schema24 = { "type": "object", "required": ["seq", "ts", "sessionId", "type", "mode", "pid", "version", "raw"], "properties": { "seq": { "type": "integer", "minimum": 0 }, "ts": { "type": "string" }, "sessionId": { "type": "string" }, "type": { "type": "string", "const": "session.started" }, "mode": { "enum": ["create", "resume", "fork"] }, "pid": { "type": "integer", "minimum": 0 }, "cliPid": { "type": "integer", "minimum": 0 }, "version": { "type": "string" }, "apiKeySource": { "type": "string" }, "tokenSource": { "type": "string" }, "permissionMode": { "type": "string" }, "raw": {} } };
 function validate59(data, { instancePath = "", parentData, parentDataProperty, rootData = data, dynamicAnchors = {} } = {}) {
   let vErrors = null;
   let errors = 0;
@@ -378,15 +378,27 @@ function validate59(data, { instancePath = "", parentData, parentDataProperty, r
                           var valid0 = true;
                         }
                         if (valid0) {
-                          if (data.permissionMode !== void 0 && func0.call(data, "permissionMode")) {
+                          if (data.tokenSource !== void 0 && func0.call(data, "tokenSource")) {
                             const _errs18 = errors;
-                            if (typeof data.permissionMode !== "string") {
-                              validate59.errors = [{ instancePath: instancePath + "/permissionMode", schemaPath: "#/properties/permissionMode/type", keyword: "type", params: { type: "string" } }];
+                            if (typeof data.tokenSource !== "string") {
+                              validate59.errors = [{ instancePath: instancePath + "/tokenSource", schemaPath: "#/properties/tokenSource/type", keyword: "type", params: { type: "string" } }];
                               return false;
                             }
                             var valid0 = _errs18 === errors;
                           } else {
                             var valid0 = true;
+                          }
+                          if (valid0) {
+                            if (data.permissionMode !== void 0 && func0.call(data, "permissionMode")) {
+                              const _errs20 = errors;
+                              if (typeof data.permissionMode !== "string") {
+                                validate59.errors = [{ instancePath: instancePath + "/permissionMode", schemaPath: "#/properties/permissionMode/type", keyword: "type", params: { type: "string" } }];
+                                return false;
+                              }
+                              var valid0 = _errs20 === errors;
+                            } else {
+                              var valid0 = true;
+                            }
                           }
                         }
                       }
@@ -406,7 +418,7 @@ function validate59(data, { instancePath = "", parentData, parentDataProperty, r
   validate59.errors = vErrors;
   return errors === 0;
 }
-validate59.evaluated = { "props": { "seq": true, "ts": true, "sessionId": true, "type": true, "mode": true, "pid": true, "cliPid": true, "version": true, "apiKeySource": true, "permissionMode": true, "raw": true }, "dynamicProps": false, "dynamicItems": false };
+validate59.evaluated = { "props": { "seq": true, "ts": true, "sessionId": true, "type": true, "mode": true, "pid": true, "cliPid": true, "version": true, "apiKeySource": true, "tokenSource": true, "permissionMode": true, "raw": true }, "dynamicProps": false, "dynamicItems": false };
 function validate61(data, { instancePath = "", parentData, parentDataProperty, rootData = data, dynamicAnchors = {} } = {}) {
   let vErrors = null;
   let errors = 0;
@@ -3669,6 +3681,7 @@ function validate54(data, { instancePath = "", parentData, parentDataProperty, r
       props0.cliPid = true;
       props0.version = true;
       props0.apiKeySource = true;
+      props0.tokenSource = true;
       props0.permissionMode = true;
       props0.raw = true;
     }
@@ -4268,6 +4281,7 @@ function validate119(data, { instancePath = "", parentData, parentDataProperty, 
       props0.cliPid = true;
       props0.version = true;
       props0.apiKeySource = true;
+      props0.tokenSource = true;
       props0.permissionMode = true;
       props0.raw = true;
     }

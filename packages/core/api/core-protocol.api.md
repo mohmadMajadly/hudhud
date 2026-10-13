@@ -182,6 +182,7 @@ export type HudhudEvent = (EventBase & {
     readonly cliPid?: number;
     readonly version: string;
     readonly apiKeySource?: string;
+    readonly tokenSource?: string;
     readonly permissionMode?: string;
     readonly raw: JsonValue;
 }) | (EventBase & {
@@ -529,6 +530,7 @@ export interface SessionInfoData {
     // (undocumented)
     readonly mode: 'create' | 'resume' | 'fork';
     readonly pid: number;
+    readonly tokenSource?: string;
     // (undocumented)
     readonly version: string;
 }

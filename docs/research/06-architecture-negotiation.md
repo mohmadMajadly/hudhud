@@ -158,7 +158,7 @@ K6 `continue` is not in v1.
 K7 Binary discovery: explicit option, native installer launcher, sanitized PATH; no node_modules probing.
 K8 Verification uses a committed digest table for the tested window (updated by the bump PR) plus application digests, never fetched at run time; the OS-signature check runs only in strict mode.
 K9 Option `binaryVerification: 'advisory' | 'strict'`, default 'advisory'.
-K10 Auth fail-fast triggers: first `system/api_retry` with authentication_failed, `assistant.error` authentication_failed, or `result.api_error_status` 401; 403 is not a trigger; applies to apiKeySource ANTHROPIC_API_KEY only until the ANTHROPIC_AUTH_TOKEN string is observed in a fixture.
+K10 Auth fail-fast triggers: first `system/api_retry` with authentication_failed, `assistant.error` authentication_failed, or `result.api_error_status` 401; 403 is not a trigger; applies to apiKeySource ANTHROPIC_API_KEY only until the ANTHROPIC_AUTH_TOKEN string is observed in a fixture. Update (W3-Z, lead decision): the fixture `auth-token-source` shows the token as `account.tokenSource: "ANTHROPIC_AUTH_TOKEN"` (apiKeySource `none`) with the same 401 frames; fail-fast now applies to both static env credentials, matched on apiKeySource or tokenSource; OAuth and apiKeyHelper stay excluded.
 K11 Permission modes in v1: default, acceptEdits, plan, dontAsk, auto, and bypassPermissions only with dangerouslyAllowBypassPermissions; no `manual`.
 K12 A pending permission gets a non-interrupting deny on drain (close) and no answer on abort.
 K13 `close()` has a single deadline measured from the call, default 30 s.

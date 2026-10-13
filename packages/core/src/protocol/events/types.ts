@@ -163,6 +163,7 @@ export type HudhudEvent =
       readonly cliPid?: number;
       readonly version: string;
       readonly apiKeySource?: string;
+      readonly tokenSource?: string;
       readonly permissionMode?: string;
       readonly raw: JsonValue;
     })

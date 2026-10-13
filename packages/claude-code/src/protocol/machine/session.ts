@@ -132,7 +132,12 @@ export interface ClaudeSessionConfig {
   readonly maxOutboundBytes: number;
   readonly onOversizedFrame: 'fail' | 'skip';
   readonly onAuthFailure: 'fail-fast' | 'harness-retry';
-  /** `apiKeySource` values fail-fast applies to: `['ANTHROPIC_API_KEY']` in v1 (K10). */
+  /**
+   * Credential sources fail-fast applies to, matched against `apiKeySource`
+   * and `tokenSource` of the `initialize` response:
+   * {@link DEFAULT_AUTH_FAIL_FAST_SOURCES} (K10 as decided after the
+   * `auth-token-source` fixture).
+   */
   readonly authFailFastSources: readonly string[];
   /** Whether the application registered a permission handler. */
   readonly permissionHandler: boolean;
@@ -194,6 +199,8 @@ export interface ClaudeSessionState {
   readonly harnessIdle: boolean;
   /** `account.apiKeySource` of the `initialize` response. */
   readonly apiKeySource: string | null;
+  /** `account.tokenSource` of the `initialize` response (`ANTHROPIC_AUTH_TOKEN` for the auth token). */
+  readonly tokenSource: string | null;
   /** The first `system/init.session_id` (J6), `null` until one arrives. */
   readonly observedSessionId: string | null;
   /** Whether the last observed `result` frame was an error result. */
@@ -230,6 +237,17 @@ export const CLOSE_TIMER = 'close';
  * @internal
  */
 export const ABORT_INTERRUPT_CORRELATION = 'hudhud:abort-interrupt';
+
+/**
+ * Default of `authFailFastSources` (K10, lead decision after the
+ * `auth-token-source` fixture): the two static env credentials.
+ *
+ * @internal
+ */
+export const DEFAULT_AUTH_FAIL_FAST_SOURCES: readonly string[] = Object.freeze([
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+]);
 
 /** The deny written when no permission handler is registered (fail closed). @internal */
 export const NO_HANDLER_ERROR = 'no permission handler is registered';
@@ -297,6 +315,7 @@ export function initialSessionState(config: ClaudeSessionConfig): ClaudeSessionS
     stalled: false,
     harnessIdle: true,
     apiKeySource: null,
+    tokenSource: null,
     observedSessionId: null,
     lastResultIsError: null,
     permissionRequestIds: [],
@@ -1014,9 +1033,11 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
   const version = ownString(response, 'claude_code_version') ?? 'unknown';
   const account = ownObject(response, 'account');
   const apiKeySource = account === undefined ? undefined : ownString(account, 'apiKeySource');
+  const tokenSource = account === undefined ? undefined : ownString(account, 'tokenSource');
   const permissionMode = ownString(response, 'current_permission_mode');
   const features = strings(ownArray(response, 'capabilities'));
   d.s.apiKeySource = apiKeySource ?? null;
+  d.s.tokenSource = tokenSource ?? null;
   const info: Mutable<SessionInfoData> = {
     id: d.config.sessionId,
     mode: d.config.mode,
@@ -1029,6 +1050,7 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
   }
   if (cliPid !== undefined) info.cliPid = cliPid;
   if (apiKeySource !== undefined) info.apiKeySource = apiKeySource;
+  if (tokenSource !== undefined) info.tokenSource = tokenSource;
   d.emit({ type: 'handshake.ok', info });
   const started: Mutable<Extract<EventFields, { type: 'session.started' }>> = {
     type: 'session.started',
@@ -1039,6 +1061,7 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
   };
   if (cliPid !== undefined) started.cliPid = cliPid;
   if (apiKeySource !== undefined) started.apiKeySource = apiKeySource;
+  if (tokenSource !== undefined) started.tokenSource = tokenSource;
   if (permissionMode !== undefined) started.permissionMode = permissionMode;
   d.event(started);
   if (cliPid !== undefined && cliPid !== pid) {
@@ -1124,7 +1147,8 @@ function onConversation(
   if (type === 'system' && subtype === 'init') checkIdentity(d, frame);
   emitNormalized(d, frame);
   const trigger = authTrigger(frame, type, subtype);
-  if (trigger !== undefined && authFailFastApplies(d)) poison(d, trigger);
+  const credential = trigger === undefined ? null : failFastCredential(d);
+  if (trigger !== undefined && credential !== null) poison(d, trigger, credential);
   if (!d.s.turns.ended) d.feedTurn({ type: 'frame', frame });
   if (type === 'system' && subtype === 'session_state_changed') {
     const state = ownString(frame, 'state');
@@ -1174,23 +1198,34 @@ function authTrigger(
   return undefined;
 }
 
-function authFailFastApplies(d: Draft): boolean {
-  const source = d.s.apiKeySource;
-  return (
-    d.config.onAuthFailure === 'fail-fast' &&
-    source !== null &&
-    d.config.authFailFastSources.includes(source)
-  );
+/**
+ * The static credential fail-fast applies to, or `null` (K10): the
+ * `apiKeySource` or the `tokenSource` of the `initialize` response when it
+ * is one of `authFailFastSources`. A static env credential that got a 401
+ * does not succeed on retry. OAuth (`apiKeySource` `none` with no listed
+ * token source) and `apiKeyHelper` can refresh, so they are not listed.
+ */
+function failFastCredential(d: Draft): string | null {
+  if (d.config.onAuthFailure !== 'fail-fast') return null;
+  for (const source of [d.s.apiKeySource, d.s.tokenSource]) {
+    if (source !== null && d.config.authFailFastSources.includes(source)) return source;
+  }
+  return null;
 }
 
-function poison(d: Draft, trigger: string): void {
+function poison(d: Draft, trigger: string, credential: string): void {
   if (d.s.intent !== 'none' && d.s.intent !== 'close') return;
   d.s.poisoned = true;
   d.fatal(
     makeErrorData(
       'AUTHENTICATION_FAILED',
-      'The harness reported an authentication failure; the session is poisoned. Create a new session.',
-      { trigger, apiKeySource: d.s.apiKeySource },
+      `The harness reported an authentication failure for ${credential}; the session is poisoned. Create a new session.`,
+      {
+        trigger,
+        credentialSource: credential,
+        apiKeySource: d.s.apiKeySource,
+        tokenSource: d.s.tokenSource,
+      },
     ),
     'auth-fail-fast',
     true,

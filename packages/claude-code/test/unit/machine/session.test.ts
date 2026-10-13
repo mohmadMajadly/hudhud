@@ -128,6 +128,7 @@ describe('handshake', () => {
       cliPid: CLI_PID,
       version: '2.1.296',
       apiKeySource: 'ANTHROPIC_API_KEY',
+      tokenSource: 'none',
       features: ['ui_surface_v1'],
     });
     const [started, launcher] = events(effects);
@@ -138,6 +139,7 @@ describe('handshake', () => {
       cliPid: CLI_PID,
       version: '2.1.296',
       apiKeySource: 'ANTHROPIC_API_KEY',
+      tokenSource: 'none',
       permissionMode: 'default',
       raw: response,
       seq: 1,
@@ -1237,11 +1239,17 @@ describe('auth fail-fast (K10)', () => {
     expect(ofType(effects, 'turn.settle')[0]?.result.apiErrorStatus).toBe(403);
   });
 
-  it('does not fail fast for other key sources or under harness-retry', () => {
-    const sources = ['ANTHROPIC_AUTH_TOKEN', 'apiKeyHelper', 'none'];
-    for (const apiKeySource of sources) {
+  it('does not fail fast for apiKeyHelper, OAuth or under harness-retry (they can refresh)', () => {
+    const accounts: JsonObject[] = [
+      { apiKeySource: 'apiKeyHelper' },
+      { apiKeySource: 'none' },
+      // OAuth: no static env credential among the sources.
+      { apiKeySource: 'none', tokenSource: 'claude.ai' },
+      { tokenSource: 'apiKeyHelper' },
+    ];
+    for (const account of accounts) {
       const run = new SessionRun();
-      run.start(initResponse({ account: { apiKeySource } }));
+      run.start(initResponse({ account }));
       run.feed({ type: 'cmd.send', turnId: U1, content: 'x' });
       run.line(systemInit());
       expect(ofType(run.line(triggers[2]?.[1] ?? {}), 'ladder.start')).toEqual([]);

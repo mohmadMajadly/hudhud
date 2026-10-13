@@ -94,6 +94,7 @@ describe('05 §5 handshake', () => {
       cliPid: 37148,
       version: '2.1.296',
       apiKeySource: 'ANTHROPIC_API_KEY',
+      tokenSource: 'none',
       features: ['ui_surface_v1'],
     });
     const tasks = run.line(research('background_tasks_changed after initialize').frame);

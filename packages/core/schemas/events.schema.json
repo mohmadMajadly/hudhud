@@ -310,6 +310,9 @@
         "apiKeySource": {
           "type": "string"
         },
+        "tokenSource": {
+          "type": "string"
+        },
         "permissionMode": {
           "type": "string"
         },

@@ -16,6 +16,7 @@ import type {
 
 import {
   claudeSessionMachine,
+  DEFAULT_AUTH_FAIL_FAST_SOURCES,
   type ClaudeSessionConfig,
   type ClaudeSessionState,
 } from '../../../src/protocol/machine/index.js';
@@ -41,7 +42,7 @@ export function makeConfig(overrides: Partial<ClaudeSessionConfig> = {}): Claude
     maxOutboundBytes: 33_554_432,
     onOversizedFrame: 'fail',
     onAuthFailure: 'fail-fast',
-    authFailFastSources: ['ANTHROPIC_API_KEY'],
+    authFailFastSources: DEFAULT_AUTH_FAIL_FAST_SOURCES,
     permissionHandler: true,
     allowConfigWrites: false,
     allowBypassPermissions: false,

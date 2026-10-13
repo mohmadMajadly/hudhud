@@ -138,6 +138,7 @@ export const SessionStartedEvent = event('session.started', {
   cliPid: Type.Optional(Count),
   version: Type.String(),
   apiKeySource: Type.Optional(Type.String()),
+  tokenSource: Type.Optional(Type.String()),
   permissionMode: Type.Optional(Type.String()),
   raw,
 });
