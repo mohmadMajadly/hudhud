@@ -25,7 +25,7 @@ import { gzipSync } from 'node:zlib';
 
 import type { VerifiedCli } from '../../launcher/pinned-cli.js';
 import { createSandbox } from '../../launcher/sandbox.js';
-import type { LaunchOptions, Sandbox, SandboxOptions } from '../../launcher/sandbox.js';
+import type { ExactLaunch, Sandbox, SandboxOptions } from '../../launcher/sandbox.js';
 import { assertNoOutsideWrites, diffOutside, snapshotOutside } from '../../leaks/outside.js';
 import type { OutsideChange, OutsideWatch } from '../../leaks/outside.js';
 import { assertNoSurvivors, LeakTracker } from '../../leaks/tracker.js';
@@ -36,6 +36,7 @@ import type { FixtureRecordLine } from '../normalize.js';
 import { describeRecord, formatJsonl, sandboxContext } from '../recorder.js';
 import { RecordingSession } from '../session.js';
 import type { JsonValue, RawRecord } from '../session.js';
+import type { LaunchBuilder } from './launch.js';
 import type { CaseSpec, SuiteContext, SuiteSpec } from './suites.js';
 
 /** The `recorder` field of every manifest entry. */
@@ -85,6 +86,11 @@ export interface RecorderMock {
 /** Everything a recording run uses from the host; built by `main.ts`, faked by tests. */
 export interface RecorderEnvironment {
   readonly cli: VerifiedCli;
+  /**
+   * Builds each case's argv and environment with the product's builders
+   * (`launch.ts`); the composition root injects it.
+   */
+  readonly launch: LaunchBuilder;
   readonly platform: NodeJS.Platform;
   /** The process table (and, in tests, kill and sleep) of the leak checks. */
   readonly leakHost: LeakHost;
@@ -235,13 +241,34 @@ async function settleOrphans(
   }
 }
 
+/**
+ * What the product's environment sets beyond the sandbox it was built from
+ * (the variables hudhud pins and the case's `env.add`), with the value; a
+ * sandbox variable the product dropped appears with the value `null`.
+ */
+export function launchEnvDiff(
+  env: Readonly<Record<string, string>>,
+  parent: Readonly<Record<string, string>>,
+): Record<string, string | null> {
+  const diff: Record<string, string | null> = {};
+  const entries = Object.entries(env).sort(([a], [b]) => (a < b ? -1 : 1));
+  for (const [name, value] of entries) {
+    if (parent[name] !== value) diff[name] = value;
+  }
+  for (const name of Object.keys(parent).sort()) {
+    if (!Object.hasOwn(env, name)) diff[name] = null;
+  }
+  return diff;
+}
+
 /** The config record that opens every fixture. */
 function configRecord(
   suite: SuiteSpec,
   spec: CaseSpec,
   platform: string,
   session: RecordingSession,
-  launch: LaunchOptions,
+  launch: ExactLaunch,
+  parent: Readonly<Record<string, string>>,
 ): RawRecord {
   return {
     t: 0,
@@ -251,7 +278,7 @@ function configRecord(
       case: spec.name === '' ? 'main' : spec.name,
       platform,
       argv: [...session.process.argv],
-      env: { ...(launch.env ?? {}) },
+      env: launchEnvDiff(launch.env, parent),
     },
   };
 }
@@ -265,7 +292,13 @@ async function recordCase(
   context: SuiteContext,
 ): Promise<ManifestEntry> {
   const { platform } = env;
-  const launch: LaunchOptions = spec.launch(context);
+  const exact: ExactLaunch = env.launch({
+    launch: spec.launch(context),
+    configDir: sandbox.dirs.cfg,
+    parentEnv: sandbox.env,
+    platform,
+  });
+  const launch = { exact };
   let rooted: Promise<unknown> = Promise.resolve();
   const tracked: Sandbox = {
     ...sandbox,
@@ -318,7 +351,10 @@ async function recordCase(
             token: entry.token,
           }));
   const lines = normalizeRecords(
-    [configRecord(suite, spec, platform, session, launch), ...splitWrites(session.records)],
+    [
+      configRecord(suite, spec, platform, session, exact, sandbox.env),
+      ...splitWrites(session.records),
+    ],
     { ...base, paths: [...base.paths, ...extraPaths] },
   );
   const file = caseFile(suite, spec, platform);

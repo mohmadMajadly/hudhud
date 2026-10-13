@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { DARWIN_CHILD_SET_ENV_NAMES } from '@hudhud/core/process';
+import { childEnv, DARWIN_CHILD_SET_ENV_NAMES } from '@hudhud/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { FAKE_API_KEY } from '../../src/launcher/env.js';
@@ -13,6 +13,8 @@ import {
   checkTestRoot,
   createSandbox,
   DARWIN_TEST_TEMP_BASE,
+  exactLaunch,
+  UNREAD_ENV_NAMES,
   launchArgv,
   MAX_SOCKET_PATH_BYTES,
   realHomes,
@@ -23,7 +25,7 @@ import {
 } from '../../src/launcher/sandbox.js';
 import type { Sandbox } from '../../src/launcher/sandbox.js';
 import { RecordingSession } from '../../src/fixtures/session.js';
-import { makeFakeCli, scopedPolicy } from './fake-cli.js';
+import { makeFakeCli, oneSpellingPerName, scopedPolicy } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
 
 const MOCK = { url: 'http://127.0.0.1:47311' };
@@ -153,6 +155,83 @@ describe('launchArgv', () => {
     [{ permissionMode: 'x y' }],
   ])('refuses %j', (options) => {
     expect(() => launchArgv(options)).toThrow(SandboxRefusedError);
+  });
+});
+
+/** `env` without `names`. */
+function without(
+  env: Readonly<Record<string, string>>,
+  ...names: string[]
+): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !names.includes(name)));
+}
+
+describe('exactLaunch', () => {
+  const SANDBOX = {
+    HOME: '/s/home',
+    CLAUDE_CONFIG_DIR: '/s/cfg',
+    ANTHROPIC_API_KEY: FAKE_API_KEY,
+    NO_PROXY: '127.0.0.1',
+    no_proxy: '127.0.0.1',
+    LANG: 'C.UTF-8',
+  };
+  const exact = (env: Record<string, string>, argv: string[] = ['--a']) => ({
+    exact: { argv, env },
+  });
+
+  it('passes the argv as given and the environment through the spawn layer', () => {
+    const product = { ...SANDBOX, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
+    expect(exactLaunch(exact(product), SANDBOX, 'linux')).toEqual({
+      argv: ['--a'],
+      env: product,
+    });
+    // Windows: one variable per name whatever the spelling; the required
+    // variables the map lacks are passed empty (core childEnv).
+    const win = without(product, 'no_proxy');
+    const spawned = exactLaunch(exact(win), SANDBOX, 'win32');
+    expect(spawned.env['NO_PROXY']).toBe('127.0.0.1');
+    expect(spawned.env['USERNAME']).toBe('');
+    expect(spawned.env['SYSTEMROOT']).toBe('');
+  });
+
+  it('refuses a missing exact launch, mixed options and NUL', () => {
+    expect(() => exactLaunch({}, SANDBOX, 'linux')).toThrow(/no exact launch/u);
+    expect(() =>
+      exactLaunch({ ...exact(SANDBOX), args: ['--x'], env: {} }, SANDBOX, 'linux'),
+    ).toThrow(/takes no args, env/u);
+    expect(() => exactLaunch(exact(SANDBOX, ['a\0b']), SANDBOX, 'linux')).toThrow(/NUL/u);
+  });
+
+  it('lets the launch leave out only what the platform never reads', () => {
+    const withTemp = { ...SANDBOX, TEMP: '/s/tmp', TMPDIR: '/s/tmp' };
+    const noTemp = without(withTemp, 'TEMP');
+    expect(exactLaunch(exact(noTemp), withTemp, 'linux').env).not.toHaveProperty('TEMP');
+    const noTmpdir = without(withTemp, 'TMPDIR');
+    expect(() => exactLaunch(exact(noTmpdir), withTemp, 'linux')).toThrow(/changes TMPDIR/u);
+    const winKept = without(withTemp, 'no_proxy', 'HOME', 'TMPDIR');
+    expect(exactLaunch(exact(winKept), withTemp, 'win32').env).not.toHaveProperty('HOME');
+    expect(UNREAD_ENV_NAMES).toEqual({ posix: ['TMP', 'TEMP'], win32: ['HOME', 'TMPDIR'] });
+  });
+
+  it('refuses a dropped, changed or added protected variable, compared as the OS does', () => {
+    const noHome = without(SANDBOX, 'HOME');
+    expect(() => exactLaunch(exact(noHome), SANDBOX, 'linux')).toThrow(/changes HOME.*dropped/u);
+    expect(() =>
+      exactLaunch(exact({ ...SANDBOX, CLAUDE_CONFIG_DIR: '/real/.claude' }), SANDBOX, 'linux'),
+    ).toThrow(/changes CLAUDE_CONFIG_DIR.*changed or added/u);
+    expect(() =>
+      exactLaunch(exact({ ...SANDBOX, ANTHROPIC_AUTH_TOKEN: 'x' }), SANDBOX, 'linux'),
+    ).toThrow(/changes ANTHROPIC_AUTH_TOKEN/u);
+    // POSIX names are exact: dropping the lower-case spelling drops a variable.
+    const oneSpelling = without(SANDBOX, 'no_proxy');
+    expect(() => exactLaunch(exact(oneSpelling), SANDBOX, 'linux')).toThrow(/changes no_proxy/u);
+    expect(() =>
+      exactLaunch(exact({ ...oneSpelling, home: '/elsewhere' }), SANDBOX, 'win32'),
+    ).toThrow(/names home twice in different case/u);
+    const lowerHome = without(oneSpelling, 'HOME');
+    expect(() =>
+      exactLaunch(exact({ ...lowerHome, home: '/elsewhere' }), SANDBOX, 'win32'),
+    ).toThrow(/changes HOME.*changed/u);
   });
 });
 
@@ -323,6 +402,32 @@ describe('launching the pinned binary', () => {
     expect(session.process.pid).toBeGreaterThan(0);
     expect(session.process.env['EXTRA_FLAG']).toBe('1');
   }, 60_000);
+
+  it('spawns an exact (product-built) launch as given, through the spawn layer', async () => {
+    const env = {
+      ...oneSpellingPerName(sandbox.env),
+      CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
+    };
+    const session = await RecordingSession.start(sandbox, {
+      exact: { argv: [fake.script, '--output-format=stream-json', '--verbose'], env },
+    });
+    const dump = await session.waitType('dump', undefined, 30_000);
+    await session.stop(10_000);
+    const v = dump.v as { argv: string[]; env: Record<string, string> };
+    expect(v.argv).toEqual(['--output-format=stream-json', '--verbose']);
+    expect(v.env['CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS']).toBe('1');
+    expect(v.env['ANTHROPIC_API_KEY']).toBe(FAKE_API_KEY);
+    expect(session.process.env).toEqual(
+      childEnv(env, process.platform === 'win32' ? 'win32' : 'posix'),
+    );
+  }, 60_000);
+
+  it('refuses an exact launch that would undo the sandbox', async () => {
+    const rest = without(oneSpellingPerName(sandbox.env), 'ANTHROPIC_BASE_URL');
+    await expect(sandbox.launch({ exact: { argv: [fake.script], env: rest } })).rejects.toThrow(
+      /changes ANTHROPIC_BASE_URL/u,
+    );
+  });
 
   it('refuses protected variables at launch', async () => {
     await expect(

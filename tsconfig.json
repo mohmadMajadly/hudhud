@@ -16,6 +16,7 @@
     "scripts/**/*.mjs",
     "scripts/**/*.ts",
     "packages/*/test/**/*.ts",
+    "packages/*/test/**/*.mjs",
     "packages/*/schema-src/**/*.ts",
     "tooling/*/test/**/*.ts",
     "tooling/*/bin/**/*.mjs"

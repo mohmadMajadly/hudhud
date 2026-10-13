@@ -73,7 +73,11 @@ export interface LaunchConfig {
   /** The CLI argv after the binary. */
   readonly argv: readonly string[];
   /** The extra environment of the launch. */
-  readonly env: Readonly<Record<string, string>>;
+  /**
+   * What the product's environment set beyond the sandbox it was built from;
+   * `null` for a sandbox variable it dropped (`launchEnvDiff` of the recorder).
+   */
+  readonly env: Readonly<Record<string, string | null>>;
 }
 
 /** One expect block: the effects (without events) and the events of one record line. */
@@ -382,8 +386,11 @@ function recordValueProblems(record: RecordLine, at: string, entry: ManifestEntr
       }
       if (!isStringArray(v['argv'])) problems.push('argv is not a string array');
       const env = v['env'];
-      if (!isObject(env) || !Object.values(env).every((value) => typeof value === 'string')) {
-        problems.push('env is not a string map');
+      if (
+        !isObject(env) ||
+        !Object.values(env).every((value) => typeof value === 'string' || value === null)
+      ) {
+        problems.push('env is not a map of strings and nulls');
       }
       return problems.map((problem) => `${at}: config ${problem}`);
     }

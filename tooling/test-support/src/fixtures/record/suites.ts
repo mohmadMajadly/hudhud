@@ -22,9 +22,9 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { SandboxCredential } from '../../launcher/env.js';
-import type { LaunchOptions } from '../../launcher/sandbox.js';
 import { isFrame } from '../session.js';
 import type { JsonValue, OutRecord, RecordingSession } from '../session.js';
+import type { CaseLaunch } from './launch.js';
 
 /** Default wait for one awaited frame. */
 const FRAME_MS = 60_000;
@@ -45,7 +45,12 @@ export type SuiteContext = Map<string, string>;
 export interface CaseSpec {
   /** File name part after the platform: `''` for the main case, else for example `setup`. */
   readonly name: string;
-  readonly launch: (context: SuiteContext) => LaunchOptions;
+  /**
+   * The product input of the case (hudhud options, permission handler, how
+   * the session starts); the product builds the argv and environment
+   * (`launch.ts`).
+   */
+  readonly launch: (context: SuiteContext) => CaseLaunch;
   /** Drives the session; returns when the script is done (the recorder then sends EOF if still open). */
   readonly drive: (session: ScriptSession, context: SuiteContext) => Promise<void>;
   /** Exit code observed in the research; `null` for a signal. */
@@ -128,7 +133,20 @@ function turnUuid(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 }
 
-const STDIO_PROMPT = ['--permission-prompt-tool=stdio'];
+/** A new session under the case's own fresh id. */
+export function create(context: SuiteContext): CaseLaunch['start'] {
+  return { mode: 'create', sessionId: sessionId(context, 'main') };
+}
+
+/** A case of a new session with `options`. */
+function fresh(options: CaseLaunch['options'] = {}): (context: SuiteContext) => CaseLaunch {
+  return (context) => ({ start: create(context), options });
+}
+
+/** hudhud's `env` option adding one variable to the harness preset (a per-suite variation). */
+function withEnv(name: string, value: string): CaseLaunch['options'] {
+  return { env: { preset: 'harness', add: { [name]: value } } };
+}
 const PERMISSION_CMD = 'echo hi && touch marker.txt';
 const PERMISSION_MARKER = `[[mock:bash cmd=${b64(PERMISSION_CMD)}]] run it`;
 
@@ -140,7 +158,7 @@ function permissionCase(
 ): CaseSpec {
   return {
     name: '',
-    launch: () => ({ args: STDIO_PROMPT }),
+    launch: (context) => ({ start: create(context), permissionHandler: true }),
     async drive(session) {
       await initialize(session);
       session.user(PERMISSION_MARKER);
@@ -160,7 +178,7 @@ export function inputOf(request: OutRecord): JsonValue {
 /** The `setup` case of the resume and fork suites: a new session with a chosen id. */
 const SETUP_CASE: CaseSpec = {
   name: 'setup',
-  launch: (context) => ({ args: [`--session-id=${sessionId(context, 'U1')}`] }),
+  launch: (context) => ({ start: { mode: 'create', sessionId: sessionId(context, 'U1') } }),
   async drive(session) {
     await initialize(session);
     session.user('[[mock:echo]] ALPHA');
@@ -181,10 +199,10 @@ export function sessionId(context: SuiteContext, key: string): string {
 }
 
 /** A resumed or forked main case. */
-function resumedCase(args: (context: SuiteContext) => readonly string[]): CaseSpec {
+function resumedCase(start: (context: SuiteContext) => CaseLaunch['start']): CaseSpec {
   return {
     name: '',
-    launch: (context) => ({ args: args(context) }),
+    launch: (context) => ({ start: start(context) }),
     async drive(session) {
       await initialize(session);
       session.user('[[mock:echo]] BRAVO');
@@ -216,7 +234,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:text]] hello');
@@ -241,7 +259,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:text]] one turn', turnUuid(1)));
@@ -264,7 +282,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:text]] turn one', turnUuid(1)));
@@ -284,7 +302,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ args: ['--include-partial-messages'] }),
+          launch: fresh({ claudeCode: { includePartialMessages: true } }),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:slow chunks=5 ms=40]] stream');
@@ -304,12 +322,12 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
     {
       name: 'tool-bash',
       scenario:
-        'a read-only Bash tool call (echo hi), auto-allowed in default mode without a prompt tool',
+        'a read-only Bash tool call (echo hi), auto-allowed in default mode without a permission handler',
       research: '05 §6, §14',
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user(`[[mock:bash cmd=${b64('echo hi')}]] run it`);
@@ -448,7 +466,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ args: ['--include-partial-messages'] }),
+          launch: fresh({ claudeCode: { includePartialMessages: true } }),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:slow chunks=20 ms=100]] stream', turnUuid(1)));
@@ -483,7 +501,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:slow chunks=10 ms=150]] first', turnUuid(1)));
@@ -514,7 +532,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:slow chunks=10 ms=150]] first', turnUuid(1)));
@@ -545,7 +563,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:text]] turn one', turnUuid(1)));
@@ -576,7 +594,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
           },
@@ -592,7 +610,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:slow chunks=8 ms=250]] stream');
@@ -613,7 +631,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user(`[[mock:bash cmd=${b64('sleep 3 && echo done')}]] run it`);
@@ -644,7 +662,10 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       scenario:
         'setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)',
       research: '07 §1 a1, a2',
-      cases: [SETUP_CASE, resumedCase((context) => [`--resume=${sessionId(context, 'U1')}`])],
+      cases: [
+        SETUP_CASE,
+        resumedCase((context) => ({ mode: 'resume', resumeId: sessionId(context, 'U1') })),
+      ],
     },
     {
       name: 'resume-not-found',
@@ -653,7 +674,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: (context) => ({ args: [`--resume=${sessionId(context, 'U9')}`] }),
+          launch: (context) => ({ start: { mode: 'resume', resumeId: sessionId(context, 'U9') } }),
           async drive(session) {
             session.control('init_1', 'initialize');
             await result(session);
@@ -665,24 +686,30 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
     },
     {
       name: 'fork',
-      scenario: 'setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)',
+      scenario:
+        'setup: a session U1; main: a hudhud fork of U1 (--resume=U1 --fork-session --session-id=U2: the product always names the new id)',
       research: '07 §1 a4',
       cases: [
         SETUP_CASE,
-        resumedCase((context) => [`--resume=${sessionId(context, 'U1')}`, '--fork-session']),
+        resumedCase((context) => ({
+          mode: 'fork',
+          resumeId: sessionId(context, 'U1'),
+          sessionId: sessionId(context, 'U2'),
+        })),
       ],
     },
     {
       name: 'fork-session-id',
-      scenario: 'setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)',
+      scenario:
+        'setup: a session U1; main: --resume=U1 --fork-session --session-id=U2, the CLI runs under U2 (since the single-source launch the same launch as fork)',
       research: '07 §1 a5',
       cases: [
         SETUP_CASE,
-        resumedCase((context) => [
-          `--resume=${sessionId(context, 'U1')}`,
-          '--fork-session',
-          `--session-id=${sessionId(context, 'U2')}`,
-        ]),
+        resumedCase((context) => ({
+          mode: 'fork',
+          resumeId: sessionId(context, 'U1'),
+          sessionId: sessionId(context, 'U2'),
+        })),
       ],
     },
     {
@@ -693,7 +720,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ env: { CLAUDE_CODE_MAX_RETRIES: '0' } }),
+          launch: fresh(withEnv('CLAUDE_CODE_MAX_RETRIES', '0')),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:err status=401]] hello');
@@ -712,7 +739,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ env: { CLAUDE_CODE_MAX_RETRIES: '2' } }),
+          launch: fresh(withEnv('CLAUDE_CODE_MAX_RETRIES', '2')),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:err status=401]] hello');
@@ -738,7 +765,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:err status=529]] hello');
@@ -763,7 +790,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ args: ['--max-turns=1'] }),
+          launch: fresh({ claudeCode: { maxTurns: 1 } }),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:loop]] go');
@@ -788,7 +815,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             const input = { command: 'sleep 3', run_in_background: true, description: 'bg sleep' };
@@ -812,12 +839,12 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
     {
       name: 'session-state-events',
       scenario:
-        'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1: session_state_changed running/idle around a text turn',
+        'session_state_changed running/idle around a text turn (CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1, pinned by hudhud in every launch)',
       research: '05 §12',
       cases: [
         {
           name: '',
-          launch: () => ({ env: { CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' } }),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:text]] hello');
@@ -844,7 +871,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:big bytes=5000000]] big');
@@ -863,7 +890,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:echo]] مرحبا');
@@ -884,7 +911,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({}),
+          launch: fresh(),
           async drive(session) {
             session.sendRaw(
               `\uFEFF${JSON.stringify(controlFrame('init_1', { subtype: 'initialize' }))}\r`,
@@ -908,7 +935,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: '',
-          launch: () => ({ env: { CLAUDE_CODE_MAX_RETRIES: '0' } }),
+          launch: fresh(withEnv('CLAUDE_CODE_MAX_RETRIES', '0')),
           async drive(session) {
             await initialize(session);
             session.user('[[mock:err status=401]] hello');
@@ -933,7 +960,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
       cases: [
         {
           name: 'setup',
-          launch: (context) => ({ args: [`--session-id=${sessionId(context, 'U1')}`] }),
+          launch: (context) => ({ start: { mode: 'create', sessionId: sessionId(context, 'U1') } }),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:echo]] ALPHA', turnUuid(1)));
@@ -950,7 +977,7 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
         },
         {
           name: '',
-          launch: (context) => ({ args: [`--resume=${sessionId(context, 'U1')}`] }),
+          launch: (context) => ({ start: { mode: 'resume', resumeId: sessionId(context, 'U1') } }),
           async drive(session) {
             await initialize(session);
             session.send(userFrame('[[mock:echo]] BRAVO', turnUuid(1)));

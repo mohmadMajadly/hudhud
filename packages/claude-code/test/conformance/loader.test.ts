@@ -322,7 +322,7 @@ describe('loadConformanceSuites', () => {
           'demo/linux.jsonl:1: config unknown field more',
           'demo/linux.jsonl:1: config suite, case and platform differ from the manifest entry',
           'demo/linux.jsonl:1: config argv is not a string array',
-          'demo/linux.jsonl:1: config env is not a string map',
+          'demo/linux.jsonl:1: config env is not a map of strings and nulls',
           'demo/linux.jsonl:2: in is not a frame or a line',
           'demo/linux.jsonl:3: out is not a frame',
           'demo/linux.jsonl:4: err is not text',
