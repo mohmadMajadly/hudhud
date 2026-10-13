@@ -48,6 +48,7 @@ const ENTRY_NAMES = {
     'adapterApiVersion',
     'buildPosture',
     'credentialEnvNames',
+    'defineAdapter',
     'estimateUsageDelta',
     'isCredentialEnvName',
     'isHudhudError',

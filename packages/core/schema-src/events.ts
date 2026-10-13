@@ -76,6 +76,10 @@ export const DiagnosticCode = openEnum([
   'stdin.error',
   'turn.unmatched-result',
   'turn.dropped',
+  'stdout.error',
+  'termination.ladder',
+  'termination.sweep-after-exit',
+  'binding.machine-error',
 ] as const);
 
 const usageProperties = {

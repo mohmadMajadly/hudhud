@@ -94,7 +94,11 @@
             "permission.duplicate-request-id",
             "stdin.error",
             "turn.unmatched-result",
-            "turn.dropped"
+            "turn.dropped",
+            "stdout.error",
+            "termination.ladder",
+            "termination.sweep-after-exit",
+            "binding.machine-error"
           ]
         },
         {

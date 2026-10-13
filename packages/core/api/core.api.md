@@ -25,12 +25,31 @@ export class AdapterApiVersionError extends HudhudError {
     static readonly errorName = "AdapterApiVersionError";
 }
 
+// @beta
+export interface AdapterDefinition {
+    readonly adapterApiVersion: number;
+    readonly name: string;
+}
+
 // @public
 export class AuthenticationFailedError extends HudhudError {
     // (undocumented)
     static readonly code = "AUTHENTICATION_FAILED";
     // (undocumented)
     static readonly errorName = "AuthenticationFailedError";
+}
+
+// @public
+export interface BinaryInfo {
+    // (undocumented)
+    readonly path: string;
+    // (undocumented)
+    readonly requestedPath?: string;
+    // (undocumented)
+    readonly source: 'option' | 'native-install' | 'path';
+    // (undocumented)
+    readonly verification: BinaryVerification;
+    readonly version: string;
 }
 
 // @public
@@ -55,6 +74,17 @@ export class BinaryRefusedError extends HudhudError {
     static readonly code = "BINARY_REFUSED";
     // (undocumented)
     static readonly errorName = "BinaryRefusedError";
+}
+
+// @public
+export interface BinaryVerification {
+    readonly detail?: string;
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+    // (undocumented)
+    readonly mode: VerificationMode;
+    // (undocumented)
+    readonly status: 'verified' | 'unverified' | 'failed';
+    readonly transient?: true;
 }
 
 // @public
@@ -122,8 +152,11 @@ export class CwdTooLongError extends HudhudError {
     static readonly errorName = "CwdTooLongError";
 }
 
+// @beta
+export function defineAdapter<T extends AdapterDefinition>(def: T): T;
+
 // @public
-export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | (string & {});
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | 'stdout.error' | 'termination.ladder' | 'termination.sweep-after-exit' | 'binding.machine-error' | (string & {});
 
 // @public
 export type EnvMap = Readonly<Record<string, string | undefined>>;
@@ -170,6 +203,18 @@ export class HandshakeTimeoutError extends HudhudError {
     static readonly code = "HANDSHAKE_TIMEOUT";
     // (undocumented)
     static readonly errorName = "HandshakeTimeoutError";
+}
+
+// @public
+export interface Harness extends AsyncDisposable {
+    // (undocumented)
+    readonly binary: BinaryInfo;
+    // (undocumented)
+    readonly capabilities: HarnessCapabilities;
+    // (undocumented)
+    readonly compat: CompatInfo;
+    // (undocumented)
+    readonly securityPosture: SecurityPosture;
 }
 
 // @public
@@ -435,6 +480,50 @@ export type ParsePostureResult = {
 };
 
 // @public
+export type PermissionDecision = {
+    readonly behavior: 'allow';
+    readonly updatedInput?: JsonObject;
+    readonly updatedPermissions?: readonly JsonObject[];
+} | {
+    readonly behavior: 'deny';
+    readonly message: string;
+    readonly interrupt?: boolean;
+};
+
+// @public
+export type PermissionHandler = (request: PermissionRequest, ctx: {
+    readonly signal: AbortSignal;
+}) => Promise<PermissionDecision>;
+
+// @public
+export interface PermissionRequest {
+    // (undocumented)
+    readonly blockedPath?: string;
+    readonly decisionReason?: string;
+    // (undocumented)
+    readonly description?: string;
+    // (undocumented)
+    readonly displayName?: string;
+    // (undocumented)
+    readonly input: JsonValue;
+    // (undocumented)
+    readonly raw: JsonValue;
+    // (undocumented)
+    readonly requestId: string;
+    // (undocumented)
+    readonly sessionId: string;
+    readonly suggestions: readonly JsonValue[];
+    // (undocumented)
+    readonly title?: string;
+    // (undocumented)
+    readonly toolName: string;
+    // (undocumented)
+    readonly toolUseId: string;
+    // (undocumented)
+    readonly turnId?: string;
+}
+
+// @public
 export function postureDeviations(posture: SecurityPosture): readonly SecurityPostureEntry[];
 
 // @public
@@ -534,6 +623,29 @@ export interface SecurityPostureEntry {
 export function serializePosture(posture: SecurityPosture): string;
 
 // @public
+export interface Session extends AsyncDisposable {
+    ask(prompt: UserInput, opts?: {
+        readonly signal?: AbortSignal;
+    }): Promise<TurnResult>;
+    close(opts?: {
+        readonly signal?: AbortSignal;
+    }): Promise<void>;
+    readonly closed: Promise<void>;
+    events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent>;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly info: SessionInfo;
+    send(input: UserInput, opts?: {
+        readonly signal?: AbortSignal;
+        readonly events?: SubscriberOptions;
+    }): Turn;
+    setPermissionMode(mode: string, opts?: {
+        readonly signal?: AbortSignal;
+    }): Promise<void>;
+}
+
+// @public
 export class SessionClosedError extends HudhudError {
     // (undocumented)
     static readonly code = "SESSION_CLOSED";
@@ -547,6 +659,26 @@ export class SessionIdInUseError extends HudhudError {
     static readonly code = "SESSION_ID_IN_USE";
     // (undocumented)
     static readonly errorName = "SessionIdInUseError";
+}
+
+// @public
+export interface SessionInfo {
+    // (undocumented)
+    readonly apiKeySource?: string;
+    readonly cliPid?: number;
+    readonly containment: ProcessContainment;
+    // (undocumented)
+    readonly features: readonly string[];
+    // (undocumented)
+    readonly forkedFrom?: string;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly mode: 'create' | 'resume' | 'fork';
+    readonly pid: number;
+    readonly tokenSource?: string;
+    // (undocumented)
+    readonly version: string;
 }
 
 // @public
@@ -619,6 +751,15 @@ export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute
 export const TRUNCATED = "<truncated>";
 
 // @public
+export interface Turn extends AsyncIterable<HudhudEvent> {
+    readonly done: Promise<TurnResult>;
+    readonly id: string;
+    interrupt(opts?: {
+        readonly cancelQueued?: boolean;
+    }): Promise<void>;
+}
+
+// @public
 export class TurnDroppedError extends HudhudError {
     // (undocumented)
     static readonly code = "TURN_DROPPED";
@@ -688,6 +829,24 @@ export interface UsageTotals {
     // (undocumented)
     readonly outputTokens?: number;
 }
+
+// @public
+export type UserContentBlock = {
+    readonly type: 'text';
+    readonly text: string;
+} | {
+    readonly type: 'image';
+    readonly mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+    readonly dataBase64: string;
+};
+
+// @public
+export type UserInput = string | {
+    readonly content: readonly UserContentBlock[];
+};
+
+// @public
+export type VerificationMode = 'advisory' | 'strict';
 
 // @public
 export const wireSchemaVersion = 1;
