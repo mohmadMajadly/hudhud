@@ -125,6 +125,9 @@ export default defineConfig(
       '**/coverage/**',
       'packages/*/temp/**',
       '**/node_modules/**',
+      // Local agent worktrees (gitignored): full copies of the repository.
+      '.claude/**',
+      '.cache/**',
       // Generated Ajv validators: not linted (generated), but still under
       // dependency-cruiser and checked byte for byte by `schema:check`.
       'packages/*/src/**/generated/**',

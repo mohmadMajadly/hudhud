@@ -121,13 +121,30 @@ describe('checkExecutablePath', () => {
         Array.from(ext, (c, i) => (upper[i] === true ? c.toUpperCase() : c)).join(''),
       );
     fc.assert(
-      fc.property(fc.stringMatching(/^[a-z0-9_-]{1,12}$/), variant, (stem, ext) => {
-        expect(checkExecutablePath(`C:\\tools\\${stem}.${ext}`, 'win32')).toBeDefined();
-        expect(checkExecutablePath(`C:\\${stem}.${ext}\\claude.exe`, 'win32')).toBe(
-          ext.toLowerCase() === 'com' ? undefined : 'batch-file',
-        );
-      }),
+      // Reserved device stems (con, nul, com1, ...) are refused earlier with
+      // their own reason; they are covered by the explicit case below.
+      fc.property(
+        fc
+          .stringMatching(/^[a-z0-9_-]{1,12}$/)
+          .filter((stem) => !/^(?:con|prn|aux|nul|(?:com|lpt)[0-9])$/.test(stem)),
+        variant,
+        (stem, ext) => {
+          expect(checkExecutablePath(`C:\\tools\\${stem}.${ext}`, 'win32')).toBeDefined();
+          expect(checkExecutablePath(`C:\\${stem}.${ext}\\claude.exe`, 'win32')).toBe(
+            ext.toLowerCase() === 'com' ? undefined : 'batch-file',
+          );
+        },
+      ),
     );
+  });
+
+  it('refuses a reserved device stem with a batch extension as a reserved name', () => {
+    for (const stem of ['con', 'NUL', 'com1', 'Lpt9']) {
+      expect(checkExecutablePath(`C:\\tools\\${stem}.bat`, 'win32')).toBeDefined();
+      expect(checkExecutablePath(`C:\\${stem}.bat\\claude.exe`, 'win32')).toBe(
+        'reserved-device-name',
+      );
+    }
   });
 });
 

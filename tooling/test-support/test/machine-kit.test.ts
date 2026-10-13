@@ -147,7 +147,9 @@ describe('reference machine through the kit', () => {
       { kind: 'set-mode', mode: 'plan' },
       result,
       send,
-      result,
+      // An error result: both outcome branches are scripted, not left to the
+      // generated interleavings (coverage must not depend on the seed).
+      { kind: 'line', text: '{"type":"result","isError":true}' },
       { kind: 'advance', ms: 10 },
       input({ type: 'cmd.close' }),
       { kind: 'fire-timer', target: 0 },
@@ -166,6 +168,12 @@ describe('reference machine through the kit', () => {
     expect(asked).toEqual(['Shell', 'Shell', 'Shell', 'tool']);
     expect(types).toContain('control.settle');
     expect(types).toContain('turn.settle');
+    const outcomes = first.steps
+      .flatMap((step) => step.effects)
+      .filter((effect) => effect.type === 'turn.settle')
+      .map((effect) => (effect as unknown as { result: { outcome: string } }).result.outcome);
+    expect(outcomes).toContain('completed');
+    expect(outcomes).toContain('error');
     expect(types.at(-1)).toBe('session.end');
     // The clock is stamped on every input and only moves forward.
     const stamps = first.steps.map((step) => step.input.atMs);

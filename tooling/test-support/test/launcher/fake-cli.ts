@@ -9,7 +9,7 @@
 
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -84,6 +84,10 @@ export async function makeFakeCli(): Promise<FakeCli> {
   const staging = await createStaging(cacheRoot);
   const staged = path.join(staging, file);
   await copyFile(process.execPath, staged);
+  // copyFile keeps the source mode; a toolcache node can be group-writable
+  // (0775), which the cache rightly refuses. Install mode is explicit, as in
+  // the real installer.
+  await chmod(staged, 0o755);
   const { size } = await stat(staged);
   const digest = await sha256(staged);
   const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;
