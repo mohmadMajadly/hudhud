@@ -207,13 +207,14 @@ describe('host commands', () => {
         (rows) => (rows.some((row) => row.pid === process.pid) ? 'lists-self' : 'no-self'),
         () => 'failed',
       );
-    // procps on Linux prints the same columns when it is installed.
+    // procps on Linux, when installed, prints the same columns with a narrower
+    // lstart, which the macOS (BSD) layout rejects line by line (research 09).
     const expected =
       process.platform === 'win32'
         ? ['failed']
         : process.platform === 'darwin'
           ? ['lists-self']
-          : ['lists-self', 'failed'];
+          : ['no-self', 'failed'];
     expect(expected).toContain(outcome);
   }, 60_000);
 
