@@ -14,8 +14,10 @@ import {
   compact,
   formatExpect,
   projectBlock,
+  staleExpectations,
   textMarker,
 } from './expect.js';
+import type { RecordLine } from './loader.js';
 import { summarize, turnNames } from './summary.js';
 
 const ERROR = { code: 'SESSION_CLOSED', message: 'closed', retryable: false };
@@ -74,6 +76,34 @@ describe('expect projection', () => {
     expect(formatExpect([block, { effects: [], events: [] }])).toBe(
       `${JSON.stringify({ dir: 'expect', ...block })}\n{"dir":"expect","effects":[],"events":[]}\n`,
     );
+  });
+});
+
+describe('stale expect files', () => {
+  const records: RecordLine[] = [
+    { t: 0, dir: 'config', v: {} },
+    { t: 1, dir: 'out', v: {} },
+  ];
+  const fresh = [
+    { effects: [], events: [] },
+    { effects: [{ type: 'stdin.end' }], events: [] },
+  ];
+
+  it('finds nothing when the expect file agrees with the replay', () => {
+    expect(staleExpectations(fresh, fresh, records)).toEqual([]);
+  });
+
+  it('finds a well-formed but outdated line, a line count that differs, and no file', () => {
+    const outdated = [fresh[0] ?? { effects: [], events: [] }, { effects: [], events: [] }];
+    expect(staleExpectations(fresh, outdated, records)).toEqual(['2 (out)']);
+    expect(staleExpectations(fresh, fresh.slice(0, 1), records)).toEqual([
+      '1 expect lines for 2 blocks',
+      '2 (out)',
+    ]);
+    expect(staleExpectations(fresh, undefined, records)).toEqual(['no expect file was read']);
+    expect(staleExpectations(fresh, [...fresh, ...fresh], records)).toEqual([
+      '4 expect lines for 2 blocks',
+    ]);
   });
 });
 

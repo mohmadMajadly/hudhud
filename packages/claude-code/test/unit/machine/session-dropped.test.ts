@@ -18,6 +18,7 @@ import {
   makeConfig,
   ofType,
   result,
+  sessionState,
   systemInit,
   uuid,
   writes,
@@ -72,6 +73,33 @@ describe('a user message the harness drops (TURN_DROPPED)', () => {
     const settled = run.line(result({ user_message_uuid: U2 }), lifecycle(U2, 'completed'));
     expect(ofType(settled, 'turn.settle').map((effect) => effect.turnId)).toEqual([U2]);
     expect(ofType(settled, 'turn.fail')).toEqual([]);
+  });
+
+  it('does not wait for an interrupt held for a turn that ended before its system/init', () => {
+    // W4-Z ruling 8 (interrupt-same-write): the drain waits only for what is
+    // genuinely pending. An interrupt held by the GH#98713 gating was never
+    // written, so nothing can answer it; it settles with its turn.
+    const run = new SessionRun();
+    run.start();
+    run.feed({ type: 'cmd.send', turnId: U2, content: 'first' });
+    run.line(systemInit());
+    run.feed({ type: 'cmd.send', turnId: U1, content: 'dup' });
+    const held = run.feed({
+      type: 'cmd.interrupt',
+      turnId: U1,
+      cancelQueued: false,
+      correlation: 'held',
+    });
+    expect(writes(held)).toEqual([]);
+    expect(ofType(run.feed({ type: 'cmd.close' }), 'stdin.end')).toEqual([]);
+    const dropped = run.line(lifecycle(U1, 'completed'));
+    expect(ofType(dropped, 'control.settle')).toEqual([
+      expect.objectContaining({ correlation: 'held', ok: true }),
+    ]);
+    expect(writes(dropped)).toEqual([]);
+    run.line(result({ user_message_uuid: U2 }));
+    const idle = run.line(sessionState('idle'));
+    expect(ofType(idle, 'stdin.end')).toHaveLength(1);
   });
 
   it('replays gate run 2 end to end: dropped, then EOF and exit settle nothing twice', () => {

@@ -17,7 +17,7 @@ import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 
 import { planSuites, roundTrips, schemaIssues } from './checks.js';
-import { formatExpect, projectReplay } from './expect.js';
+import { formatExpect, projectReplay, staleExpectations } from './expect.js';
 import { loadConformanceSuites, type ConformanceVariant } from './loader.js';
 import { replayVariant } from './replay.js';
 import { summarize } from './summary.js';
@@ -86,14 +86,18 @@ function replayAndCheck(variant: ConformanceVariant): void {
       `${variant.id}: expect file written; review the diff, then run without HUDHUD_CONFORMANCE_UPDATE`,
     );
   }
+  // The first stale line in full (a readable diff), then every stale line:
+  // the normal mode fails on any stale expect file.
   const expected = variant.expect ?? [];
-  expect(actual).toHaveLength(expected.length);
   actual.forEach((block, index) => {
     const record = variant.records[index];
     expect(block, `${variant.id}:${String(index + 1)} (${String(record?.dir)})`).toEqual(
       expected[index],
     );
   });
+  expect(staleExpectations(actual, variant.expect, variant.records), 'stale expect file').toEqual(
+    [],
+  );
 }
 
 for (const suite of suites) {

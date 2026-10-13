@@ -25,7 +25,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { JsonValue, MachineEffect } from '@hudhud/core/protocol';
 
-import type { ExpectBlock } from './loader.js';
+import type { ExpectBlock, RecordLine } from './loader.js';
 import type { ReplayResult } from './replay.js';
 
 /** The marker of a `raw` equal to the line's frame. */
@@ -94,4 +94,29 @@ export function formatExpect(blocks: readonly ExpectBlock[]): string {
         `${JSON.stringify({ dir: 'expect', effects: block.effects, events: block.events })}\n`,
     )
     .join('');
+}
+
+/**
+ * What makes an expect file stale against a replay: a different number of
+ * blocks, or the record lines (1-based, with their direction) whose block
+ * differs; empty when the file agrees. Without expectations (the update
+ * mode's load) everything is stale. The normal mode of the runner fails on
+ * any of these; only the update mode, which never passes, rewrites the file.
+ */
+export function staleExpectations(
+  actual: readonly ExpectBlock[],
+  expected: readonly ExpectBlock[] | undefined,
+  records: readonly RecordLine[],
+): string[] {
+  if (expected === undefined) return ['no expect file was read'];
+  const stale: string[] = [];
+  if (actual.length !== expected.length) {
+    stale.push(`${String(expected.length)} expect lines for ${String(actual.length)} blocks`);
+  }
+  actual.forEach((block, index) => {
+    if (!isDeepStrictEqual(block, expected[index])) {
+      stale.push(`${String(index + 1)} (${String(records[index]?.dir)})`);
+    }
+  });
+  return stale;
 }

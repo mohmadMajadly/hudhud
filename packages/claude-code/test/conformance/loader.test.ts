@@ -176,11 +176,16 @@ describe('loadConformanceSuites', () => {
     ]);
     const [suite] = load(root, { expectations: 'ignored' });
     expect(suite?.variants[0]?.expect).toBeUndefined();
-    // Stale expect files (the update mode after a re-recording) are not read.
+    // Stale expect files (the update mode after a re-recording) are not read
+    // by the update mode; the normal mode refuses them.
     const stale = dataDir({
       files: { 'demo/linux.jsonl': jsonl(records()), 'demo/linux.expect.jsonl': 'stale\n' },
     });
     expect(load(stale, { expectations: 'ignored' })[0]?.variants[0]?.expect).toBeUndefined();
+    expect(problems(stale)).toEqual([
+      `demo/linux.expect.jsonl: 1 expect lines for ${String(records().length)} record lines`,
+    ]);
+    expect(problems(stale, { expectations: 'required' })).toEqual(problems(stale));
   });
 
   it('fails data without a manifest entry, and a directory outside the catalogue', () => {

@@ -155,7 +155,8 @@ export const CATALOGUE: readonly SuiteDeclaration[] = [
   // held one: the request stays pending, so the drain (which waits for
   // every control request) does not end stdin before the recorded exit,
   // where the moot interrupt settles. A replay artifact: the CLI answers an
-  // interrupt it receives (interrupt-midstream, interrupt-queued).
+  // interrupt it receives (interrupt-midstream, interrupt-queued); the
+  // evidence is asserted in interrupt-same-write.test.ts (W4-Z ruling 8).
   suite('interrupt-same-write', {
     main: declare(
       {
