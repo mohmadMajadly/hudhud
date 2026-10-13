@@ -1,0 +1,1230 @@
+{
+  "$comment": "Golden fixtures of plan §4.3 (W3-T6), recorded from the verified pinned CLI in the test-support sandbox (mock with egress trap, leak tracker, outside-write check) on Windows (subst-drive test root) and Linux (node:22-bookworm container), by RecordingSession and normalizeRecords of @hudhud/test-support. Paths, uuids, pids, versions, timestamps, durations and costs normalized; the fake key redacted. One file per suite, platform and case: <suite>/<platform>[.<case>].jsonl[.gz]. The suite scripts are to move into tooling/test-support (W3-T6 report).",
+  "format": "conformance.schema.json record lines {\"t\",\"dir\",\"v\"}; the first line (dir \"config\") is the launch: argv after the binary and the extra environment. A host write of two lines is split into two \"in\" records with the same t (interrupt-same-write). No expect blocks yet: they follow the session machine (W4-T2).",
+  "entries": [
+    {
+      "suite": "auth-401-no-retry",
+      "case": "main",
+      "file": "auth-401-no-retry/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=0: synthetic authentication_failed assistant, error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "auth-401-no-retry",
+      "case": "main",
+      "file": "auth-401-no-retry/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=0: synthetic authentication_failed assistant, error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "auth-401-retries",
+      "case": "main",
+      "file": "auth-401-retries/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=2 (shortened from the default 10): system/api_retry x2, then the error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "auth-401-retries",
+      "case": "main",
+      "file": "auth-401-retries/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=2 (shortened from the default 10): system/api_retry x2, then the error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "bg-shell-turn-after-eof",
+      "case": "main",
+      "file": "bg-shell-turn-after-eof/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "a background Bash shell (sleep 3) outlives its turn; after EOF the CLI waits, then runs a new turn on its completion",
+      "research": "07 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "bg-shell-turn-after-eof",
+      "case": "main",
+      "file": "bg-shell-turn-after-eof/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "a background Bash shell (sleep 3) outlives its turn; after EOF the CLI waits, then runs a new turn on its completion",
+      "research": "07 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "big-frame-5mb",
+      "case": "main",
+      "file": "big-frame-5mb/linux.jsonl.gz",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "a 5 MB model text: assistant and result frames of about 5 MB each, unsplit",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": true,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "big-frame-5mb",
+      "case": "main",
+      "file": "big-frame-5mb/win32.jsonl.gz",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "a 5 MB model text: assistant and result frames of about 5 MB each, unsplit",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": true,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "crlf-bom",
+      "case": "main",
+      "file": "crlf-bom/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "a UTF-8 BOM before the first line, CRLF line ends and a whitespace-only line on stdin",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "crlf-bom",
+      "case": "main",
+      "file": "crlf-bom/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "a UTF-8 BOM before the first line, CRLF line ends and a whitespace-only line on stdin",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-idle",
+      "case": "main",
+      "file": "eof-idle/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, then stdin EOF with no turn",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-idle",
+      "case": "main",
+      "file": "eof-idle/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, then stdin EOF with no turn",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-midstream",
+      "case": "main",
+      "file": "eof-midstream/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "stdin EOF while a 2 s reply is streaming: the turn finishes, then exit",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-midstream",
+      "case": "main",
+      "file": "eof-midstream/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "stdin EOF while a 2 s reply is streaming: the turn finishes, then exit",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-midtool",
+      "case": "main",
+      "file": "eof-midtool/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "stdin EOF while a Bash tool (sleep 3) runs: the tool completes, the model is called again",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "eof-midtool",
+      "case": "main",
+      "file": "eof-midtool/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "stdin EOF while a Bash tool (sleep 3) runs: the tool completes, the model is called again",
+      "research": "05 §8",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork-session-id",
+      "case": "main",
+      "file": "fork-session-id/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
+      "research": "07 §1 a5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork-session-id",
+      "case": "setup",
+      "file": "fork-session-id/linux.setup.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
+      "research": "07 §1 a5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork-session-id",
+      "case": "main",
+      "file": "fork-session-id/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
+      "research": "07 §1 a5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork-session-id",
+      "case": "setup",
+      "file": "fork-session-id/win32.setup.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
+      "research": "07 §1 a5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork",
+      "case": "main",
+      "file": "fork/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
+      "research": "07 §1 a4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork",
+      "case": "setup",
+      "file": "fork/linux.setup.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
+      "research": "07 §1 a4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork",
+      "case": "main",
+      "file": "fork/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
+      "research": "07 §1 a4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "fork",
+      "case": "setup",
+      "file": "fork/win32.setup.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
+      "research": "07 §1 a4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "handshake",
+      "case": "main",
+      "file": "handshake/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, one text turn, EOF",
+      "research": "05 §5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "handshake",
+      "case": "main",
+      "file": "handshake/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, one text turn, EOF",
+      "research": "05 §5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-cancel-queued",
+      "case": "main",
+      "file": "interrupt-cancel-queued/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt with cancel_queued:true while a second message is queued: it is dropped",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-cancel-queued",
+      "case": "main",
+      "file": "interrupt-cancel-queued/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt with cancel_queued:true while a second message is queued: it is dropped",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-midstream",
+      "case": "main",
+      "file": "interrupt-midstream/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt after the first streamed delta of a 20-delta reply (--include-partial-messages)",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-midstream",
+      "case": "main",
+      "file": "interrupt-midstream/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt after the first streamed delta of a 20-delta reply (--include-partial-messages)",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-queued",
+      "case": "main",
+      "file": "interrupt-queued/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt while a second user message is queued: still_queued, the queued turn runs next",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-queued",
+      "case": "main",
+      "file": "interrupt-queued/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "interrupt while a second user message is queued: still_queued, the queued turn runs next",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-same-write",
+      "case": "main",
+      "file": "interrupt-same-write/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "GH#98713: after a completed turn, the turn-2 user message and an interrupt in one stdin write; the interrupt is ignored",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "interrupt-same-write",
+      "case": "main",
+      "file": "interrupt-same-write/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "GH#98713: after a completed turn, the turn-2 user message and an interrupt in one stdin write; the interrupt is ignored",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "max-turns",
+      "case": "main",
+      "file": "max-turns/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "--max-turns=1 with a model that calls a tool at every step: error_max_turns",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "max-turns",
+      "case": "main",
+      "file": "max-turns/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "--max-turns=1 with a model that calls a tool at every step: error_max_turns",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "overloaded-529",
+      "case": "main",
+      "file": "overloaded-529/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 529 on every request: system/api_retry x2 (the 529 cap of 3 attempts), then the error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "overloaded-529",
+      "case": "main",
+      "file": "overloaded-529/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "HTTP 529 on every request: system/api_retry x2 (the 529 cap of 3 attempts), then the error result",
+      "research": "05 §9",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "partial-messages",
+      "case": "main",
+      "file": "partial-messages/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "--include-partial-messages, a text reply streamed in 5 deltas",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "partial-messages",
+      "case": "main",
+      "file": "partial-messages/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "--include-partial-messages, a text reply streamed in 5 deltas",
+      "research": "05 §7",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-allow",
+      "case": "main",
+      "file": "permission-allow/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered allow with updatedInput; the tool runs",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-allow",
+      "case": "main",
+      "file": "permission-allow/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered allow with updatedInput; the tool runs",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-deny-interrupt",
+      "case": "main",
+      "file": "permission-deny-interrupt/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered deny with interrupt:true; the turn aborts",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-deny-interrupt",
+      "case": "main",
+      "file": "permission-deny-interrupt/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered deny with interrupt:true; the turn aborts",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-deny",
+      "case": "main",
+      "file": "permission-deny/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered deny with a message; the turn continues",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-deny",
+      "case": "main",
+      "file": "permission-deny/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered deny with a message; the turn continues",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-eof",
+      "case": "main",
+      "file": "permission-eof/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool left unanswered, then stdin EOF: the request fails and the turn completes",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-eof",
+      "case": "main",
+      "file": "permission-eof/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool left unanswered, then stdin EOF: the request fails and the turn completes",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-error-response",
+      "case": "main",
+      "file": "permission-error-response/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered with a control_response of subtype error",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-error-response",
+      "case": "main",
+      "file": "permission-error-response/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool answered with a control_response of subtype error",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-never-answered-interrupt",
+      "case": "main",
+      "file": "permission-never-answered-interrupt/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool left unanswered for 3 s, then interrupt: the CLI withdraws its request",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "permission-never-answered-interrupt",
+      "case": "main",
+      "file": "permission-never-answered-interrupt/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "can_use_tool left unanswered for 3 s, then interrupt: the CLI withdraws its request",
+      "research": "05 §6",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume-not-found",
+      "case": "main",
+      "file": "resume-not-found/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "--resume=<unknown uuid>: an error result before any control_response, exit 1",
+      "research": "07 §1 a11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume-not-found",
+      "case": "main",
+      "file": "resume-not-found/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "--resume=<unknown uuid>: an error result before any control_response, exit 1",
+      "research": "07 §1 a11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume",
+      "case": "main",
+      "file": "resume/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
+      "research": "07 §1 a1, a2",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume",
+      "case": "setup",
+      "file": "resume/linux.setup.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
+      "research": "07 §1 a1, a2",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume",
+      "case": "main",
+      "file": "resume/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
+      "research": "07 §1 a1, a2",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "resume",
+      "case": "setup",
+      "file": "resume/win32.setup.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
+      "research": "07 §1 a1, a2",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "session-state-events",
+      "case": "main",
+      "file": "session-state-events/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1: session_state_changed running/idle around a text turn",
+      "research": "05 §12",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "session-state-events",
+      "case": "main",
+      "file": "session-state-events/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1: session_state_changed running/idle around a text turn",
+      "research": "05 §12",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "text-turn",
+      "case": "main",
+      "file": "text-turn/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, one text turn with a user-message uuid (command_lifecycle), EOF",
+      "research": "05 §5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "text-turn",
+      "case": "main",
+      "file": "text-turn/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, one text turn with a user-message uuid (command_lifecycle), EOF",
+      "research": "05 §5",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "tool-bash",
+      "case": "main",
+      "file": "tool-bash/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "a read-only Bash tool call (echo hi), auto-allowed in default mode without a prompt tool",
+      "research": "05 §6, §14",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "tool-bash",
+      "case": "main",
+      "file": "tool-bash/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "a read-only Bash tool call (echo hi), auto-allowed in default mode without a prompt tool",
+      "research": "05 §6, §14",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "two-turns",
+      "case": "main",
+      "file": "two-turns/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, two sequential turns (text, echo), EOF",
+      "research": "05 §4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "two-turns",
+      "case": "main",
+      "file": "two-turns/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "initialize, two sequential turns (text, echo), EOF",
+      "research": "05 §4",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "utf8-arabic",
+      "case": "main",
+      "file": "utf8-arabic/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "Arabic user text echoed back, then a mock reply with Arabic, emoji and an accented letter",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "utf8-arabic",
+      "case": "main",
+      "file": "utf8-arabic/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "Arabic user text echoed back, then a mock reply with Arabic, emoji and an accented letter",
+      "research": "05 §11",
+      "recordedOn": "2026-10-13",
+      "recorderRevision": "e0ce6e1",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": [],
+      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    }
+  ]
+}
