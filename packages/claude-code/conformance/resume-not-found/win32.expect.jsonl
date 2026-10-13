@@ -1,0 +1,6 @@
+{"dir":"expect","effects":[],"events":[]}
+{"dir":"expect","effects":[{"type":"write","line":"{\"type\":\"control_request\",\"request_id\":\"hudhud_1\",\"request\":{\"subtype\":\"initialize\"}}\n"},{"type":"timer.set","name":"first-frame","ms":60000}],"events":[]}
+{"dir":"expect","effects":[],"events":[]}
+{"dir":"expect","effects":[{"type":"timer.clear","name":"first-frame"},{"type":"handshake.fail","error":{"code":"SESSION_NOT_FOUND","message":"The harness found no session with this id.","retryable":false,"details":{"sessionId":"00000000-0000-4000-8000-000000000001"}}},{"type":"stdin.end"},{"type":"ladder.start","intent":"handshake-failed"}],"events":[]}
+{"dir":"expect","effects":[{"type":"session.end","outcome":"failed","error":{"code":"SESSION_NOT_FOUND","message":"The harness found no session with this id.","retryable":false,"details":{"sessionId":"00000000-0000-4000-8000-000000000001"}}}],"events":[{"type":"session.terminated","intent":"handshake-failed","outcome":"failed","exitCode":1,"seq":1,"ts":"2026-01-01T00:00:00.841Z","sessionId":"00000000-0000-4000-8000-000000000001"}]}
+{"dir":"expect","effects":[],"events":[]}

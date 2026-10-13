@@ -6,7 +6,9 @@
  * (`session.ts`), normalizes and redacts it (`normalize.ts`) and writes
  * the record lines of `packages/claude-code/conformance/<suite>/<case>.jsonl`
  * (`{"t","dir","v"}` per line, `conformance.schema.json`). The `expect`
- * blocks are added by hand when the suite is minimized (W3-T6). Real-CLI
+ * lines live in a sibling `<case>.expect.jsonl`, written by the update mode
+ * of the conformance runner and reviewed (W4-T2); a re-recording is
+ * followed by that mode and a reviewed expect diff. Real-CLI
  * recordings are lead-run (plan §5.4); see the handshake test for the
  * command.
  */

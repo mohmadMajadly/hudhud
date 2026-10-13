@@ -18,6 +18,7 @@
     "depcruise": "depcruise --config .dependency-cruiser.mjs packages scripts tooling",
     "test": "vitest run --project unit --project conformance --project scripts",
     "test:coverage": "vitest run --coverage --project unit --project conformance --project scripts",
+    "test:conformance": "vitest run --project conformance",
     "api:check": "node scripts/api-report.mjs",
     "api:update": "node scripts/api-report.mjs --local",
     "privacy:staged": "node scripts/privacy-scan.mjs --staged",

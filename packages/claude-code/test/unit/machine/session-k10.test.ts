@@ -2,9 +2,8 @@
 // fail-fast applies to ANTHROPIC_AUTH_TOKEN exactly as to ANTHROPIC_API_KEY
 // (a static env credential that got a 401 does not succeed on retry). The
 // CLI reports the token as account.tokenSource with apiKeySource "none".
-
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+// The recorded auth-token-source suite is replayed, with its exact effects,
+// by the conformance runner (test/conformance, W4-T2).
 
 import { describe, expect, it } from 'vitest';
 
@@ -12,7 +11,6 @@ import type { JsonObject } from '@hudhud/core/protocol';
 
 import { DEFAULT_AUTH_FAIL_FAST_SOURCES } from '../../../src/protocol/machine/index.js';
 import {
-  SPAWNED_PID,
   SessionRun,
   events,
   initResponse,
@@ -88,49 +86,4 @@ describe('auth fail-fast for the auth token (K10)', () => {
     narrowed.line(systemInit());
     expect(ofType(narrowed.line(TRIGGER), 'ladder.start')).toEqual([]);
   });
-});
-
-/** The out frames of a recorded fixture, in order. */
-function recordedFrames(platform: 'win32' | 'linux'): JsonObject[] {
-  const file = fileURLToPath(
-    new URL(`../../../conformance/auth-token-source/${platform}.jsonl`, import.meta.url),
-  );
-  return readFileSync(file, 'utf8')
-    .trimEnd()
-    .split('\n')
-    .map((line) => JSON.parse(line) as { dir: string; v: JsonObject })
-    .filter((record) => record.dir === 'out')
-    .map((record) => record.v);
-}
-
-describe('replay of the recorded auth-token-source fixture (K10)', () => {
-  for (const platform of ['win32', 'linux'] as const) {
-    it(`${platform}: the recorded 401 fails fast on the auth token`, () => {
-      const frames = recordedFrames(platform);
-      const response = frames[0] as { response: JsonObject };
-      expect(response).toMatchObject({ type: 'control_response' });
-      // The fixture's session id is normalized; the machine expects that one.
-      const run = new SessionRun(makeConfig({ sessionId: '<uuid-1>' }));
-      run.feed({ type: 'process.started', pid: SPAWNED_PID });
-      // The machine's own request id replaces the recorder's.
-      const answered = run.line({
-        ...response,
-        response: { ...response.response, request_id: 'hudhud_1' },
-      });
-      // The recorded initialize response names only the token source.
-      expect(ofType(answered, 'handshake.ok')[0]?.info).toMatchObject({
-        tokenSource: 'ANTHROPIC_AUTH_TOKEN',
-      });
-      run.feed({ type: 'cmd.send', turnId: U1, content: '[[mock:err status=401]] hello' });
-      const rest = frames.slice(1).flatMap((frame) => run.line(frame));
-      expect(ofType(rest, 'ladder.start').map((effect) => effect.intent)).toEqual([
-        'auth-fail-fast',
-      ]);
-      expect(ofType(rest, 'turn.fail')[0]?.error).toMatchObject({
-        code: 'AUTHENTICATION_FAILED',
-        details: { trigger: 'assistant', credentialSource: 'ANTHROPIC_AUTH_TOKEN' },
-      });
-      expect(run.state.poisoned).toBe(true);
-    });
-  }
 });
