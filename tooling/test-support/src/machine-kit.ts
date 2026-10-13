@@ -170,17 +170,13 @@ export function machineActions(options: MachineActionOptions = {}): fc.Arbitrary
 // ---- driver ---------------------------------------------------------------------
 
 /** Options of {@link runMachine}. */
-export interface RunMachineOptions {
+export interface RunMachineOptions extends KitDriverOptions {
   /** Inputs before the actions. Default: `process.started` with pid 4242. */
   readonly prelude?: readonly KitInputBody[];
   /** Inputs after the actions. Default: abort, `stdout.end`, a SIGKILL exit, `ladder.done`. */
   readonly finale?: readonly KitInputBody[];
   /** Whether the session must have ended after the finale. Default `true`. */
   readonly requireEnd?: boolean;
-  /** The `seq` the first event must carry; any integer when absent. */
-  readonly firstSeq?: number;
-  /** Clock start in milliseconds since the epoch. Default 2026-01-01T00:00:00Z. */
-  readonly startMs?: number;
 }
 
 /** One step of a run. */
@@ -416,6 +412,150 @@ class ContractTracker {
   }
 }
 
+/** Options of {@link KitDriver}. */
+export interface KitDriverOptions {
+  /** The `seq` the first event must carry; any integer when absent. */
+  readonly firstSeq?: number;
+  /** Clock start in milliseconds since the epoch. Default 2026-01-01T00:00:00Z. */
+  readonly startMs?: number;
+}
+
+/**
+ * An incremental, contract-checking driver: feeds inputs one at a time with
+ * a fake clock and checks every step and the trace exactly as
+ * {@link runMachine} does (which is built on it). For replays whose next
+ * input depends on the effects so far, such as the conformance runner
+ * (timers fire at their deadlines, request ids are learned from writes).
+ *
+ * @remarks
+ * The first violation stops the driver: every later call does nothing and
+ * returns `false`. The commands whose bookkeeping the contract needs go
+ * through their own methods ({@link KitDriver.send}, {@link KitDriver.answer},
+ * {@link KitDriver.abortAsk}, {@link KitDriver.fireTimer}); everything else
+ * through {@link KitDriver.feed}.
+ */
+export class KitDriver<State, Config> {
+  readonly steps: KitStep<State>[] = [];
+  readonly violations: string[] = [];
+  private readonly machine: KitMachine<State, Config>;
+  private readonly tracker: ContractTracker;
+  private current: State | undefined;
+  private clock: number;
+
+  constructor(machine: KitMachine<State, Config>, config: Config, options: KitDriverOptions = {}) {
+    this.machine = machine;
+    this.tracker = new ContractTracker(options.firstSeq);
+    this.clock = options.startMs ?? DEFAULT_START_MS;
+    let state: State;
+    try {
+      state = machine.initialState(config);
+    } catch (error) {
+      this.violations.push(`initialState threw: ${String(error)}`);
+      return;
+    }
+    if (!jsonStable(state)) {
+      this.violations.push('initialState is not JSON-stable');
+      return;
+    }
+    this.current = state;
+  }
+
+  /** The current state; `undefined` when the initial state failed. */
+  get state(): State | undefined {
+    return this.current;
+  }
+
+  /** The clock in milliseconds since the epoch. */
+  get now(): number {
+    return this.clock;
+  }
+
+  /** Whether `session.end` was emitted. */
+  get ended(): boolean {
+    return this.tracker.ended;
+  }
+
+  /** Whether a violation stopped the driver. */
+  get stopped(): boolean {
+    return this.violations.length > 0;
+  }
+
+  /** Armed timers and their deadlines, in arming order. */
+  get timers(): readonly (readonly [string, number])[] {
+    return [...this.tracker.armed.entries()];
+  }
+
+  /** Request ids of the permission asks still pending, oldest first. */
+  get pendingAsks(): readonly string[] {
+    return [...this.tracker.pendingAsks];
+  }
+
+  /** Moves the clock forward by `ms`. */
+  advance(ms: number): void {
+    this.clock += ms;
+  }
+
+  /** Moves the clock to `atMs` when that is later; never back. */
+  advanceTo(atMs: number): void {
+    this.clock = Math.max(this.clock, atMs);
+  }
+
+  /** Feeds one input at the current clock; `false` once a violation stopped the driver. */
+  feed(body: KitInputBody): boolean {
+    const state = this.current;
+    if (state === undefined || this.stopped) return false;
+    const now = this.clock;
+    const input: MachineInput = { ...body, atMs: now, at: new Date(now).toISOString() };
+    const found = stepChecked(this.machine, state, input);
+    if (typeof found === 'string') {
+      this.violations.push(`${body.type}: ${found}`);
+      return false;
+    }
+    const recorded = this.tracker.record(found.effects, now);
+    this.steps.push({ input, effects: found.effects, state: found.state });
+    this.current = found.state;
+    for (const message of recorded) this.violations.push(`${body.type}: ${message}`);
+    return recorded.length === 0;
+  }
+
+  /** `cmd.send` of a turn that the contract then expects to settle exactly once. */
+  send(turnId: string, content: JsonValue): boolean {
+    if (this.stopped) return false;
+    this.tracker.known.add(turnId);
+    this.tracker.stepSend = turnId;
+    const fed = this.feed({ type: 'cmd.send', turnId, content });
+    this.tracker.stepSend = undefined;
+    return fed;
+  }
+
+  /** `cmd.permission` for a pending ask; `true` without a step when it is not pending. */
+  answer(requestId: string, decision: JsonObject): boolean {
+    if (this.stopped) return false;
+    if (!this.tracker.endAsk(requestId)) return true;
+    return this.feed({ type: 'cmd.permission', requestId, decision });
+  }
+
+  /** `cmd.permission-abort` for a pending ask; `true` without a step when it is not pending. */
+  abortAsk(requestId: string): boolean {
+    if (this.stopped) return false;
+    if (!this.tracker.endAsk(requestId)) return true;
+    return this.feed({ type: 'cmd.permission-abort', requestId });
+  }
+
+  /**
+   * Moves the clock to an armed timer's deadline (never back) and fires it;
+   * `true` without a step when the timer is not armed.
+   */
+  fireTimer(name: string): boolean {
+    if (this.stopped) return false;
+    const deadline = this.tracker.armed.get(name);
+    if (deadline === undefined) return true;
+    this.advanceTo(deadline);
+    this.tracker.armed.delete(name);
+    return this.feed({ type: 'timer', name });
+  }
+}
+
 /**
  * Runs a machine through prelude, actions and finale with a fake clock and
  * checks the contract on every step.
@@ -426,58 +566,30 @@ export function runMachine<State, Config>(
   actions: readonly KitAction[],
   options: RunMachineOptions = {},
 ): MachineRun<State> {
-  const steps: KitStep<State>[] = [];
-  const violations: string[] = [];
-  const tracker = new ContractTracker(options.firstSeq);
+  const driver = new KitDriver(machine, config, options);
   const sent: string[] = [];
-  let now = options.startMs ?? DEFAULT_START_MS;
   let correlations = 0;
-
-  let state: State;
-  try {
-    state = machine.initialState(config);
-  } catch (error) {
-    return { steps, violations: [`initialState threw: ${String(error)}`], ended: false };
-  }
-  if (!jsonStable(state)) {
-    return { steps, violations: ['initialState is not JSON-stable'], ended: false };
-  }
-
-  /** Feeds one input; returns `false` once a violation stops the run. */
-  const feed = (body: KitInputBody): boolean => {
-    const input: MachineInput = { ...body, atMs: now, at: new Date(now).toISOString() };
-    const found = stepChecked(machine, state, input);
-    if (typeof found === 'string') {
-      violations.push(`${body.type}: ${found}`);
-      return false;
-    }
-    const recorded = tracker.record(found.effects, now);
-    steps.push({ input, effects: found.effects, state: found.state });
-    state = found.state;
-    for (const message of recorded) violations.push(`${body.type}: ${message}`);
-    return recorded.length === 0;
-  };
 
   const perform = (action: KitAction): boolean => {
     switch (action.kind) {
       case 'input':
-        return feed(action.input);
+        return driver.feed(action.input);
       case 'line':
-        return feed({ type: 'line', text: action.text, bytes: Buffer.byteLength(action.text) });
+        return driver.feed({
+          type: 'line',
+          text: action.text,
+          bytes: Buffer.byteLength(action.text),
+        });
       case 'send': {
         const turnId = `turn-${String(sent.length + 1)}`;
         sent.push(turnId);
-        tracker.known.add(turnId);
-        tracker.stepSend = turnId;
-        const fed = feed({ type: 'cmd.send', turnId, content: action.content });
-        tracker.stepSend = undefined;
-        return fed;
+        return driver.send(turnId, action.content);
       }
       case 'interrupt': {
         correlations += 1;
         const correlation = `corr-${String(correlations)}`;
         const turnId = action.target < 0 ? undefined : pick(sent, action.target);
-        return feed(
+        return driver.feed(
           turnId === undefined
             ? { type: 'cmd.interrupt', cancelQueued: action.cancelQueued, correlation }
             : { type: 'cmd.interrupt', turnId, cancelQueued: action.cancelQueued, correlation },
@@ -485,48 +597,47 @@ export function runMachine<State, Config>(
       }
       case 'set-mode':
         correlations += 1;
-        return feed({
+        return driver.feed({
           type: 'cmd.set-permission-mode',
           mode: action.mode,
           correlation: `corr-${String(correlations)}`,
         });
       case 'answer':
       case 'abort-ask': {
-        const requestId = pick(tracker.pendingAsks, action.target);
+        const requestId = pick(driver.pendingAsks, action.target);
         if (requestId === undefined) return true;
-        tracker.endAsk(requestId);
-        return feed(
-          action.kind === 'answer'
-            ? { type: 'cmd.permission', requestId, decision: action.decision }
-            : { type: 'cmd.permission-abort', requestId },
-        );
+        return action.kind === 'answer'
+          ? driver.answer(requestId, action.decision)
+          : driver.abortAsk(requestId);
       }
       case 'fire-timer': {
-        const timer = pick([...tracker.armed.entries()], action.target);
-        if (timer === undefined) return true;
-        const [name, deadline] = timer;
-        now = Math.max(now, deadline);
-        tracker.armed.delete(name);
-        return feed({ type: 'timer', name });
+        const timer = pick(driver.timers, action.target);
+        return timer === undefined || driver.fireTimer(timer[0]);
       }
       case 'advance':
-        now += action.ms;
+        driver.advance(action.ms);
         return true;
     }
   };
 
+  const outcome = (): MachineRun<State> => ({
+    steps: driver.steps,
+    violations: driver.violations,
+    ended: driver.ended,
+  });
+  if (driver.stopped) return outcome();
   const script: (() => boolean)[] = [
-    ...(options.prelude ?? DEFAULT_PRELUDE).map((body) => () => feed(body)),
+    ...(options.prelude ?? DEFAULT_PRELUDE).map((body) => () => driver.feed(body)),
     ...actions.map((action) => () => perform(action)),
-    ...(options.finale ?? DEFAULT_FINALE).map((body) => () => feed(body)),
+    ...(options.finale ?? DEFAULT_FINALE).map((body) => () => driver.feed(body)),
   ];
   for (const run of script) {
-    if (!run()) return { steps, violations, ended: tracker.ended };
+    if (!run()) return outcome();
   }
-  if (options.requireEnd !== false && !tracker.ended) {
-    violations.push('the session did not end after the finale');
+  if (options.requireEnd !== false && !driver.ended) {
+    driver.violations.push('the session did not end after the finale');
   }
-  return { steps, violations, ended: tracker.ended };
+  return outcome();
 }
 
 /** The element at `index` modulo the length; `undefined` when empty. */

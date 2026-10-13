@@ -148,3 +148,23 @@ export function scopedPolicy(root: string): AncestorPolicy {
     },
   };
 }
+
+/**
+ * `env` with one spelling per variable as the OS compares names (the first
+ * one), as the product's environment builder keeps it: on Windows the
+ * sandbox's `HTTPS_PROXY` and `https_proxy` are one variable.
+ */
+export function oneSpellingPerName(
+  env: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
+  if (platform !== 'win32') return { ...env };
+  const out: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const [name, value] of Object.entries(env)) {
+    if (seen.has(name.toUpperCase())) continue;
+    seen.add(name.toUpperCase());
+    out[name] = value;
+  }
+  return out;
+}

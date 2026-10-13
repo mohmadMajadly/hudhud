@@ -61,6 +61,9 @@ describe('liveSessionConfound', () => {
   });
 });
 
+/** A launch builder the recorder only hands on. */
+const LAUNCH = () => ({ argv: [], env: {} });
+
 describe('runRecorder', () => {
   const cli = { version: '2.1.296', binaryPath: '/c/claude' } as unknown as VerifiedCli;
 
@@ -78,6 +81,7 @@ describe('runRecorder', () => {
       env: {},
       home: '/users-home/u',
       uid: 1000,
+      launch: LAUNCH,
       tmpdir: '/tmp',
       today: () => '2026-10-13',
       probe: () => Promise.resolve({ available: true, cli }),
@@ -106,6 +110,8 @@ describe('runRecorder', () => {
     expect(env?.physicalRoot).toBeUndefined();
     expect(env?.plainDir).toBeUndefined();
     expect(env?.leakHost.table.source).toBe('linux-proc');
+    // The product's builder reaches the recording unchanged.
+    expect(env?.launch).toBe(LAUNCH);
     expect(h.written).toEqual([
       'one\n',
       '\n1 case(s) recorded; egress violations 0, leaks 0, outside writes 0\n',
@@ -140,8 +146,9 @@ describe('runRecorder', () => {
 
 describe('nodeRecorderHost', () => {
   it('describes this host and writes to stdout', () => {
-    const real = nodeRecorderHost(REPO);
+    const real = nodeRecorderHost(REPO, LAUNCH);
     expect(real.repoRoot).toBe(REPO);
+    expect(real.launch).toBe(LAUNCH);
     expect(real.platform).toBe(process.platform);
     expect(real.env).toBe(process.env);
     expect(real.today()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -151,7 +158,7 @@ describe('nodeRecorderHost', () => {
   });
 
   it('probes the repository pin (refused or unavailable here, never run)', async () => {
-    const probe = nodeRecorderHost(path.join(REPO, 'no-such-repo')).probe();
+    const probe = nodeRecorderHost(path.join(REPO, 'no-such-repo'), LAUNCH).probe();
     await expect(probe).rejects.toThrow();
   });
 });

@@ -11,9 +11,12 @@
  * {@link Sandbox.launch} re-checks the verified pinned binary and spawns it
  * with `shell: false`, the explicit environment of `env.ts` and the standard
  * stream-json flags plus `--setting-sources=` and an explicit
- * `--permission-mode` (05 §13.2). There is no way to launch anything else:
- * the binary comes only from {@link VerifiedCli}, and the egress trap is
- * the mock passed in.
+ * `--permission-mode` (05 §13.2), or with a launch the product built from
+ * the sandbox environment (`exact`, the fixture recorder: hudhud's own argv
+ * and environment, checked to keep every isolation variable, see
+ * {@link exactLaunch}). There is no way to launch anything else: the binary
+ * comes only from {@link VerifiedCli}, and the egress trap is the mock
+ * passed in.
  */
 
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -23,9 +26,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { childEnv } from '@hudhud/core/process';
+
 import { assertNoForbiddenAncestors, testRootInstructions } from './ancestors.js';
 import type { AncestorProbe } from './ancestors.js';
-import { buildSandboxEnv, defaultGitBashPath } from './env.js';
+import { buildSandboxEnv, defaultGitBashPath, isProtectedEnvName } from './env.js';
 import type { SandboxCredential, SandboxDirs } from './env.js';
 import { SandboxRefusedError } from './errors.js';
 import { assertIssuedCli, recheckPinnedCli } from './pinned-cli.js';
@@ -171,6 +176,20 @@ export interface SandboxOptions {
   readonly ancestorPolicy?: AncestorPolicy | undefined;
 }
 
+/**
+ * A launch built by the product (`@hudhud/claude-code` `buildArgv` and
+ * `buildChildEnv` with the sandbox environment as the parent; the fixture
+ * recorder, W4-T2). The sandbox spawns it as the product's process layer
+ * would (`childEnv` of `@hudhud/core/process`), after checking that it
+ * keeps every isolation variable of the sandbox (see {@link exactLaunch}).
+ */
+export interface ExactLaunch {
+  /** The complete argv after the binary. */
+  readonly argv: readonly string[];
+  /** The complete environment, before the spawn layer's Windows blanks. */
+  readonly env: Readonly<Record<string, string>>;
+}
+
 /** Options of one {@link Sandbox.launch}. */
 export interface LaunchOptions {
   /** CLI arguments in `--flag=value` form, before the enforced flags. */
@@ -181,6 +200,8 @@ export interface LaunchOptions {
   readonly permissionMode?: string | undefined;
   /** Variables for this launch only (protected names refused). */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** A product-built launch instead of the four options above (which must then be absent). */
+  readonly exact?: ExactLaunch | undefined;
 }
 
 /** Hooks of one {@link Sandbox.launch}. */
@@ -267,6 +288,98 @@ export function launchArgv(options: LaunchOptions): readonly string[] {
 }
 
 /**
+ * Sandbox variables a product-built launch may leave out, per platform:
+ * the ones that platform never reads, so leaving them out cannot send the
+ * CLI to a host location. hudhud's `'harness'` preset passes neither (its
+ * allowlist is per platform, `@hudhud/claude-code` `env.ts`). POSIX: `TMP`
+ * and `TEMP` are Windows names (the temp directory comes from `TMPDIR` and
+ * `CLAUDE_CODE_TMPDIR`, both kept). Windows: the home comes from
+ * `USERPROFILE` and the temp directory from `TEMP`/`TMP` (all kept), not
+ * from `HOME` or `TMPDIR`; Git Bash derives its home from `USERPROFILE`.
+ */
+export const UNREAD_ENV_NAMES: Readonly<Record<'win32' | 'posix', readonly string[]>> = {
+  posix: ['TMP', 'TEMP'],
+  win32: ['HOME', 'TMPDIR'],
+};
+
+/** The value of `name` in `env`, compared as the OS compares names. */
+function envValue(
+  env: Readonly<Record<string, string>>,
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined {
+  if (platform !== 'win32') return Object.hasOwn(env, name) ? env[name] : undefined;
+  const upper = name.toUpperCase();
+  const found = Object.keys(env).find((key) => key.toUpperCase() === upper);
+  return found === undefined ? undefined : env[found];
+}
+
+/**
+ * Checks a product-built launch against the sandbox and returns what is
+ * spawned: the argv as given and the environment through the product's
+ * spawn layer (`childEnv`: on Windows the required variables the map lacks
+ * are passed empty, so nothing comes from the host).
+ *
+ * @throws SandboxRefusedError `unsafe-option` when other launch options are
+ *   mixed in, an argument holds NUL, a Windows name appears twice in
+ *   different case, or the environment changes or adds a variable the
+ *   sandbox pins or protects (home, config and temp directories, the
+ *   credential, the mock and the proxy trap, ...; {@link isProtectedEnvName})
+ *   or leaves one out that the platform reads ({@link UNREAD_ENV_NAMES} lists
+ *   the ones it may leave out); names compare as the OS compares them.
+ */
+export function exactLaunch(
+  launch: LaunchOptions,
+  sandboxEnv: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform,
+): ExactLaunch {
+  const { exact } = launch;
+  if (exact === undefined) throw new SandboxRefusedError('unsafe-option', 'no exact launch');
+  const mixed = (['args', 'settingSources', 'permissionMode', 'env'] as const).filter(
+    (key) => launch[key] !== undefined,
+  );
+  if (mixed.length > 0) {
+    throw new SandboxRefusedError(
+      'unsafe-option',
+      `an exact launch takes no ${mixed.join(', ')}: the product builds the whole launch`,
+    );
+  }
+  if (exact.argv.some((arg) => arg.includes('\0'))) {
+    throw new SandboxRefusedError('unsafe-option', 'argument contains NUL');
+  }
+  if (platform === 'win32') {
+    const seen = new Set<string>();
+    for (const name of Object.keys(exact.env)) {
+      const upper = name.toUpperCase();
+      if (seen.has(upper)) {
+        throw new SandboxRefusedError(
+          'unsafe-option',
+          `the launch names ${name} twice in different case: one variable on Windows`,
+        );
+      }
+      seen.add(upper);
+    }
+  }
+  const unread = UNREAD_ENV_NAMES[platform === 'win32' ? 'win32' : 'posix'];
+  const names = new Set([...Object.keys(sandboxEnv), ...Object.keys(exact.env)]);
+  for (const name of names) {
+    if (!isProtectedEnvName(name)) continue;
+    const kept = envValue(exact.env, name, platform);
+    if (kept === undefined && unread.includes(name.toUpperCase())) continue;
+    if (kept !== envValue(sandboxEnv, name, platform)) {
+      throw new SandboxRefusedError(
+        'unsafe-option',
+        `the launch changes ${name}, which the sandbox pins (${kept === undefined ? 'dropped' : 'changed or added'})`,
+      );
+    }
+  }
+  return {
+    argv: [...exact.argv],
+    env: childEnv(exact.env, platform === 'win32' ? 'win32' : 'posix'),
+  };
+}
+
+/**
  * Creates a fresh sandbox under the test root.
  *
  * @throws SandboxRefusedError `binary` for a CLI not issued by
@@ -331,11 +444,13 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
       platform,
       env,
       async launch(launch: LaunchOptions = {}, hooks: LaunchHooks = {}): Promise<SandboxProcess> {
-        const argv = launchArgv(launch);
-        const launchEnv = buildSandboxEnv({
-          ...baseEnv,
-          extra: { ...options.env, ...launch.env },
-        });
+        const { argv, env: launchEnv } =
+          launch.exact === undefined
+            ? {
+                argv: launchArgv(launch),
+                env: buildSandboxEnv({ ...baseEnv, extra: { ...options.env, ...launch.env } }),
+              }
+            : exactLaunch(launch, env, platform);
         recheckPinnedCli(cli);
         const child = spawn(cli.binaryPath, argv, {
           cwd: dirs.work,

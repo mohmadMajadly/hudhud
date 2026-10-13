@@ -17,6 +17,7 @@ import {
   DEFAULT_CASE_EXIT_MS,
   emptyManifest,
   entryLine,
+  launchEnvDiff,
   mergeManifest,
   missingPrefixes,
   readManifest,
@@ -27,18 +28,53 @@ import {
   type ManifestEntry,
   type RecorderEnvironment,
 } from '../../../src/fixtures/record/record.js';
+import type {
+  CaseLaunch,
+  LaunchBuilder,
+  LaunchRequest,
+} from '../../../src/fixtures/record/launch.js';
 import type { CaseSpec, ScriptSession, SuiteSpec } from '../../../src/fixtures/record/suites.js';
 import { testTempBase } from '../../../src/launcher/sandbox.js';
 import type { Sandbox } from '../../../src/launcher/sandbox.js';
 import { outsideWatchList } from '../../../src/leaks/outside.js';
 import type { ProcessRow, ProcessTable } from '../../../src/leaks/process-table.js';
-import { makeFakeCli, scopedPolicy } from '../../launcher/fake-cli.js';
+import { makeFakeCli, oneSpellingPerName, scopedPolicy } from '../../launcher/fake-cli.js';
 import type { FakeCli } from '../../launcher/fake-cli.js';
 import { hangGuard } from '../../hang-guard.js';
 
+/** A create launch with a fixed session id. */
+const START: CaseLaunch = {
+  start: { mode: 'create', sessionId: '00000000-0000-4000-8000-000000000001' },
+};
+
+/** A case launch whose `env.add` holds `add` (the fake CLI's mode). */
+function adding(add: Readonly<Record<string, string>>): () => CaseLaunch {
+  return () => ({ ...START, options: { env: { preset: 'harness', add } } });
+}
+
+/** Every request the test builder got. */
+const requests: LaunchRequest[] = [];
+
+/**
+ * The stand-in of the product's builder: a marker argv naming the start
+ * mode, the parent environment plus the case's `env.add`.
+ */
+const testLaunch: LaunchBuilder = (request) => {
+  requests.push(request);
+  const env = request.launch.options?.['env'];
+  const add =
+    typeof env === 'object' && env !== null && !Array.isArray(env) && 'add' in env
+      ? (env['add'] as Readonly<Record<string, string>>)
+      : {};
+  return {
+    argv: ['--test-launch', request.launch.start.mode],
+    env: { ...oneSpellingPerName(request.parentEnv), ...add },
+  };
+};
+
 const SPEC: CaseSpec = {
   name: '',
-  launch: () => ({}),
+  launch: () => START,
   drive: () => Promise.resolve(),
   exit: 0,
   shape: [],
@@ -52,6 +88,16 @@ const line = (dir: FixtureRecordLine['dir'], v: FixtureRecordLine['v']): Fixture
 });
 
 describe('pure helpers', () => {
+  it('records what the product set beyond the sandbox, and what it dropped', () => {
+    expect(
+      launchEnvDiff(
+        { HOME: '/h', PINNED: '1', CHANGED: 'b' },
+        { HOME: '/h', CHANGED: 'a', https_proxy: 'x' },
+      ),
+    ).toEqual({ CHANGED: 'b', PINNED: '1', https_proxy: null });
+    expect(launchEnvDiff({ A: '1' }, { A: '1' })).toEqual({});
+  });
+
   it('names fixture files per platform, case and compression', () => {
     expect(caseFile(SUITE, SPEC, 'linux')).toBe('demo/linux.jsonl');
     expect(caseFile({ ...SUITE, compress: true }, { ...SPEC, name: 'setup' }, 'win32')).toBe(
@@ -217,6 +263,7 @@ function environment(
 ): RecorderEnvironment {
   const env: RecorderEnvironment = {
     cli: fake.cli,
+    launch: testLaunch,
     platform: 'linux',
     leakHost: {
       table,
@@ -244,8 +291,11 @@ function wrap(table: FakeTable): (sandbox: Sandbox) => Sandbox {
   return (sandbox: Sandbox): Sandbox => ({
     ...sandbox,
     launch: async (options = {}, hooks) => {
+      const { exact } = options;
       const child = await sandbox.launch(
-        { ...options, args: [fake.script, ...(options.args ?? [])] },
+        exact === undefined
+          ? { ...options, args: [fake.script, ...(options.args ?? [])] }
+          : { exact: { ...exact, argv: [fake.script, ...exact.argv] } },
         hooks,
       );
       if (!table.hideRoots) {
@@ -288,7 +338,7 @@ async function initialize(session: ScriptSession): Promise<void> {
 
 const TEXT_CASE: CaseSpec = {
   name: '',
-  launch: () => ({}),
+  launch: () => START,
   async drive(session) {
     await initialize(session);
     session.user('hello');
@@ -315,7 +365,7 @@ describe('recordSuites with the fake CLI', () => {
             { ...TEXT_CASE, name: 'setup', exit: 1, shape: ['out never'], exitMs: SETUP_EXIT_MS },
             {
               ...TEXT_CASE,
-              launch: () => ({ env: { FAKE_CLI_MODE: 'normal' } }),
+              launch: adding({ FAKE_CLI_MODE: 'normal' }),
             },
           ],
         },
@@ -339,6 +389,28 @@ describe('recordSuites with the fake CLI', () => {
         .split('\n')
         .map((entry) => JSON.parse(entry) as { dir: string; v: unknown });
       expect(lines[0]).toMatchObject({ dir: 'config', v: { suite: 'text', case: 'main' } });
+      // The launch is the builder's: its argv after the fake script, and the
+      // config line records what it set beyond the sandbox environment.
+      expect((lines[0]?.v as { argv: string[] }).argv.slice(1)).toEqual([
+        '--test-launch',
+        'create',
+      ]);
+      // On Windows the builder keeps one spelling per variable, so the
+      // sandbox's lower-case proxy spellings show as dropped.
+      const folded =
+        process.platform === 'win32' ? { http_proxy: null, https_proxy: null, no_proxy: null } : {};
+      expect((lines[0]?.v as { env: unknown }).env).toEqual(folded);
+      const packedConfig = JSON.parse(
+        gunzipSync(readFileSync(path.join(out, 'packed', 'linux.jsonl.gz')))
+          .toString()
+          .split('\n')[0] ?? '',
+      ) as { v: { env: unknown } };
+      expect(packedConfig.v.env).toEqual({ ...folded, FAKE_CLI_MODE: 'normal' });
+      // Each case got the sandbox's config directory and environment.
+      const request = requests.at(-1);
+      expect(request?.configDir).toMatch(/cfg$/u);
+      expect(request?.parentEnv['CLAUDE_CONFIG_DIR']).toBe(request?.configDir);
+      expect(request?.platform).toBe('linux');
       expect(text).not.toContain(root);
       expect(text).not.toContain('sk-ant-fake-hudhud-');
       const packed = gunzipSync(
@@ -452,7 +524,7 @@ describe('recordSuites with the fake CLI', () => {
     quick.hideRoots = true;
     const early: CaseSpec = {
       name: '',
-      launch: () => ({ env: { FAKE_CLI_MODE: 'exit-now' } }),
+      launch: adding({ FAKE_CLI_MODE: 'exit-now' }),
       drive: () => Promise.resolve(),
       exit: 3,
       shape: ['exit 3'],

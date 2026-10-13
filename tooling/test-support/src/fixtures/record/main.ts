@@ -1,6 +1,7 @@
 /**
- * The fixture recorder's command line (`pnpm fixtures:record`, bin
- * `record-fixtures.mjs`): lead-run, never in CI.
+ * The fixture recorder's command line (`pnpm fixtures:record`, composition
+ * root `packages/claude-code/test/record/record-fixtures.mjs`, which injects
+ * the product's launch builders): lead-run, never in CI.
  *
  * ```
  * pnpm fixtures:record --rev <git sha> [--out <dir>] [--suite <name>]...
@@ -23,6 +24,7 @@ import type { PinnedCliProbe } from '../../launcher/pinned-cli.js';
 import { outsideWatchList } from '../../leaks/outside.js';
 import type { OutsideChange } from '../../leaks/outside.js';
 import { hostProcessTable } from '../../leaks/process-table.js';
+import type { LaunchBuilder } from './launch.js';
 import { recordSuites } from './record.js';
 import type { RecorderEnvironment } from './record.js';
 import { SUITES } from './suites.js';
@@ -36,6 +38,8 @@ export interface RecorderHost {
   readonly home: string;
   readonly uid: number | undefined;
   readonly tmpdir: string;
+  /** The product's launch builder (`launch.ts`), injected by the composition root. */
+  readonly launch: LaunchBuilder;
   /** `YYYY-MM-DD` now. */
   today(): string;
   probe(): Promise<PinnedCliProbe>;
@@ -48,10 +52,11 @@ export interface RecorderHost {
   write(text: string): void;
 }
 
-/** The host of a real run: the repository two levels above the built module. */
-export function nodeRecorderHost(repoRoot: string): RecorderHost {
+/** The host of a real run, with the product's launch builder. */
+export function nodeRecorderHost(repoRoot: string, launch: LaunchBuilder): RecorderHost {
   return {
     repoRoot,
+    launch,
     platform: process.platform,
     env: process.env,
     home: os.homedir(),
@@ -139,6 +144,7 @@ export async function runRecorder(argv: readonly string[], host: RecorderHost): 
   const plainDir = host.env['HUDHUD_RECORD_PLAIN_DIR'];
   const env: RecorderEnvironment = {
     cli: probe.cli,
+    launch: host.launch,
     platform: host.platform,
     leakHost: { table: hostProcessTable(host.platform, host.env) },
     watch: outsideWatchList({

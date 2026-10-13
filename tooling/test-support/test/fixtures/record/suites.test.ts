@@ -162,9 +162,13 @@ describe('the suites', () => {
     const resume = SUITES.find((suite) => suite.name === 'resume');
     const context: SuiteContext = new Map();
     const [setup, main] = resume?.cases ?? [];
-    const setupArgs = setup?.launch(context).args ?? [];
-    const mainArgs = main?.launch(context).args ?? [];
-    expect(setupArgs[0]?.replace('--session-id=', '')).toBe(mainArgs[0]?.replace('--resume=', ''));
+    const setupStart = setup?.launch(context).start;
+    const mainStart = main?.launch(context).start;
+    expect(setupStart?.mode).toBe('create');
+    expect(mainStart?.mode).toBe('resume');
+    expect(setupStart !== undefined && 'sessionId' in setupStart ? setupStart.sessionId : '').toBe(
+      mainStart !== undefined && 'resumeId' in mainStart ? mainStart.resumeId : 'x',
+    );
   });
 });
 
