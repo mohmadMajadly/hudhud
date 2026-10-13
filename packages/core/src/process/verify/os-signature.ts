@@ -38,10 +38,15 @@
  *   file took 19 s, and 50 s while a second check ran; one of node.exe took
  *   about 24 s. PowerShell launches of the process table query on the same
  *   runners (with and without the `Get-CimInstance` module auto-load) took
- *   0.3 to 1.3 s, so the runner's cost is in loading the Security module or
- *   in `Get-AuthenticodeSignature` itself (`WTGetSignatureInfo`, which also
- *   searches the system catalogs, then `WinVerifyTrust` unless that found a
- *   valid signature), not in starting PowerShell.
+ *   0.3 to 1.3 s, so the runner's cost was not in starting PowerShell.
+ *   Those runner figures (CI run 38440814880) were taken while the script
+ *   still called `New-Object`. Without it, the same runners took 398 ms for
+ *   the unsigned file and 1152 ms and 1504 ms for node.exe (CI run
+ *   38464474863): the runner's cost was the `Microsoft.PowerShell.Utility`
+ *   auto-load that `New-Object` triggered, not the Security module or
+ *   `Get-AuthenticodeSignature` (`WTGetSignatureInfo`, which also searches
+ *   the system catalogs, then `WinVerifyTrust` unless that found a valid
+ *   signature).
  * - Revocation: the cmdlet passes `fdwRevocationChecks = 0` and
  *   `dwProvFlags = 0` (PowerShell source, `InitWintrustDataStructFromFile`).
  *   Without `WTD_CACHE_ONLY_URL_RETRIEVAL`, `WinVerifyTrust` may fetch
@@ -99,8 +104,11 @@ import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './c
  * @remarks
  * A hang bound, not a latency budget: a check that is cut off fails closed,
  * so the bound must clear the slowest legitimate check. The slowest one
- * measured took 50 s (a small file on a GitHub-hosted Windows runner, see the
- * module remarks); 120 s leaves more than twice that. The verdict is cached
+ * measured took 50 s (a small file on a GitHub-hosted Windows runner, while
+ * the script still called `New-Object`, see the module remarks); 120 s leaves
+ * more than twice that. Since `New-Object` was dropped the same runners took
+ * at most 1.5 s (CI run 38464474863); the bound is kept as the hang guard,
+ * since a check may also wait on a revocation fetch over the network. The verdict is cached
  * per file identity (`verify.ts`), so the bound is paid at most once per
  * binary and Harness.
  *

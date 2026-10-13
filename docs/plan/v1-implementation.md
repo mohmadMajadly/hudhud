@@ -1180,6 +1180,18 @@ Acceptance: W4-T1 tests of §4.2 against a test machine (the core never imports 
 
 As built (W4-T2): see §4.3. Contract for the loopback replay (W4-Z): `loadConformanceSuites()` (`packages/claude-code/test/conformance/loader.ts`) returns every suite in catalogue order with its typed variants (manifest entry, launch, record lines, expect blocks) or throws `ConformanceDataError` listing every problem; `replayVariant(variant, { machine })` (`replay.ts`) drives any `KitMachine` of the Claude session state and config, so the loopback passes `claudeSessionMachine` behind its serialize/deserialize boundary; `projectReplay(result)` (`expect.ts`) must equal `variant.expect`, `summarize(result.effects.flat())` (`summary.ts`) must equal the case's declared summary, and `result.violations`, `result.problems` must be empty. A test in `replay.test.ts` already drives the replay through a JSON boundary and gets the same effects. Security for W4-T1: handler isolation, cancellation always possible, no re-entrancy, bounded memory, no signal handlers (K22).
 
+As built (W4-Z, 2026-10-14; merged in this order: W4-T3, W4-T1, W4-T2; every first-parent commit of the closer passes `pnpm check` on its own):
+
+- Conformance after the merges: the full set (74 variants of 33 suites) replays green over W4-T3's bounded feature parser, and `test/conformance/features.test.ts` asserts that every recorded feature array (`system/init` and the `initialize` response) passes it unchanged and reaches the session facts and every started turn (ruling 3).
+- Loopback (ruling 2, the acceptance above): every variant through `createLoopbackDriver`, the public handles and the JSON boundary gives the direct replay's results and its expect file (§1.6, W4-T1 note).
+- `@hudhud/core/binding` (ruling 6, question 1): the beta entry for adapter authors (§2.1). The Claude user-input encoder (question 2): `encodeClaudeUserInput` (§1.8). `cmd.permission-error` (question 3): §1.4 and §1.6; the driver no longer answers with a deny of its own, and the machine kit checks the fail-closed answer.
+- Version policy (ruling 1): `HARNESS_VERSION_KNOWN_BROKEN` (§3.1) and `claudeCode.dangerouslyAllowKnownBrokenVersion` (§2.3, §2.4) are registered and specified (§1.8, ADR-0004 §4 amendment); W5 wires the refusal and the option into `connect`. `untested` stays a warning.
+- `session.terminated` (ruling 4): W4-T1 documented `intent` and `outcome` as deterministic and `exitCode`/`signal` as raw observations (event type, ADR-0008, §1.6); the closer adds the same descriptions to `events.schema.json` for other languages.
+- Authenticode timing (ruling 5): the CI evidence (run 38464474863: node.exe 1152 and 1504 ms, an unsigned file 398 ms, after `New-Object` was dropped; 19 to 50 s before it) is in the remarks of `os-signature.ts` and in ADR-0011; the 120 s hang bound stays.
+- W4-T2 follow-ups (ruling 8): stale expect files fail in the normal mode, `interrupt-same-write` is a recording artefact with the evidence asserted, and the dropped "CLI picks the fork id" scenario is recorded (§4.3).
+- Two defects that predate the wave, found by property tests (random seeds) in the closer's per-commit runs, root-caused and fixed in the first two commits after the merges, each with a regression test that fails on the old code: redaction let a known secret split a credential so its rest stayed readable (§1.10, `StderrTail` property), and the turn machine armed an interrupt re-send after stdin had closed (§1.5, turn-machine model check).
+- Changesets: one per package for the wave (`wave-4-core`, `wave-4-claude-code`), the inputs' changesets folded in; one per topic for the two fixes.
+
 ### 5.7 Wave 5 — adapter assembly and public API
 
 | Id | Title | Owns | Deps | Tier | Size |

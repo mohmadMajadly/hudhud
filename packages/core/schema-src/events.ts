@@ -240,10 +240,25 @@ export const DiagnosticEvent = event('diagnostic', {
 });
 export const GapEvent = event('gap', { dropped: Count, raw: optionalRaw });
 export const SessionTerminatedEvent = event('session.terminated', {
-  intent: Type.String(),
-  outcome: Type.String(),
-  exitCode: Type.Optional(Type.Integer()),
-  signal: Type.Optional(Type.String()),
+  intent: Type.String({
+    description:
+      'The termination intent hudhud recorded before any signal (none when hudhud did not end the process). Deterministic.',
+  }),
+  outcome: Type.String({
+    description:
+      'How the session ended, classified from the intent and the exit. Deterministic: decide on this.',
+  }),
+  exitCode: Type.Optional(
+    Type.Integer({
+      description:
+        'The raw exit code as the OS reported it: an observation that can differ by race, never a verdict. Decide on outcome.',
+    }),
+  ),
+  signal: Type.Optional(
+    Type.String({
+      description: 'The raw signal as the OS reported it: an observation like exitCode.',
+    }),
+  ),
   raw: optionalRaw,
 });
 export const HarnessFrameEvent = event('harness.frame', {
