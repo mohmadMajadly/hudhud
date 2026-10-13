@@ -575,9 +575,11 @@ describe('turns', () => {
   it('refuses a turn id that is not a fresh UUID', () => {
     const run = new SessionRun();
     run.start();
-    expect(
-      errorOf(run.feed({ type: 'cmd.send', turnId: 'turn-1', content: 'x' }), 'turn.fail'),
-    ).toEqual(['PROTOCOL_ERROR']);
+    const refused = run.feed({ type: 'cmd.send', turnId: 'turn-1', content: 'x' });
+    expect(ofType(refused, 'send.rejected').map((effect) => effect.error.code)).toEqual([
+      'PROTOCOL_ERROR',
+    ]);
+    expect(errorOf(refused, 'turn.fail')).toEqual([]);
   });
 
   it('gates an interrupt until the turn system/init (GH#98713)', () => {

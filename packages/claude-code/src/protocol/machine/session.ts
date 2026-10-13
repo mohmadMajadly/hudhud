@@ -95,6 +95,7 @@ import {
 import {
   INTERRUPT_RETRY_TIMER_PREFIX,
   initialTurnState,
+  sendIdRefused,
   turnStep,
   type TurnEffect,
   type TurnInput,
@@ -197,6 +198,12 @@ export interface ClaudeSessionState {
   readonly observedSessionId: string | null;
   /** Whether the last observed `result` frame was an error result. */
   readonly lastResultIsError: boolean | null;
+  /**
+   * Every `can_use_tool` request id this session has seen. The binding keys
+   * permission handlers by request id, so a reused id is never asked again
+   * (W3-Z ruling 7). Grows by one short id per permission request.
+   */
+  readonly permissionRequestIds: readonly string[];
   readonly control: ControlState;
   readonly permission: PermissionMachineState;
   readonly turns: TurnMachineState;
@@ -229,6 +236,9 @@ export const NO_HANDLER_ERROR = 'no permission handler is registered';
 
 /** The deny written when an answer could not be encoded (fail closed). @internal */
 export const ANSWER_FAILED_DENY_MESSAGE = 'hudhud: permission answer could not be sent';
+
+/** The deny written for a permission request that reuses an earlier id (fail closed). @internal */
+export const DUPLICATE_REQUEST_DENY_MESSAGE = 'hudhud: permission request id reused';
 
 /** Permission modes hudhud may set (K11). */
 const PERMISSION_MODES: readonly PermissionModeWire[] = [
@@ -289,6 +299,7 @@ export function initialSessionState(config: ClaudeSessionConfig): ClaudeSessionS
     apiKeySource: null,
     observedSessionId: null,
     lastResultIsError: null,
+    permissionRequestIds: [],
     control: initialControlState(),
     permission: initialPermissionState({
       dangerouslyAllowConfigWrites: config.allowConfigWrites,
@@ -523,6 +534,23 @@ class Draft {
   // -- permissions -------------------------------------------------------------------
 
   onCanUseTool(requestId: string, frame: JsonObject): void {
+    // An in-flight duplicate never gets here (the correlator ignores it). An
+    // id reused after its request ended is never asked again: the binding
+    // keys handlers by request id. Fail closed with a non-interrupting deny,
+    // so the CLI is not left waiting.
+    if (this.s.permission.phase !== 'aborted' && this.s.permissionRequestIds.includes(requestId)) {
+      this.diagnostic(
+        'permission.duplicate-request-id',
+        'A permission request reused the id of an earlier request; denied without asking.',
+        { requestId: cap(requestId) },
+      );
+      this.answer(requestId, {
+        type: 'decision',
+        decision: { behavior: 'deny', message: DUPLICATE_REQUEST_DENY_MESSAGE, interrupt: false },
+      });
+      return;
+    }
+    this.s.permissionRequestIds = [...this.s.permissionRequestIds, requestId];
     const turnId = this.currentTurn();
     const input: PermissionInput =
       turnId === undefined
@@ -667,8 +695,12 @@ class Draft {
         this.event({ type: 'turn.completed', turnId: effect.turnId, result: effect.result });
         break;
       case 'turn.fail':
-      case 'send.rejected':
         this.emit({ type: 'turn.fail', turnId: effect.turnId, error: effect.error });
+        break;
+      case 'send.rejected':
+        // Bound to the `cmd.send` of this step; a live turn with the same id
+        // is never touched (W3-Z ruling 7).
+        this.emit({ type: 'send.rejected', turnId: effect.turnId, error: effect.error });
         break;
       case 'interrupt.settle':
         // Answered, refused, timed out or moot: abort's interrupt step is over.
@@ -1168,6 +1200,15 @@ function poison(d: Draft, trigger: string): void {
 // ---- commands -------------------------------------------------------------------------
 
 function onSend(d: Draft, turnId: string, content: JsonValue): void {
+  // Binding contract: every send carries a fresh UUID. A reused id (a live
+  // turn has it) or a non-UUID is a binding bug: the new command is rejected
+  // (`send.rejected`, bound to this command) and the live turn is never
+  // touched, so this check runs before anything that could fail by turn id.
+  if (sendIdRefused(d.s.turns, turnId)) {
+    // The turn machine answers with `send.rejected` and writes nothing.
+    d.feedTurn({ type: 'send', turnId, content });
+    return;
+  }
   if (d.s.intent !== 'none') {
     d.emit({ type: 'turn.fail', turnId, error: d.endError() });
     return;
@@ -1297,6 +1338,13 @@ function onTimer(d: Draft, name: string): void {
 
 function onStdinError(d: Draft, code: string): void {
   if (!d.s.stdinOpen) return;
+  if (d.s.handshake === 'ok') {
+    // After the handshake a broken stdin is not fatal by itself (the process
+    // exit decides the outcome), but it must not pass silently.
+    d.diagnostic('stdin.error', 'Writing to the harness failed; stdin is closed.', {
+      code: cap(code),
+    });
+  }
   d.stdinGone();
   d.feedPermission({ type: 'cli.gone', atMs: d.atMs });
   if (d.s.handshake === 'pending') {

@@ -309,6 +309,17 @@ interface Draft {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Whether a `send` with `turnId` would be refused for its id: not a UUID, or
+ * the id of a turn that is still live. Such a send is rejected as a command
+ * (`send.rejected`) and never touches the live turn.
+ *
+ * @internal
+ */
+export function sendIdRefused(state: TurnMachineState, turnId: string): boolean {
+  return !UUID.test(turnId) || state.turns.some((turn) => turn.turnId === turnId);
+}
+
+/**
  * Advances the turn machine by one input.
  *
  * @internal
@@ -373,16 +384,18 @@ function freeze(d: Draft): TurnMachineState {
 // ---- commands -----------------------------------------------------------------
 
 function onSend(d: Draft, turnId: string, content: JsonValue): void {
-  if (d.ended || !d.stdinOpen) {
-    d.effects.push({ type: 'turn.fail', turnId, error: d.endError ?? sessionClosed() });
-    return;
-  }
+  // The id check comes first: a refused id must never produce a `turn.fail`,
+  // which would name (and end) a live turn with the same id.
   if (!UUID.test(turnId) || findTurn(d, turnId) !== undefined) {
     d.effects.push({
       type: 'send.rejected',
       turnId,
       error: makeErrorData('PROTOCOL_ERROR', 'turn id must be a fresh UUID'),
     });
+    return;
+  }
+  if (d.ended || !d.stdinOpen) {
+    d.effects.push({ type: 'turn.fail', turnId, error: d.endError ?? sessionClosed() });
     return;
   }
   d.turns.push({ turnId, origin: 'application', phase: 'queued', initSeen: false });

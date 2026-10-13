@@ -129,6 +129,8 @@ export type DiagnosticCode =
   | 'permission.handler-failed'
   | 'permission.updates-stripped'
   | 'permission.ignored-after-abort'
+  | 'permission.duplicate-request-id'
+  | 'stdin.error'
   | 'turn.unmatched-result'
   | (string & {});
 

@@ -13,7 +13,8 @@
  *
  * Checked on every step: `step` neither throws nor mutates its input state,
  * is deterministic, and its output survives a JSON round trip unchanged.
- * Checked over the trace: every turn settles exactly once; each
+ * Checked over the trace: every turn settles exactly once (a
+ * `send.rejected` ends only the send of its own step); each
  * `permission.ask` ends exactly once (a `permission.cancel` effect or a
  * `cmd.permission` / `cmd.permission-abort` input); no `write` after
  * `stdin.end`; event `seq` strictly increases by 1; timers are cleared or
@@ -269,6 +270,8 @@ class ContractTracker {
   readonly endedAsks = new Set<string>();
   readonly armed = new Map<string, number>();
   readonly controls = new Set<string>();
+  /** The turn id of the `cmd.send` being fed, while its step is recorded. */
+  stepSend: string | undefined;
   stdinEnded = false;
   ended = false;
   lastSeq: number | undefined;
@@ -344,6 +347,16 @@ class ContractTracker {
         const id = text('turnId');
         if (id === undefined) break;
         if (!this.known.has(id)) violations.push(`turn ${id} settled but never sent or started`);
+        else if (this.settled.has(id)) violations.push(`turn ${id} settled twice`);
+        this.settled.add(id);
+        break;
+      }
+      case 'send.rejected': {
+        // Bound to the send of this step; it ends that send, never another turn.
+        const id = text('turnId');
+        if (id === undefined) break;
+        if (id !== this.stepSend)
+          violations.push(`send.rejected ${id} is not the send of this step`);
         else if (this.settled.has(id)) violations.push(`turn ${id} settled twice`);
         this.settled.add(id);
         break;
@@ -455,7 +468,10 @@ export function runMachine<State, Config>(
         const turnId = `turn-${String(sent.length + 1)}`;
         sent.push(turnId);
         tracker.known.add(turnId);
-        return feed({ type: 'cmd.send', turnId, content: action.content });
+        tracker.stepSend = turnId;
+        const fed = feed({ type: 'cmd.send', turnId, content: action.content });
+        tracker.stepSend = undefined;
+        return fed;
       }
       case 'interrupt': {
         correlations += 1;

@@ -72,6 +72,8 @@ export const DiagnosticCode = openEnum([
   'permission.handler-failed',
   'permission.updates-stripped',
   'permission.ignored-after-abort',
+  'permission.duplicate-request-id',
+  'stdin.error',
   'turn.unmatched-result',
 ] as const);
 

@@ -73,7 +73,7 @@ export const DEFAULT_MAX_JSON_DEPTH = 512;
 export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number;
 
 // @public
-export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'turn.unmatched-result' | (string & {});
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | (string & {});
 
 // @public
 export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonLineResult;
@@ -375,6 +375,17 @@ export type MachineEffect = {
     readonly result: TurnResultData;
 } | {
     readonly type: 'turn.fail';
+    readonly turnId: string;
+    readonly error: ErrorData;
+}
+/**
+* The `cmd.send` of this same step was refused for its turn id (not a
+* UUID, or the id of a live turn). Bound to that command: it settles no
+* turn and never touches a live turn with the same id. The binding
+* generates a fresh UUID per send, so this signals a binding bug.
+*/
+| {
+    readonly type: 'send.rejected';
     readonly turnId: string;
     readonly error: ErrorData;
 } | {

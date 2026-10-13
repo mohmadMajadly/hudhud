@@ -277,6 +277,40 @@ describe('the kit catches contract violations', () => {
     expect(violations(machine, [send])).toEqual(['process.exit: turn turn-1 never settled']);
   });
 
+  it('a send.rejected ends only the send of its own step', () => {
+    const error = { code: 'PROTOCOL_ERROR', message: 'x', retryable: false };
+    /** Rejects every send with `rejected(turnId)`; everything else as the reference. */
+    const rejecting = (rejected: (turnId: string) => readonly KitEffect[]): RefMachine => ({
+      initialState: referenceMachine.initialState,
+      step: (state, body) =>
+        body.type === 'cmd.send'
+          ? { state, effects: rejected(body.turnId) }
+          : referenceMachine.step(state, body),
+    });
+    const once = rejecting((turnId) => [fx('send.rejected', { turnId, error })]);
+    expect(violations(once, [send, ready, send])).toEqual([]);
+    const other = rejecting(() => [fx('send.rejected', { turnId: 'turn-9', error })]);
+    expect(violations(other, [send])).toEqual([
+      'cmd.send: send.rejected turn-9 is not the send of this step',
+    ]);
+    const twice = rejecting((turnId) => [
+      fx('send.rejected', { turnId, error }),
+      fx('send.rejected', { turnId, error }),
+    ]);
+    expect(violations(twice, [send])).toEqual(['cmd.send: turn turn-1 settled twice']);
+    const nameless = rejecting(() => [fx('send.rejected', { error })]);
+    expect(violations(nameless, [send])).toEqual([
+      'cmd.send: send.rejected without a string turnId',
+    ]);
+    const outside = withEffects((effects) => [
+      ...effects,
+      fx('send.rejected', { turnId: 'turn-1', error }),
+    ]);
+    expect(violations(outside)[0]).toBe(
+      'process.started: send.rejected turn-1 is not the send of this step',
+    );
+  });
+
   it('a settlement of a turn nobody sent', () => {
     const machine = withEffects((effects) => [...effects, fx('turn.fail', { turnId: 'ghost' })]);
     expect(violations(machine)).toEqual([
