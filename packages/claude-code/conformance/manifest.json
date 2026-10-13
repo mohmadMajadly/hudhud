@@ -75,6 +75,24 @@
       "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
     },
     {
+      "suite": "auth-token-source",
+      "case": "main",
+      "file": "auth-token-source/win32.jsonl",
+      "platform": "win32",
+      "cliVersion": "2.1.296",
+      "scenario": "K10: a fake ANTHROPIC_AUTH_TOKEN instead of an API key; the apiKeySource the CLI reports, then HTTP 401 with CLAUDE_CODE_MAX_RETRIES=0",
+      "research": "05 §9, plan §4.3 (K10)",
+      "recordedOn": "2026-10-13",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "d46c1ec",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": []
+    },
+    {
       "suite": "bg-shell-turn-after-eof",
       "case": "main",
       "file": "bg-shell-turn-after-eof/linux.jsonl",
