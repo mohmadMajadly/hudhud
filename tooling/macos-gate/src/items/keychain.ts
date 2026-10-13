@@ -17,7 +17,11 @@
  *   run whose tree was never sampled recorded nothing and fails;
  * - the read-only search-list probes all ran, and the report states whether
  *   the `CFFIXED_USER_HOME` probe proves the search list isolated
- *   ({@link searchListIsolation}); isolation counts as possible only then.
+ *   ({@link searchListIsolation}); isolation counts as possible only then;
+ * - on a GitHub-hosted runner only, the canary probe of
+ *   `keychain-canary.ts` writes a labelled fake item to the runner's login
+ *   keychain, checks whether the CLI's environment can find it, and deletes
+ *   it again (verified); elsewhere it is refused.
  *
  * A control run without any credential records whether the CLI then reaches
  * for the Keychain, and whether a stall would be named `keychain-access` by
@@ -30,6 +34,7 @@
 import path from 'node:path';
 
 import { classifyStall, watchdogState } from '../causes.js';
+import { keychainCanary } from './keychain-canary.js';
 import type { ItemRecorder } from '../report.js';
 import { commandName, recordLabel } from '../ps.js';
 import { mockMarker, type Sandbox } from '../sandbox.js';
@@ -134,6 +139,7 @@ const RUNNER_ENV = 'runner HOME';
 const SANDBOX_ENV = 'sandbox HOME';
 const CFFIXED_ENV = 'sandbox HOME + CFFIXED_USER_HOME';
 const LIST_COMMAND = 'security list-keychains -d user';
+const DEFAULT_COMMAND = 'security default-keychain -d user';
 
 /** One read-only `security` query of the keychain search list. */
 export interface SearchListProbe {
@@ -259,7 +265,7 @@ export async function keychainItem(context: SessionContext, r: ItemRecorder): Pr
     'limitation',
     'Keychain access is detected through security(1) child processes sampled with /bin/ps (live or zombie); an in-process Security framework call by the CLI would not be visible (proxy accepted by the lead).',
   );
-  const keyed = await runScenario(context, {}, async ({ session, sandbox }) => {
+  const keyed = await runScenario(context, {}, async ({ session, sandbox, mock }) => {
     session.initialize();
     session.user(`${mockMarker('text')} gate item 3`);
     const sampled = await sampleUntilResult(context, session, TURN_MS);
@@ -300,6 +306,22 @@ export async function keychainItem(context: SessionContext, r: ItemRecorder): Pr
       'search-list probes: every read-only query ran',
       probes.every((probe) => probe.code !== null),
       `CFFIXED_USER_HOME: ${isolation.cffixedUserHome}, HOME alone: ${isolation.homeAlone}; isolation ${isolation.proven ? 'proven' : 'not proven'} (${ISOLATION_SCOPE})`,
+    );
+    // The decisive probe (lead decision C): GitHub-hosted runners only.
+    const defaultKeychain = probes.find(
+      (probe) => probe.env === RUNNER_ENV && probe.command === DEFAULT_COMMAND && probe.code === 0,
+    );
+    const canary = await keychainCanary(
+      context,
+      sandbox,
+      mock.url,
+      keychainPaths(defaultKeychain?.stdout ?? '')[0],
+    );
+    r.note('keychainCanary', canary);
+    r.check(
+      'keychain canary: written only on a GitHub-hosted runner, and deleted again',
+      canary.verdict === 'refused' || canary.deleted?.gone === true,
+      `${canary.verdict}: ${canary.reason}`,
     );
   });
   r.check('API key run: no egress violation', keyed.violations === 0, String(keyed.violations));

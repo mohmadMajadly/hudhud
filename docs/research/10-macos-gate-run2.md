@@ -71,6 +71,17 @@ This does not weaken the item: the item is what ADR-0014 ratified, and the new c
 - **Did `CFFIXED_USER_HOME` isolate the Keychain?** For the scope the probe can see, the sandbox is isolated, but `CFFIXED_USER_HOME` is not what isolates it: the user search list of `security(1)` follows `HOME`, and adding `CFFIXED_USER_HOME` changed nothing. Under the new verdict both environments are `isolated` and `proven` is `true`. The gate already gives every CLI run the sandbox `HOME`, so the `security` children the CLI started in this run searched an empty user list. What the probe cannot show: the common and system domains (`-d user` only), an explicit keychain path, and an in-process Security framework lookup by the CLI. A probe that settles this needs a known item in the runner's login keychain (see §7, decision 4).
 - `~/Library/Keychains` was not created in the sandbox `HOME` (`keychainsDirInIsolatedHome: null`).
 
+### 2.5 The decisive canary probe (lead decision C)
+
+The search-list probes show what `security(1)` would search, not whether an item of the runner's login keychain is reachable. Item 3 therefore gains a canary probe (`tooling/macos-gate/src/items/keychain-canary.ts`), approved under hard constraints:
+
+- It runs only when the harness's own environment has `CI=true` and `RUNNER_ENVIRONMENT=github-hosted` (a throw-away VM). Anywhere else it is refused and writes nothing; a unit test pins the refusal.
+- It adds one generic password to the runner's default (login) keychain, the path the search-list probe printed, only when that path lies inside the runner `HOME`: account `hudhud-gate`, service `hudhud-gate-canary-<random UUID>`, label `hudhud macOS gate canary (fake value, deleted by the gate)`, a fixed fake value.
+- It looks the item up by account and service with the runner's own environment (control: must be found), with the exact environment the CLI runs with (sandbox `HOME`, `PATH`, `TMPDIR`, ...), and with that plus `CFFIXED_USER_HOME`. The lookups never pass `-w` or `-g`, so no secret of any item is printed.
+- A `finally` block deletes the item by its exact account, service and keychain and verifies that a lookup no longer finds it.
+
+Verdict in `keychainCanary`: `isolated` (the control finds the canary, both CLI-environment lookups answer "not found", exit 44), `not-isolated` (a CLI-environment lookup finds it), `inconclusive` or `refused`. The check `keychain canary: written only on a GitHub-hosted runner, and deleted again` fails when the canary ran but its deletion was not verified, or when it could not run on a GitHub-hosted runner (missing evidence). The verdict itself is evidence, as ADR-0014 item 3 asks; it is not a pass condition. Round 3 records the first verdict (§8).
+
 ## 3. Item 6: resumed sessions dropped a re-used user-message uuid
 
 ### 3.1 Evidence
@@ -174,14 +185,14 @@ The questions this report raised, as the lead decided them:
 
 - **A. Dropped turn (product): implemented.** Before, the turn would never start: the CLI writes no `system/init`, so the machine had not yet seen `msg_lifecycle_v1`, ignored the `completed` frame and waited for a watchdog. Now `command_lifecycle` frames are correlated strictly by `uuid` before or after `system/init`, and `completed` for a queued turn that never reported `started` fails it with `TURN_DROPPED` (retryable: a new send carries a fresh id; `details.turnId`, `details.lifecycle`) and diagnostic `turn.dropped`. Covered by unit tests, the turn-machine model check, the machine-kit contract run (every turn settles exactly once), a replay of the run-2 frames in create, resume and fork, and the Linux fixture `resume-duplicate-uuid` (recorded with the pinned CLI through the test-support recorder: the resumed message gets `command_lifecycle` `completed` 3 ms after it is written, then nothing until EOF; replayed through the machine it fails `TURN_DROPPED`).
 - **B. `initialize`-first rule: kept** as a conservative ordering, with the rationale of §6.
-- **C. Decisive Keychain probe: approved** for GitHub-hosted runners only.
+- **C. Decisive Keychain probe: approved and implemented** for GitHub-hosted runners only (§2.5).
 - **D. Digests and Team ID** (§5): pinned in `cli-pin.json`, `KNOWN_BINARIES` and `CLAUDE_CODE_PUBLISHER` only after round 3 confirms them.
 
 ## 8. What round 3 must confirm
 
 Dispatch both jobs on a commit that contains these fixes.
 
-1. Item 3 passes on both architectures: `API key: Keychain access recorded` shows the `security(1)` sightings, `search-list probes: every read-only query ran` passes, and `keychainIsolation` reads `cffixedUserHome: isolated, homeAlone: isolated, proven: true` (or explains a change).
+1. Item 3 passes on both architectures: `API key: Keychain access recorded` shows the `security(1)` sightings, `search-list probes: every read-only query ran` passes, and `keychainIsolation` reads `cffixedUserHome: isolated, homeAlone: isolated, proven: true` (or explains a change). The canary check passes, and `keychainCanary` gives the first decisive verdict (`isolated` or `not-isolated`) with `deleted.gone: true`.
 2. Item 6 passes on both architectures: the three resume checks pass with `lifecycle [queued, started, completed]`, the history holds at least 3 messages, and the CLI reports the canonical cwd without an environment update.
 3. `duplicateUuidResume` shows `dropped: true` with frames `control_response`, `command_lifecycle:completed` (the cause on macOS); `eagerResume` shows `ok: true` (the write order does not matter on macOS either).
 4. `aliasResume`: whether the `/tmp` alias resume injects an environment update (evidence for ADR-0011 §9; not reached in runs 1 and 2).

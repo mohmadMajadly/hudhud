@@ -435,8 +435,13 @@ describe('item 3: keychain', () => {
       'sandbox HOME + CFFIXED_USER_HOME: security list-keychains -d user',
       'sandbox HOME + CFFIXED_USER_HOME: security default-keychain -d user',
     ]);
-    const security = sim.runs.filter((run) => run.file === '/usr/bin/security');
+    const security = sim.runs.filter(
+      (run) =>
+        run.file === '/usr/bin/security' &&
+        (run.args[0] === 'list-keychains' || run.args[0] === 'default-keychain'),
+    );
     // Read-only: never `-s` (which would change the user's search list).
+    expect(security).toHaveLength(6);
     expect(security.every((run) => !run.args.includes('-s'))).toBe(true);
     expect(security.at(-1)?.options.env['CFFIXED_USER_HOME']).toMatch(/\/home$/);
     const chmod = sim.runs.find((run) => run.file === '/bin/chmod');
@@ -502,12 +507,17 @@ describe('item 3: keychain', () => {
     const { sim, context } = world();
     delete sim.env['HOME'];
     const outcome = await item(3, (r) => keychainItem(context, r));
-    expect(outcome.failed).toEqual([]);
+    // On a GitHub-hosted runner the canary then has no keychain to write to:
+    // the decisive evidence is missing, so its check fails.
+    expect(outcome.failed).toEqual([
+      'keychain canary: written only on a GitHub-hosted runner, and deleted again',
+    ]);
     expect(outcome.evidence['keychainIsolation']).toMatchObject({
       cffixedUserHome: 'inconclusive',
       homeAlone: 'inconclusive',
       proven: false,
     });
+    expect(outcome.evidence['keychainCanary']).toMatchObject({ verdict: 'inconclusive' });
     const runnerProbe = sim.runs.find((run) => run.file === '/usr/bin/security');
     expect(runnerProbe?.options.env['HOME']).toBe('');
   });

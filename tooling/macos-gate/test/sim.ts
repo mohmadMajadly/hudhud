@@ -223,6 +223,8 @@ export class SimHost implements GateHost {
   private uuidSeq = 0;
   /** The user-message uuids in each simulated session's transcript. */
   readonly transcripts = new Map<string, Set<unknown>>();
+  /** Services of the generic passwords in the simulated login keychain. */
+  readonly keychain = new Set<string>();
   private readonly events: { at: number; fn: () => void }[] = [];
   private readonly controls = new Map<number, SimCli>();
   private readonly options: SimOptions;
@@ -515,6 +517,30 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
+/**
+ * `security add-/find-/delete-generic-password` on the simulated login
+ * keychain: reachable only with the runner's own HOME (gate run 2: the
+ * search list follows HOME). Items are keyed by service.
+ */
+function keychainItem(sim: SimHost, args: readonly string[], options: RunOptions): RunResult {
+  const service = args[args.indexOf('-s') + 1] ?? '';
+  const reachable = options.env['HOME'] === sim.env['HOME'];
+  if (args[0] === 'add-generic-password') {
+    if (!reachable) return result('', { code: 1, stderr: 'no default keychain' });
+    sim.keychain.add(service);
+    return result();
+  }
+  if (!reachable || !sim.keychain.has(service)) {
+    return result('', {
+      code: 44,
+      stderr: 'The specified item could not be found in the keychain.',
+    });
+  }
+  if (args[0] === 'delete-generic-password') sim.keychain.delete(service);
+  return result(`keychain: "/Users/runner/Library/Keychains/login.keychain-db"
+`);
+}
+
 /** The default answers of the macOS tools the harness runs. */
 function defaultRun(
   sim: SimHost,
@@ -544,6 +570,7 @@ function defaultRun(
     case '/bin/chmod':
       return result();
     case '/usr/bin/security':
+      if (args[0]?.endsWith('-generic-password') === true) return keychainItem(sim, args, options);
       // Gate run 2: the search list follows HOME; a sandbox HOME has none.
       if (options.env['HOME'] !== sim.env['HOME']) {
         return args[0] === 'list-keychains'
