@@ -92,12 +92,13 @@ describe('advisory verification', () => {
     });
     expect(called()).toEqual(['spawn']);
     expect(spies.spawn.mock.calls[0]?.[0]).toBe('/usr/bin/codesign');
-    // The refused spawn is a failed signature check, and strict fails closed.
+    // The refused spawn is a failed (transient) signature check, and strict fails closed.
     expect(result.verification).toEqual({
       status: 'failed',
       method: 'os-signature',
       mode: 'strict',
       detail: 'codesign failed: spawn failed: unknown error',
+      transient: true,
     });
   });
 });

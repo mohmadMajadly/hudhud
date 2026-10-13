@@ -170,7 +170,7 @@ describe('the Windows Authenticode check', () => {
     async (stdout) => {
       const { run } = recorder(exited(stdout));
       await expect(checkOsSignature(BINARY, windowsDeps(run))).resolves.toEqual({
-        kind: 'invalid',
+        kind: 'inconclusive',
         detail: 'authenticode status unrecognized',
       });
     },
@@ -228,7 +228,7 @@ describe('the Windows Authenticode check', () => {
   ])('fails when the check does not complete (%j)', async (outcome, detail) => {
     const { run } = recorder(outcome);
     await expect(checkOsSignature(BINARY, windowsDeps(run))).resolves.toEqual({
-      kind: 'invalid',
+      kind: 'inconclusive',
       detail: `authenticode check failed: ${detail}`,
     });
   });
@@ -308,13 +308,21 @@ describe('the macOS codesign check', () => {
     ]);
   });
 
-  it('fails on a non-zero exit or an incomplete run', async () => {
+  it('fails definitively on a non-zero exit code: codesign verdict', async () => {
     await expect(
       checkOsSignature('/a/claude', darwinDeps(recorder(exited('', 1)).run)),
     ).resolves.toEqual({ kind: 'invalid', detail: 'codesign failed: exit 1' });
-    await expect(
-      checkOsSignature('/a/claude', darwinDeps(recorder({ kind: 'timeout' }).run)),
-    ).resolves.toEqual({ kind: 'invalid', detail: 'codesign failed: timeout' });
+  });
+
+  it.each<[CommandOutcome, string]>([
+    [{ kind: 'timeout' }, 'timeout'],
+    [{ kind: 'output-too-large' }, 'output-too-large'],
+    [{ kind: 'spawn-error', errno: 'EACCES' }, 'spawn failed: EACCES'],
+    [exited('', null), 'exit SIGKILL'],
+  ])('is inconclusive when codesign gives no verdict (%j)', async (outcome, detail) => {
+    await expect(checkOsSignature('/a/claude', darwinDeps(recorder(outcome).run))).resolves.toEqual(
+      { kind: 'inconclusive', detail: `codesign failed: ${detail}` },
+    );
   });
 
   it('refuses a redirected codesign', async () => {

@@ -21,6 +21,17 @@
  * - Results are cached per realpath, size, mtime, mode and digest table in a
  *   {@link VerificationCache} (one per Harness, plan §1.8); a hit is used only
  *   after the file identity was read again and still matches.
+ * - Only definitive verdicts are cached: `verified`, a digest that matches
+ *   no entry (or no table), and a strict signature check that returned a
+ *   verdict (another Authenticode status, a missing or different publisher,
+ *   a non-zero codesign exit, a checker that may not run). A check that did
+ *   not complete (the signature check is `inconclusive`: a timeout, a spawn
+ *   failure, a checker that failed itself or wrote unusable output) gives a
+ *   `failed` verdict marked {@link BinaryVerification.transient}, which is
+ *   never cached: that attempt fails closed and the next one checks again.
+ *   A file that cannot be read while hashing throws
+ *   {@link BinaryChangedError} and caches nothing. Concurrent calls are not
+ *   merged: each one that misses the cache runs its own check.
  *
  * Before anything spawns the binary, {@link assertSpawnable} refuses a
  * strict result that is not `verified` and re-reads the identity (realpath
@@ -74,6 +85,14 @@ export interface BinaryVerification {
   readonly mode: VerificationMode;
   /** Human-readable reason; names versions and checks, never secrets. */
   readonly detail?: string;
+  /**
+   * `true` on a `failed` verdict whose check did not complete (the OS
+   * signature check was `inconclusive`: a timeout, a spawn failure, a
+   * checker that failed itself or wrote unusable output). Such a verdict is
+   * not cached: the attempt fails closed, the next one checks again.
+   * Absent on every definitive verdict.
+   */
+  readonly transient?: true;
 }
 
 /**
@@ -371,11 +390,17 @@ async function verifyUncached(
     ...options.deps?.signature,
     ...(options.publisher === undefined ? {} : { publisher: options.publisher }),
   });
-  if (signature.kind === 'invalid') {
+  if (signature.kind === 'invalid' || signature.kind === 'inconclusive') {
     return {
       path: binary.path,
       ...before,
-      verification: { status: 'failed', method: 'os-signature', mode, detail: signature.detail },
+      verification: {
+        status: 'failed',
+        method: 'os-signature',
+        mode,
+        detail: signature.detail,
+        ...(signature.kind === 'inconclusive' ? { transient: true } : {}),
+      },
     };
   }
   const prefix =
@@ -422,7 +447,8 @@ export async function verifyBinary(
     cache.delete(key);
   }
   const result = await verifyUncached(binary, options);
-  cache.set(key, result);
+  // Only definitive verdicts are kept; a check that did not complete runs again next time.
+  if (result.verification.transient !== true) cache.set(key, result);
   return result;
 }
 

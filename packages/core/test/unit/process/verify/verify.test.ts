@@ -66,7 +66,8 @@ function fakeOptions(
   options: Partial<VerifyBinaryOptions> & {
     readonly digest?: FileDigest | Error;
     readonly stats?: (FileIdentity | Error)[];
-    readonly signature?: CommandOutcome;
+    /** The checker's outcome; a list is consumed in order, its last entry repeating. */
+    readonly signature?: CommandOutcome | readonly CommandOutcome[];
     readonly realpath?: string | Error;
   } = {},
 ): Recorded {
@@ -87,6 +88,9 @@ function fakeOptions(
     },
   };
   const digest = options.digest ?? digestOf();
+  const passing: CommandOutcome = { kind: 'exited', exitCode: 0, signal: null, stdout: '' };
+  const signature = options.signature ?? passing;
+  const outcomes: CommandOutcome[] = 'kind' in signature ? [signature] : [...signature];
   return {
     calls,
     options: {
@@ -109,9 +113,8 @@ function fakeOptions(
           },
           run: (command: BoundedCommand) => {
             calls.push(`run ${command.file}`);
-            return Promise.resolve(
-              options.signature ?? { kind: 'exited', exitCode: 0, signal: null, stdout: '' },
-            );
+            const next = outcomes.length > 1 ? outcomes.shift() : outcomes[0];
+            return Promise.resolve(next ?? passing);
           },
         },
       },
@@ -422,6 +425,194 @@ describe('the verification cache', () => {
     await verifyBinary(resolved(), options);
     await verifyBinary(resolved(), options);
     expect(calls.filter((call) => call.startsWith('hash'))).toHaveLength(2);
+  });
+});
+
+// Only definitive verdicts are cached; a check that did not complete fails
+// that attempt and runs again on the next one.
+describe('the verification cache and transient failures', () => {
+  const DIGESTS = [{ version: '2.1.296', sha256: SHA_A }];
+  const SUBJECT = 'CN=A';
+  const VALID: CommandOutcome = {
+    kind: 'exited',
+    exitCode: 0,
+    signal: null,
+    stdout: `Valid\n${SUBJECT}`,
+  };
+
+  function strict(
+    cache: VerificationCache,
+    signature: CommandOutcome | readonly CommandOutcome[],
+    platform: 'win32' | 'darwin' = 'win32',
+  ): Recorded {
+    return fakeOptions({
+      mode: 'strict',
+      platform,
+      digests: DIGESTS,
+      cache,
+      signature,
+      publisher: { windowsSubject: SUBJECT },
+    });
+  }
+
+  function runs(calls: readonly string[]): number {
+    return calls.filter((call) => call.startsWith('run ')).length;
+  }
+
+  it.each<[string, CommandOutcome, 'win32' | 'darwin', string]>([
+    ['a timeout', { kind: 'timeout' }, 'win32', 'authenticode check failed: timeout'],
+    [
+      'a spawn failure',
+      { kind: 'spawn-error', errno: 'ENOENT' },
+      'win32',
+      'authenticode check failed: spawn failed: ENOENT',
+    ],
+    [
+      'a failing PowerShell',
+      { kind: 'exited', exitCode: 1, signal: null, stdout: '' },
+      'win32',
+      'authenticode check failed: exit 1',
+    ],
+    [
+      'truncated output',
+      { kind: 'output-too-large' },
+      'win32',
+      'authenticode check failed: output-too-large',
+    ],
+    [
+      'output without the expected lines',
+      { kind: 'exited', exitCode: 0, signal: null, stdout: 'Valid' },
+      'win32',
+      'authenticode status unrecognized',
+    ],
+    ['a codesign timeout', { kind: 'timeout' }, 'darwin', 'codesign failed: timeout'],
+    [
+      'codesign ended by a signal',
+      { kind: 'exited', exitCode: null, signal: 'SIGKILL', stdout: '' },
+      'darwin',
+      'codesign failed: exit SIGKILL',
+    ],
+  ])('does not cache %s, and checks again next time', async (_name, failure, platform, detail) => {
+    const cache = new VerificationCache();
+    const passing: CommandOutcome =
+      platform === 'win32' ? VALID : { kind: 'exited', exitCode: 0, signal: null, stdout: '' };
+    const { calls, options } = strict(cache, [failure, passing], platform);
+    const first = await verifyBinary(resolved(), options);
+    expect(first.verification).toEqual({
+      status: 'failed',
+      method: 'os-signature',
+      mode: 'strict',
+      detail,
+      transient: true,
+    });
+    expect(first.sha256).toBeUndefined();
+    expect(cache.size).toBe(0);
+    // The attempt fails closed.
+    await expect(assertSpawnable(first)).rejects.toBeInstanceOf(BinaryNotVerifiedError);
+    // The next attempt runs the check again and gets the definitive verdict.
+    const second = await verifyBinary(resolved(), options);
+    expect(second.verification.status).toBe('verified');
+    expect(second.verification.transient).toBeUndefined();
+    expect(runs(calls)).toBe(2);
+    expect(cache.size).toBe(1);
+    // A third attempt is a cache hit.
+    await expect(verifyBinary(resolved(), options)).resolves.toBe(second);
+    expect(runs(calls)).toBe(2);
+  });
+
+  it.each<[string, CommandOutcome, 'win32' | 'darwin', string]>([
+    [
+      'another Authenticode status',
+      { kind: 'exited', exitCode: 0, signal: null, stdout: 'NotSigned\n' },
+      'win32',
+      'authenticode NotSigned',
+    ],
+    [
+      'another publisher',
+      { kind: 'exited', exitCode: 0, signal: null, stdout: 'Valid\nCN=B' },
+      'win32',
+      'authenticode Valid, but the signer is not the pinned publisher: "CN=B"',
+    ],
+    [
+      'a codesign verdict',
+      { kind: 'exited', exitCode: 1, signal: null, stdout: '' },
+      'darwin',
+      'codesign failed: exit 1',
+    ],
+  ])('caches a definitive failure: %s', async (_name, failure, platform, detail) => {
+    const cache = new VerificationCache();
+    const { calls, options } = strict(cache, [failure, VALID], platform);
+    const first = await verifyBinary(resolved(), options);
+    expect(first.verification).toEqual({
+      status: 'failed',
+      method: 'os-signature',
+      mode: 'strict',
+      detail,
+    });
+    expect(cache.size).toBe(1);
+    await expect(verifyBinary(resolved(), options)).resolves.toBe(first);
+    expect(runs(calls)).toBe(1);
+  });
+
+  it('caches a digest that matches no entry', async () => {
+    const cache = new VerificationCache();
+    const { calls, options } = fakeOptions({
+      mode: 'strict',
+      digests: [{ version: '2.1.296', sha256: SHA_B }],
+      cache,
+    });
+    const first = await verifyBinary(resolved(), options);
+    expect(first.verification).toMatchObject({ status: 'unverified' });
+    expect(first.verification.transient).toBeUndefined();
+    await expect(verifyBinary(resolved(), options)).resolves.toBe(first);
+    expect(runs(calls)).toBe(1);
+  });
+
+  it('caches nothing when the file cannot be read while hashing', async () => {
+    const cache = new VerificationCache();
+    const { options } = fakeOptions({ mode: 'strict', cache, digest: new Error('EIO') });
+    await expect(verifyBinary(resolved(), options)).rejects.toBeInstanceOf(BinaryChangedError);
+    expect(cache.size).toBe(0);
+  });
+
+  it('gives concurrent callers each its own failed attempt, and caches none of them', async () => {
+    const cache = new VerificationCache();
+    const { calls, options } = strict(cache, [{ kind: 'timeout' }, { kind: 'timeout' }, VALID]);
+    const results = await Promise.all([
+      verifyBinary(resolved(), options),
+      verifyBinary(resolved(), options),
+    ]);
+    for (const result of results) {
+      expect(result.verification).toMatchObject({ status: 'failed', transient: true });
+    }
+    expect(runs(calls)).toBe(2);
+    expect(cache.size).toBe(0);
+    await expect(verifyBinary(resolved(), options)).resolves.toMatchObject({
+      verification: { status: 'verified' },
+    });
+    expect(runs(calls)).toBe(3);
+    expect(cache.size).toBe(1);
+  });
+
+  it('keeps the transient flag through a JSON round trip, and adds none to a definitive verdict', async () => {
+    const transient = await verifyBinary(
+      resolved(),
+      strict(new VerificationCache(), { kind: 'timeout' }).options,
+    );
+    const definitive = await verifyBinary(
+      resolved(),
+      strict(new VerificationCache(), {
+        kind: 'exited',
+        exitCode: 0,
+        signal: null,
+        stdout: 'NotSigned\n',
+      }).options,
+    );
+    const parsed = JSON.parse(JSON.stringify(transient)) as VerifiedBinary;
+    expect(parsed).toEqual(transient);
+    expect(parsed.verification.transient).toBe(true);
+    expect(JSON.parse(JSON.stringify(definitive))).toEqual(definitive);
+    expect('transient' in definitive.verification).toBe(false);
   });
 });
 

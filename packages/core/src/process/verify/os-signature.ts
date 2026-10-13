@@ -54,7 +54,8 @@
  *   certificate's `Subject` (UTF-8 without BOM); nothing else is parsed.
  *   `Valid` is the only passing status; every other status, an unknown word,
  *   output without the second line, a non-zero exit, a timeout or a spawn
- *   failure fails the check.
+ *   failure fails the check. Another status is `invalid` (definitive); the
+ *   rest are `inconclusive` ({@link OsSignatureResult}).
  * - Publisher pinning (W3-Z ruling 9): a `Valid` signature passes only when
  *   the signer subject equals the pinned publisher subject
  *   ({@link PublisherPin.windowsSubject}) exactly; without a pin the check
@@ -69,7 +70,8 @@
  *
  * macOS: `/usr/bin/codesign --verify --strict <path>` by absolute path
  * (realpath-checked, SIP-protected), environment `LC_ALL=C` only. Exit code 0
- * is a pass; anything else fails. Pending the macOS gate (ADR-0014): the
+ * is a pass; a non-zero exit code is `invalid`; a timeout, a spawn failure,
+ * an exit by signal or too much output is `inconclusive`. Pending the macOS gate (ADR-0014): the
  * Team ID pin. Until the gate has recorded the Team ID of the pinned darwin
  * builds, codesign's verdict is not bound to a publisher; strict mode on
  * darwin still needs a digest-table match, and the committed table has no
@@ -147,11 +149,23 @@ export const AUTHENTICODE_STATUSES: readonly string[] = Object.freeze([
 /**
  * Result of {@link checkOsSignature}.
  *
+ * @remarks
+ * `invalid` is a definitive verdict about the file: an Authenticode status
+ * other than `Valid`, a missing or different publisher, a non-zero codesign
+ * exit, or a checker that may not run (an unusable `SystemRoot`, a
+ * redirected or missing PowerShell or codesign). `inconclusive` means the
+ * check did not reach a verdict: the checker timed out, could not be
+ * started, was ended by a signal, exited non-zero itself (PowerShell, as
+ * opposed to a parsed status), or wrote more than its output cap or output
+ * without the expected lines. Both fail the check; only `invalid` may be
+ * cached (`verify.ts`).
+ *
  * @public
  */
 export type OsSignatureResult =
   | { readonly kind: 'valid'; readonly detail: string; readonly signer?: string }
   | { readonly kind: 'invalid'; readonly detail: string; readonly signer?: string }
+  | { readonly kind: 'inconclusive'; readonly detail: string }
   | { readonly kind: 'unsupported' };
 
 /**
@@ -308,12 +322,16 @@ async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<Os
     maxStdoutBytes: MAX_SIGNATURE_OUTPUT_BYTES,
   });
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {
-    return { kind: 'invalid', detail: `authenticode check failed: ${describeFailure(outcome)}` };
+    // PowerShell itself failed: no status was reported.
+    return {
+      kind: 'inconclusive',
+      detail: `authenticode check failed: ${describeFailure(outcome)}`,
+    };
   }
   const newline = outcome.stdout.indexOf('\n');
   const status = newline < 0 ? '' : outcome.stdout.slice(0, newline).trim();
   if (!AUTHENTICODE_STATUSES.includes(status)) {
-    return { kind: 'invalid', detail: 'authenticode status unrecognized' };
+    return { kind: 'inconclusive', detail: 'authenticode status unrecognized' };
   }
   if (status !== 'Valid') return { kind: 'invalid', detail: `authenticode ${status}` };
   const signer = outcome.stdout.slice(newline + 1);
@@ -351,9 +369,15 @@ async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsS
     timeoutMs: deps.timeoutMs ?? DEFAULT_SIGNATURE_TIMEOUT_MS,
     maxStdoutBytes: MAX_SIGNATURE_OUTPUT_BYTES,
   });
-  return outcome.kind === 'exited' && outcome.exitCode === 0
-    ? { kind: 'valid', detail: 'codesign valid' }
-    : { kind: 'invalid', detail: `codesign failed: ${describeFailure(outcome)}` };
+  if (outcome.kind === 'exited' && outcome.exitCode === 0) {
+    return { kind: 'valid', detail: 'codesign valid' };
+  }
+  // A non-zero exit code is codesign's verdict; anything else is no verdict.
+  const verdict = outcome.kind === 'exited' && outcome.exitCode !== null;
+  return {
+    kind: verdict ? 'invalid' : 'inconclusive',
+    detail: `codesign failed: ${describeFailure(outcome)}`,
+  };
 }
 
 /**

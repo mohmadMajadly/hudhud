@@ -118,6 +118,7 @@ export interface BinaryVerification {
     readonly mode: VerificationMode;
     // (undocumented)
     readonly status: 'verified' | 'unverified' | 'failed';
+    readonly transient?: true;
 }
 
 // @public
@@ -659,6 +660,9 @@ export type OsSignatureResult = {
     readonly kind: 'invalid';
     readonly detail: string;
     readonly signer?: string;
+} | {
+    readonly kind: 'inconclusive';
+    readonly detail: string;
 } | {
     readonly kind: 'unsupported';
 };
