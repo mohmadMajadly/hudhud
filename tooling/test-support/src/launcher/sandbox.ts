@@ -178,6 +178,12 @@ export interface LaunchOptions {
   readonly env?: Readonly<Record<string, string>> | undefined;
 }
 
+/** Hooks of one {@link Sandbox.launch}. */
+export interface LaunchHooks {
+  /** Called synchronously with the child right after the spawn call (before its `spawn` event). */
+  readonly onSpawn?: ((child: ChildProcessWithoutNullStreams) => void) | undefined;
+}
+
 /** A spawned sandboxed CLI. */
 export interface SandboxProcess {
   readonly child: ChildProcessWithoutNullStreams;
@@ -196,8 +202,13 @@ export interface Sandbox {
   readonly platform: NodeJS.Platform;
   /** The environment every launch starts from (contains the fake key). */
   readonly env: Readonly<Record<string, string>>;
-  /** Spawns the pinned CLI in the sandbox. Rejects when the spawn itself fails. */
-  launch(options?: LaunchOptions): Promise<SandboxProcess>;
+  /**
+   * Spawns the pinned CLI in the sandbox. Rejects when the spawn itself
+   * fails. `hooks.onSpawn` runs synchronously right after the spawn call,
+   * before anything is awaited, so its listeners see every byte and the
+   * `close` event of a process that exits at once.
+   */
+  launch(options?: LaunchOptions, hooks?: LaunchHooks): Promise<SandboxProcess>;
   /** Removes the run directory. Callers stop their processes first. */
   dispose(): Promise<void>;
 }
@@ -313,7 +324,7 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
       mockUrl: options.mock.url,
       platform,
       env,
-      async launch(launch: LaunchOptions = {}): Promise<SandboxProcess> {
+      async launch(launch: LaunchOptions = {}, hooks: LaunchHooks = {}): Promise<SandboxProcess> {
         const argv = launchArgv(launch);
         const launchEnv = buildSandboxEnv({
           ...baseEnv,
@@ -327,6 +338,7 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
           shell: false,
           windowsHide: true,
         });
+        hooks.onSpawn?.(child);
         await new Promise<void>((resolve, reject) => {
           child.once('spawn', resolve);
           child.once('error', reject);

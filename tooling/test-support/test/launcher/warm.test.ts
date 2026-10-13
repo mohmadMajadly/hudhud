@@ -43,8 +43,8 @@ async function sandboxWith(mode: string) {
   const launch = sandbox.launch.bind(sandbox);
   return {
     ...sandbox,
-    launch: (options: Parameters<typeof launch>[0] = {}) =>
-      launch({ ...options, args: [fake.script, ...(options.args ?? [])] }),
+    launch: (options: Parameters<typeof launch>[0] = {}, hooks?: Parameters<typeof launch>[1]) =>
+      launch({ ...options, args: [fake.script, ...(options.args ?? [])] }, hooks),
   };
 }
 

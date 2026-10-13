@@ -74,6 +74,55 @@ describe('isFrame', () => {
   });
 });
 
+describe('RecordingSession attaches before anything is awaited (ruling 5)', () => {
+  /** A launch wrapper that is slow to resolve (like the recorder's process-table query). */
+  function slow(inner: Sandbox, ms: number, passHooks = true): Sandbox {
+    return {
+      ...inner,
+      launch: async (options, hooks) => {
+        const launched = await inner.launch(options, passHooks ? hooks : undefined);
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return launched;
+      },
+    };
+  }
+
+  it('keeps the output and the exit of a child that exits before the launch resolves', async () => {
+    const session = await RecordingSession.start(slow(sandbox, 1500), {
+      args: [fake.script],
+      env: { FAKE_CLI_MODE: 'exit-now' },
+    });
+    expect(await session.waitExit(30_000)).toEqual({ code: 3, signal: null });
+    const early = await session.waitType('system', 'early', 10);
+    expect(early.v).toEqual({ type: 'system', subtype: 'early' });
+    expect(session.records.map((record) => record.dir)).toEqual(
+      expect.arrayContaining(['out', 'err', 'exit']),
+    );
+    expect(session.records.at(-1)?.dir).toBe('exit');
+  });
+
+  it('refuses a launch wrapper that drops the hook, and kills its child', async () => {
+    let child: Awaited<ReturnType<Sandbox['launch']>>['child'] | undefined;
+    const dropping: Sandbox = {
+      ...sandbox,
+      launch: async (options) => {
+        const launched = await sandbox.launch(options);
+        child = launched.child;
+        return launched;
+      },
+    };
+    await expect(
+      RecordingSession.start(dropping, { args: [fake.script], env: { FAKE_CLI_MODE: 'hang' } }),
+    ).rejects.toThrow(/did not call onSpawn/);
+    if (child === undefined) throw new Error('no child');
+    const exited = child;
+    if (exited.exitCode === null && exited.signalCode === null) {
+      await new Promise((resolve) => exited.once('exit', resolve));
+    }
+    expect(exited.killed).toBe(true);
+  });
+});
+
 describe('RecordingSession', () => {
   it('records stdin, stdout (JSON and plain), stderr, EOF and the exit in order', async () => {
     const session = await start();

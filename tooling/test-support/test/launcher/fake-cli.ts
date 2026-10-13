@@ -34,6 +34,7 @@ const cfg = process.env.CLAUDE_CONFIG_DIR || '';
 process.stderr.write('fake cli starting in ' + process.cwd() + '\n');
 if (mode === 'dump') out({ type: 'dump', argv: process.argv.slice(2), env: process.env, cwd: process.cwd() });
 if (mode === 'hang') setInterval(() => {}, 1000);
+if (mode === 'exit-now') { out({ type: 'system', subtype: 'early' }); process.stderr.write('bye\n'); process.exit(3); }
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on('line', (line) => {
   let f;

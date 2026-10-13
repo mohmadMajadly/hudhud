@@ -14,7 +14,7 @@ import {
 } from '../../src/fixtures/recorder.js';
 import { FAKE_API_KEY } from '../../src/launcher/env.js';
 import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
-import type { LaunchOptions, Sandbox } from '../../src/launcher/sandbox.js';
+import type { LaunchHooks, LaunchOptions, Sandbox } from '../../src/launcher/sandbox.js';
 import { makeFakeCli, scopedPolicy } from '../launcher/fake-cli.js';
 import type { FakeCli } from '../launcher/fake-cli.js';
 
@@ -50,8 +50,8 @@ async function fakeSandbox(mode: string): Promise<Sandbox> {
   const launch = sandbox.launch.bind(sandbox);
   return {
     ...sandbox,
-    launch: (options: LaunchOptions = {}) =>
-      launch({ ...options, args: [fake.script, ...(options.args ?? [])] }),
+    launch: (options: LaunchOptions = {}, hooks?: LaunchHooks) =>
+      launch({ ...options, args: [fake.script, ...(options.args ?? [])] }, hooks),
   };
 }
 

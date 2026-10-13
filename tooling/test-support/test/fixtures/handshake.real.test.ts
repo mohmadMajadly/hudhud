@@ -34,7 +34,7 @@ import {
 } from '../../src/fixtures/recorder.js';
 import { probePinnedCli } from '../../src/launcher/pinned-cli.js';
 import { createSandbox } from '../../src/launcher/sandbox.js';
-import type { LaunchOptions } from '../../src/launcher/sandbox.js';
+import type { LaunchHooks, LaunchOptions } from '../../src/launcher/sandbox.js';
 import {
   assertNoOutsideWrites,
   diffOutside,
@@ -79,8 +79,8 @@ describe('real pinned CLI handshake recording', () => {
       const launch = sandbox.launch.bind(sandbox);
       const tracked = {
         ...sandbox,
-        launch: async (options?: LaunchOptions) => {
-          const child = await launch(options);
+        launch: async (options?: LaunchOptions, hooks?: LaunchHooks) => {
+          const child = await launch(options, hooks);
           await tracker.recordRoot(child.pid);
           return child;
         },

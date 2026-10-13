@@ -84,75 +84,117 @@ export function isFrame(record: OutRecord, type: string, subtype?: string): bool
   );
 }
 
-/** A launched, recorded CLI session. */
-export class RecordingSession {
-  readonly process: SandboxProcess;
-  readonly #records: RawRecord[] = [];
+/**
+ * The records of one child: every listener is attached by {@link attach},
+ * which runs synchronously right after the spawn call.
+ */
+class Capture {
+  readonly records: RawRecord[] = [];
+  readonly waiters: Waiter[] = [];
+  readonly consumed = new Set<OutRecord>();
+  readonly exited: Promise<ExitInfo>;
+  exit: ExitInfo | undefined;
+  attached = false;
   readonly #clock: () => number;
   readonly #t0: number;
-  readonly #waiters: Waiter[] = [];
-  readonly #consumed = new Set<OutRecord>();
-  readonly #exited: Promise<ExitInfo>;
-  #exit: ExitInfo | undefined;
+  readonly #resolveExit: (exit: ExitInfo) => void;
 
-  private constructor(process: SandboxProcess, clock: () => number) {
-    this.process = process;
+  constructor(clock: () => number) {
     this.#clock = clock;
     this.#t0 = clock();
-    const { child } = process;
-    this.#exited = new Promise((resolve) => {
-      child.once('close', (code, signal) => {
-        this.#exit = { code, signal };
-        this.#record('exit', { code, signal });
-        resolve(this.#exit);
-      });
+    const { promise, resolve } = Promise.withResolvers<ExitInfo>();
+    this.exited = promise;
+    this.#resolveExit = resolve;
+  }
+
+  record(dir: RecordDir, v: JsonValue): RawRecord {
+    const record: RawRecord = { t: Math.max(0, Math.floor(this.#clock() - this.#t0)), dir, v };
+    this.records.push(record);
+    return record;
+  }
+
+  attach(child: SandboxProcess['child']): void {
+    this.attached = true;
+    child.once('close', (code, signal) => {
+      this.exit = { code, signal };
+      this.record('exit', { code, signal });
+      this.#resolveExit(this.exit);
     });
     child.stdin.on('error', () => {
       // EPIPE after the CLI exited; the exit record tells the story
     });
     child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => this.#record('err', chunk));
+    child.stderr.on('data', (chunk: string) => this.record('err', chunk));
     createInterface({ input: child.stdout, crlfDelay: Infinity }).on('line', (line) => {
-      const record = this.#record('out', parseLine(line)) as OutRecord;
-      for (const waiter of [...this.#waiters]) {
-        if (!this.#consumed.has(record) && waiter.match(record)) {
-          this.#consumed.add(record);
-          this.#waiters.splice(this.#waiters.indexOf(waiter), 1);
+      const record = this.record('out', parseLine(line)) as OutRecord;
+      for (const waiter of [...this.waiters]) {
+        if (!this.consumed.has(record) && waiter.match(record)) {
+          this.consumed.add(record);
+          this.waiters.splice(this.waiters.indexOf(waiter), 1);
           waiter.resolve(record);
         }
       }
     });
   }
+}
 
-  /** Launches the sandbox's pinned CLI and starts recording. */
+/**
+ * A launched, recorded CLI session.
+ *
+ * @remarks
+ * The stdio and `close` listeners are attached synchronously in the
+ * launch's `onSpawn` hook, before anything is awaited after the spawn call
+ * (W3-Z ruling 5): a CLI that exits at once (`resume-not-found`) or a
+ * launch wrapper that awaits something slow (a process-table query) can no
+ * longer cost the recording its output or its exit.
+ */
+export class RecordingSession {
+  readonly process: SandboxProcess;
+  readonly #capture: Capture;
+
+  private constructor(process: SandboxProcess, capture: Capture) {
+    this.process = process;
+    this.#capture = capture;
+  }
+
+  /**
+   * Launches the sandbox's pinned CLI and starts recording.
+   *
+   * @throws when the sandbox launch did not call `onSpawn` (a wrapper that
+   *   dropped the hook); its child is killed
+   */
   static async start(
     sandbox: Sandbox,
     launch: LaunchOptions = {},
     options: RecordingOptions = {},
   ): Promise<RecordingSession> {
-    const clock = options.clock ?? (() => performance.now());
-    return new RecordingSession(await sandbox.launch(launch), clock);
-  }
-
-  #record(dir: RecordDir, v: JsonValue): RawRecord {
-    const record: RawRecord = { t: Math.max(0, Math.floor(this.#clock() - this.#t0)), dir, v };
-    this.#records.push(record);
-    return record;
+    const capture = new Capture(options.clock ?? (() => performance.now()));
+    const process = await sandbox.launch(launch, {
+      onSpawn: (child) => {
+        capture.attach(child);
+      },
+    });
+    if (!capture.attached) {
+      // Attaching now could miss output or the exit.
+      process.child.kill();
+      throw new Error('the sandbox launch did not call onSpawn; the recording would be incomplete');
+    }
+    return new RecordingSession(process, capture);
   }
 
   /** Every record so far, in order (a copy). */
   get records(): readonly RawRecord[] {
-    return [...this.#records];
+    return [...this.#capture.records];
   }
 
   /** The exit, once it happened. */
   get exit(): ExitInfo | undefined {
-    return this.#exit;
+    return this.#capture.exit;
   }
 
   /** Writes one line (a newline is appended) and records it. */
   sendRaw(line: string): void {
-    this.#record('in', parseLine(line));
+    this.#capture.record('in', parseLine(line));
     this.process.child.stdin.write(`${line}\n`);
   }
 
@@ -191,13 +233,13 @@ export class RecordingSession {
 
   /** Closes stdin (EOF) and records it as `cmd {stdin: "eof"}`. */
   closeStdin(): void {
-    this.#record('cmd', { stdin: 'eof' });
+    this.#capture.record('cmd', { stdin: 'eof' });
     this.process.child.stdin.end();
   }
 
   /** Stdout records so far. */
   outputs(): readonly OutRecord[] {
-    return this.#records.filter((record): record is OutRecord => record.dir === 'out');
+    return this.#capture.records.filter((record): record is OutRecord => record.dir === 'out');
   }
 
   /**
@@ -209,14 +251,15 @@ export class RecordingSession {
     timeoutMs: number,
     label: string,
   ): Promise<OutRecord> {
-    const hit = this.outputs().find((record) => !this.#consumed.has(record) && match(record));
+    const { consumed, waiters } = this.#capture;
+    const hit = this.outputs().find((record) => !consumed.has(record) && match(record));
     if (hit !== undefined) {
-      this.#consumed.add(hit);
+      consumed.add(hit);
       return Promise.resolve(hit);
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.#waiters.splice(this.#waiters.indexOf(waiter), 1);
+        waiters.splice(waiters.indexOf(waiter), 1);
         reject(new Error(`timeout after ${String(timeoutMs)} ms waiting for ${label}`));
       }, timeoutMs);
       const waiter: Waiter = {
@@ -226,7 +269,7 @@ export class RecordingSession {
           resolve(record);
         },
       };
-      this.#waiters.push(waiter);
+      waiters.push(waiter);
     });
   }
 
@@ -248,7 +291,7 @@ export class RecordingSession {
       }, timeoutMs);
     });
     try {
-      return await Promise.race([this.#exited, timeout]);
+      return await Promise.race([this.#capture.exited, timeout]);
     } finally {
       clearTimeout(timer);
     }
@@ -263,6 +306,6 @@ export class RecordingSession {
     const exit = await this.waitExit(graceMs);
     if (exit !== undefined) return exit;
     this.process.child.kill('SIGKILL');
-    return this.#exited;
+    return this.#capture.exited;
   }
 }
