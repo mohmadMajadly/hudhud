@@ -1,7 +1,7 @@
 /**
  * The Windows variables libuv copies from the host into a child, and the
  * environment the process layer passes so that it never does (ADR-0012 §4,
- * plan §1.7, §2.5).
+ * plan §1.7, §2.5); plus the variables a macOS child sets itself at start.
  *
  * @packageDocumentation
  */
@@ -31,6 +31,32 @@ export const WIN32_REQUIRED_ENV_NAMES: readonly string[] = Object.freeze([
   'USERNAME',
   'USERPROFILE',
   'WINDIR',
+]);
+
+/**
+ * The variables a macOS child can show although the map lacked them and
+ * neither spawn nor libuv passed them: the child sets them itself at start.
+ * The process layer passes nothing for them and cannot keep them out.
+ *
+ * - `__CF_USER_TEXT_ENCODING`: CoreFoundation, loaded by any child linked
+ *   against it (Node.js is), computes the user's default text encoding at
+ *   initialization. When the variable is missing, or names another uid, it
+ *   reads `.CFUserTextEncoding` in the home of the account database entry of
+ *   `getuid()` and calls `setenv` with `0x<uid>:0x<script>:0x<region>` (hex;
+ *   CoreFoundation `_CFStringGetUserDefaultEncoding`). The value names the
+ *   uid and a text encoding, no secret and nothing from the host
+ *   environment. Passing a value with the right uid would only replace
+ *   CoreFoundation's value with a host-derived one (the variable stays
+ *   present either way), so hudhud does not pass one.
+ *
+ * Tests of the exact child environment allow exactly these names on macOS
+ * (and verify that the value is not the host's); adapters that report what
+ * the child receives name them as set by the child.
+ *
+ * @public
+ */
+export const DARWIN_CHILD_SET_ENV_NAMES: readonly string[] = Object.freeze([
+  '__CF_USER_TEXT_ENCODING',
 ]);
 
 /**

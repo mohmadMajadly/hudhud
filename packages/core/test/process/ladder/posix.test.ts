@@ -414,3 +414,99 @@ describe('runPosixLadder: hooks and failures', () => {
     ]);
   });
 });
+
+describe('runPosixLadder: without a verified identity of the spawned process', () => {
+  const NO_IDENTITY = [
+    'intent@0:done',
+    'interrupt@0:done(timeout)',
+    'eof@0:done',
+    'snapshot-s1@2000:skipped(no-identity)',
+    'sigterm@2000:done(spawned)',
+    'snapshot-s2@7000:skipped(no-identity)',
+    'sigkill@7000:done(spawned)',
+    'sweep@7000:skipped(no-identity)',
+  ];
+
+  it.each([
+    ['null', () => Promise.resolve(null)],
+    ['rejected', () => Promise.reject(new Error('read failed'))],
+    ['of another pid', () => Promise.resolve(identity(CLI))],
+  ])(
+    'with an identity read that is %s, signals only the spawned pid: no snapshot, no group, no sweep',
+    async (_label, read) => {
+      const world = FakeWorld.standard();
+      world.proc.identity = read();
+      const report = await run(world);
+      expect(names(report)).toEqual(NO_IDENTITY);
+      expect(signalLog(world)).toEqual(['200 SIGTERM', '200 SIGKILL']);
+      expect(world.reads).toBe(0);
+      expect(report).toMatchObject({ signalTarget: null, sweep: null, launcherDetected: true });
+      // The SIGKILL exit is observed only after the report (next microtask).
+      expect(report.exitedAfter).toBeNull();
+    },
+  );
+
+  it('reports the exit observed right at SIGKILL, and stops after a SIGTERM that ends it', async () => {
+    const killed = FakeWorld.standard();
+    killed.proc.identity = Promise.resolve(null);
+    killed.onSignal = ({ world: w, call }) => {
+      if (call.signal === 'SIGKILL') w.proc.exit();
+      return 'sent';
+    };
+    expect((await run(killed)).exitedAfter).toBe('sigkill');
+
+    const termed = FakeWorld.standard();
+    termed.proc.identity = Promise.resolve(null);
+    termed.onSignal = ({ world: w, call }) => {
+      if (call.signal === 'SIGTERM') w.remove(LAUNCHER.pid);
+      return 'sent';
+    };
+    const report = await run(termed);
+    expect(report.exitedAfter).toBe('sigterm');
+    expect(names(report).at(-1)).toBe('sigterm@2000:done(spawned)');
+  });
+
+  it('waits for a late identity after the EOF grace, then takes S1', async () => {
+    const world = FakeWorld.standard();
+    world.proc.identity = new Promise((resolve) => {
+      world.clock.schedule(3000, () => {
+        resolve(identity(LAUNCHER));
+      });
+    });
+    const report = await run(world);
+    expect(names(report).slice(3, 5)).toEqual([
+      'snapshot-s1@3000:done',
+      'sigterm@3000:done(initialize-pid)',
+    ]);
+  });
+
+  it('signals nothing when the process exits while its identity is awaited', async () => {
+    const world = FakeWorld.standard();
+    world.proc.identity = new Promise(() => undefined);
+    world.clock.schedule(2500, () => {
+      world.proc.exit();
+    });
+    const report = await run(world);
+    expect(names(report)).toEqual(['intent@0:done', 'interrupt@0:done(timeout)', 'eof@0:done']);
+    expect(report.exitedAfter).toBe('eof');
+    expect(world.calls).toEqual([]);
+    expect(world.reads).toBe(0);
+  });
+
+  it('signals nothing when the exit is observed together with the identity', async () => {
+    const world = FakeWorld.standard();
+    world.proc.identity = {
+      then(onFulfilled) {
+        // After the EOF grace the read answers, and the exit is observed right after it.
+        world.clock.schedule(2500, () => {
+          onFulfilled?.(identity(LAUNCHER));
+          world.proc.exit();
+        });
+        return Promise.resolve() as never;
+      },
+    };
+    const report = await run(world);
+    expect(report.exitedAfter).toBe('eof');
+    expect(world.calls).toEqual([]);
+  });
+});

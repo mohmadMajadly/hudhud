@@ -14,8 +14,24 @@ describe('runPosixLadder (property)', () => {
         fc.constantFrom<InterruptOutcome>('acknowledged', 'timeout', 'not-applicable'),
         fc.constantFrom<number | null>(CLI.pid, LAUNCHER.pid, null, 999),
         fc.boolean(),
-        async (exitAt, interruptOutcome, initializePid, termCleansUp) => {
+        fc.constantFrom('read', 'late', 'null', 'rejected', 'other-pid'),
+        async (exitAt, interruptOutcome, initializePid, termCleansUp, identityMode) => {
           const world = FakeWorld.standard(initializePid);
+          const spawned = { pid: LAUNCHER.pid, startTime: LAUNCHER.startTime };
+          world.proc.identity =
+            identityMode === 'read'
+              ? Promise.resolve(spawned)
+              : identityMode === 'late'
+                ? new Promise((resolve) => {
+                    world.clock.schedule(2500, () => {
+                      resolve(spawned);
+                    });
+                  })
+                : identityMode === 'null'
+                  ? Promise.resolve(null)
+                  : identityMode === 'rejected'
+                    ? Promise.reject(new Error('read failed'))
+                    : Promise.resolve({ ...spawned, pid: CLI.pid });
           if (exitAt !== null) {
             world.clock.schedule(exitAt, () => {
               world.proc.exit();
@@ -46,6 +62,12 @@ describe('runPosixLadder (property)', () => {
             if (call.afterExit && (spawnedKill < 0 || index <= spawnedKill)) return false;
             if (call.id === 0 || call.id === 1 || call.id === HOST.pid) return false;
             if (call.kind === 'group' && protectedGroups.includes(call.id)) return false;
+          }
+          // Without a verified identity only the spawned pid is signalled.
+          if (!['read', 'late'].includes(identityMode)) {
+            if (world.calls.some((call) => call.kind === 'group' || call.id !== LAUNCHER.pid)) {
+              return false;
+            }
           }
           // Intent always first; an exit before S1 means no signal at all.
           if (report.steps[0]?.name !== 'intent') return false;

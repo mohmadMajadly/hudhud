@@ -1,5 +1,5 @@
 import type { Win32CimTableCalls } from '../../../src/process/os/types.js';
-import type { LadderClock } from '../../../src/process/ladder/types.js';
+import type { LadderClock, LadderIdentity } from '../../../src/process/ladder/types.js';
 import type { WindowsLadderProcess } from '../../../src/process/ladder/windows.js';
 
 /** A manual clock: timers fire only when {@link drive} advances time. */
@@ -66,14 +66,23 @@ export interface FakeProcess extends WindowsLadderProcess {
   onTerminate: () => boolean;
 }
 
-export function fakeProcess(pid = 500, startTime = '1000'): FakeProcess {
+/**
+ * A fake child; its identity read resolves at once unless `identity` is
+ * given (a read that fails, returns null, or never settles).
+ */
+export function fakeProcess(
+  pid = 500,
+  startTime = '1000',
+  identity: LadderIdentity = Promise.resolve({ pid, startTime }),
+): FakeProcess {
   let exited = false;
   let resolveExited: (value: unknown) => void = () => undefined;
   const exitedPromise = new Promise<unknown>((resolve) => {
     resolveExited = resolve;
   });
   const proc: FakeProcess = {
-    identity: { pid, startTime },
+    pid,
+    identity,
     calls: [],
     hasExited: () => exited,
     exited: exitedPromise,

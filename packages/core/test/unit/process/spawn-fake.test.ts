@@ -103,7 +103,10 @@ describe('spawnProcess options', () => {
     const env = call?.options['env'] as Record<string, string>;
     expect(Object.getPrototypeOf(env)).toBeNull();
     expect({ ...env }).toEqual(SPEC.env);
-    expect(handle.identity).toEqual({ pid: 4242, startTime: '99' });
+    await expect(handle.identity).resolves.toEqual({
+      identity: { pid: 4242, startTime: '99' },
+      problem: null,
+    });
   });
 });
 
@@ -263,25 +266,33 @@ describe('handle', () => {
 
   it('a stdin error seen before the handle existed fails the first write', async () => {
     const child = new FakeChild();
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const slow: StartTimeReader = {
-      source: 'linux-proc',
-      read: async () => {
-        await gate;
-        return '5';
-      },
-    };
-    const pending = spawnProcess(SPEC, { ...deps(fakeSpawn(child).spawn), startTime: slow });
+    const pending = spawnProcess(SPEC, deps(fakeSpawn(child, 'silent').spawn));
     await vi.waitFor(() => {
       expect(child.stdin.listenerCount('error')).toBe(1);
     });
     child.stdin.emit('error', errno('EPIPE'));
-    release();
+    child.emit('spawn');
     const handle = await pending;
     await expect(handle.write('x')).rejects.toMatchObject({ reason: 'failed', errno: 'EPIPE' });
+  });
+
+  it('resolves before the identity read settles, and the read never rejects', async () => {
+    const gate = Promise.withResolvers<string>();
+    const pendingRead: StartTimeReader = { source: 'darwin-ps', read: () => gate.promise };
+    const child = new FakeChild();
+    const handle = await spawnProcess(SPEC, {
+      ...deps(fakeSpawn(child).spawn),
+      startTime: pendingRead,
+    });
+    expect(handle.identitySource).toBe('darwin-ps');
+    let settled = false;
+    void handle.identity.then(() => {
+      settled = true;
+    });
+    await handle.write('before the identity');
+    expect(settled).toBe(false);
+    gate.reject(new Error('ps failed'));
+    await expect(handle.identity).resolves.toEqual({ identity: null, problem: 'read-failed' });
   });
 
   it('a stdin that closes before flushing rejects the pending write', async () => {
@@ -321,8 +332,7 @@ describe('handle', () => {
       ...deps(fakeSpawn(child).spawn),
       startTime: exiting,
     });
-    expect(handle.identity).toBeNull();
-    expect(handle.identityProblem).toBe('exited');
+    await expect(handle.identity).resolves.toEqual({ identity: null, problem: 'exited' });
     await expect(handle.exited).resolves.toEqual({ code: null, signal: 'SIGKILL' });
   });
 

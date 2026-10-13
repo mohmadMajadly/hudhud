@@ -139,7 +139,7 @@ describe('createPosixSignalCalls', () => {
     'signals its own child, verified by pid and start time',
     async () => {
       const child = await tracker.node('process.stdin.resume(); setInterval(() => {}, 1000)');
-      const identity = child.identity;
+      const { identity } = await child.identity;
       expect(identity).not.toBeNull();
       const snapshot = await hostSnapshot();
       expect(identity === null ? null : findIdentity(snapshot.records, identity)).not.toBeNull();

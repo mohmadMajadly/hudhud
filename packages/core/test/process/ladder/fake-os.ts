@@ -1,5 +1,5 @@
 import type { PosixLadderProcess, PosixOsCalls } from '../../../src/process/ladder/posix.js';
-import type { LadderClock } from '../../../src/process/ladder/types.js';
+import type { LadderClock, LadderIdentity } from '../../../src/process/ladder/types.js';
 import type {
   LinuxProcTableCalls,
   PosixSignal,
@@ -84,11 +84,16 @@ export class FakeProcess implements PosixLadderProcess {
   private done = false;
   private resolveExit: () => void = () => undefined;
 
+  readonly pid: number;
   readonly spawned: ProcessIdentity;
   readonly initializePid: number | null;
+  /** The identity read the ladder awaits; the spawned identity, already read, by default. */
+  identity: LadderIdentity;
 
   constructor(spawned: ProcessIdentity, initializePid: number | null) {
+    this.pid = spawned.pid;
     this.spawned = spawned;
+    this.identity = Promise.resolve(spawned);
     this.initializePid = initializePid;
     this.exited = new Promise((resolve) => {
       this.resolveExit = resolve;

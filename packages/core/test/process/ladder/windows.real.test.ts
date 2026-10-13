@@ -181,9 +181,14 @@ interface ExecCall {
   readonly options: TaskkillExecOptions;
 }
 
-/** Runs the best-effort ladder on a spawned tree with the real taskkill, recording each run. */
+/**
+ * Runs the best-effort ladder on a spawned tree with the real taskkill,
+ * recording each run. `eofGraceMs` is the whole wait when the child ignores
+ * EOF, and only an upper bound when it exits on EOF.
+ */
 async function runLadderOn(
   tree: Awaited<ReturnType<typeof spawnTree>>,
+  eofGraceMs: number,
 ): Promise<{ report: LadderReport; execCalls: ExecCall[] }> {
   const { child, exited, table, root } = tree;
   const execCalls: ExecCall[] = [];
@@ -193,14 +198,15 @@ async function runLadderOn(
   };
   const report = await runWindowsLadder(
     {
-      identity: root,
+      pid: root.pid,
+      identity: Promise.resolve(root),
       hasExited: () => child.exitCode !== null || child.signalCode !== null,
       exited,
       closeStdin: () => child.stdin.end(),
       terminate: () => child.kill(),
     },
     { interrupt: () => Promise.resolve('not-applicable') },
-    { interruptWaitMs: 100, eofGraceMs: 3000, termGraceMs: 0, taskkillGraceMs: 5000 },
+    { interruptWaitMs: 100, eofGraceMs, termGraceMs: 0, taskkillGraceMs: 5000 },
     null,
     {
       intent: 'abort',
@@ -237,7 +243,8 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
 
   it('taskkill /T leaves zero survivors (child, grandchild, great-grandchild)', async () => {
     const tree = await spawnTree();
-    const { report, execCalls } = await runLadderOn(tree);
+    // The child ignores EOF: the grace only delays the tree kill under test.
+    const { report, execCalls } = await runLadderOn(tree, 1000);
 
     expect(summary(report).slice(0, 5)).toEqual([
       'intent:done',
@@ -265,7 +272,7 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
 
   it('the sweep leaves zero survivors after a graceful exit during the EOF grace', async () => {
     const tree = await spawnTree('exit-on-eof');
-    const { report, execCalls } = await runLadderOn(tree);
+    const { report, execCalls } = await runLadderOn(tree, 3000);
 
     expect(summary(report).slice(0, 4)).toEqual([
       'intent:done',

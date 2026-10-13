@@ -93,17 +93,46 @@ export function system32Layout(systemRoot: string): System32Layout {
  * The PowerShell script of the {@link Win32CimTableCalls} contract: one
  * object per process with `p` (pid), `pp` (parent pid), `t` (creation time as
  * a FILETIME decimal string, `''` when absent) and `n` (name or null), as one
- * compressed JSON array in UTF-8.
+ * JSON array in UTF-8 without a byte order mark.
+ *
+ * @remarks
+ * The same WQL query over `Win32_Process` that `Get-CimInstance` runs, but
+ * through the in-box .NET classes only (`System.Management` for WMI,
+ * `System.Web.Extensions` for JSON): no cmdlet is called, so PowerShell
+ * never discovers or auto-loads a module. Module discovery is what made
+ * every query slow under the restricted environment above (measured on
+ * Windows 11 with PowerShell 5.1: 750 ms with `Get-CimInstance` and
+ * `ConvertTo-Json`, 450 ms with this script; the cmdlet form also depends
+ * on `USERPROFILE` for its module analysis cache). `t` is computed from the
+ * DMTF datetime WMI reports (`yyyyMMddHHmmss.ffffff` local time plus the
+ * UTC offset in minutes), exactly, without a local-time round trip; it
+ * equals `CreationDate.ToFileTimeUtc()` of the cmdlet form (verified on
+ * every process of a live table).
  */
 export const CIM_SCRIPT: string = [
   "$ErrorActionPreference = 'Stop'",
-  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
-  '$rows = @(Get-CimInstance -ClassName Win32_Process | ForEach-Object {',
-  '  $t = if ($null -eq $_.CreationDate) { [string]::Empty } else {',
-  '    $_.CreationDate.ToFileTimeUtc().ToString([Globalization.CultureInfo]::InvariantCulture) }',
-  '  [pscustomobject]@{ p = [int64]$_.ProcessId; pp = [int64]$_.ParentProcessId; t = $t; n = $_.Name }',
-  '})',
-  'ConvertTo-Json -Compress -InputObject $rows',
+  '$inv = [Globalization.CultureInfo]::InvariantCulture',
+  "$null = [Reflection.Assembly]::Load('System.Management, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')",
+  "$null = [Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')",
+  "$query = [Management.ManagementObjectSearcher]::new('SELECT ProcessId, ParentProcessId, CreationDate, Name FROM Win32_Process')",
+  '$rows = [Collections.Generic.List[object]]::new()',
+  'foreach ($o in $query.Get()) {',
+  "  $d = $o['CreationDate']",
+  '  $t = [string]::Empty',
+  '  if ($null -ne $d) {',
+  "    $u = [DateTime]::ParseExact($d.Substring(0, 21), 'yyyyMMddHHmmss.ffffff', $inv, [Globalization.DateTimeStyles]'AssumeUniversal, AdjustToUniversal')",
+  '    $t = $u.AddMinutes(-[int]$d.Substring(21)).ToFileTimeUtc().ToString($inv)',
+  '  }',
+  '  $row = [Collections.Generic.Dictionary[string, object]]::new()',
+  "  $row['p'] = [int64]$o['ProcessId']; $row['pp'] = [int64]$o['ParentProcessId']; $row['t'] = $t; $row['n'] = $o['Name']",
+  '  $rows.Add($row)',
+  '}',
+  '$json = [Web.Script.Serialization.JavaScriptSerializer]::new()',
+  '$json.MaxJsonLength = [int]::MaxValue',
+  '$bytes = [Text.UTF8Encoding]::new($false).GetBytes($json.Serialize($rows))',
+  '$stdout = [Console]::OpenStandardOutput()',
+  '$stdout.Write($bytes, 0, $bytes.Length)',
+  '$stdout.Flush()',
 ].join('\n');
 
 /** The PowerShell argv before the script. */

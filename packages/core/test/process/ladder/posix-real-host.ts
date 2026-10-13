@@ -158,7 +158,8 @@ async function main(): Promise<void> {
 
   const report = await runPosixLadder(
     {
-      spawned,
+      pid: spawned.pid,
+      identity: Promise.resolve(spawned),
       initializePid,
       hasExited: () => child.exitCode !== null || child.signalCode !== null,
       exited,

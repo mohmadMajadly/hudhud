@@ -15,7 +15,13 @@ import {
   runCommand,
 } from '../../../../src/process/os/darwin.js';
 import { parsePsOutput } from '../../../../src/process/tree/ps.js';
-import { CHILD_CWD, ChildTracker, identityFromPidFile, PID_FILE_IDLER } from '../spawn-support.js';
+import {
+  CHILD_CWD,
+  ChildTracker,
+  identityFromPidFile,
+  PID_FILE_IDLER,
+  withFakeTimeouts,
+} from '../spawn-support.js';
 
 const DARWIN = process.platform === 'darwin';
 const POSIX = process.platform !== 'win32';
@@ -121,19 +127,31 @@ describe('runCommand (darwin copy)', () => {
   it(
     'ends the command through its handle after the timeout',
     async () => {
-      const pidFile = path.join(scratch, 'timeout.pid');
-      const settled = runCommand(
-        node,
-        ['-e', PID_FILE_IDLER, pidFile],
-        {},
-        {
-          timeoutMs: 10_000,
-          maxStdoutBytes: 1024,
-        },
-      ).catch((error: unknown) => error);
-      tracker.trackDescendant(await identityFromPidFile(pidFile));
-      await writeFile(`${pidFile}.go`, '');
-      expect(String(await settled)).toMatch(/timed out after 10000 ms/);
+      // The timeout fires on the fake clock only after the child's identity
+      // was recorded, however long that read takes.
+      await withFakeTimeouts(async (advance) => {
+        const pidFile = path.join(scratch, 'timeout.pid');
+        let done = false;
+        const settled = runCommand(
+          node,
+          ['-e', PID_FILE_IDLER, pidFile],
+          {},
+          {
+            timeoutMs: 10_000,
+            maxStdoutBytes: 1024,
+          },
+        )
+          .catch((error: unknown) => error)
+          .finally(() => {
+            done = true;
+          });
+        tracker.trackDescendant(await identityFromPidFile(pidFile));
+        await writeFile(`${pidFile}.go`, '');
+        await advance(9_999);
+        expect(done).toBe(false);
+        await advance(1);
+        expect(String(await settled)).toMatch(/timed out after 10000 ms/);
+      });
     },
     TIMEOUT,
   );

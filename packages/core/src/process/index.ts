@@ -99,11 +99,12 @@ export type {
   Win32TerminateCalls,
 } from './os/types.js';
 
-export { childEnv, WIN32_REQUIRED_ENV_NAMES } from './win32-env.js';
+export { childEnv, DARWIN_CHILD_SET_ENV_NAMES, WIN32_REQUIRED_ENV_NAMES } from './win32-env.js';
 
 export type {
   HarnessProcess,
   IdentityProblem,
+  IdentityRead,
   ProcessExit,
   SpawnFailureCause,
   SpawnSpec,
@@ -119,6 +120,7 @@ export {
   SpawnSpecError,
 } from './spawn.js';
 
+export type { LadderIdentity } from './ladder/types.js';
 export type { PosixLadderDeps, PosixLadderProcess, PosixOsCalls } from './ladder/posix.js';
 export { runPosixLadder } from './ladder/posix.js';
 export type { SweepDeps, SweepRequest, SweepResult, SweepSignalOutcome } from './sweep.js';

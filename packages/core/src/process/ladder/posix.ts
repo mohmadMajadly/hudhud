@@ -3,9 +3,11 @@ import { sweep } from '../sweep.js';
 import { maySignal, selectSignalTarget } from '../tree/select.js';
 import { takeSnapshot } from '../tree/snapshot.js';
 import type { ProcessIdentity, ProcessSnapshot } from '../tree/types.js';
+import { awaitIdentity } from './identity.js';
 import type {
   LadderClock,
   LadderHooks,
+  LadderIdentity,
   LadderReport,
   LadderStep,
   LadderStepName,
@@ -20,11 +22,17 @@ import type {
  * 2. interrupt through the driver's hook (`cancel_queued`), bounded by
  *    `interruptWaitMs`;
  * 3. stdin EOF, then wait `eofGraceMs`;
- * 4. snapshot S1, then `SIGTERM` to the K1 signal target only, then wait
+ * 4. the spawned process's identity (awaited here, read since the spawn),
+ *    snapshot S1, then `SIGTERM` to the K1 signal target only, then wait
  *    `termGraceMs`;
  * 5. snapshot S2, then `SIGKILL` to the signal target (only if its pid and
  *    start time still match S2) and to the spawned process, then the sweep
  *    over S1 ∪ S2 (`../sweep.ts`).
+ *
+ * Without a verified identity of the spawned process (the read failed), no
+ * snapshot is taken and nothing is swept: the snapshots and the sweep are
+ * rooted at that identity. `SIGTERM` and `SIGKILL` then go to the spawned
+ * pid only, which is safe for the reason below.
  *
  * The ladder stops at the first point where the spawned process is seen to
  * have exited, and it never sends a signal after that: each signal is
@@ -46,8 +54,14 @@ import type {
  * @public
  */
 export interface PosixLadderProcess {
-  /** The spawned pid plus its start time (ADR-0011 J9): root of snapshots and sweep. */
-  readonly spawned: ProcessIdentity;
+  /** The spawned pid (the host's own child). */
+  readonly pid: number;
+  /**
+   * The spawned pid plus its start time (ADR-0011 J9): root of snapshots
+   * and sweep. Awaited right before snapshot S1; without it (`null`) the
+   * ladder signals only the spawned pid and takes no snapshot and no sweep.
+   */
+  readonly identity: LadderIdentity;
   /** `initialize.pid` reported by the harness, or `null` before the handshake. */
   readonly initializePid: number | null;
   /** True once the host observed the exit of the spawned process. */
@@ -112,8 +126,11 @@ export async function runPosixLadder<Intent extends string>(
   deps: PosixLadderDeps<Intent>,
 ): Promise<LadderReport<Intent>> {
   const { os, clock } = deps;
-  const { spawned, initializePid } = proc;
+  const { initializePid } = proc;
   const steps: LadderStep[] = [];
+  // Subscribed at once, so a rejected read is handled even when the ladder
+  // ends before it needs the identity (step 4).
+  const identityRead = awaitIdentity(proc.pid, proc.identity, proc.exited);
   let signalTarget: ProcessIdentity | null = null;
   let sweepSummary: LadderSweepSummary | null = null;
 
@@ -123,7 +140,7 @@ export async function runPosixLadder<Intent extends string>(
     steps,
     exitedAfter,
     signalTarget,
-    launcherDetected: initializePid !== null && initializePid !== spawned.pid,
+    launcherDetected: initializePid !== null && initializePid !== proc.pid,
     sweep: sweepSummary,
   });
 
@@ -195,6 +212,21 @@ export async function runPosixLadder<Intent extends string>(
     }
   };
 
+  /**
+   * Steps 4 and 5 without a verified identity: the spawned pid only (the
+   * host's unreaped child), no snapshot, no sweep. Called right after an
+   * exit check; each signal follows an exit check without an `await`.
+   */
+  const withoutIdentity = async (pid: number): Promise<LadderReport<Intent>> => {
+    record('snapshot-s1', clock.now(), 'skipped', 'no-identity');
+    signal('sigterm', pid, 'SIGTERM', 'spawned');
+    if (await waitForExit(timing.termGraceMs)) return report('sigterm');
+    record('snapshot-s2', clock.now(), 'skipped', 'no-identity');
+    signal('sigkill', pid, 'SIGKILL', 'spawned');
+    record('sweep', clock.now(), 'skipped', 'no-identity');
+    return report(proc.hasExited() ? 'sigkill' : null);
+  };
+
   // 1. Intent first, before anything that may signal (ADR-0008 E8).
   record('intent', clock.now(), 'done');
   if (proc.hasExited()) return report('intent');
@@ -227,7 +259,11 @@ export async function runPosixLadder<Intent extends string>(
   }
   if (await waitForExit(timing.eofGraceMs)) return report('eof');
 
-  // 4. S1, then SIGTERM to the K1 signal target only.
+  // 4. The identity (read since the spawn), S1, then SIGTERM to the K1 signal target only.
+  const awaited = await identityRead;
+  if (awaited.exited || proc.hasExited()) return report('eof');
+  const spawned = awaited.identity;
+  if (spawned === null) return withoutIdentity(proc.pid);
   const s1 = await snapshot('snapshot-s1');
   if (proc.hasExited()) return report('snapshot-s1');
   const decision = selectSignalTarget({

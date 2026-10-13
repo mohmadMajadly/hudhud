@@ -73,6 +73,9 @@ export class CwdValidationError extends Error {
 }
 
 // @public
+export const DARWIN_CHILD_SET_ENV_NAMES: readonly string[];
+
+// @public
 export interface DarwinPsTableCalls {
     // (undocumented)
     runPs(): Promise<Uint8Array>;
@@ -220,8 +223,7 @@ export interface HarnessProcess {
     endStdin(): void;
     readonly exited: Promise<ProcessExit>;
     readonly exitStatus: ProcessExit | null;
-    readonly identity: ProcessIdentity | null;
-    readonly identityProblem: IdentityProblem | null;
+    readonly identity: Promise<IdentityRead>;
     readonly identitySource: ProcessTableSource;
     killViaHandle(signal: 'SIGTERM' | 'SIGKILL'): boolean;
     readonly pid: number;
@@ -235,6 +237,15 @@ export function hostPlatform(nodePlatform?: NodeJS.Platform): ProcessPlatform;
 
 // @public
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
+
+// @public
+export type IdentityRead = {
+    readonly identity: ProcessIdentity;
+    readonly problem: null;
+} | {
+    readonly identity: null;
+    readonly problem: IdentityProblem;
+};
 
 // @public
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
@@ -261,6 +272,9 @@ export interface LadderHooks {
     interrupt(): Promise<InterruptOutcome>;
     onStep?(step: LadderStep): void;
 }
+
+// @public
+export type LadderIdentity = PromiseLike<ProcessIdentity | null>;
 
 // @public
 export interface LadderReport<Intent extends string = string> {
@@ -393,8 +407,9 @@ export interface PosixLadderProcess {
     endStdin(): void;
     readonly exited: Promise<unknown>;
     hasExited(): boolean;
+    readonly identity: LadderIdentity;
     readonly initializePid: number | null;
-    readonly spawned: ProcessIdentity;
+    readonly pid: number;
 }
 
 // @public
@@ -809,7 +824,8 @@ export interface WindowsLadderProcess {
     closeStdin(): void;
     readonly exited: Promise<unknown>;
     hasExited(): boolean;
-    readonly identity: ProcessIdentity;
+    readonly identity: LadderIdentity;
+    readonly pid: number;
     terminate(): boolean;
 }
 

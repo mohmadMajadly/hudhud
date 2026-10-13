@@ -20,7 +20,10 @@ import {
   type StartTimeReader,
 } from '../../../src/process/spawn.js';
 import { findIdentity } from '../../../src/process/tree/descendants.js';
-import { WIN32_REQUIRED_ENV_NAMES } from '../../../src/process/win32-env.js';
+import {
+  DARWIN_CHILD_SET_ENV_NAMES,
+  WIN32_REQUIRED_ENV_NAMES,
+} from '../../../src/process/win32-env.js';
 import {
   BASE_ENV,
   CHILD_CWD,
@@ -33,6 +36,7 @@ import {
 
 const WIN32 = process.platform === 'win32';
 const LINUX = process.platform === 'linux';
+const DARWIN = process.platform === 'darwin';
 const TIMEOUT = 60_000;
 
 const tracker = new ChildTracker();
@@ -82,6 +86,38 @@ function expectedChildEnv(given: Readonly<Record<string, string>>): Record<strin
   return { ...Object.fromEntries(missing), ...given };
 }
 
+/** The one variable a macOS child sets itself (`DARWIN_CHILD_SET_ENV_NAMES`). */
+const CF_ENCODING = '__CF_USER_TEXT_ENCODING';
+
+/** This process's uid as CoreFoundation prints it (upper-case hex). */
+const UID_HEX = (process.getuid?.() ?? 0).toString(16).toUpperCase();
+
+/**
+ * A host value of `__CF_USER_TEXT_ENCODING` that CoreFoundation would keep
+ * if it reached the child (it names the child's uid) but does not compute
+ * itself (script and region 0x7E), so a child showing it inherited it.
+ */
+const HOST_CF_ENCODING = `0x${UID_HEX}:0x7E:0x7E`;
+
+/**
+ * `expected` plus, on macOS only, the value of `__CF_USER_TEXT_ENCODING` the
+ * child set itself: CoreFoundation in the child computes it at start, it is
+ * not passed (`DARWIN_CHILD_SET_ENV_NAMES` in win32-env.ts). The value must
+ * be CoreFoundation's own for this uid, not the host's. Every other name
+ * stays exact.
+ */
+function withChildSetVariables(
+  expected: Record<string, string>,
+  seen: Readonly<Record<string, string>>,
+): Record<string, string> {
+  if (!DARWIN) return expected;
+  expect(DARWIN_CHILD_SET_ENV_NAMES).toEqual([CF_ENCODING]);
+  const value = seen[CF_ENCODING];
+  expect(value).toMatch(new RegExp(`^0x${UID_HEX}:0x[0-9A-F]+:0x[0-9A-F]+$`));
+  expect(value).not.toBe(HOST_CF_ENCODING);
+  return { ...expected, [CF_ENCODING]: value ?? '' };
+}
+
 describe('environment', () => {
   it(
     'is exactly the given map: nothing inherited from the host',
@@ -89,10 +125,11 @@ describe('environment', () => {
       vi.stubEnv('NODE_OPTIONS', '--max-old-space-size=64');
       vi.stubEnv('HUDHUD_HOST_CANARY', 'host-only-value');
       vi.stubEnv('NODE_CHANNEL_FD', '3');
+      vi.stubEnv(CF_ENCODING, HOST_CF_ENCODING);
       const env = { HUDHUD_A: '1', HUDHUD_EMPTY: '', HUDHUD_TEXT: 'مرحبا = x; y' };
       const child = await tracker.node(PRINT_ENV, { env });
       const seen = JSON.parse((await readAll(child)).toString('utf8')) as Record<string, string>;
-      expect(seen).toEqual(expectedChildEnv({ ...BASE_ENV, ...env }));
+      expect(seen).toEqual(withChildSetVariables(expectedChildEnv({ ...BASE_ENV, ...env }), seen));
       expect(seen).not.toHaveProperty('NODE_OPTIONS');
       expect(seen).not.toHaveProperty('HUDHUD_HOST_CANARY');
       expect(seen).not.toHaveProperty('NODE_CHANNEL_FD');
@@ -121,7 +158,9 @@ describe('environment', () => {
       Object.assign(env, BASE_ENV, { HUDHUD_OWN: 'own' });
       const child = await tracker.node(PRINT_ENV, { spec: { env } });
       const seen = JSON.parse((await readAll(child)).toString('utf8')) as Record<string, string>;
-      expect(seen).toEqual(expectedChildEnv({ ...BASE_ENV, HUDHUD_OWN: 'own' }));
+      expect(seen).toEqual(
+        withChildSetVariables(expectedChildEnv({ ...BASE_ENV, HUDHUD_OWN: 'own' }), seen),
+      );
     },
     TIMEOUT,
   );
@@ -202,13 +241,13 @@ describe('identity', () => {
     'captures pid and start time right after spawn, matching the host process table',
     async () => {
       const child = await tracker.node('process.stdin.resume()');
-      expect(child.identity).not.toBeNull();
-      expect(child.identity?.pid).toBe(child.pid);
-      expect(child.identityProblem).toBeNull();
+      const { identity, problem } = await child.identity;
+      expect(identity).not.toBeNull();
+      expect(identity?.pid).toBe(child.pid);
+      expect(problem).toBeNull();
       expect(child.identitySource).toBe(WIN32 ? 'win32-cim' : LINUX ? 'linux-proc' : 'darwin-ps');
       const snapshot = await hostSnapshot();
-      const record =
-        child.identity === null ? null : findIdentity(snapshot.records, child.identity);
+      const record = identity === null ? null : findIdentity(snapshot.records, identity);
       expect(record?.ppid).toBe(process.pid);
       child.endStdin();
       await expect(child.exited).resolves.toEqual({ code: 0, signal: null });
@@ -221,7 +260,10 @@ describe('identity', () => {
     async () => {
       const fixed: StartTimeReader = { source: 'linux-proc', read: () => Promise.resolve('42') };
       const a = await tracker.node('process.stdin.resume()', { spec: { startTime: fixed } });
-      expect(a.identity).toEqual({ pid: a.pid, startTime: '42' });
+      await expect(a.identity).resolves.toEqual({
+        identity: { pid: a.pid, startTime: '42' },
+        problem: null,
+      });
       expect(a.identitySource).toBe('linux-proc');
 
       const failing: StartTimeReader = {
@@ -229,13 +271,55 @@ describe('identity', () => {
         read: () => Promise.reject(new Error('ps failed')),
       };
       const b = await tracker.node('process.stdin.resume()', { spec: { startTime: failing } });
-      expect(b.identity).toBeNull();
-      expect(b.identityProblem).toBe('read-failed');
+      await expect(b.identity).resolves.toEqual({ identity: null, problem: 'read-failed' });
 
       const empty: StartTimeReader = { source: 'win32-cim', read: () => Promise.resolve(null) };
       const c = await tracker.node('process.stdin.resume()', { spec: { startTime: empty } });
-      expect(c.identity).toBeNull();
-      expect(c.identityProblem).toBe('not-listed');
+      await expect(c.identity).resolves.toEqual({ identity: null, problem: 'not-listed' });
+    },
+    TIMEOUT,
+  );
+
+  /** A start-time reader that answers `7` once the test opens its gate. */
+  function gatedReader(): { readonly reader: StartTimeReader; open(): void } {
+    const gate = Promise.withResolvers<undefined>();
+    return {
+      reader: {
+        source: 'linux-proc',
+        read: async () => {
+          await gate.promise;
+          return '7';
+        },
+      },
+      open: () => {
+        gate.resolve(undefined);
+      },
+    };
+  }
+
+  it(
+    'resolves the spawn before the read completes; the child runs and takes input meanwhile',
+    async () => {
+      const gated = gatedReader();
+      const child = await tracker.node(
+        "process.stdin.once('data', (d) => process.stdout.write('got ' + d)); process.stdin.resume()",
+        { spec: { startTime: gated.reader } },
+      );
+      let settled = false;
+      void child.identity.then(() => {
+        settled = true;
+      });
+      await child.write('x');
+      const iterator = child.stdout[Symbol.asyncIterator]();
+      expect(Buffer.from((await iterator.next()).value ?? []).toString()).toBe('got x');
+      expect(settled).toBe(false);
+      gated.open();
+      await expect(child.identity).resolves.toEqual({
+        identity: { pid: child.pid, startTime: '7' },
+        problem: null,
+      });
+      child.endStdin();
+      await iterator.return?.();
     },
     TIMEOUT,
   );
@@ -243,18 +327,12 @@ describe('identity', () => {
   it(
     'is null when the child exited before the read completed (its pid may be reused)',
     async () => {
-      const slow: StartTimeReader = {
-        source: 'linux-proc',
-        read: async () => {
-          await sleep(1500);
-          return '7';
-        },
-      };
-      const child = await tracker.node('process.exit(3)', { spec: { startTime: slow } });
-      expect(child.identity).toBeNull();
-      expect(child.identityProblem).toBe('exited');
-      expect(child.exitStatus).toEqual({ code: 3, signal: null });
+      const gated = gatedReader();
+      const child = await tracker.node('process.exit(3)', { spec: { startTime: gated.reader } });
       await expect(child.exited).resolves.toEqual({ code: 3, signal: null });
+      expect(child.exitStatus).toEqual({ code: 3, signal: null });
+      gated.open();
+      await expect(child.identity).resolves.toEqual({ identity: null, problem: 'exited' });
       expect(child.killViaHandle('SIGKILL')).toBe(false);
     },
     TIMEOUT,

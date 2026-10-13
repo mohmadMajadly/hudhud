@@ -26,10 +26,15 @@
  *   (libuv opens every other handle non-inheritable / close-on-exec). stdin
  *   is private to the handle: only {@link HarnessProcess.write} and
  *   {@link HarnessProcess.endStdin} reach it.
- * - Identity: the pid plus its start time are read right after the spawn and
- *   before the promise resolves, so before the caller can write anything. The
- *   read counts only while the child is provably not yet reaped (an unreaped
- *   pid cannot be reused); otherwise {@link HarnessProcess.identity} is `null`.
+ * - Identity: the read of the pid plus its start time starts right after the
+ *   spawn, in the background: the promise resolves as soon as the child runs,
+ *   and {@link HarnessProcess.identity} settles when the read is done (on
+ *   Windows one process-table query, hundreds of milliseconds). The read
+ *   counts only while the child is provably not yet reaped (an unreaped pid
+ *   cannot be reused); otherwise the identity is `null` with its
+ *   {@link IdentityProblem}. Whatever acts on a pid other than through the
+ *   handle (the ladders, the sweep) awaits the identity first and acts on
+ *   nothing by pid without one.
  * - Backpressure (ADR-0007): writes are serialized and each resolves only
  *   after its bytes were handed to the OS, so the host buffers at most one
  *   pending write. stdout is pulled: while the consumer does not read, the
@@ -210,6 +215,23 @@ export interface ProcessExit {
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 
 /**
+ * The settled identity read of a spawned process.
+ *
+ * @public
+ */
+export type IdentityRead =
+  | {
+      /** Pid plus start time, read while the child was provably not yet reaped. */
+      readonly identity: ProcessIdentity;
+      readonly problem: null;
+    }
+  | {
+      /** No identity could be read safely; nothing may be done to the pid except through the handle. */
+      readonly identity: null;
+      readonly problem: IdentityProblem;
+    };
+
+/**
  * The spawned harness process.
  *
  * @public
@@ -217,12 +239,14 @@ export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 export interface HarnessProcess {
   /** The spawned pid (never `initialize.pid`, ADR-0011 J9). */
   readonly pid: number;
-  /** Pid plus start time, read right after the spawn; `null` when it could not be read safely. */
-  readonly identity: ProcessIdentity | null;
-  /** Unit of `identity.startTime`. */
+  /**
+   * The identity read started right after the spawn. Settles once and never
+   * rejects; the identity is `null` when it could not be read safely (see
+   * the module remarks).
+   */
+  readonly identity: Promise<IdentityRead>;
+  /** Unit of the start time of `identity`. */
   readonly identitySource: ProcessTableSource;
-  /** Set when `identity` is `null`. */
-  readonly identityProblem: IdentityProblem | null;
   /**
    * Writes to stdin. Writes are serialized; each resolves once its bytes
    * were handed to the OS and rejects with {@link ProcessStreamError} when
@@ -315,9 +339,8 @@ function exitOf(child: ChildProcess): ProcessExit | null {
 
 class SpawnedProcess implements HarnessProcess {
   readonly pid: number;
-  readonly identity: ProcessIdentity | null;
+  readonly identity: Promise<IdentityRead>;
   readonly identitySource: ProcessTableSource;
-  readonly identityProblem: IdentityProblem | null;
   readonly exited: Promise<ProcessExit>;
   readonly #child: ChildProcess;
   readonly #stdin: Writable;
@@ -332,22 +355,16 @@ class SpawnedProcess implements HarnessProcess {
     child: ChildProcess,
     pipes: { readonly stdin: Writable; readonly stdout: Readable },
     tail: StderrTail,
-    identity: {
-      readonly pid: number;
-      readonly source: ProcessTableSource;
-      readonly startTime: string | null;
-      readonly problem: IdentityProblem | null;
-    },
+    pid: number,
+    reader: StartTimeReader,
   ) {
     this.#child = child;
     this.#stdin = pipes.stdin;
     this.#stdout = pipes.stdout;
     this.#tail = tail;
-    this.pid = identity.pid;
-    this.identitySource = identity.source;
-    this.identityProblem = identity.problem;
-    this.identity =
-      identity.startTime === null ? null : { pid: identity.pid, startTime: identity.startTime };
+    this.pid = pid;
+    this.identitySource = reader.source;
+    this.identity = readIdentity(child, pid, reader);
     pipes.stdin.on('error', (error) => {
       this.failStdin(error);
     });
@@ -501,21 +518,26 @@ export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls 
   throw new Error(`unsupported platform: ${platform}`);
 }
 
+/** Reads the identity of `pid`; never rejects. */
 async function readIdentity(
   child: ChildProcess,
   pid: number,
   reader: StartTimeReader,
-): Promise<{ readonly startTime: string | null; readonly problem: IdentityProblem | null }> {
+): Promise<IdentityRead> {
   let startTime: string | null;
   try {
     startTime = await reader.read(pid);
   } catch {
-    return { startTime: null, problem: 'read-failed' };
+    return { identity: null, problem: 'read-failed' };
   }
   // Valid only if the child was still unreaped after the read: an unreaped
-  // pid cannot have been reused while it was read.
-  if (exitOf(child) !== null) return { startTime: null, problem: 'exited' };
-  return startTime === null ? { startTime, problem: 'not-listed' } : { startTime, problem: null };
+  // pid cannot have been reused while it was read. Node reaps the child
+  // before it sets `exitCode`/`signalCode`, so a child seen running here was
+  // unreaped for the whole read.
+  if (exitOf(child) !== null) return { identity: null, problem: 'exited' };
+  return startTime === null
+    ? { identity: null, problem: 'not-listed' }
+    : { identity: { pid, startTime }, problem: null };
 }
 
 /**
@@ -601,12 +623,9 @@ export async function spawnProcess(
     destroyPipes();
     throw new ProcessSpawnError(undefined);
   }
-  const identity = await readIdentity(child, pid, deps.startTime);
-  const handle = new SpawnedProcess(child, { stdin, stdout }, tail, {
-    pid,
-    source: deps.startTime.source,
-    ...identity,
-  });
+  // The identity read starts now, while the child is known to be unreaped,
+  // and runs in the background (see the module remarks).
+  const handle = new SpawnedProcess(child, { stdin, stdout }, tail, pid, deps.startTime);
   // The handle listens to stdin errors now; hand over anything seen before.
   stdin.off('error', recordEarly);
   if (earlyStdinError !== undefined) handle.failStdin(earlyStdinError);

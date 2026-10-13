@@ -20,6 +20,7 @@ import {
 import { osCallsFor } from '../../../../src/process/spawn.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { compareStartTime } from '../../../../src/process/tree/start-time.js';
+import type { ProcessRecord } from '../../../../src/process/tree/types.js';
 import { parseWin32ProcessJson } from '../../../../src/process/tree/win32.js';
 import {
   CHILD_CWD,
@@ -27,6 +28,7 @@ import {
   hostSnapshot,
   identityFromPidFile,
   PID_FILE_IDLER,
+  withFakeTimeouts,
   within,
 } from '../spawn-support.js';
 
@@ -130,9 +132,13 @@ describe('createWin32CimTableCalls', () => {
       },
     ]);
     expect(POWERSHELL_ARGS).toEqual(['-NoProfile', '-NonInteractive', '-Command']);
-    expect(CIM_SCRIPT).toContain('[Console]::OutputEncoding = [Text.Encoding]::UTF8');
+    expect(CIM_SCRIPT).toContain(
+      "'SELECT ProcessId, ParentProcessId, CreationDate, Name FROM Win32_Process'",
+    );
     expect(CIM_SCRIPT).toContain('ToFileTimeUtc()');
-    expect(CIM_SCRIPT).toContain('ConvertTo-Json -Compress -InputObject $rows');
+    expect(CIM_SCRIPT).toContain('[Text.UTF8Encoding]::new($false)');
+    // No cmdlet: nothing makes PowerShell discover or auto-load a module.
+    expect(CIM_SCRIPT).not.toMatch(/\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b/);
     expect(CIM_SCRIPT).not.toContain('"');
   });
 
@@ -154,6 +160,48 @@ describe('createWin32CimTableCalls', () => {
       const table = parseWin32ProcessJson(await createWin32CimTableCalls().queryProcesses());
       expect(table.records.find((record) => record.pid === process.pid)?.ppid).toBe(process.ppid);
       expect(table.records.length).toBeGreaterThan(10);
+    },
+    TIMEOUT,
+  );
+
+  it.runIf(WIN32)(
+    'reports the start times Get-CimInstance reports (CreationDate.ToFileTimeUtc)',
+    async () => {
+      // The cmdlet form the script replaced, run with the host environment.
+      const reference = [
+        '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+        '$rows = @(Get-CimInstance -ClassName Win32_Process | ForEach-Object {',
+        "  $t = if ($null -eq $_.CreationDate) { '' } else { $_.CreationDate.ToFileTimeUtc().ToString() }",
+        '  [pscustomobject]@{ p = [int64]$_.ProcessId; pp = [int64]$_.ParentProcessId; t = $t; n = $_.Name } })',
+        'ConvertTo-Json -Compress -InputObject $rows',
+      ].join('\n');
+      const layout = system32Layout(systemRootOf(process.env));
+      const hostEnv = Object.fromEntries(
+        Object.entries(process.env).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
+      );
+      // Canonical microseconds since 1601 of this instant: a process that
+      // started earlier and is listed by both queries is one process (its pid
+      // cannot have been reused, the reuser would have started later).
+      const before = (BigInt(Date.now()) + 11_644_473_600_000n) * 1000n;
+      const [ours, theirs] = await Promise.all([
+        createWin32CimTableCalls().queryProcesses(),
+        runCommand(layout.powershell, [...POWERSHELL_ARGS, reference], hostEnv),
+      ]);
+      expect(theirs.exitCode).toBe(0);
+      const older = (records: readonly ProcessRecord[]): ProcessRecord[] =>
+        records.filter((record) => BigInt(record.startTime) < before);
+      const cmdlet = new Map(
+        older(parseWin32ProcessJson(theirs.stdout).records).map((record) => [record.pid, record]),
+      );
+      const common = older(parseWin32ProcessJson(ours).records).filter((record) =>
+        cmdlet.has(record.pid),
+      );
+      expect(common.length).toBeGreaterThan(10);
+      for (const record of common) {
+        expect(record).toEqual(cmdlet.get(record.pid));
+      }
     },
     TIMEOUT,
   );
@@ -189,10 +237,10 @@ describe('the win32 terminate calls of osCallsFor', () => {
       const iterator = child.stdout[Symbol.asyncIterator]();
       const first = await iterator.next();
       const grandchildPid = Number(Buffer.from(first.value ?? []).toString());
+      const { identity } = await child.identity;
       const snapshot = await hostSnapshot();
-      expect(child.identity).not.toBeNull();
-      const childRecord =
-        child.identity === null ? null : findIdentity(snapshot.records, child.identity);
+      expect(identity).not.toBeNull();
+      const childRecord = identity === null ? null : findIdentity(snapshot.records, identity);
       const grandchild = snapshot.records.find((record) => record.pid === grandchildPid);
       expect(childRecord?.ppid).toBe(process.pid);
       expect(grandchild?.ppid).toBe(child.pid);
@@ -249,19 +297,31 @@ describe('runCommand (win32 copy)', () => {
   it(
     'ends the command through its handle after the timeout',
     async () => {
-      const pidFile = path.join(scratch, 'timeout.pid');
-      const settled = runCommand(
-        node,
-        ['-e', PID_FILE_IDLER, pidFile],
-        {},
-        {
-          timeoutMs: 10_000,
-          maxStdoutBytes: 1024,
-        },
-      ).catch((error: unknown) => error);
-      tracker.trackDescendant(await identityFromPidFile(pidFile));
-      await writeFile(`${pidFile}.go`, '');
-      expect(String(await settled)).toMatch(/timed out after 10000 ms/);
+      // The timeout fires on the fake clock only after the child's identity
+      // was recorded, however long that read takes.
+      await withFakeTimeouts(async (advance) => {
+        const pidFile = path.join(scratch, 'timeout.pid');
+        let done = false;
+        const settled = runCommand(
+          node,
+          ['-e', PID_FILE_IDLER, pidFile],
+          {},
+          {
+            timeoutMs: 10_000,
+            maxStdoutBytes: 1024,
+          },
+        )
+          .catch((error: unknown) => error)
+          .finally(() => {
+            done = true;
+          });
+        tracker.trackDescendant(await identityFromPidFile(pidFile));
+        await writeFile(`${pidFile}.go`, '');
+        await advance(9_999);
+        expect(done).toBe(false);
+        await advance(1);
+        expect(String(await settled)).toMatch(/timed out after 10000 ms/);
+      });
     },
     TIMEOUT,
   );

@@ -15,7 +15,11 @@
  * the CLI can exit and still leave a tool tree outside every job (07 §2),
  * which `taskkill /T` can no longer reach through the exited parent.
  *
- * Identity guards (ADR-0011 J9; never act on a reused pid):
+ * Identity guards (ADR-0011 J9; never act on a reused pid). The spawned
+ * process's identity is awaited right before the first step that needs it;
+ * without one (the read failed) S1, `taskkill` and the sweep are skipped and
+ * only the handle is used.
+ *
  * - Nothing is done to the process once its exit was observed. While the
  *   exit is not observed, the child handle that Node (libuv) holds is still
  *   open, and Windows does not reuse the pid of a process while a handle to
@@ -29,9 +33,9 @@
  *   follows parent pids without checking start times and would kill that
  *   foreign process.
  * - Before `TerminateProcess`, a fresh snapshot that shows the pid with
- *   another start time skips the step. When no snapshot can be taken the
- *   step still runs: it acts through the child handle, which can only reach
- *   the spawned process.
+ *   another start time skips the step. When no snapshot can be taken, or
+ *   there is no identity to compare, the step still runs: it acts through
+ *   the child handle, which can only reach the spawned process.
  *
  * - The sweep acts only on S1 descendants of the spawned process whose pid
  *   and start time still match in a fresh snapshot, never on the host, leaf
@@ -55,12 +59,14 @@ import type {
   InterruptOutcome,
   LadderClock,
   LadderHooks,
+  LadderIdentity,
   LadderReport,
   LadderStep,
   LadderStepName,
   LadderSweepSummary,
   LadderTiming,
 } from './types.js';
+import { awaitIdentity, type AwaitedIdentity } from './identity.js';
 
 /**
  * The spawned child as the Windows ladder sees it.
@@ -68,8 +74,15 @@ import type {
  * @public
  */
 export interface WindowsLadderProcess {
-  /** The spawned pid and its start time in the canonical Windows unit (microseconds). */
-  readonly identity: ProcessIdentity;
+  /** The spawned pid. */
+  readonly pid: number;
+  /**
+   * The spawned pid and its start time in the canonical Windows unit
+   * (microseconds). Awaited right before the first step that needs it (S1,
+   * `taskkill`, the `TerminateProcess` check); without it (`null`) S1, the
+   * tree kill and the sweep are skipped and only the handle is used.
+   */
+  readonly identity: LadderIdentity;
   /**
    * True once the exit was observed (Node's `exit` event). Until then the
    * child handle is open and the pid cannot be reused.
@@ -138,8 +151,17 @@ function exitDetail(exitCode: number | null): string {
   return exitCode === null ? 'no-exit-code' : `exit-${String(exitCode)}`;
 }
 
-/** `absent`: the snapshot lacks the pid; `unverified`: no snapshot could be taken. */
+/**
+ * `absent`: the snapshot lacks the pid; `unverified`: no snapshot could be
+ * taken, or the spawned process has no verified identity to compare.
+ */
 type IdentityCheck = 'match' | 'changed' | 'absent' | 'foreign-child' | 'unverified';
+
+/** Snapshot S1 and the verified identity of the spawned process it is rooted at. */
+interface S1 {
+  readonly snapshot: ProcessSnapshot;
+  readonly root: ProcessIdentity;
+}
 
 /**
  * Runs the Windows ladder to its end and reports what it did. Never rejects
@@ -196,22 +218,31 @@ export async function runWindowsLadder<Intent extends string>(
     return observe();
   };
 
+  // Subscribed at once, so a rejected read is handled even when the ladder
+  // ends before it needs the identity.
+  const identityRead: Promise<AwaitedIdentity> = awaitIdentity(
+    proc.pid,
+    proc.identity,
+    proc.exited,
+  );
+
   /** Whether the snapshot still shows the spawned process (and no foreign child of its tree). */
   const checkIdentity = async (forTaskkill: boolean): Promise<IdentityCheck> => {
+    const awaited = await identityRead;
+    if (awaited.exited || awaited.identity === null) return 'unverified';
+    const spawned = awaited.identity;
     let snapshot: ProcessSnapshot;
     try {
       snapshot = await takeSnapshot(os.processTable);
     } catch {
       return 'unverified';
     }
-    if (findIdentity(snapshot.records, proc.identity) === null) {
-      return snapshot.records.some((record) => record.pid === proc.identity.pid)
-        ? 'changed'
-        : 'absent';
+    if (findIdentity(snapshot.records, spawned) === null) {
+      return snapshot.records.some((record) => record.pid === spawned.pid) ? 'changed' : 'absent';
     }
     if (forTaskkill) {
-      const tree = descendantsOf(snapshot.records, proc.identity);
-      const members = new Set([proc.identity.pid, ...tree.descendants.map((d) => d.pid)]);
+      const tree = descendantsOf(snapshot.records, spawned);
+      const members = new Set([spawned.pid, ...tree.descendants.map((d) => d.pid)]);
       const foreign = snapshot.records.some(
         (record) => members.has(record.ppid) && !members.has(record.pid),
       );
@@ -228,18 +259,28 @@ export async function runWindowsLadder<Intent extends string>(
     steps,
     exitedAfter,
     signalTarget: null,
-    launcherDetected: deps.initializePid !== null && deps.initializePid !== proc.identity.pid,
+    launcherDetected: deps.initializePid !== null && deps.initializePid !== proc.pid,
     sweep: sweepSummary,
   });
 
-  /** S1: the tree while the spawned process is alive, so its parent links are intact. */
-  const snapshotS1 = async (): Promise<ProcessSnapshot | null> => {
+  /**
+   * S1: the tree while the spawned process is alive, so its parent links are
+   * intact, rooted at its verified identity; skipped without one.
+   */
+  const snapshotS1 = async (): Promise<S1 | null> => {
     const at = clock.now();
+    const awaited = await identityRead;
+    if (awaited.exited) return null;
+    const root = awaited.identity;
+    if (root === null) {
+      record('snapshot-s1', at, 'skipped', 'no-identity');
+      return null;
+    }
     try {
       const snapshot = await takeSnapshot(os.processTable);
-      const count = descendantsOf(snapshot.records, proc.identity).descendants.length;
+      const count = descendantsOf(snapshot.records, root).descendants.length;
       record('snapshot-s1', at, 'done', `descendants-${String(count)}`);
-      return snapshot;
+      return { snapshot, root };
     } catch (error) {
       record('snapshot-s1', at, 'failed', errorDetail(error));
       return null;
@@ -251,8 +292,8 @@ export async function runWindowsLadder<Intent extends string>(
    * time match S1 in a fresh snapshot), leaf first, one `taskkill /F /PID`
    * each (no `/T`). The host is never touched.
    */
-  const sweep = async (s1: ProcessSnapshot): Promise<void> => {
-    const candidates = descendantsOf(s1.records, proc.identity).descendants.toReversed();
+  const sweep = async (s1: S1): Promise<void> => {
+    const candidates = descendantsOf(s1.snapshot.records, s1.root).descendants.toReversed();
     if (candidates.length === 0) return;
     let processesSignalled = 0;
     let skipped = 0;
@@ -296,7 +337,7 @@ export async function runWindowsLadder<Intent extends string>(
   };
 
   /** Ends the ladder: sweeps the S1 tree when the spawned process has exited. */
-  const finish = async (s1: ProcessSnapshot | null): Promise<LadderReport<Intent>> => {
+  const finish = async (s1: S1 | null): Promise<LadderReport<Intent>> => {
     if (observe() && s1 !== null) await sweep(s1);
     return report();
   };
@@ -388,13 +429,13 @@ export async function runWindowsLadder<Intent extends string>(
     record('taskkill', taskkillAt, 'skipped', 'exited');
     return finish(s1);
   }
-  if (proc.identity.pid === os.hostPid) {
+  if (proc.pid === os.hostPid) {
     record('taskkill', taskkillAt, 'skipped', 'protected');
   } else if (check !== 'match') {
     record('taskkill', taskkillAt, 'skipped', `identity-${check}`);
   } else {
     try {
-      const result = await os.terminate.taskkillTree(proc.identity.pid);
+      const result = await os.terminate.taskkillTree(proc.pid);
       if (result.exitCode === 0) record('taskkill', taskkillAt, 'done');
       else record('taskkill', taskkillAt, 'failed', exitDetail(result.exitCode));
     } catch (error) {

@@ -10,6 +10,7 @@ import {
   DEFAULT_LADDER_TIMING,
   type InterruptOutcome,
   type LadderHooks,
+  type LadderIdentity,
   type LadderReport,
   type LadderStep,
 } from '../../../src/process/ladder/types.js';
@@ -52,9 +53,38 @@ function removeRows(h: Harness, pids: (pid: number) => boolean): void {
   if (!(h.table.rows instanceof Error)) h.table.rows = h.table.rows.filter((r) => !pids(r.pid));
 }
 
-function harness(rows: readonly CimRow[] = [HOST_ROW, ROOT, KID]): Harness {
+/** How the spawned process's identity read settles. */
+type IdentityMode = 'read' | 'late' | 'null' | 'rejected' | 'other-pid' | 'never';
+
+/** The identity read of ROOT in `mode`; `late` settles at 1500 ms on the fake clock. */
+function identityRead(mode: IdentityMode, clock: FakeClock): LadderIdentity {
+  const identity = { pid: ROOT.pid, startTime: ROOT.start };
+  switch (mode) {
+    case 'read':
+      return Promise.resolve(identity);
+    case 'late':
+      return new Promise((resolve) => {
+        clock.schedule(1500, () => {
+          resolve(identity);
+        });
+      });
+    case 'null':
+      return Promise.resolve(null);
+    case 'rejected':
+      return Promise.reject(new Error('read failed'));
+    case 'other-pid':
+      return Promise.resolve({ pid: ROOT.pid + 1, startTime: ROOT.start });
+    case 'never':
+      return new Promise(() => undefined);
+  }
+}
+
+function harness(
+  rows: readonly CimRow[] = [HOST_ROW, ROOT, KID],
+  identity: IdentityMode = 'read',
+): Harness {
   const clock = new FakeClock();
-  const proc = fakeProcess(ROOT.pid, ROOT.start);
+  const proc = fakeProcess(ROOT.pid, ROOT.start, identityRead(identity, clock));
   const table: Harness['table'] = { rows };
   const cim = fakeCim(() => table.rows);
   const h: Harness = {
@@ -731,8 +761,12 @@ describe('runWindowsLadder property: no action after the exit', () => {
         fc.constantFrom<InterruptOutcome>('acknowledged', 'timeout', 'not-applicable'),
         fc.boolean(),
         fc.boolean(),
-        async (exitAt, withJob, interruptOutcome, killsWork, identityOk) => {
-          const h = harness([HOST_ROW, identityOk ? ROOT : { ...ROOT, start: '1' }, KID, GRANDKID]);
+        fc.constantFrom<IdentityMode>('read', 'late', 'null', 'rejected', 'other-pid'),
+        async (exitAt, withJob, interruptOutcome, killsWork, identityOk, identityMode) => {
+          const h = harness(
+            [HOST_ROW, identityOk ? ROOT : { ...ROOT, start: '1' }, KID, GRANDKID],
+            identityMode,
+          );
           h.clock.schedule(exitAt, () => {
             h.proc.exit();
           });
@@ -758,7 +792,8 @@ describe('runWindowsLadder property: no action after the exit', () => {
           // Every action on the spawned process happened while it was still running.
           for (const call of h.proc.calls) expect(call.endsWith(':false')).toBe(true);
           expect(report.steps[0]?.name).toBe('intent');
-          if (!identityOk) {
+          if (!identityOk || !['read', 'late'].includes(identityMode)) {
+            // No pid is acted on without a verified identity: no tree kill, no sweep.
             expect(h.taskkillPids).toEqual([]);
             expect(h.sweptPids).toEqual([]);
           }
@@ -772,5 +807,68 @@ describe('runWindowsLadder property: no action after the exit', () => {
       ),
       fcParams(300),
     );
+  });
+});
+
+describe('runWindowsLadder without a verified identity', () => {
+  it.each<IdentityMode>(['null', 'rejected', 'other-pid'])(
+    'with an identity read that is %s: no S1, no tree kill, no sweep; TerminateProcess through the handle',
+    async (mode) => {
+      const h = harness([HOST_ROW, ROOT, KID], mode);
+      const report = await run(h, null);
+      expect(summary(report)).toEqual([
+        'intent@0:done',
+        'interrupt@0:done:acknowledged',
+        'snapshot-s1@0:skipped:no-identity',
+        'eof@0:done',
+        'taskkill@2000:skipped:identity-unverified',
+        'terminate-process@2000:done',
+      ]);
+      expect(report.exitedAfter).toBe('terminate-process');
+      expect(report.sweep).toBeNull();
+      expect(h.cim.queries).toBe(0);
+      expect(h.taskkillPids).toEqual([]);
+      expect(h.proc.calls).toEqual(['closeStdin:false', 'terminate:false']);
+    },
+  );
+
+  it('with a job, ends through the job and needs no identity', async () => {
+    const h = harness([HOST_ROW, ROOT, KID], 'never');
+    const job = jobThatKills(h.proc);
+    const report = await run(h, job);
+    expect(report.exitedAfter).toBe('terminate-job');
+    expect(h.cim.queries).toBe(0);
+  });
+
+  it('waits for a late identity before S1, after the interrupt', async () => {
+    const h = harness([HOST_ROW, ROOT, KID], 'late');
+    exitAfterEof(h, 100);
+    const report = await run(h, null);
+    expect(summary(report)).toEqual([
+      'intent@0:done',
+      'interrupt@0:done:acknowledged',
+      'snapshot-s1@0:done:descendants-1',
+      'eof@1500:done',
+      'sweep@1600:done:pid-600',
+    ]);
+    expect(report.exitedAfter).toBe('eof');
+  });
+
+  it('ends without S1 when the process exits while its identity is awaited', async () => {
+    const h = harness([HOST_ROW, ROOT, KID], 'never');
+    h.clock.schedule(1500, () => {
+      h.proc.exit();
+    });
+    const report = await run(h, null);
+    expect(summary(report)).toEqual(['intent@0:done', 'interrupt@0:done:acknowledged']);
+    expect(report.exitedAfter).toBe('interrupt');
+    expect(report.sweep).toBeNull();
+    expect(h.cim.queries).toBe(0);
+  });
+
+  it('reports a launcher by the spawned pid', async () => {
+    const h = harness([HOST_ROW, ROOT, KID], 'never');
+    const job = jobThatKills(h.proc);
+    expect((await run(h, job, hooksWith(ack), ROOT.pid + 7)).launcherDetected).toBe(true);
   });
 });

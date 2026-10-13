@@ -82,6 +82,7 @@ const ENTRY_NAMES = {
   '@hudhud/core/process': [
     'ArgvError',
     'CwdValidationError',
+    'DARWIN_CHILD_SET_ENV_NAMES',
     'DEFAULT_LADDER_TIMING',
     'DEFAULT_MAX_INBOUND_FRAME_BYTES',
     'DEFAULT_TASKKILL_TIMEOUT_MS',

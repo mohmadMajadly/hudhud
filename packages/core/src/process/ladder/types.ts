@@ -6,6 +6,20 @@ import type { ProcessIdentity } from '../tree/types.js';
  */
 
 /**
+ * The identity of the spawned process as a ladder receives it: the identity
+ * read that `spawnHarnessProcess` started at the spawn (for example
+ * `handle.identity.then((read) => read.identity)`). `null`, a rejection or
+ * an identity with another pid all mean "no verified identity": the ladder
+ * then acts on the spawned process only through its handle or as the
+ * host's unreaped child, never through a snapshot, a tree kill or a sweep.
+ * Ladders await it only right before their first step that needs it, so
+ * the interrupt and EOF steps never wait for it.
+ *
+ * @public
+ */
+export type LadderIdentity = PromiseLike<ProcessIdentity | null>;
+
+/**
  * Ladder timing, injected (never read from ambient state). Each ladder uses
  * its own subset: POSIX `interruptWaitMs`, `eofGraceMs`, `termGraceMs`;
  * Windows `interruptWaitMs`, `eofGraceMs`, `taskkillGraceMs`.
@@ -103,7 +117,11 @@ export interface LadderReport<Intent extends string = string> {
   readonly steps: readonly LadderStep[];
   /** The step during or after which the process was observed to exit; `null` if it never exited. */
   readonly exitedAfter: LadderStepName | null;
-  /** POSIX: the K1 signal target; `null` on Windows or when no signal was needed. */
+  /**
+   * POSIX: the K1 signal target; `null` on Windows, when no signal was
+   * needed, or when the spawned process had no verified identity (the
+   * signals then went to the spawned pid only).
+   */
   readonly signalTarget: ProcessIdentity | null;
   /** `initialize.pid` differed from the spawned pid. */
   readonly launcherDetected: boolean;

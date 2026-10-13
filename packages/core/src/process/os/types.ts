@@ -58,15 +58,15 @@ export interface DarwinPsTableCalls {
  * @remarks
  * Contract of `queryProcesses`: run
  * `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -Command <script>`
- * with `shell: false`, where the script sets
- * `[Console]::OutputEncoding = [Text.Encoding]::UTF8` and writes
- * `ConvertTo-Json -Compress -InputObject @(...)` of one object per process:
- * `p` = `ProcessId` (number), `pp` = `ParentProcessId` (number), `t` =
- * `CreationDate.ToFileTimeUtc()` as a decimal string (FILETIME, 100 ns
- * units; a JSON number would lose precision; the parser truncates it to the
- * canonical microseconds, see `tree/start-time.ts`) or `''` when absent, `n` =
- * `Name` (string or null). JSON escapes control characters, so a hostile
- * name cannot forge a record. Resolves with stdout as bytes.
+ * with `shell: false`, where the script queries
+ * `SELECT ProcessId, ParentProcessId, CreationDate, Name FROM Win32_Process`
+ * and writes, as UTF-8 without a byte order mark, one JSON array of one
+ * object per process: `p` = `ProcessId` (number), `pp` = `ParentProcessId`
+ * (number), `t` = the creation time as a FILETIME decimal string (100 ns
+ * units, UTC; a JSON number would lose precision; the parser truncates it to
+ * the canonical microseconds, see `tree/start-time.ts`) or `''` when absent,
+ * `n` = `Name` (string or null). JSON escapes control characters, so a
+ * hostile name cannot forge a record. Resolves with stdout as bytes.
  *
  * @public
  */
