@@ -66,6 +66,9 @@ export class BinaryVerificationError extends HudhudError {
 }
 
 // @public
+export function buildPosture(entries: readonly PostureEntryInput[]): SecurityPosture;
+
+// @public
 export type Capability = 'supported' | 'emulated' | 'unsupported';
 
 // @public
@@ -418,6 +421,32 @@ export class OversizedFrameError extends ProtocolError {
 }
 
 // @public
+export function parsePosture(text: string): ParsePostureResult;
+
+// @public
+export type ParsePostureResult = {
+    readonly ok: true;
+    readonly posture: SecurityPosture;
+} | {
+    readonly ok: false;
+    readonly reason: 'not-json' | 'too-deep' | 'schema' | 'invalid-entry' | 'deviates-mismatch';
+    readonly index?: number;
+};
+
+// @public
+export function postureDeviations(posture: SecurityPosture): readonly SecurityPostureEntry[];
+
+// @public
+export function postureEntry(posture: SecurityPosture, setting: string): SecurityPostureEntry | undefined;
+
+// @public
+export interface PostureEntryInput {
+    readonly defaultValue: JsonValue;
+    readonly setting: string;
+    readonly value: JsonValue;
+}
+
+// @public
 export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
 
 // @public
@@ -499,6 +528,9 @@ export interface SecurityPostureEntry {
     // (undocumented)
     readonly value: JsonValue;
 }
+
+// @public
+export function serializePosture(posture: SecurityPosture): string;
 
 // @public
 export class SessionClosedError extends HudhudError {

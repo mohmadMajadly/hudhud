@@ -4,6 +4,46 @@
 
 ```ts
 
+import { ChildProcessByStdio } from 'node:child_process';
+import type { Readable } from 'node:stream';
+
+// @public
+export interface AfterExitDeps {
+    // (undocumented)
+    readonly os: OsCalls;
+    readonly signalTarget?: ProcessIdentity;
+}
+
+// @public
+export interface AfterExitKill {
+    // (undocumented)
+    readonly outcome: 'done' | 'failed' | 'skipped-exited' | 'skipped-identity-changed' | 'skipped-protected';
+    // (undocumented)
+    readonly pid: number;
+}
+
+// @public
+export type AfterExitSkipReason =
+/** No EOF snapshot (no identity, root gone, table unreadable). */
+'no-snapshot'
+/** The snapshot recorded no descendant. */
+| 'no-descendants'
+/** The fresh table could not be read. */
+| 'table-failed'
+/** The spawned process is still running. */
+| 'root-alive';
+
+// @public
+export type AfterExitSweepReport = {
+    readonly status: 'skipped';
+    readonly reason: AfterExitSkipReason;
+} | {
+    readonly status: 'done';
+    readonly summary: LadderSweepSummary;
+    readonly posix?: SweepResult;
+    readonly win32?: readonly AfterExitKill[];
+};
+
 // @public
 export class ArgvError extends Error {
     constructor(reason: ArgvProblem, message: string, where?: {
@@ -27,19 +67,140 @@ export type ArgvProblem = 'invalid-name' | 'nul' | 'ill-formed' | 'reserved-flag
 export function assertNoReservedFlags(args: readonly string[], reserved: readonly string[]): void;
 
 // @public
+export function assertSpawnable(binary: VerifiedBinary, fs?: IdentityFs): Promise<void>;
+
+// @public
+export function assertSpawnableOrReverify(binary: VerifiedBinary, reverify: () => Promise<VerifiedBinary>, fs?: IdentityFs): Promise<SpawnableBinary>;
+
+// @public
+export class BinaryChangedError extends Error {
+    constructor(filePath: string, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly code = "BINARY_CHANGED";
+    // (undocumented)
+    readonly name = "BinaryChangedError";
+    // (undocumented)
+    readonly path: string;
+}
+
+// @public
+export interface BinaryIdentity {
+    readonly fileId: string;
+    // (undocumented)
+    readonly mtimeMs: number;
+    // (undocumented)
+    readonly size: number;
+}
+
+// @public
+export class BinaryNotVerifiedError extends Error {
+    constructor(binary: VerifiedBinary, options?: {
+        readonly cause?: unknown;
+    });
+    // (undocumented)
+    readonly code = "BINARY_VERIFICATION_FAILED";
+    // (undocumented)
+    readonly name = "BinaryNotVerifiedError";
+    // (undocumented)
+    readonly path: string;
+    // (undocumented)
+    readonly verification: BinaryVerification;
+}
+
+// @public
+export interface BinaryVerification {
+    readonly detail?: string;
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+    // (undocumented)
+    readonly mode: VerificationMode;
+    // (undocumented)
+    readonly status: 'verified' | 'unverified' | 'failed';
+}
+
+// @public
+export interface BoundedCommand {
+    // (undocumented)
+    readonly args: readonly string[];
+    readonly cwd: string;
+    readonly env: Readonly<Record<string, string>>;
+    readonly file: string;
+    readonly maxStdoutBytes: number;
+    readonly platform: ProcessPlatform;
+    readonly timeoutMs: number;
+}
+
+// @public
+export type BoundedSpawn = (file: string, args: readonly string[], options: {
+    readonly shell: false;
+    readonly windowsHide: true;
+    readonly windowsVerbatimArguments: false;
+    readonly detached: false;
+    readonly cwd: string;
+    readonly env: Record<string, string>;
+    readonly stdio: readonly ['ignore', 'pipe', 'ignore'];
+}) => ChildProcessByStdio<null, Readable, null>;
+
+// @public
 export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProblem | undefined;
 
 // @public
 export function checkExecutablePath(value: string, platform: ProcessPlatform): ExecutableRefusal | undefined;
 
 // @public
+export function checkKnownDigests(digests: readonly KnownDigest[]): void;
+
+// @public
+export function checkOsSignature(binaryPath: string, deps: SignatureDeps): Promise<OsSignatureResult>;
+
+// @public
 export function childEnv(env: Readonly<Record<string, string>>, platform: ProcessPlatform): Record<string, string>;
+
+// @public
+export type CommandOutcome = {
+    readonly kind: 'exited';
+    readonly exitCode: number | null;
+    readonly signal: NodeJS.Signals | null;
+    readonly stdout: string;
+} | {
+    readonly kind: 'spawn-error';
+    readonly errno: string | undefined;
+} | {
+    readonly kind: 'timeout';
+} | {
+    readonly kind: 'output-too-large';
+};
 
 // @public
 export function compareStartTime(a: string, b: string): number;
 
 // @public
+export interface ContainedProcess {
+    readonly exited: Promise<unknown>;
+    readonly exitStatus: object | null;
+    // (undocumented)
+    readonly pid: number;
+}
+
+// @public
+export interface ContainmentFallbackDiagnostic {
+    // (undocumented)
+    readonly code: 'containment.fallback';
+    // (undocumented)
+    readonly data: {
+        readonly step: 'create-job' | 'assign-process' | 'exited';
+        readonly code: string;
+    };
+    // (undocumented)
+    readonly message: string;
+}
+
+// @public
 export function createFramer(options: FramerOptions): Framer;
+
+// @public
+export function createSessionContainment(load: JobAddonLoad, fallbackStartTime: StartTimeReader): SessionContainment;
 
 // @public
 export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls;
@@ -90,7 +251,16 @@ export const DEFAULT_LADDER_TIMING: LadderTiming;
 export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number;
 
 // @public
+export const DEFAULT_SIGNATURE_TIMEOUT_MS = 60000;
+
+// @public
 export const DEFAULT_TASKKILL_TIMEOUT_MS = 10000;
+
+// @public
+export const DEFAULT_VERSION_PROBE_MAX_BYTES = 4096;
+
+// @public
+export const DEFAULT_VERSION_PROBE_TIMEOUT_MS = 15000;
 
 // @public
 export interface DescendantSnapshot extends DescendantTree {
@@ -107,6 +277,14 @@ export interface DescendantTree {
     readonly descendants: readonly ProcessRecord[];
     // (undocumented)
     readonly root: ProcessRecord | null;
+}
+
+// @public
+export interface EofSnapshot {
+    // (undocumented)
+    readonly root: ProcessIdentity;
+    // (undocumented)
+    readonly snapshot: ProcessSnapshot;
 }
 
 // @public
@@ -233,7 +411,18 @@ export interface HarnessProcess {
 }
 
 // @public
+export function hostJobAddonDeps(): JobAddonDeps;
+
+// @public
 export function hostPlatform(nodePlatform?: NodeJS.Platform): ProcessPlatform;
+
+// @public
+export interface IdentityFs {
+    // (undocumented)
+    realpath(path: string): Promise<string>;
+    // (undocumented)
+    stat(path: string): Promise<FileIdentity>;
+}
 
 // @public
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
@@ -257,8 +446,98 @@ export function isCanonicalStartTime(value: string): boolean;
 export function isFlagName(name: string): boolean;
 
 // @public
+export const JOB_TERMINATE_EXIT_CODE = 0;
+
+// @public
+export interface JobAddon {
+    createJob(): JobObject;
+    readonly file: string;
+    processTimes(pid: number): ProcessIdentity;
+    readonly version: string;
+}
+
+// @public
+export interface JobAddonDeps {
+    // (undocumented)
+    readonly arch: string;
+    readonly digests: JobAddonDigests;
+    readonly dlopen: (module: JobAddonModuleObject, file: string) => void;
+    // (undocumented)
+    readonly platform: NodeJS.Platform;
+    readonly readFile: (file: string) => Uint8Array;
+    readonly requireResolve: (specifier: string) => string;
+}
+
+// @public
+export interface JobAddonDigests {
+    readonly version?: string;
+    readonly x64?: string;
+}
+
+// @public
+export class JobAddonError extends Error {
+    constructor(code: string, api: string, options?: {
+        readonly cause?: unknown;
+    });
+    readonly api: string;
+    // (undocumented)
+    readonly code: string;
+    // (undocumented)
+    readonly name = "JobAddonError";
+}
+
+// @public
+export type JobAddonLoad = {
+    readonly status: 'loaded';
+    readonly addon: JobAddon;
+} | {
+    readonly status: 'unavailable';
+    readonly reason: JobAddonUnavailableReason;
+    readonly detail: string;
+};
+
+// @public
+export interface JobAddonModuleObject {
+    // (undocumented)
+    exports: unknown;
+}
+
+// @public
+export type JobAddonUnavailableReason = 'not-windows' | 'arm64-not-first-class' | 'unsupported-arch' | 'package-missing' | 'digest-mismatch' | 'dlopen-failed' | 'abi-mismatch';
+
+// @public
+export type JobContainment = 'job' | 'best-effort';
+
+// @public
+export interface JobContainmentCapability {
+    // (undocumented)
+    readonly processContainment: JobContainment;
+    readonly reasons: Readonly<Record<string, string>>;
+}
+
+// @public
+export function jobContainmentCapability(load: JobAddonLoad): JobContainmentCapability;
+
+// @public
 export interface JobHandle {
     terminate(): void;
+}
+
+// @public
+export interface JobObject extends JobHandle {
+    assign(pid: number): string;
+    close(): void;
+    readonly closed: boolean;
+    listPids(): readonly number[];
+    terminate(): void;
+}
+
+// @public
+export interface KnownDigest {
+    readonly sha256: string;
+    readonly size?: number;
+    // (undocumented)
+    readonly version: string;
 }
 
 // @public
@@ -329,6 +608,12 @@ export interface LinuxProcTableCalls {
 }
 
 // @public
+export function loadHostJobAddon(): JobAddonLoad;
+
+// @public
+export function loadJobAddon(deps: JobAddonDeps): JobAddonLoad;
+
+// @public
 export const maxFramerLineBytes = 536870888;
 
 // @public
@@ -363,6 +648,19 @@ export type OsCalls = {
 
 // @public
 export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls;
+
+// @public
+export type OsSignatureResult = {
+    readonly kind: 'valid';
+    readonly detail: string;
+    readonly signer?: string;
+} | {
+    readonly kind: 'invalid';
+    readonly detail: string;
+    readonly signer?: string;
+} | {
+    readonly kind: 'unsupported';
+};
 
 // @public
 export interface ParsedProcessTable {
@@ -426,6 +724,12 @@ export interface PosixSignalCalls {
     signalGroup(pgid: number, signal: PosixSignal): SignalOutcome;
     // (undocumented)
     signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
+}
+
+// @public
+export interface ProbeWorkDir {
+    create(): Promise<string>;
+    remove(dir: string): Promise<void>;
 }
 
 // @public
@@ -503,6 +807,14 @@ export function processTableStartTime(table: ProcessTableCalls): StartTimeReader
 export type PsDialect = 'bsd' | 'procps';
 
 // @public
+export interface PublisherPin {
+    readonly windowsSubject?: string;
+}
+
+// @public
+export function recheckBinary(binary: VerifiedBinary, fs?: IdentityFs): Promise<void>;
+
+// @public
 export interface ResolvedExecutable {
     readonly mtimeMs: number;
     readonly path: string;
@@ -526,7 +838,13 @@ export function resolveTaskkillPath(deps: Pick<TaskkillDeps, 'env' | 'fs'>): Pro
 }>;
 
 // @public
+export function runBoundedCommand(command: BoundedCommand, spawnFn?: BoundedSpawn): Promise<CommandOutcome>;
+
+// @public
 export function runPosixLadder<Intent extends string>(proc: PosixLadderProcess, hooks: LadderHooks, timing: LadderTiming, deps: PosixLadderDeps<Intent>): Promise<LadderReport<Intent>>;
+
+// @public
+export function runVersionProbe(binary: VerifiedBinary, options: VersionProbeOptions): Promise<string>;
 
 // @public
 export function runWindowsLadder<Intent extends string>(proc: WindowsLadderProcess, hooks: LadderHooks, timing: LadderTiming, job: JobHandle | null, deps: WindowsLadderDeps<Intent>): Promise<LadderReport<Intent>>;
@@ -536,6 +854,23 @@ export function safeSearchPathEntries(value: string | undefined, platform: Proce
 
 // @public
 export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean;
+
+// @public
+export interface SessionContainment {
+    attach(proc: ContainedProcess): SessionContainmentResult;
+    readonly startTime: StartTimeReader;
+}
+
+// @public
+export interface SessionContainmentResult {
+    readonly containment: JobContainment;
+    readonly diagnostics: readonly ContainmentFallbackDiagnostic[];
+    readonly job: JobHandle | null;
+    readonly released: Promise<'closed' | 'close-failed' | 'no-job'>;
+}
+
+// @public
+export function settleProbedVersion(binary: VerifiedBinary, version: string, digests: readonly KnownDigest[]): VerifiedBinary;
 
 // @public
 export function sha256File(filePath: string, options?: Sha256FileOptions): Promise<FileDigest>;
@@ -557,6 +892,38 @@ export interface SignalTargetDecision {
 }
 
 // @public
+export interface SignatureDeps {
+    // (undocumented)
+    readonly fs: SignatureFs;
+    readonly hostEnv: Readonly<Record<string, string | undefined>>;
+    // (undocumented)
+    readonly platform: SignaturePlatform;
+    readonly publisher?: PublisherPin;
+    readonly run: (command: BoundedCommand) => Promise<CommandOutcome>;
+    readonly timeoutMs?: number;
+}
+
+// @public
+export interface SignatureFs {
+    // (undocumented)
+    lstat(path: string): Promise<{
+        isFile(): boolean;
+        isSymbolicLink(): boolean;
+    }>;
+    // (undocumented)
+    realpath(path: string): Promise<string>;
+}
+
+// @public
+export type SignaturePlatform = 'win32' | 'darwin' | 'other';
+
+// @public
+export function signaturePlatformOf(platform: NodeJS.Platform): SignaturePlatform;
+
+// @public
+export function snapshotAtEof(pid: number, identity: LadderIdentity, os: Pick<OsCalls, 'processTable'>): Promise<EofSnapshot | null>;
+
+// @public
 export interface SnapshotDeps {
     // (undocumented)
     readonly processTable: ProcessTableCalls;
@@ -564,6 +931,13 @@ export interface SnapshotDeps {
 
 // @public
 export function snapshotDescendants(root: ProcessIdentity, deps: SnapshotDeps): Promise<DescendantSnapshot>;
+
+// @public
+export interface SpawnableBinary {
+    // (undocumented)
+    readonly binary: VerifiedBinary;
+    readonly reverified: boolean;
+}
 
 // @public
 export type SpawnFailureCause = 'enoent' | 'eacces' | 'eperm' | 'unknown';
@@ -624,6 +998,9 @@ export interface StderrTailOptions {
 
 // @public
 export function sweep(request: SweepRequest, deps: SweepDeps): Promise<SweepResult>;
+
+// @public
+export function sweepAfterExit(eof: EofSnapshot | null, deps: AfterExitDeps): Promise<AfterExitSweepReport>;
 
 // @public
 export interface SweepDeps {
@@ -791,16 +1168,96 @@ export class TaskkillUnavailableError extends Error {
 }
 
 // @public
+export const tempProbeWorkDir: ProbeWorkDir;
+
+// @public
 export const TRUNCATED = "<truncated>";
 
 // @public
 export function validateCwd(cwd: string, platform: ProcessPlatform, fs?: CwdFs): Promise<string>;
 
 // @public
+export class VerificationCache {
+    clear(): void;
+    // @internal (undocumented)
+    delete(key: string): void;
+    // @internal (undocumented)
+    get(key: string): VerifiedBinary | undefined;
+    // @internal (undocumented)
+    set(key: string, value: VerifiedBinary): void;
+    get size(): number;
+}
+
+// @public
+export type VerificationMode = 'advisory' | 'strict';
+
+// @public
+export interface VerifiedBinary extends BinaryIdentity {
+    readonly matchedVersion?: string;
+    readonly path: string;
+    readonly sha256?: string;
+    // (undocumented)
+    readonly verification: BinaryVerification;
+}
+
+// @public
+export function verifyBinary(binary: ResolvedExecutable, options: VerifyBinaryOptions): Promise<VerifiedBinary>;
+
+// @public
+export interface VerifyBinaryOptions {
+    // (undocumented)
+    readonly cache?: VerificationCache;
+    readonly deps?: {
+        readonly hash?: (path: string) => Promise<FileDigest>;
+        readonly fs?: IdentityFs;
+        readonly signature?: Partial<Pick<SignatureDeps, 'fs' | 'run' | 'timeoutMs'>>;
+    };
+    readonly digests: readonly KnownDigest[];
+    readonly hostEnv?: Readonly<Record<string, string | undefined>>;
+    // (undocumented)
+    readonly mode: VerificationMode;
+    readonly platform?: SignaturePlatform;
+    readonly publisher?: PublisherPin;
+}
+
+// @public
+export class VersionProbeError extends Error {
+    constructor(reason: VersionProbeFailure, subject?: string);
+    // (undocumented)
+    readonly code = "BINARY_PROBE_FAILED";
+    // (undocumented)
+    readonly name = "VersionProbeError";
+    // (undocumented)
+    readonly reason: VersionProbeFailure;
+    readonly subject: string | undefined;
+}
+
+// @public
+export type VersionProbeFailure = 'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code';
+
+// @public
+export interface VersionProbeOptions {
+    readonly args: readonly string[];
+    readonly deps?: {
+        readonly fs?: IdentityFs;
+        readonly run?: (command: BoundedCommand) => Promise<CommandOutcome>;
+        readonly workDir?: ProbeWorkDir;
+    };
+    readonly env: Readonly<Record<string, string>>;
+    readonly maxStdoutBytes?: number;
+    // (undocumented)
+    readonly platform: ProcessPlatform;
+    readonly timeoutMs?: number;
+}
+
+// @public
 export const WIN32_CWD_MAX_LENGTH = 258;
 
 // @public
 export const WIN32_DEFAULT_SYSTEM_ROOT = "C:\\Windows";
+
+// @public
+export const WIN32_JOB_ADDON_SPECIFIER = "@hudhud/win32-job-x64/hudhud_win32_job.node";
 
 // @public
 export const WIN32_REQUIRED_ENV_NAMES: readonly string[];

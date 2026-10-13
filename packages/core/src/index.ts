@@ -90,6 +90,15 @@ export {
   SubscriberOverflowError,
 } from './binding/errors.js';
 
+export type { ParsePostureResult, PostureEntryInput } from './security/posture.js';
+export {
+  buildPosture,
+  parsePosture,
+  postureDeviations,
+  postureEntry,
+  serializePosture,
+} from './security/posture.js';
+
 export type { OverflowPolicy } from './binding/queue.js';
 export type { SubscriberOptions } from './binding/fanout.js';
 

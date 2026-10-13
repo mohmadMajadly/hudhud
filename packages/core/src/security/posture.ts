@@ -25,11 +25,15 @@ import { isJsonObject, isJsonValue, nestingExceeds, type JsonValue } from '../pr
 
 /**
  * One setting as an adapter lists it; {@link buildPosture} adds `deviates`.
+ *
+ * @public
  */
 export interface PostureEntryInput {
   /** Dotted option path or a fixed name, for example `claudeCode.bare`. */
   readonly setting: string;
+  /** The effective value: kinds and names, never secrets, environment values or paths. */
   readonly value: JsonValue;
+  /** The value hudhud uses when the application sets nothing. */
   readonly defaultValue: JsonValue;
 }
 
@@ -124,6 +128,8 @@ function build(entries: readonly PostureEntryInput[]): BuildResult {
  *
  * @throws `TypeError` for an empty or duplicate `setting` or a value that is
  *   not JSON (an adapter bug, not a user error)
+ *
+ * @public
  */
 export function buildPosture(entries: readonly PostureEntryInput[]): SecurityPosture {
   const result = build(entries);
@@ -131,12 +137,20 @@ export function buildPosture(entries: readonly PostureEntryInput[]): SecurityPos
   throw new TypeError(`security posture entry ${String(result.index)} ${result.problem}`);
 }
 
-/** The entries that deviate from their default, in posture order. */
+/**
+ * The entries that deviate from their default, in posture order.
+ *
+ * @public
+ */
 export function postureDeviations(posture: SecurityPosture): readonly SecurityPostureEntry[] {
   return posture.entries.filter((entry) => entry.deviates);
 }
 
-/** The entry of `setting`, if listed. */
+/**
+ * The entry of `setting`, if listed.
+ *
+ * @public
+ */
 export function postureEntry(
   posture: SecurityPosture,
   setting: string,
@@ -144,7 +158,11 @@ export function postureEntry(
   return posture.entries.find((entry) => entry.setting === setting);
 }
 
-/** JSON text of a posture: `{"entries":[{setting,value,defaultValue,deviates}...]}`. */
+/**
+ * JSON text of a posture: `{"entries":[{setting,value,defaultValue,deviates}...]}`.
+ *
+ * @public
+ */
 export function serializePosture(posture: SecurityPosture): string {
   return JSON.stringify({
     entries: posture.entries.map(({ setting, value, defaultValue, deviates }) => ({
@@ -156,7 +174,11 @@ export function serializePosture(posture: SecurityPosture): string {
   });
 }
 
-/** Result of {@link parsePosture}. */
+/**
+ * Result of {@link parsePosture}.
+ *
+ * @public
+ */
 export type ParsePostureResult =
   | { readonly ok: true; readonly posture: SecurityPosture }
   | {
@@ -174,6 +196,8 @@ export type ParsePostureResult =
  * {@link buildPosture}, and every `deviates` flag must equal the recomputed
  * one: a posture claiming that a non-default value is the default is
  * refused. Unknown members are dropped.
+ *
+ * @public
  */
 export function parsePosture(text: string): ParsePostureResult {
   // Two containers for the posture and its entries array, one per entry, then the values.
