@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,12 +9,15 @@ import { FAKE_API_KEY } from '../../src/launcher/env.js';
 import { SandboxRefusedError } from '../../src/launcher/errors.js';
 import {
   assertSocketRoom,
+  checkTestRoot,
   createSandbox,
+  DARWIN_TEST_TEMP_BASE,
   launchArgv,
   MAX_SOCKET_PATH_BYTES,
   realHomes,
   resolveTestRoot,
   STREAM_ARGS,
+  testTempBase,
   worstCaseSocketPath,
 } from '../../src/launcher/sandbox.js';
 import type { Sandbox } from '../../src/launcher/sandbox.js';
@@ -36,7 +39,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'hudhud-sandbox-'));
+  root = await mkdtemp(path.join(testTempBase(process.platform, tmpdir()), 'hudhud-sandbox-'));
 });
 
 afterEach(async () => {
@@ -54,9 +57,58 @@ async function refusal(promise: Promise<unknown>): Promise<SandboxRefusedError> 
 
 describe('resolveTestRoot', () => {
   it('prefers HUDHUD_TEST_ROOT, then RUNNER_TEMP, then the temp directory', () => {
-    expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '/a', RUNNER_TEMP: '/b' }, '/c')).toBe('/a');
-    expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '', RUNNER_TEMP: '/b' }, '/c')).toBe('/b');
-    expect(resolveTestRoot({}, '/c')).toBe('/c');
+    for (const platform of ['linux', 'win32'] as const) {
+      expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '/a', RUNNER_TEMP: '/b' }, '/c', platform)).toBe(
+        '/a',
+      );
+      expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '', RUNNER_TEMP: '/b' }, '/c', platform)).toBe(
+        '/b',
+      );
+      expect(resolveTestRoot({}, '/c', platform)).toBe('/c');
+    }
+  });
+
+  it('on macOS prefers HUDHUD_TEST_ROOT, then /private/tmp: never RUNNER_TEMP or $TMPDIR', () => {
+    const tmpdirOfMacos = '/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T';
+    const ci = { RUNNER_TEMP: '/Users/runner/work/_temp' };
+    expect(resolveTestRoot({ ...ci, HUDHUD_TEST_ROOT: '/a' }, tmpdirOfMacos, 'darwin')).toBe('/a');
+    expect(resolveTestRoot({ ...ci, HUDHUD_TEST_ROOT: '' }, tmpdirOfMacos, 'darwin')).toBe(
+      '/private/tmp',
+    );
+    expect(resolveTestRoot({}, tmpdirOfMacos, 'darwin')).toBe(DARWIN_TEST_TEMP_BASE);
+    expect(resolveTestRoot({}, tmpdir())).toBe(testTempBase(process.platform, tmpdir()));
+  });
+});
+
+describe('testTempBase', () => {
+  it('is /private/tmp on macOS, the temp directory elsewhere', () => {
+    expect(testTempBase('darwin', '/var/folders/x/T')).toBe('/private/tmp');
+    expect(testTempBase('linux', '/tmp')).toBe('/tmp');
+    expect(testTempBase('win32', 'C:\\T')).toBe('C:\\T');
+  });
+
+  it('leaves room for the CLI socket below two macOS test directories, where $TMPDIR does not', () => {
+    // A test directory (mkdtemp), the run directory (mkdtemp) and its tmp,
+    // with the longest names the tests use: the failing macOS CI paths.
+    const below = (base: string): string =>
+      path.posix.join(base, 'hudhud-recorder-XXXXXX', 'hudhud-launch-XXXXXX', 'tmp');
+    const macosTmpdir = '/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T';
+    expect(() => {
+      assertSocketRoom('darwin', below(macosTmpdir));
+    }).toThrow(/fall back to \/tmp/);
+    expect(() => {
+      assertSocketRoom('darwin', below(testTempBase('darwin', macosTmpdir)));
+    }).not.toThrow();
+  });
+});
+
+describe('checkTestRoot', () => {
+  it('uses the real path on macOS and the resolved path as given elsewhere', () => {
+    const real = realpathSync.native(root);
+    expect(checkTestRoot(root, 'darwin')).toBe(real);
+    const dotted = path.join(root, '.');
+    expect(checkTestRoot(dotted, 'linux')).toBe(path.resolve(dotted));
+    expect(checkTestRoot(dotted, 'win32')).toBe(path.resolve(dotted));
   });
 });
 
@@ -150,7 +202,7 @@ describe('createSandbox refusals', () => {
   });
 
   it('refuses, with the real policy, a default test root that lies under the real home', async () => {
-    const tmp = path.resolve(resolveTestRoot(process.env, tmpdir()));
+    const tmp = path.resolve(resolveTestRoot(process.env, tmpdir(), process.platform));
     const home = path.resolve(os.homedir());
     const underHome = tmp.toLowerCase().startsWith(home.toLowerCase() + path.sep);
     const attempt = createSandbox({ cli: fake.cli, mock: MOCK });

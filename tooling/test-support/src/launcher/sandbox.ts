@@ -4,8 +4,9 @@
  *
  * @remarks
  * {@link createSandbox} makes a fresh run directory under the test root
- * (`HUDHUD_TEST_ROOT`, else `RUNNER_TEMP`, else the OS temp directory) after
- * refusing any root with a forbidden ancestor (`ancestors.ts`), and creates
+ * (`HUDHUD_TEST_ROOT`, else `RUNNER_TEMP`, else the OS temp directory; on
+ * macOS `HUDHUD_TEST_ROOT`, else `/private/tmp`, see {@link testTempBase})
+ * after refusing any root with a forbidden ancestor (`ancestors.ts`), and creates
  * the redirected config, home, app-data, temp and work directories. Each
  * {@link Sandbox.launch} re-checks the verified pinned binary and spawns it
  * with `shell: false`, the explicit environment of `env.ts` and the standard
@@ -64,19 +65,41 @@ const SETTING_SOURCES = /^(?:(?:user|project|local)(?:,(?:user|project|local))*)
 const PERMISSION_MODE = /^[A-Za-z]{1,32}$/;
 const RESERVED_FLAGS = ['--setting-sources', '--permission-mode'];
 
+/** The short, native temp directory macOS tests use instead of `$TMPDIR` (see {@link testTempBase}). */
+export const DARWIN_TEST_TEMP_BASE = '/private/tmp';
+
+/**
+ * Where tests make their temp directories that sandboxes live in: `tmpdir`,
+ * except on macOS, where it is {@link DARWIN_TEST_TEMP_BASE}. The macOS
+ * `$TMPDIR` (`/var/folders/<2>/<30>/T/`, about 49 bytes) leaves too little
+ * of the 103-byte socket path for a run directory below a test directory, so
+ * the CLI would put its socket in `/tmp` (05 §13, macOS gate item 5);
+ * `/private/tmp` is the real path of `/tmp` (gate item 6: no symlink in the
+ * paths the CLI sees), a native file system outside the home, and
+ * `mkdtemp` makes each directory in it private (mode 0700).
+ */
+export function testTempBase(platform: NodeJS.Platform, tmpdir: string): string {
+  return platform === 'darwin' ? DARWIN_TEST_TEMP_BASE : tmpdir;
+}
+
 /**
  * The test root: `HUDHUD_TEST_ROOT`, else `RUNNER_TEMP` (CI), else
- * `tmpdir` (plan §4.4).
+ * `tmpdir` (plan §4.4). On macOS `HUDHUD_TEST_ROOT`, else
+ * {@link DARWIN_TEST_TEMP_BASE}: `RUNNER_TEMP` lies under the runner's home
+ * there (`/Users/runner/work/_temp`, refused by the forbidden-ancestor
+ * rule) and `$TMPDIR` is too long for the CLI socket (see {@link testTempBase}).
  */
 export function resolveTestRoot(
   env: Readonly<Record<string, string | undefined>>,
   tmpdir: string,
+  platform: NodeJS.Platform = process.platform,
 ): string {
-  for (const name of ['HUDHUD_TEST_ROOT', 'RUNNER_TEMP']) {
+  const names = platform === 'darwin' ? ['HUDHUD_TEST_ROOT'] : ['HUDHUD_TEST_ROOT', 'RUNNER_TEMP'];
+  for (const name of names) {
     const value = env[name];
     if (value !== undefined && value !== '') return value;
   }
-  return tmpdir;
+  return testTempBase(platform, tmpdir);
 }
 
 /** Every path of the real user's home: the environment's and the account database's. */
@@ -179,7 +202,16 @@ export interface Sandbox {
   dispose(): Promise<void>;
 }
 
-function checkTestRoot(root: string): string {
+/**
+ * Validates the test root and returns the path the sandbox uses: on macOS
+ * its real path (`/tmp` is `/private/tmp`, and the CLI must see the same
+ * paths hudhud passes, gate item 6); elsewhere the resolved path as given (a
+ * Windows `subst` drive must stay a drive: its real path can lie under the
+ * home, 05 §13.1).
+ *
+ * @throws SandboxRefusedError `test-root` for a relative or missing root.
+ */
+export function checkTestRoot(root: string, platform: NodeJS.Platform): string {
   if (!path.isAbsolute(root)) {
     throw new SandboxRefusedError('test-root', `test root ${root} is not absolute`);
   }
@@ -192,7 +224,7 @@ function checkTestRoot(root: string): string {
   if (!isDirectory) {
     throw new SandboxRefusedError('test-root', `test root ${root} is not an existing directory`);
   }
-  return path.resolve(root);
+  return platform === 'darwin' ? realpathSync.native(root) : path.resolve(root);
 }
 
 /** The full argv of a launch: caller args, stream flags, setting sources, permission mode. */
@@ -235,7 +267,10 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
     homes: realHomes(hostEnv, () => os.userInfo().homedir),
     probe: fsProbe,
   };
-  const testRoot = checkTestRoot(options.testRoot ?? resolveTestRoot(hostEnv, os.tmpdir()));
+  const testRoot = checkTestRoot(
+    options.testRoot ?? resolveTestRoot(hostEnv, os.tmpdir(), platform),
+    platform,
+  );
   assertNoForbiddenAncestors({ dir: testRoot, platform, ...policy });
   const name = options.name ?? 'run';
   if (!/^[A-Za-z0-9-]{1,32}$/.test(name)) {

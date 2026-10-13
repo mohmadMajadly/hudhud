@@ -8,17 +8,26 @@
  * core snapshots do not read: the suite-level sweep finds survivors by the
  * sandbox root in their command lines (07 §13). Sources: Linux
  * `/proc/<pid>/stat` (start time = field 22, clock ticks since boot) and
- * `/proc/<pid>/cmdline`; Windows one CIM query over `Win32_Process` through
+ * `/proc/<pid>/cmdline`; Windows one WMI query over `Win32_Process` through
  * `powershell.exe` by absolute path (start time = `CreationDate` in the
- * canonical microseconds). macOS follows its gate (M1). Reads only; nothing
- * here signals a process.
+ * canonical microseconds); macOS the core `ps` adapter of
+ * `osCallsFor('darwin')` and its parser (start time = `lstart`, seconds), plus
+ * one more `/bin/ps` run for the command lines, joined by pid and start
+ * time. The `ps` fields are still to be confirmed by the macOS gate (M1,
+ * ADR-0010). Reads only; nothing here signals a process.
  */
 
 import { execFile } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { parseProcStat, parseWin32ProcessJson } from '@hudhud/core/process';
+import {
+  osCallsFor,
+  parseProcStat,
+  parsePsOutput,
+  parseWin32ProcessJson,
+} from '@hudhud/core/process';
+import type { OsCalls, ProcessRecord } from '@hudhud/core/process';
 
 import { windowsSystemRoot } from '../launcher/env.js';
 
@@ -36,7 +45,7 @@ export interface ProcessRow {
 
 /** Reads the whole process table. */
 export interface ProcessTable {
-  readonly source: 'win32-cim' | 'linux-proc';
+  readonly source: 'win32-cim' | 'linux-proc' | 'darwin-ps';
   read(): Promise<readonly ProcessRow[]>;
 }
 
@@ -46,16 +55,38 @@ function isPid(value: unknown): value is number {
 }
 
 /**
- * The CIM query: one `{p, pp, t, n, c}` object per process (`t` = FILETIME
+ * The WMI query: one `{p, pp, t, n, c}` object per process (`t` = FILETIME
  * of `CreationDate` as a string, `''` when absent), as a JSON array in UTF-8.
+ * Built like the core query (`os/win32.ts` `CIM_SCRIPT`): in-box .NET
+ * classes only, no cmdlet, so PowerShell discovers no module, and `t` from
+ * the DMTF datetime exactly as the core computes it, so start times compare
+ * with spawn identities.
  */
 export const WIN32_PROCESS_SCRIPT: string = [
-  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
-  '$rows = @(Get-CimInstance -ClassName Win32_Process | ForEach-Object {',
-  '  [pscustomobject]@{ p = [int64]$_.ProcessId; pp = [int64]$_.ParentProcessId;',
-  "    t = $(if ($_.CreationDate) { [string]$_.CreationDate.ToFileTimeUtc() } else { '' });",
-  '    n = $_.Name; c = $_.CommandLine } })',
-  'ConvertTo-Json -Compress -Depth 2 -InputObject $rows',
+  "$ErrorActionPreference = 'Stop'",
+  '$inv = [Globalization.CultureInfo]::InvariantCulture',
+  "$null = [Reflection.Assembly]::Load('System.Management, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')",
+  "$null = [Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')",
+  "$query = [Management.ManagementObjectSearcher]::new('SELECT ProcessId, ParentProcessId, CreationDate, Name, CommandLine FROM Win32_Process')",
+  '$rows = [Collections.Generic.List[object]]::new()',
+  'foreach ($o in $query.Get()) {',
+  "  $d = $o['CreationDate']",
+  '  $t = [string]::Empty',
+  '  if ($null -ne $d) {',
+  "    $u = [DateTime]::ParseExact($d.Substring(0, 21), 'yyyyMMddHHmmss.ffffff', $inv, [Globalization.DateTimeStyles]'AssumeUniversal, AdjustToUniversal')",
+  '    $t = $u.AddMinutes(-[int]$d.Substring(21)).ToFileTimeUtc().ToString($inv)',
+  '  }',
+  '  $row = [Collections.Generic.Dictionary[string, object]]::new()',
+  "  $row['p'] = [int64]$o['ProcessId']; $row['pp'] = [int64]$o['ParentProcessId']; $row['t'] = $t",
+  "  $row['n'] = $o['Name']; $row['c'] = $o['CommandLine']",
+  '  $rows.Add($row)',
+  '}',
+  '$json = [Web.Script.Serialization.JavaScriptSerializer]::new()',
+  '$json.MaxJsonLength = [int]::MaxValue',
+  '$bytes = [Text.UTF8Encoding]::new($false).GetBytes($json.Serialize($rows))',
+  '$stdout = [Console]::OpenStandardOutput()',
+  '$stdout.Write($bytes, 0, $bytes.Length)',
+  '$stdout.Flush()',
 ].join('\n');
 
 /**
@@ -112,6 +143,77 @@ export function parseLinuxProcess(stat: string, cmdline: string): ProcessRow | n
   };
 }
 
+/**
+ * Parses the two `ps` outputs of {@link darwinProcessTable}: the identity
+ * table (`pid ppid pgid lstart comm`, the core parser) and the same layout
+ * with `args` for `comm`, joined by pid and start time, so a pid reused
+ * between the two runs never gets another process's command line. A pid
+ * listed twice in either output (a forged line) is dropped, as the core
+ * snapshots do.
+ */
+export function parseDarwinProcesses(
+  table: Uint8Array,
+  commandLines: Uint8Array,
+): readonly ProcessRow[] {
+  const unique = (records: readonly ProcessRecord[]): ProcessRecord[] => {
+    const counts = new Map<number, number>();
+    for (const record of records) counts.set(record.pid, (counts.get(record.pid) ?? 0) + 1);
+    return records.filter((record) => counts.get(record.pid) === 1);
+  };
+  const lines = new Map(
+    unique(parsePsOutput(commandLines).records).map((record) => [
+      `${String(record.pid)}@${record.startTime}`,
+      record.name,
+    ]),
+  );
+  return unique(parsePsOutput(table).records)
+    .filter((record) => isPid(record.pid))
+    .map((record) => ({
+      pid: record.pid,
+      ppid: record.ppid,
+      startTime: record.startTime,
+      name: record.name,
+      commandLine: lines.get(`${String(record.pid)}@${record.startTime}`) ?? '',
+    }));
+}
+
+/** Absolute path of `ps` on macOS; never looked up through `PATH`. */
+export const DARWIN_PS_PATH = '/bin/ps';
+
+/**
+ * The command-line `ps` run: the core layout (`os/darwin.ts`) with `args`
+ * for `comm`, wide output (`-ww`), and the same environment, so `lstart`
+ * matches the identity table to the second.
+ */
+export const DARWIN_ARGS_PS: readonly string[] = [
+  '-A',
+  '-ww',
+  '-o',
+  'pid=,ppid=,pgid=,lstart=,args=',
+];
+
+/** The complete environment of {@link DARWIN_ARGS_PS} (as the core `ps` contract). */
+export const DARWIN_PS_ENV: Readonly<Record<string, string>> = { LC_ALL: 'C', TZ: 'UTC0' };
+
+/** The two `ps` runs of {@link darwinProcessTable}. */
+export interface DarwinReads {
+  /** The core identity table (`DarwinPsTableCalls.runPs`). */
+  identities(): Promise<Uint8Array>;
+  /** The {@link DARWIN_ARGS_PS} output. */
+  commandLines(): Promise<Uint8Array>;
+}
+
+/** The macOS process table from `ps` (see the module remarks). */
+export function darwinProcessTable(reads: DarwinReads): ProcessTable {
+  return {
+    source: 'darwin-ps',
+    async read() {
+      const [table, commandLines] = await Promise.all([reads.identities(), reads.commandLines()]);
+      return parseDarwinProcesses(table, commandLines);
+    },
+  };
+}
+
 /** Runs a PowerShell script and resolves with its stdout. */
 export type PowerShellRunner = (script: string) => Promise<string>;
 
@@ -127,6 +229,35 @@ export function runCommand(file: string, args: readonly string[]): Promise<strin
       { encoding: 'utf8', shell: false, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
       (error, stdout) => {
         if (error === null) resolve(stdout);
+        else reject(new Error(`${file} failed`, { cause: error }));
+      },
+    );
+  });
+}
+
+/**
+ * Runs `file` with `args` and exactly `env` (`shell: false`, hidden window)
+ * and resolves with its stdout as bytes; rejects when it cannot start or
+ * exits non-zero.
+ */
+export function runCommandBytes(
+  file: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>>,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      {
+        encoding: 'buffer',
+        env: { ...env },
+        shell: false,
+        windowsHide: true,
+        maxBuffer: 64 * 1024 * 1024,
+      },
+      (error, stdout) => {
+        if (error === null) resolve(new Uint8Array(stdout));
         else reject(new Error(`${file} failed`, { cause: error }));
       },
     );
@@ -204,7 +335,7 @@ export function linuxProcessTable(reads: ProcReads): ProcessTable {
 /**
  * The process table of `platform` with the real host reads.
  *
- * @throws Error for a platform without a leak source yet (macOS: after its gate, M1).
+ * @throws Error for a platform without a process table source.
  */
 export function hostProcessTable(
   platform: NodeJS.Platform,
@@ -212,5 +343,16 @@ export function hostProcessTable(
 ): ProcessTable {
   if (platform === 'win32') return win32ProcessTable(powerShellRunner(hostEnv));
   if (platform === 'linux') return linuxProcessTable(procReads('/proc'));
-  throw new Error(`no process table source for ${platform} yet (macOS follows its gate, M1)`);
+  if (platform === 'darwin') {
+    // osCallsFor('darwin') always composes the darwin adapters.
+    const { processTable } = osCallsFor('darwin', process.pid) as Extract<
+      OsCalls,
+      { readonly platform: 'darwin' }
+    >;
+    return darwinProcessTable({
+      identities: () => processTable.runPs(),
+      commandLines: () => runCommandBytes(DARWIN_PS_PATH, DARWIN_ARGS_PS, DARWIN_PS_ENV),
+    });
+  }
+  throw new Error(`no process table source for ${platform}`);
 }

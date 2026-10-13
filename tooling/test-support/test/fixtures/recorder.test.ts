@@ -13,7 +13,7 @@ import {
   writeFixture,
 } from '../../src/fixtures/recorder.js';
 import { FAKE_API_KEY } from '../../src/launcher/env.js';
-import { createSandbox } from '../../src/launcher/sandbox.js';
+import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
 import type { LaunchOptions, Sandbox } from '../../src/launcher/sandbox.js';
 import { makeFakeCli, scopedPolicy } from '../launcher/fake-cli.js';
 import type { FakeCli } from '../launcher/fake-cli.js';
@@ -30,7 +30,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'hudhud-recorder-'));
+  // Short on macOS too: the sandbox's socket path must fit (05 §13).
+  root = await mkdtemp(path.join(testTempBase(process.platform, tmpdir()), 'hudhud-recorder-'));
 });
 
 afterEach(async () => {

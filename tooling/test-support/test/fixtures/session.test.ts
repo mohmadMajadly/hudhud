@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { isFrame, RecordingSession } from '../../src/fixtures/session.js';
 import type { OutRecord } from '../../src/fixtures/session.js';
-import { createSandbox } from '../../src/launcher/sandbox.js';
+import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
 import type { Sandbox } from '../../src/launcher/sandbox.js';
 import { makeFakeCli, scopedPolicy } from '../launcher/fake-cli.js';
 import type { FakeCli } from '../launcher/fake-cli.js';
@@ -24,7 +24,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'hudhud-session-'));
+  // Short on macOS too: the sandbox's socket path must fit (05 §13).
+  root = await mkdtemp(path.join(testTempBase(process.platform, tmpdir()), 'hudhud-session-'));
   sandbox = await createSandbox({
     cli: fake.cli,
     mock: { url: 'http://127.0.0.1:47311' },

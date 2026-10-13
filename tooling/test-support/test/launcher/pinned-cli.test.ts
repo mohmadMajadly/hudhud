@@ -14,7 +14,7 @@ import {
   probePinnedCli,
   recheckPinnedCli,
 } from '../../src/launcher/pinned-cli.js';
-import { makeFakeCli } from './fake-cli.js';
+import { FAKE_VERSION, makeFakeCli } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
 
 let fake: FakeCli;
@@ -103,6 +103,29 @@ describe('resolvePinnedCli', () => {
     }
   });
 
+  it('reports a platform pending the macOS gate as unavailable, naming the gate', async () => {
+    const pinFile = path.join(fake.root, 'pending-pin.json');
+    await writeFile(
+      pinFile,
+      JSON.stringify({
+        version: FAKE_VERSION,
+        platforms: {
+          'darwin-arm64': {
+            package: '@anthropic-ai/claude-code-darwin-arm64',
+            file: 'claude',
+            pendingGate: true,
+          },
+        },
+      }),
+    );
+    await expect(
+      probePinnedCli({ repoRoot: fake.root, env: {}, pinFile, platformKey: 'darwin-arm64' }),
+    ).resolves.toEqual({
+      available: false,
+      reason: expect.stringMatching(/darwin-arm64 is pending the macOS gate \(ADR-0014/) as unknown,
+    });
+  });
+
   it('rethrows failures other than a missing cache', async () => {
     await expect(
       probePinnedCli({
@@ -119,6 +142,10 @@ describe('resolvePinnedCli', () => {
         pinFile: path.join(fake.root, 'bad-pin.json'),
       }),
     ).rejects.toBeInstanceOf(CliFetchError);
+    // A valid pin without an entry for the platform is not a cache problem either.
+    await expect(
+      probePinnedCli({ repoRoot: fake.root, env: {}, pinFile: fake.pinFile, platformKey: 'aix' }),
+    ).rejects.toMatchObject({ code: 'platform-unavailable' });
   });
 });
 

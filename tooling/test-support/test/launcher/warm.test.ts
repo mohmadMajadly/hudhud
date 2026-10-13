@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createSandbox } from '../../src/launcher/sandbox.js';
+import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
 import { warmSandbox, WarmUpError } from '../../src/launcher/warm.js';
 import { makeFakeCli, scopedPolicy } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
@@ -22,7 +22,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'hudhud-warm-'));
+  // Short on macOS too: the sandbox's socket path must fit (05 §13).
+  root = await mkdtemp(path.join(testTempBase(process.platform, tmpdir()), 'hudhud-warm-'));
 });
 
 afterEach(async () => {

@@ -156,10 +156,23 @@ export type PinnedCliProbe =
 
 /**
  * Like {@link resolvePinnedCli}, but reports a missing or unverifiable cache
- * entry instead of throwing, for tests that run only when the pinned CLI was
- * already fetched. Other failures (an invalid pin) still throw.
+ * entry, and a platform whose pin entry is pending its gate (the darwin
+ * entries until the macOS gate passes, ADR-0014), instead of throwing, for
+ * tests that run only when the pinned CLI was already fetched: they skip
+ * with the reason. Other failures (an invalid pin) still throw.
  */
 export async function probePinnedCli(options: PinnedCliOptions): Promise<PinnedCliProbe> {
+  const platform = options.platformKey ?? hostPlatformKey(options.env);
+  const pin = await loadPin(
+    options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json'),
+  );
+  const entry = pin.platforms.get(platform);
+  if (entry !== undefined && 'pendingGate' in entry) {
+    return {
+      available: false,
+      reason: `the pinned CLI for ${platform} is pending the macOS gate (ADR-0014 gate list, M1): no digests are pinned for it, so tests of the real binary do not run here until the gate passes`,
+    };
+  }
   try {
     return { available: true, cli: await resolvePinnedCli(options) };
   } catch (error) {

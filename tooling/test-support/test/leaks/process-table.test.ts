@@ -2,16 +2,22 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  DARWIN_ARGS_PS,
+  DARWIN_PS_ENV,
+  DARWIN_PS_PATH,
+  darwinProcessTable,
   hostProcessTable,
   linuxProcessTable,
+  parseDarwinProcesses,
   parseLinuxProcess,
   parseWin32Processes,
   powerShellRunner,
   procReads,
   runCommand,
+  runCommandBytes,
   win32ProcessTable,
   WIN32_PROCESS_SCRIPT,
 } from '../../src/leaks/process-table.js';
@@ -54,12 +60,16 @@ describe('parseWin32Processes', () => {
     for (const name of [
       'ProcessId',
       'ParentProcessId',
+      'CreationDate',
       'ToFileTimeUtc',
+      'Name',
       'CommandLine',
-      'ConvertTo-Json',
+      'JavaScriptSerializer',
     ]) {
       expect(WIN32_PROCESS_SCRIPT).toContain(name);
     }
+    // No cmdlet: nothing makes PowerShell discover or auto-load a module.
+    expect(WIN32_PROCESS_SCRIPT).not.toMatch(/\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b/);
   });
 });
 
@@ -142,6 +152,24 @@ describe('table sources', () => {
 });
 
 describe('host commands', () => {
+  it('runs a command with exactly the given environment and returns its bytes', async () => {
+    vi.stubEnv('HUDHUD_HOST_CANARY', 'host-only');
+    const out = await runCommandBytes(
+      process.execPath,
+      ['-e', 'process.stdout.write(JSON.stringify(Object.keys(process.env)) + "\xe9")'],
+      { HUDHUD_ONLY: '1' },
+    );
+    const text = Buffer.from(out).toString('utf8');
+    expect(text.endsWith('\u00e9')).toBe(true);
+    const names = JSON.parse(text.slice(0, -1)) as string[];
+    vi.unstubAllEnvs();
+    expect(names).toContain('HUDHUD_ONLY');
+    expect(names).not.toContain('HUDHUD_HOST_CANARY');
+    await expect(runCommandBytes(process.execPath, ['-e', 'process.exit(3)'], {})).rejects.toThrow(
+      /failed/,
+    );
+  });
+
   it('runs a command and reports failures', async () => {
     await expect(runCommand(process.execPath, ['-e', 'process.stdout.write("ok")'])).resolves.toBe(
       'ok',
@@ -161,7 +189,8 @@ describe('host commands', () => {
   it('picks the source of each platform', () => {
     expect(hostProcessTable('win32', {}).source).toBe('win32-cim');
     expect(hostProcessTable('linux', {}).source).toBe('linux-proc');
-    expect(() => hostProcessTable('darwin', {})).toThrow(/M1/);
+    expect(hostProcessTable('darwin', {}).source).toBe('darwin-ps');
+    expect(() => hostProcessTable('aix', {})).toThrow(/no process table source for aix/);
   });
 
   it('reads the real table of this host, including this process and its command line', async () => {
@@ -171,8 +200,89 @@ describe('host commands', () => {
     expect(self?.commandLine).toMatch(/node/i);
   }, 60_000);
 
+  it('reads the macOS table through /bin/ps, and fails closed on Windows, which has none', async () => {
+    const outcome = await hostProcessTable('darwin', {})
+      .read()
+      .then(
+        (rows) => (rows.some((row) => row.pid === process.pid) ? 'lists-self' : 'no-self'),
+        () => 'failed',
+      );
+    // procps on Linux prints the same columns when it is installed.
+    const expected =
+      process.platform === 'win32'
+        ? ['failed']
+        : process.platform === 'darwin'
+          ? ['lists-self']
+          : ['lists-self', 'failed'];
+    expect(expected).toContain(outcome);
+  }, 60_000);
+
   it('fails to read the other platform', async () => {
     const other = hostProcessTable(process.platform === 'win32' ? 'linux' : 'win32', {});
     await expect(other.read()).rejects.toThrow();
   }, 60_000);
+});
+
+describe('darwin source', () => {
+  /** One `ps` line in the core layout: pid ppid pgid lstart (C locale, UTC) and the last column. */
+  const line = (pid: number, ppid: number, lstart: string, last: string): string =>
+    `${String(pid).padStart(5)} ${String(ppid).padStart(5)} ${String(pid).padStart(5)} ${lstart} ${last}`;
+  const START = 'Mon Oct 12 17:02:31 2026';
+  const LATER = 'Mon Oct 12 17:02:32 2026';
+  const bytes = (lines: readonly string[]): Uint8Array =>
+    new TextEncoder().encode(`${lines.join('\n')}\n`);
+
+  it('joins the identity table and the command lines by pid and start time', () => {
+    const table = bytes([
+      line(1, 0, START, '/sbin/launchd'),
+      line(501, 1, START, '/usr/local/bin/node'),
+      line(502, 501, START, 'node'),
+      line(503, 501, START, 'sh'),
+      line(504, 501, START, 'forged'),
+      line(504, 501, START, 'forged'),
+      'garbage',
+      line(0, 0, START, 'kernel_task'),
+    ]);
+    const commandLines = bytes([
+      line(501, 1, START, '/usr/local/bin/node /private/tmp/hudhud-run-x/work a b'),
+      // pid 502 was reused between the two runs: another start time, so no command line.
+      line(502, 501, LATER, 'node /somewhere/else'),
+      line(503, 501, START, 'sh -c x'),
+      line(503, 501, START, 'sh -c forged'),
+    ]);
+    expect(parseDarwinProcesses(table, commandLines)).toEqual([
+      { pid: 1, ppid: 0, startTime: '1791824551', name: '/sbin/launchd', commandLine: '' },
+      {
+        pid: 501,
+        ppid: 1,
+        startTime: '1791824551',
+        name: '/usr/local/bin/node',
+        commandLine: '/usr/local/bin/node /private/tmp/hudhud-run-x/work a b',
+      },
+      { pid: 502, ppid: 501, startTime: '1791824551', name: 'node', commandLine: '' },
+      { pid: 503, ppid: 501, startTime: '1791824551', name: 'sh', commandLine: '' },
+    ]);
+  });
+
+  it('reads both ps runs through the injected reads', async () => {
+    const table = darwinProcessTable({
+      identities: () => Promise.resolve(bytes([line(7, 1, START, 'a')])),
+      commandLines: () => Promise.resolve(bytes([line(7, 1, START, 'a --flag')])),
+    });
+    expect(table.source).toBe('darwin-ps');
+    expect(await table.read()).toEqual([
+      { pid: 7, ppid: 1, startTime: '1791824551', name: 'a', commandLine: 'a --flag' },
+    ]);
+    const failing = darwinProcessTable({
+      identities: () => Promise.reject(new Error('ps failed')),
+      commandLines: () => Promise.resolve(new Uint8Array()),
+    });
+    await expect(failing.read()).rejects.toThrow('ps failed');
+  });
+
+  it('runs /bin/ps by absolute path in the core ps contract, with args for comm', () => {
+    expect(DARWIN_PS_PATH).toBe('/bin/ps');
+    expect(DARWIN_ARGS_PS).toEqual(['-A', '-ww', '-o', 'pid=,ppid=,pgid=,lstart=,args=']);
+    expect(DARWIN_PS_ENV).toEqual({ LC_ALL: 'C', TZ: 'UTC0' });
+  });
 });
