@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DARWIN_ARGS_PS,
+  DARWIN_READ_LIMITS,
   DARWIN_PS_ENV,
   DARWIN_PS_PATH,
   darwinProcessTable,
@@ -20,8 +21,13 @@ import {
   runCommandBytes,
   win32ProcessTable,
   WIN32_PROCESS_SCRIPT,
+  WIN32_READ_LIMITS,
 } from '../../src/leaks/process-table.js';
 import type { ProcReads } from '../../src/leaks/process-table.js';
+import { hangGuard, HOST_TABLE_READ_MS } from '../hang-guard.js';
+
+/** The real `setTimeout`, captured before any test fakes the timers. */
+const realSetTimeout = setTimeout;
 
 const STAT_TAIL = 'S 1 100 100 0 -1 4194560 10 0 0 0 0 0 0 0 20 0 1 0 98765 1000 100';
 
@@ -174,17 +180,151 @@ describe('host commands', () => {
     await expect(runCommand(process.execPath, ['-e', 'process.stdout.write("ok")'])).resolves.toBe(
       'ok',
     );
-    await expect(runCommand(process.execPath, ['-e', 'process.exit(3)'])).rejects.toThrow(/failed/);
+    await expect(runCommand(process.execPath, ['-e', 'process.exit(3)'])).rejects.toThrow(
+      /failed: exit code 3, signal null$/,
+    );
+    const missing = path.join(tmpdir(), 'hudhud-missing-dir', 'missing.exe');
+    const error = await runCommandBytes(missing, [], {}).catch((caught: unknown) => caught);
+    expect(String(error)).toMatch(/failed$/);
+    expect((error as Error).cause).toMatchObject({ code: 'ENOENT' });
   });
 
-  it('runs PowerShell by its absolute System32 path (and fails off Windows)', async () => {
-    const run = powerShellRunner({ SystemRoot: process.env['SystemRoot'] });
-    const outcome = run("Write-Output 'hudhud'").then(
-      (text) => text.trim(),
-      () => 'unavailable',
+  it('bounds the reads like the core process-table reads', () => {
+    expect(WIN32_READ_LIMITS).toEqual({ timeoutMs: 60_000, maxStdoutBytes: 64 * 1024 * 1024 });
+    expect(DARWIN_READ_LIMITS).toEqual({ timeoutMs: 30_000, maxStdoutBytes: 64 * 1024 * 1024 });
+    expect(Object.isFrozen(WIN32_READ_LIMITS)).toBe(true);
+    expect(Object.isFrozen(DARWIN_READ_LIMITS)).toBe(true);
+  });
+
+  describe('bounds', () => {
+    let scratch = '';
+
+    beforeEach(async () => {
+      scratch = await mkdtemp(path.join(tmpdir(), 'hudhud-bounded-'));
+    });
+
+    afterEach(async () => {
+      await rm(scratch, { recursive: true, force: true, maxRetries: 10 });
+    });
+
+    /** Polls of {@link poll}, 50 ms apart. */
+    const POLLS = 200;
+    /** The real-time bound of one {@link poll}, besides its probes. */
+    const POLL_MS = POLLS * 50;
+
+    /** A node script that writes its pid to `argv[1]`, optionally floods stdout, then idles. */
+    const IDLER =
+      "require('node:fs').writeFileSync(process.argv[1], String(process.pid));" +
+      "if (process.argv[2] === 'flood') process.stdout.write('x'.repeat(100000));" +
+      'setInterval(() => {}, 1000);';
+
+    /** Polls `ready` every 50 ms of real time (also under fake timers), for at most 10 s. */
+    async function poll<T>(ready: () => Promise<T | undefined>): Promise<T | undefined> {
+      for (let i = 0; i < POLLS; i += 1) {
+        const value = await ready();
+        if (value !== undefined) return value;
+        await new Promise((resolve) => realSetTimeout(resolve, 50));
+      }
+      return undefined;
+    }
+
+    /** Whether `pid` (this test's own command) still runs; probed with signal 0 only. */
+    function isAlive(pid: number): boolean {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    /** Whether `pid` is gone within one {@link poll}. */
+    async function gone(pid: number): Promise<boolean> {
+      const result = await poll(() => Promise.resolve(isAlive(pid) ? undefined : true));
+      return result === true;
+    }
+
+    /** The pid the command wrote to `file`. */
+    async function pidFrom(file: string): Promise<number> {
+      const text = await poll(async () => {
+        const read = await readFile(file, 'utf8').catch(() => '');
+        return read === '' ? undefined : read;
+      });
+      if (text === undefined) throw new Error(`no pid in ${file}`);
+      return Number(text);
+    }
+
+    it(
+      'kills a command that runs past its timeout, and rejects',
+      async () => {
+        // The timeout fires on the fake clock, only after the command wrote its pid.
+        const pidFile = path.join(scratch, 'timeout.pid');
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const started = (async () => {
+          const run = runCommand(process.execPath, ['-e', IDLER, pidFile], {
+            timeoutMs: 2000,
+            maxStdoutBytes: 1024,
+          });
+          run.catch(() => undefined);
+          const pid = await pidFrom(pidFile);
+          vi.advanceTimersByTime(1999);
+          expect(isAlive(pid)).toBe(true);
+          vi.advanceTimersByTime(1);
+          return { run, pid };
+        })();
+        const { run, pid } = await started.finally(() => {
+          vi.useRealTimers();
+        });
+        await expect(run).rejects.toThrow(/timed out after 2000 ms$/);
+        expect(await gone(pid)).toBe(true);
+      },
+      hangGuard(2 * POLL_MS),
     );
-    expect(await outcome).toBe(process.platform === 'win32' ? 'hudhud' : 'unavailable');
-  }, 60_000);
+
+    it(
+      'kills a command that writes more than its cap, and rejects',
+      async () => {
+        const pidFile = path.join(scratch, 'cap.pid');
+        const run = runCommandBytes(
+          process.execPath,
+          ['-e', IDLER, pidFile, 'flood'],
+          {},
+          { timeoutMs: 30_000, maxStdoutBytes: 1000 },
+        );
+        await expect(run).rejects.toThrow(/wrote more than 1000 bytes$/);
+        expect(await gone(await pidFrom(pidFile))).toBe(true);
+      },
+      hangGuard(30_000, 2 * POLL_MS),
+    );
+
+    it(
+      'bounds each PowerShell run',
+      async () => {
+        const run = powerShellRunner(
+          { SystemRoot: process.env['SystemRoot'] },
+          { timeoutMs: 30_000, maxStdoutBytes: 3 },
+        );
+        // Over the cap on Windows; no PowerShell elsewhere.
+        await expect(run("Write-Output 'hudhud'")).rejects.toThrow(
+          process.platform === 'win32' ? /wrote more than 3 bytes$/ : /failed$/,
+        );
+      },
+      hangGuard(30_000),
+    );
+  });
+
+  it(
+    'runs PowerShell by its absolute System32 path (and fails off Windows)',
+    async () => {
+      const run = powerShellRunner({ SystemRoot: process.env['SystemRoot'] });
+      const outcome = run("Write-Output 'hudhud'").then(
+        (text) => text.trim(),
+        () => 'unavailable',
+      );
+      expect(await outcome).toBe(process.platform === 'win32' ? 'hudhud' : 'unavailable');
+    },
+    hangGuard(WIN32_READ_LIMITS.timeoutMs),
+  );
 
   it('picks the source of each platform', () => {
     expect(hostProcessTable('win32', {}).source).toBe('win32-cim');
@@ -193,35 +333,48 @@ describe('host commands', () => {
     expect(() => hostProcessTable('aix', {})).toThrow(/no process table source for aix/);
   });
 
-  it('reads the real table of this host, including this process and its command line', async () => {
-    const table = hostProcessTable(process.platform, process.env);
-    const self = (await table.read()).find((row) => row.pid === process.pid);
-    expect(self?.startTime).toMatch(/^[0-9]+$/);
-    expect(self?.commandLine).toMatch(/node/i);
-  }, 60_000);
+  it(
+    'reads the real table of this host, including this process and its command line',
+    async () => {
+      const table = hostProcessTable(process.platform, process.env);
+      const self = (await table.read()).find((row) => row.pid === process.pid);
+      expect(self?.startTime).toMatch(/^[0-9]+$/);
+      expect(self?.commandLine).toMatch(/node/i);
+    },
+    hangGuard(HOST_TABLE_READ_MS),
+  );
 
-  it('reads the macOS table through /bin/ps, and fails closed on Windows, which has none', async () => {
-    const outcome = await hostProcessTable('darwin', {})
-      .read()
-      .then(
-        (rows) => (rows.some((row) => row.pid === process.pid) ? 'lists-self' : 'no-self'),
-        () => 'failed',
-      );
-    // procps on Linux, when installed, prints the same columns with a narrower
-    // lstart, which the macOS (BSD) layout rejects line by line (research 09).
-    const expected =
-      process.platform === 'win32'
-        ? ['failed']
-        : process.platform === 'darwin'
-          ? ['lists-self']
-          : ['no-self', 'failed'];
-    expect(expected).toContain(outcome);
-  }, 60_000);
+  it(
+    'reads the macOS table through /bin/ps, and fails closed on Windows, which has none',
+    async () => {
+      const outcome = await hostProcessTable('darwin', {})
+        .read()
+        .then(
+          (rows) => (rows.some((row) => row.pid === process.pid) ? 'lists-self' : 'no-self'),
+          () => 'failed',
+        );
+      // procps on Linux, when installed, prints the same columns with a narrower
+      // lstart, which the macOS (BSD) layout rejects line by line (research 09).
+      const expected =
+        process.platform === 'win32'
+          ? ['failed']
+          : process.platform === 'darwin'
+            ? ['lists-self']
+            : ['no-self', 'failed'];
+      expect(expected).toContain(outcome);
+    },
+    hangGuard(DARWIN_READ_LIMITS.timeoutMs),
+  );
 
-  it('fails to read the other platform', async () => {
-    const other = hostProcessTable(process.platform === 'win32' ? 'linux' : 'win32', {});
-    await expect(other.read()).rejects.toThrow();
-  }, 60_000);
+  it(
+    'fails to read the other platform',
+    async () => {
+      const other = hostProcessTable(process.platform === 'win32' ? 'linux' : 'win32', {});
+      await expect(other.read()).rejects.toThrow();
+      // The other platform's read: the CIM query (bounded) or a /proc read (no child).
+    },
+    hangGuard(WIN32_READ_LIMITS.timeoutMs),
+  );
 });
 
 describe('darwin source', () => {

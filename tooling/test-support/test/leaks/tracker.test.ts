@@ -11,11 +11,14 @@ import type { ProcessRow, ProcessTable } from '../../src/leaks/process-table.js'
 import {
   assertNoSurvivors,
   findSurvivors,
+  KILL_CHECK_MS,
+  KILL_CHECKS,
   killVerified,
   LeakError,
   LeakTracker,
 } from '../../src/leaks/tracker.js';
 import type { ProcessIdentity } from '../../src/leaks/tracker.js';
+import { hangGuard, HOST_TABLE_READ_MS } from '../hang-guard.js';
 
 function row(pid: number, ppid: number, startTime: number, commandLine = ''): ProcessRow {
   return { pid, ppid, startTime: String(startTime), name: `p${String(pid)}`, commandLine };
@@ -223,6 +226,13 @@ describe('suite sweep', () => {
   });
 });
 
+// Hang guards: every table read is bounded by HOST_TABLE_READ_MS; killVerified
+// reads the table at most 1 + KILL_CHECKS times with KILL_CHECK_MS between.
+/** The bound of one killVerified. */
+const KILL_VERIFIED_MS = (1 + KILL_CHECKS) * HOST_TABLE_READ_MS + KILL_CHECKS * KILL_CHECK_MS;
+/** How long the sampling test polls for the child (100 polls, 100 ms apart). */
+const SAMPLING_POLL_MS = 100 * 100;
+
 describe('a planted orphan on the real host', () => {
   const table = hostProcessTable(process.platform, process.env);
   const host = { table };
@@ -234,7 +244,7 @@ describe('a planted orphan on the real host', () => {
     orphan = undefined;
     if (marker !== '') await rm(marker, { recursive: true, force: true, maxRetries: 10 });
     marker = '';
-  });
+  }, hangGuard(KILL_VERIFIED_MS));
 
   /** Spawns a node parent that starts a detached node child, prints its pid, and exits on EOF. */
   async function plant(): Promise<{
@@ -269,43 +279,54 @@ describe('a planted orphan on the real host', () => {
     };
   }
 
-  it('catches the detached child of a recorded root through sampling', async () => {
-    const tracker = new LeakTracker({ table });
-    await tracker.begin();
-    const { parentPid, childPid, release } = await plant();
-    await tracker.recordRoot(parentPid);
-    const stop = tracker.startSampling(250);
-    for (let i = 0; i < 100 && !tracker.tracked.some((r) => r.pid === childPid); i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    await stop();
-    const child = tracker.tracked.find((r) => r.pid === childPid);
-    expect(child).toBeDefined();
-    orphan = child;
-    await release();
-    const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(LeakError);
-    const leak = (error as LeakError).leaks.find((l) => l.pid === childPid);
-    expect(leak?.reason).toBe('tracked');
-    expect((error as LeakError).leaks.some((l) => l.pid === parentPid)).toBe(false);
-    expect(
-      (await table.read()).some((r) => r.pid === childPid && r.startTime === child?.startTime),
-    ).toBe(false);
-  }, 120_000);
+  it(
+    'catches the detached child of a recorded root through sampling',
+    async () => {
+      const tracker = new LeakTracker({ table });
+      await tracker.begin();
+      const { parentPid, childPid, release } = await plant();
+      await tracker.recordRoot(parentPid);
+      const stop = tracker.startSampling(250);
+      for (let i = 0; i < 100 && !tracker.tracked.some((r) => r.pid === childPid); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await stop();
+      const child = tracker.tracked.find((r) => r.pid === childPid);
+      expect(child).toBeDefined();
+      orphan = child;
+      await release();
+      const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(LeakError);
+      const leak = (error as LeakError).leaks.find((l) => l.pid === childPid);
+      expect(leak?.reason).toBe('tracked');
+      expect((error as LeakError).leaks.some((l) => l.pid === parentPid)).toBe(false);
+      expect(
+        (await table.read()).some((r) => r.pid === childPid && r.startTime === child?.startTime),
+      ).toBe(false);
+      // Reads: begin, recordRoot, the sample in flight at stop, findLeaks, the
+      // final one; the poll; killVerified of the one leak.
+    },
+    hangGuard(5 * HOST_TABLE_READ_MS, SAMPLING_POLL_MS, KILL_VERIFIED_MS),
+  );
 
-  it('catches it without sampling, by stale parent or by the marker', async () => {
-    marker = await mkdtemp(path.join(tmpdir(), 'hudhud-orphan-'));
-    const tracker = new LeakTracker({ table, marker });
-    await tracker.begin();
-    const { parentPid, childPid, release } = await plant();
-    await tracker.recordRoot(parentPid);
-    const child = (await table.read()).find((r) => r.pid === childPid);
-    orphan = child;
-    await release();
-    const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(LeakError);
-    const leak = (error as LeakError).leaks.find((l) => l.pid === childPid);
-    expect(['descendant', 'command-line']).toContain(leak?.reason);
-    expect((error as LeakError).outcomes.every((o) => o === 'killed')).toBe(true);
-  }, 120_000);
+  it(
+    'catches it without sampling, by stale parent or by the marker',
+    async () => {
+      marker = await mkdtemp(path.join(tmpdir(), 'hudhud-orphan-'));
+      const tracker = new LeakTracker({ table, marker });
+      await tracker.begin();
+      const { parentPid, childPid, release } = await plant();
+      await tracker.recordRoot(parentPid);
+      const child = (await table.read()).find((r) => r.pid === childPid);
+      orphan = child;
+      await release();
+      const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(LeakError);
+      const leak = (error as LeakError).leaks.find((l) => l.pid === childPid);
+      expect(['descendant', 'command-line']).toContain(leak?.reason);
+      expect((error as LeakError).outcomes.every((o) => o === 'killed')).toBe(true);
+      // Reads: begin, recordRoot, the child's row, findLeaks; killVerified of the one leak.
+    },
+    hangGuard(4 * HOST_TABLE_READ_MS, KILL_VERIFIED_MS),
+  );
 });

@@ -14,10 +14,12 @@
  * `osCallsFor('darwin')` and its parser (start time = `lstart`, seconds), plus
  * one more `/bin/ps` run for the command lines, joined by pid and start
  * time. The `ps` fields are still to be confirmed by the macOS gate (M1,
- * ADR-0010). Reads only; nothing here signals a process.
+ * ADR-0010). Reads only; nothing here signals a process other than a read
+ * command of its own that exceeded its bounds ({@link WIN32_READ_LIMITS},
+ * {@link DARWIN_READ_LIMITS}).
  */
 
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -217,60 +219,132 @@ export function darwinProcessTable(reads: DarwinReads): ProcessTable {
 /** Runs a PowerShell script and resolves with its stdout. */
 export type PowerShellRunner = (script: string) => Promise<string>;
 
+/** Bounds of one command run. */
+export interface CommandLimits {
+  /** Milliseconds before the command is killed and the run rejects. */
+  readonly timeoutMs: number;
+  /** Bytes of stdout accepted; one more kills the command and the run rejects. */
+  readonly maxStdoutBytes: number;
+}
+
+/** Stdout cap of a process-table read, as the core adapters (`os/win32.ts`, `os/darwin.ts`). */
+const TABLE_OUTPUT_CAP = 64 * 1024 * 1024;
+
 /**
- * Runs `file` with `args` (`shell: false`, hidden window) and resolves with
- * its stdout; rejects when it cannot start or exits non-zero.
+ * Bounds of the Windows CIM query: the core's process-table read bound
+ * (`os/win32.ts` `DEFAULT_LIMITS`, 60 s), for the same query on the same
+ * hosts (0.3 to 1.3 s measured on GitHub-hosted Windows runners).
  */
-export function runCommand(file: string, args: readonly string[]): Promise<string> {
+export const WIN32_READ_LIMITS: CommandLimits = Object.freeze({
+  timeoutMs: 60_000,
+  maxStdoutBytes: TABLE_OUTPUT_CAP,
+});
+
+/**
+ * Bounds of a macOS `ps` run: the core's process-table read bound
+ * (`os/darwin.ts` `DEFAULT_LIMITS`, 30 s).
+ */
+export const DARWIN_READ_LIMITS: CommandLimits = Object.freeze({
+  timeoutMs: 30_000,
+  maxStdoutBytes: TABLE_OUTPUT_CAP,
+});
+
+/**
+ * Runs `file` with `args` and resolves with its stdout as bytes.
+ *
+ * @remarks
+ * The semantics of the core's `runBoundedCommand`, rejecting instead of
+ * reporting an outcome: `shell: false`, hidden window, stdin and stderr
+ * ignored. When `limits.timeoutMs` passes or stdout exceeds
+ * `limits.maxStdoutBytes`, the command is killed through its own handle
+ * (`SIGKILL`; `TerminateProcess` on Windows) and its stdout pipe destroyed,
+ * so a descendant holding the pipe cannot hold the run, and the run rejects.
+ * It also rejects when the command cannot start or exits other than with 0.
+ * `env` is the complete environment when given, the host's otherwise.
+ */
+function runBounded(
+  file: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> | undefined,
+  limits: CommandLimits,
+): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      { encoding: 'utf8', shell: false, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error === null) resolve(stdout);
-        else reject(new Error(`${file} failed`, { cause: error }));
-      },
-    );
+    const child = spawn(file, [...args], {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      ...(env === undefined ? {} : { env: { ...env } }),
+    });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let failed = false;
+    // Kills the command and rejects; a later settle of the promise is a no-op.
+    const end = (error: Error): void => {
+      failed = true;
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      child.stdout.destroy();
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      end(new Error(`${file} timed out after ${String(limits.timeoutMs)} ms`));
+    }, limits.timeoutMs);
+    child.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limits.maxStdoutBytes) {
+        end(new Error(`${file} wrote more than ${String(limits.maxStdoutBytes)} bytes`));
+      } else {
+        chunks.push(chunk);
+      }
+    });
+    child.once('error', (error) => {
+      end(new Error(`${file} failed`, { cause: error }));
+    });
+    child.once('close', (code, signal) => {
+      clearTimeout(timer);
+      if (failed) return;
+      if (code === 0) resolve(new Uint8Array(Buffer.concat(chunks)));
+      else reject(new Error(`${file} failed: exit code ${String(code)}, signal ${String(signal)}`));
+    });
   });
 }
 
 /**
+ * Runs `file` with `args` in the host environment and resolves with its
+ * stdout as UTF-8; bounded by `limits` (see {@link runCommandBytes}).
+ */
+export async function runCommand(
+  file: string,
+  args: readonly string[],
+  limits: CommandLimits = WIN32_READ_LIMITS,
+): Promise<string> {
+  return Buffer.from(await runBounded(file, args, undefined, limits)).toString('utf8');
+}
+
+/**
  * Runs `file` with `args` and exactly `env` (`shell: false`, hidden window)
- * and resolves with its stdout as bytes; rejects when it cannot start or
- * exits non-zero.
+ * and resolves with its stdout as bytes. Bounded by `limits`: on a timeout
+ * or more stdout than the cap the command is killed through its handle and
+ * the run rejects; it also rejects when the command cannot start or exits
+ * non-zero.
  */
 export function runCommandBytes(
   file: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  limits: CommandLimits = DARWIN_READ_LIMITS,
 ): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        encoding: 'buffer',
-        env: { ...env },
-        shell: false,
-        windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
-      },
-      (error, stdout) => {
-        if (error === null) resolve(new Uint8Array(stdout));
-        else reject(new Error(`${file} failed`, { cause: error }));
-      },
-    );
-  });
+  return runBounded(file, args, env, limits);
 }
 
 /**
  * Runs `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
  * -NoProfile -NonInteractive -Command <script>` by absolute path with
- * `shell: false`.
+ * `shell: false`, each run bounded by `limits`.
  */
 export function powerShellRunner(
   hostEnv: Readonly<Record<string, string | undefined>>,
+  limits: CommandLimits = WIN32_READ_LIMITS,
 ): PowerShellRunner {
   const exe = path.win32.join(
     windowsSystemRoot(hostEnv),
@@ -279,7 +353,7 @@ export function powerShellRunner(
     'v1.0',
     'powershell.exe',
   );
-  return (script) => runCommand(exe, ['-NoProfile', '-NonInteractive', '-Command', script]);
+  return (script) => runCommand(exe, ['-NoProfile', '-NonInteractive', '-Command', script], limits);
 }
 
 /** The Windows process table through one CIM query. */

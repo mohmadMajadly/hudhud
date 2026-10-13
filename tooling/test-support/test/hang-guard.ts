@@ -4,6 +4,20 @@
 // run; so a test that waits on bounded operations sizes its timeout from
 // them. Same rule as packages/core/test/unit/process/spawn-support.ts.
 
+import { DARWIN_READ_LIMITS, WIN32_READ_LIMITS } from '../src/leaks/process-table.js';
+
+/**
+ * Bound of one read of `hostProcessTable` on this host: the CIM query on
+ * Windows, the two parallel `ps` runs on macOS (each 30 s); Linux reads
+ * `/proc` without a child process.
+ */
+export const HOST_TABLE_READ_MS: number =
+  process.platform === 'win32'
+    ? WIN32_READ_LIMITS.timeoutMs
+    : process.platform === 'darwin'
+      ? DARWIN_READ_LIMITS.timeoutMs
+      : 0;
+
 /** The suite's default hang guard (vitest.config.ts). */
 const HANG_GUARD_MS = 60_000;
 

@@ -79,8 +79,13 @@ export interface LeakTrackerOptions extends LeakHost {
   readonly marker?: string | undefined;
 }
 
-const KILL_CHECKS = 20;
-const KILL_CHECK_MS = 100;
+/**
+ * How many times {@link killVerified} reads the table after a kill, at most
+ * (it reads once more before the kill).
+ */
+export const KILL_CHECKS = 20;
+/** The wait after each of those reads that still lists the process. */
+export const KILL_CHECK_MS = 100;
 
 function key(identity: ProcessIdentity): string {
   return `${String(identity.pid)}@${identity.startTime}`;
