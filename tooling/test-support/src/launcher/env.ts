@@ -19,10 +19,13 @@ import { SandboxRefusedError } from './errors.js';
 
 /**
  * The only API key a sandboxed CLI ever sees (ADR-0013 §3). Not a
- * credential, and deliberately not shaped like one (no `sk-ant-` prefix), so
- * it can never be mistaken for a real key by a scanner or a reader.
+ * credential: it authenticates nowhere, every request goes to the in-process
+ * mock. It is shaped like a real key (`sk-ant-` prefix) so the real CLI
+ * treats it as one; the prefix `sk-ant-fake-hudhud-` followed by letters and
+ * digits only is the one key shape the privacy gate allows (W2-Z ruling G,
+ * `FAKE_ANTHROPIC_KEY_PREFIX` in scripts/lib/privacy.mjs).
  */
-export const FAKE_API_KEY = 'hudhud-fake-api-key-not-a-credential';
+export const FAKE_API_KEY = 'sk-ant-fake-hudhud-NotACredential0000000000000000';
 
 /** The directories of one sandbox. All absolute; all inside {@link SandboxDirs.root}. */
 export interface SandboxDirs {

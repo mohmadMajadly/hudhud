@@ -32,7 +32,7 @@ The pre-commit hook runs the privacy gate on the staged changes (added lines and
 
 - home-directory paths (`C:\Users\<name>`, `/Users/<name>`, `/home/<name>`, MSYS and WSL forms);
 - e-mail addresses, except `noreply@anthropic.com` and `*@users.noreply.github.com`;
-- credentials: Anthropic, GitHub, AWS, npm, Slack and Google key formats, private key headers, literal `_authToken=` values;
+- credentials: Anthropic, GitHub, AWS, npm, Slack and Google key formats, private key headers, literal `_authToken=` values; the one exception is the test launcher's fake key, the prefix `sk-ant-fake-hudhud-` followed by letters and digits only (it authenticates nowhere; every other `sk-ant-` string is still a finding);
 - terms from your private denylist.
 
 The denylist holds your user names and anything else that must never be committed. It is never committed itself. Put one term per line (at least 3 characters, `#` starts a comment) in `.git/info/privacy-denylist`, or point `HUDHUD_PRIVACY_DENYLIST` at a file outside the repository. Findings never print a denylist term.

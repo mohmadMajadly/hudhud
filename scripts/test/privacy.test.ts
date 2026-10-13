@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FAKE_ANTHROPIC_KEY_PREFIX,
   MIN_DENYLIST_TERM_LENGTH,
   formatFindings,
   parseAddedLines,
@@ -79,6 +80,30 @@ describe('scanLine: true positives', () => {
   });
 });
 
+describe('scanLine: the fake Anthropic key prefix (W2-Z ruling G)', () => {
+  it('is exactly sk-ant-fake-hudhud-', () => {
+    expect(FAKE_ANTHROPIC_KEY_PREFIX).toBe(join('sk-', 'ant-', 'fake-', 'hudhud-'));
+  });
+
+  it.each([
+    ['a real-shaped key', join('sk-', 'ant-', 'api03-', 'b'.repeat(40))],
+    ['another fake-looking prefix', join('sk-', 'ant-', 'fake-', 'other-', 'c'.repeat(20))],
+    ['the prefix without its last hyphen', join('sk-', 'ant-', 'fake-', 'hudhudx', 'd'.repeat(20))],
+    [
+      'a real key behind the prefix',
+      join(FAKE_ANTHROPIC_KEY_PREFIX, 'sk-', 'ant-', 'api03-', 'e'.repeat(30)),
+    ],
+    ['a hyphenated tail after the prefix', join(FAKE_ANTHROPIC_KEY_PREFIX, 'abc-', 'f'.repeat(20))],
+  ])('still flags %s', (_name, text) => {
+    expect(rulesOf(text)).toEqual(['anthropic-key']);
+  });
+
+  it('allows the prefix followed by letters and digits only', () => {
+    expect(rulesOf(join(FAKE_ANTHROPIC_KEY_PREFIX, 'Abc123'))).toEqual([]);
+    expect(rulesOf(`ANTHROPIC_API_KEY=${join(FAKE_ANTHROPIC_KEY_PREFIX, 'x9')} next`)).toEqual([]);
+  });
+});
+
 describe('scanLine: allowed negatives', () => {
   it.each([
     ['the Anthropic co-author address', 'Co-Authored-By: Claude <noreply@anthropic.com>'],
@@ -93,6 +118,7 @@ describe('scanLine: allowed negatives', () => {
     ['relative or URL paths', '<run>/home/AppData https://example.org/home/page ./home/x'],
     ['package specifiers', '@hudhud/core@1.0.0 pnpm@11.24.0 actions/checkout@v7'],
     ['token prefixes in prose', 'keys look like sk-ant-... and ghp_...'],
+    ['the test-support fake key', join('sk-ant-', 'fake-hudhud-', 'NotACredential0123456789')],
     ['an npmrc token from the environment', '//registry.npmjs.org/:_authToken=${NPM_TOKEN}'],
     ['an empty line', ''],
   ])('allows %s', (_name, text) => {

@@ -85,6 +85,29 @@ function maskToken(match) {
   return match[0].slice(0, Math.min(8, Math.floor(match[0].length / 3))) + '***';
 }
 
+/**
+ * Prefix of the one fake Anthropic key the repository may contain: the key
+ * the sandboxed test launcher gives the pinned CLI, shaped like a real key
+ * so the CLI treats it as one (test-support `FAKE_API_KEY`). It authenticates
+ * nowhere: every request goes to the in-process mock.
+ */
+export const FAKE_ANTHROPIC_KEY_PREFIX = 'sk-ant-fake-hudhud-';
+
+/** The fake key: the prefix, then letters and digits only (no `-`). */
+const FAKE_ANTHROPIC_KEY = /^sk-ant-fake-hudhud-[A-Za-z0-9]*$/u;
+
+/**
+ * Allows exactly the fake key. Its tail admits no `-`, so a real key cannot
+ * hide behind the prefix: the prefix followed by a real key is one match
+ * whose tail holds a `-`, and stays a finding.
+ *
+ * @param {RegExpExecArray} match
+ * @returns {boolean}
+ */
+function fakeAnthropicKeyAllowed(match) {
+  return FAKE_ANTHROPIC_KEY.test(match[0]);
+}
+
 const ALLOWED_EMAILS = new Set(['noreply@anthropic.com']);
 const ALLOWED_EMAIL_DOMAINS = ['users.noreply.github.com'];
 
@@ -149,6 +172,7 @@ export const RULES = Object.freeze([
   {
     id: 'anthropic-key',
     pattern: /\bsk-ant-[\w-]{10,}/gu,
+    isAllowed: fakeAnthropicKeyAllowed,
     mask: maskToken,
   },
   {

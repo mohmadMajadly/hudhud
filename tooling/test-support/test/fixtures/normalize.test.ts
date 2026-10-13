@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeRecords, Normalizer, projectSlug } from '../../src/fixtures/normalize.js';
 import type { NormalizeContext } from '../../src/fixtures/normalize.js';
 
-const KEY = 'hudhud-fake-api-key-not-a-credential';
+import { FAKE_API_KEY as KEY } from '../../src/launcher/env.js';
 // A key-shaped string assembled at run time: the redactor must catch the
 // `sk-ant-` shape, and the repository's privacy scan refuses that shape in
 // source text.
