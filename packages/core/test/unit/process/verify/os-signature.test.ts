@@ -1,6 +1,7 @@
 // The OS signature check of strict verification (ADR-0011, K8, plan §1.8,
 // §5.5 W3-T2): PowerShell and codesign by absolute path, the binary path as a
-// separate argument, only `Status` parsed.
+// separate argument, only `Status` and the signer subject parsed, the
+// publisher pinned on Windows (W3-Z ruling 9).
 
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,6 +26,9 @@ import {
 
 const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 const BINARY = 'C:\\Users\\user\\.local\\bin\\claude.exe';
+const SUBJECT = 'CN="Example, Inc.", O="Example, Inc.", C=US';
+/** The script's output for a valid signature by {@link SUBJECT}. */
+const VALID_OUT = `Valid\n${SUBJECT}`;
 
 function fakeFs(
   realpaths: Readonly<Record<string, string>>,
@@ -72,6 +76,7 @@ function windowsDeps(
     hostEnv: { SystemRoot: 'C:\\Windows' },
     fs: fakeFs({ [POWERSHELL]: POWERSHELL }),
     run,
+    publisher: { windowsSubject: SUBJECT },
     ...overrides,
   };
 }
@@ -87,10 +92,11 @@ describe('signaturePlatformOf', () => {
 
 describe('the Windows Authenticode check', () => {
   it('runs PowerShell by absolute path with a constant script and the path as its own argument', async () => {
-    const { commands, run } = recorder(exited('Valid'));
+    const { commands, run } = recorder(exited(VALID_OUT));
     await expect(checkOsSignature(BINARY, windowsDeps(run))).resolves.toEqual({
       kind: 'valid',
-      detail: 'authenticode Valid',
+      detail: 'authenticode Valid, pinned publisher',
+      signer: SUBJECT,
     });
     expect(commands).toHaveLength(1);
     const command = commands[0];
@@ -125,13 +131,18 @@ describe('the Windows Authenticode check', () => {
     expect(AUTHENTICODE_SCRIPT).toContain(
       'Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $a[6]',
     );
-    expect(AUTHENTICODE_SCRIPT).toContain('[Console]::Out.Write([string]$s.Status)');
+    expect(AUTHENTICODE_SCRIPT).toContain(
+      '[Console]::Out.Write([string]$s.Status + "`n" + [string]$s.SignerCertificate.Subject)',
+    );
+    expect(AUTHENTICODE_SCRIPT).toContain(
+      '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+    );
   });
 
   it.each(['\n', '\r', '\u0085', '\u2028', '\u2029', '\u0000', '\u001b', '\u007f'])(
     'refuses a path with U+%s before running anything',
     async (char) => {
-      const { commands, run } = recorder(exited('Valid'));
+      const { commands, run } = recorder(exited(VALID_OUT));
       await expect(checkOsSignature(`C:\\x\\a${char}b.exe`, windowsDeps(run))).rejects.toThrow(
         RangeError,
       );
@@ -150,7 +161,7 @@ describe('the Windows Authenticode check', () => {
     },
   );
 
-  it.each(['', 'valid', 'Valid Valid', 'Valid\nNotSigned', 'Status: Valid'])(
+  it.each(['', 'Valid', 'valid\nX', 'Valid Valid\nX', 'Status: Valid\nX', `\n${SUBJECT}`])(
     'fails on unrecognized output %j',
     async (stdout) => {
       const { run } = recorder(exited(stdout));
@@ -161,9 +172,50 @@ describe('the Windows Authenticode check', () => {
     },
   );
 
+  it('fails a valid signature when no publisher is pinned', async () => {
+    const { run } = recorder(exited(VALID_OUT));
+    const { platform, hostEnv, fs } = windowsDeps(run);
+    const unpinned: SignatureDeps = { platform, hostEnv, fs, run };
+    await expect(checkOsSignature(BINARY, unpinned)).resolves.toEqual({
+      kind: 'invalid',
+      detail: 'authenticode Valid, but no publisher is pinned',
+      signer: SUBJECT,
+    });
+    await expect(checkOsSignature(BINARY, windowsDeps(run, { publisher: {} }))).resolves.toEqual({
+      kind: 'invalid',
+      detail: 'authenticode Valid, but no publisher is pinned',
+      signer: SUBJECT,
+    });
+  });
+
+  it.each([
+    ['another publisher', 'CN=Someone Else, O=Someone Else, C=US'],
+    ['a subject that only starts with the pin', `${SUBJECT}, OU=x`],
+    ['the pin in another case', SUBJECT.toLowerCase()],
+    ['the pin with a trailing CR', `${SUBJECT}\r`],
+    ['an unsigned file (no signer certificate)', ''],
+  ])('fails a valid signature by %s', async (_name, signer) => {
+    const { run } = recorder(exited(`Valid\n${signer}`));
+    await expect(checkOsSignature(BINARY, windowsDeps(run))).resolves.toEqual({
+      kind: 'invalid',
+      detail: `authenticode Valid, but the signer is not the pinned publisher: ${JSON.stringify(signer)}`,
+      signer,
+    });
+  });
+
+  it('shows at most 256 characters of a foreign signer', async () => {
+    const signer = `CN=${'x'.repeat(1000)}`;
+    const { run } = recorder(exited(`Valid\n${signer}`));
+    const result = await checkOsSignature(BINARY, windowsDeps(run));
+    expect(result).toMatchObject({ kind: 'invalid', signer });
+    expect(result.kind === 'invalid' ? result.detail : '').toBe(
+      `authenticode Valid, but the signer is not the pinned publisher: ${JSON.stringify(signer.slice(0, 256))}`,
+    );
+  });
+
   it.each<[CommandOutcome, string]>([
-    [exited('Valid', 3), 'exit 3'],
-    [exited('Valid', null), 'exit SIGKILL'],
+    [exited(VALID_OUT, 3), 'exit 3'],
+    [exited(VALID_OUT, null), 'exit SIGKILL'],
     [{ kind: 'exited', exitCode: null, signal: null, stdout: '' }, 'exit unknown'],
     [{ kind: 'timeout' }, 'timeout'],
     [{ kind: 'output-too-large' }, 'output-too-large'],
@@ -178,7 +230,7 @@ describe('the Windows Authenticode check', () => {
   });
 
   it('passes a configured timeout', async () => {
-    const { commands, run } = recorder(exited('Valid'));
+    const { commands, run } = recorder(exited(VALID_OUT));
     await checkOsSignature(BINARY, windowsDeps(run, { timeoutMs: 5 }));
     expect(commands[0]?.timeoutMs).toBe(5);
   });
@@ -188,7 +240,7 @@ describe('the Windows Authenticode check', () => {
     [{ SystemRoot: '\\\\server\\share\\Windows' }, 'system-root-invalid'],
     [{ SystemRoot: 'C:\\Windows\\..\\Evil' }, 'system-root-invalid'],
   ])('refuses an unusable SystemRoot %j', async (hostEnv, reason) => {
-    const { commands, run } = recorder(exited('Valid'));
+    const { commands, run } = recorder(exited(VALID_OUT));
     await expect(checkOsSignature(BINARY, windowsDeps(run, { hostEnv }))).resolves.toEqual({
       kind: 'invalid',
       detail: `powershell unavailable: ${reason}`,
@@ -197,7 +249,7 @@ describe('the Windows Authenticode check', () => {
   });
 
   it('uses C:\\Windows when SystemRoot is absent', async () => {
-    const { commands, run } = recorder(exited('Valid'));
+    const { commands, run } = recorder(exited(VALID_OUT));
     await checkOsSignature(BINARY, windowsDeps(run, { hostEnv: {} }));
     expect(commands[0]?.file).toBe(POWERSHELL);
   });
@@ -208,7 +260,7 @@ describe('the Windows Authenticode check', () => {
     [fakeFs({ [POWERSHELL]: POWERSHELL }, 'dir'), 'not-regular-file'],
     [fakeFs({ [POWERSHELL]: POWERSHELL }, 'link'), 'not-regular-file'],
   ])('refuses a PowerShell that is not the in-box file (%#)', async (fs, reason) => {
-    const { commands, run } = recorder(exited('Valid'));
+    const { commands, run } = recorder(exited(VALID_OUT));
     await expect(checkOsSignature(BINARY, windowsDeps(run, { fs }))).resolves.toEqual({
       kind: 'invalid',
       detail: `powershell unavailable: ${reason}`,
@@ -217,7 +269,7 @@ describe('the Windows Authenticode check', () => {
   });
 
   it('compares the PowerShell realpath ignoring case', async () => {
-    const { run } = recorder(exited('Valid'));
+    const { run } = recorder(exited(VALID_OUT));
     const fs = fakeFs({ [POWERSHELL]: POWERSHELL.toUpperCase() });
     await expect(checkOsSignature(BINARY, windowsDeps(run, { fs }))).resolves.toMatchObject({
       kind: 'valid',
@@ -317,12 +369,23 @@ describe.runIf(process.platform === 'win32')('the Authenticode check on this Win
     await mkdir(dir);
     const binary = path.join(dir, "n $(Write-Output INJECTED) ; `b' #.exe");
     await copyFile(process.execPath, binary);
-    const { outputs, deps } = capturing();
-    await expect(checkOsSignature(binary, deps)).resolves.toEqual({
-      kind: 'valid',
-      detail: 'authenticode Valid',
+    // Unpinned: the signature is valid, but any publisher is refused.
+    const first = capturing();
+    const unpinned = await checkOsSignature(binary, first.deps);
+    expect(unpinned).toMatchObject({
+      kind: 'invalid',
+      detail: 'authenticode Valid, but no publisher is pinned',
     });
-    expect(outputs).toEqual([{ kind: 'exited', exitCode: 0, signal: null, stdout: 'Valid' }]);
+    const signer = unpinned.kind === 'invalid' ? (unpinned.signer ?? '') : '';
+    expect(signer).toMatch(/^CN=/);
+    expect(first.outputs).toEqual([
+      { kind: 'exited', exitCode: 0, signal: null, stdout: `Valid\n${signer}` },
+    ]);
+    // Pinned to node's own publisher: valid.
+    const second = capturing();
+    await expect(
+      checkOsSignature(binary, { ...second.deps, publisher: { windowsSubject: signer } }),
+    ).resolves.toEqual({ kind: 'valid', detail: 'authenticode Valid, pinned publisher', signer });
   }, 60_000);
 
   it('fails for an unsigned file', async () => {

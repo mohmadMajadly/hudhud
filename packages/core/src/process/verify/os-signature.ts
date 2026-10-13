@@ -26,22 +26,37 @@
  *   the in-box modules of `%SystemRoot%` (no user or application module can
  *   shadow it), `-NoProfile`, and the restricted environment of the process
  *   table query (`os/win32.ts`).
- * - Only the `Status` is written and parsed. `Valid` is the only pass; every
- *   other status, an unknown word, a non-zero exit, a timeout or a spawn
+ * - The script writes the `Status` and, on a second line, the signer
+ *   certificate's `Subject` (UTF-8 without BOM); nothing else is parsed.
+ *   `Valid` is the only passing status; every other status, an unknown word,
+ *   output without the second line, a non-zero exit, a timeout or a spawn
  *   failure fails the check.
+ * - Publisher pinning (W3-Z ruling 9): a `Valid` signature passes only when
+ *   the signer subject equals the pinned publisher subject
+ *   ({@link PublisherPin.windowsSubject}) exactly; without a pin the check
+ *   fails. `Valid` alone accepts any publisher whose chain ends in a trusted
+ *   root. The subject is pinned, not the certificate thumbprint: the leaf
+ *   certificate is re-issued (the one of the pinned 2.1.296 build is valid
+ *   from 2026-10-08 to 2027-10-29), so a thumbprint pin would refuse an
+ *   authentic build signed after a rotation, while the strict digest table
+ *   already pins the exact file. The EV subject names the legal entity with
+ *   its jurisdiction and registration number, which the CA validates before
+ *   issuing.
  *
  * macOS: `/usr/bin/codesign --verify --strict <path>` by absolute path
  * (realpath-checked, SIP-protected), environment `LC_ALL=C` only. Exit code 0
- * is a pass; anything else fails.
+ * is a pass; anything else fails. Pending the macOS gate (ADR-0014): the
+ * Team ID pin. Until the gate has recorded the Team ID of the pinned darwin
+ * builds, codesign's verdict is not bound to a publisher; strict mode on
+ * darwin still needs a digest-table match, and the committed table has no
+ * darwin entries before the gate.
  *
  * Other platforms have no OS signature check (`unsupported`); strict
  * verification then relies on the digest table alone (ADR-0011: the
  * manifest hash is the portable fallback).
  *
- * Not guaranteed: the signer. Only the OS verdict is read (`Valid` accepts
- * any trusted publisher); strict verification additionally requires a digest
- * match, which pins the exact file. The file can change after the check; the
- * caller binds the result to the file identity (`verify.ts`).
+ * Not guaranteed: the file can change after the check; the caller binds the
+ * result to the file identity (`verify.ts`).
  *
  * @packageDocumentation
  */
@@ -59,8 +74,11 @@ import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './c
  */
 export const DEFAULT_SIGNATURE_TIMEOUT_MS = 60_000;
 
-/** Bound on the checker's stdout; a status word is a few bytes. */
+/** Bound on the checker's stdout: a status word and one certificate subject. */
 const MAX_SIGNATURE_OUTPUT_BYTES = 4096;
+
+/** At most this many characters of a foreign signer subject go into a detail. */
+const MAX_SIGNER_SHOWN = 256;
 
 /**
  * Which OS signature check applies.
@@ -100,9 +118,25 @@ export const AUTHENTICODE_STATUSES: readonly string[] = Object.freeze([
  * @public
  */
 export type OsSignatureResult =
-  | { readonly kind: 'valid'; readonly detail: string }
-  | { readonly kind: 'invalid'; readonly detail: string }
+  | { readonly kind: 'valid'; readonly detail: string; readonly signer?: string }
+  | { readonly kind: 'invalid'; readonly detail: string; readonly signer?: string }
   | { readonly kind: 'unsupported' };
+
+/**
+ * The publisher strict verification requires (W3-Z ruling 9). The adapter
+ * supplies its harness's publisher from its committed table.
+ *
+ * @public
+ */
+export interface PublisherPin {
+  /**
+   * The exact `Subject` of the Authenticode signer certificate, as
+   * `X509Certificate.Subject` formats it. Required for a passing check on
+   * Windows.
+   */
+  readonly windowsSubject?: string;
+  // darwin: the Team ID pin is added after the macOS gate (ADR-0014).
+}
 
 /**
  * Filesystem calls used to check the checker's executable.
@@ -128,6 +162,8 @@ export interface SignatureDeps {
   readonly run: (command: BoundedCommand) => Promise<CommandOutcome>;
   /** Defaults to {@link DEFAULT_SIGNATURE_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /** The publisher to require; without a Windows subject the Windows check fails. */
+  readonly publisher?: PublisherPin;
 }
 
 /**
@@ -165,7 +201,8 @@ export const AUTHENTICODE_SCRIPT: string = [
   '$a = [Environment]::GetCommandLineArgs()',
   `if ($a.Length -ne ${String(ARG_COUNT)}) { exit 3 }`,
   `$s = Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $a[${String(ARG_COUNT - 1)}]`,
-  '[Console]::Out.Write([string]$s.Status)',
+  '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+  '[Console]::Out.Write([string]$s.Status + "`n" + [string]$s.SignerCertificate.Subject)',
   '#',
 ].join('\n');
 
@@ -241,13 +278,26 @@ async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<Os
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {
     return { kind: 'invalid', detail: `authenticode check failed: ${describeFailure(outcome)}` };
   }
-  const status = outcome.stdout.trim();
+  const newline = outcome.stdout.indexOf('\n');
+  const status = newline < 0 ? '' : outcome.stdout.slice(0, newline).trim();
   if (!AUTHENTICODE_STATUSES.includes(status)) {
     return { kind: 'invalid', detail: 'authenticode status unrecognized' };
   }
-  return status === 'Valid'
-    ? { kind: 'valid', detail: 'authenticode Valid' }
-    : { kind: 'invalid', detail: `authenticode ${status}` };
+  if (status !== 'Valid') return { kind: 'invalid', detail: `authenticode ${status}` };
+  const signer = outcome.stdout.slice(newline + 1);
+  const pinned = deps.publisher?.windowsSubject;
+  if (pinned === undefined) {
+    return { kind: 'invalid', detail: 'authenticode Valid, but no publisher is pinned', signer };
+  }
+  if (signer !== pinned) {
+    const shown = JSON.stringify(signer.slice(0, MAX_SIGNER_SHOWN));
+    return {
+      kind: 'invalid',
+      detail: `authenticode Valid, but the signer is not the pinned publisher: ${shown}`,
+      signer,
+    };
+  }
+  return { kind: 'valid', detail: 'authenticode Valid, pinned publisher', signer };
 }
 
 /**

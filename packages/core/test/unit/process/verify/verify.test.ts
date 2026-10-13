@@ -16,6 +16,7 @@ import type { FileDigest } from '../../../../src/process/hash.js';
 import type { BoundedCommand, CommandOutcome } from '../../../../src/process/verify/command.js';
 import {
   assertSpawnable,
+  assertSpawnableOrReverify,
   BinaryChangedError,
   BinaryNotVerifiedError,
   checkKnownDigests,
@@ -93,6 +94,7 @@ function fakeOptions(
       digests: options.digests ?? [],
       platform: options.platform ?? 'darwin',
       hostEnv: {},
+      ...(options.publisher === undefined ? {} : { publisher: options.publisher }),
       ...(options.cache === undefined ? {} : { cache: options.cache }),
       deps: {
         fs,
@@ -257,6 +259,79 @@ describe('strict verification', () => {
       },
     });
     expect(calls).not.toContain(`hash ${BIN}`);
+  });
+
+  it('requires the pinned publisher of the Windows signature (ruling 9)', async () => {
+    const subject = 'CN="Example, Inc.", O="Example, Inc.", C=US';
+    const signature: CommandOutcome = {
+      kind: 'exited',
+      exitCode: 0,
+      signal: null,
+      stdout: `Valid\n${subject}`,
+    };
+    const digests = [{ version: '2.1.296', sha256: SHA_A }];
+    const pinned = fakeOptions({
+      mode: 'strict',
+      platform: 'win32',
+      digests,
+      signature,
+      publisher: { windowsSubject: subject },
+    });
+    await expect(verifyBinary(resolved(), pinned.options)).resolves.toMatchObject({
+      verification: {
+        status: 'verified',
+        detail: 'authenticode Valid, pinned publisher; sha256 matches 2.1.296',
+      },
+    });
+    const unpinned = fakeOptions({ mode: 'strict', platform: 'win32', digests, signature });
+    await expect(verifyBinary(resolved(), unpinned.options)).resolves.toMatchObject({
+      verification: {
+        status: 'failed',
+        method: 'os-signature',
+        detail: 'authenticode Valid, but no publisher is pinned',
+      },
+    });
+    expect(unpinned.calls).not.toContain(`hash ${BIN}`);
+    const other = fakeOptions({
+      mode: 'strict',
+      platform: 'win32',
+      digests,
+      signature,
+      publisher: { windowsSubject: 'CN=Someone Else' },
+    });
+    await expect(verifyBinary(resolved(), other.options)).resolves.toMatchObject({
+      verification: { status: 'failed', method: 'os-signature' },
+    });
+  });
+
+  it('keys the cache by the pinned publisher', async () => {
+    const cache = new VerificationCache();
+    const signature: CommandOutcome = {
+      kind: 'exited',
+      exitCode: 0,
+      signal: null,
+      stdout: 'Valid\nCN=A',
+    };
+    const first = fakeOptions({
+      mode: 'strict',
+      platform: 'win32',
+      cache,
+      signature,
+      publisher: { windowsSubject: 'CN=A' },
+    });
+    await verifyBinary(resolved(), first.options);
+    const second = fakeOptions({
+      mode: 'strict',
+      platform: 'win32',
+      cache,
+      signature,
+      publisher: { windowsSubject: 'CN=B' },
+    });
+    await expect(verifyBinary(resolved(), second.options)).resolves.toMatchObject({
+      verification: { status: 'failed', method: 'os-signature' },
+    });
+    expect(second.calls.some((call) => call.startsWith('run '))).toBe(true);
+    expect(cache.size).toBe(2);
   });
 
   it('uses the digest table alone where there is no OS signature check', async () => {
@@ -483,6 +558,143 @@ describe('recheckBinary and assertSpawnable', () => {
       verification: { status: 'failed', method: 'sha256-manifest', mode: 'advisory' },
     };
     await expect(assertSpawnable(advisory, fs(BIN, fileIdentity()))).resolves.toBeUndefined();
+  });
+});
+
+describe('assertSpawnableOrReverify (ruling 9)', () => {
+  const first: VerifiedBinary = {
+    path: BIN,
+    sha256: SHA_A,
+    size: 10,
+    mtimeMs: 1000,
+    fileId: '1:2',
+    matchedVersion: '2.1.296',
+    verification: { status: 'verified', method: 'sha256-manifest', mode: 'strict' },
+  };
+  const updated: VerifiedBinary = { ...first, sha256: SHA_B, fileId: '1:3', mtimeMs: 2000 };
+
+  /** An identity fs whose stat answers from a queue (the last answer repeats). */
+  function queuedFs(...identities: FileIdentity[]): IdentityFs {
+    const queue = [...identities];
+    return {
+      realpath: (value) => Promise.resolve(value),
+      stat: () => {
+        const next = queue.length > 1 ? queue.shift() : queue[0];
+        return next === undefined ? Promise.reject(new Error('no stat')) : Promise.resolve(next);
+      },
+    };
+  }
+
+  const firstIdentity = fileIdentity();
+  const updatedIdentity = fileIdentity({ ino: 3n, mtimeMs: 2000n });
+
+  it('spawns the verified binary without re-verifying while it is unchanged', async () => {
+    let reverified = 0;
+    const result = await assertSpawnableOrReverify(
+      first,
+      () => {
+        reverified += 1;
+        return Promise.resolve(updated);
+      },
+      queuedFs(firstIdentity),
+    );
+    expect(result).toEqual({ binary: first, reverified: false });
+    expect(reverified).toBe(0);
+  });
+
+  it('re-verifies once when the file was replaced, and spawns the new result', async () => {
+    let reverified = 0;
+    const result = await assertSpawnableOrReverify(
+      first,
+      () => {
+        reverified += 1;
+        return Promise.resolve(updated);
+      },
+      queuedFs(updatedIdentity),
+    );
+    expect(result).toEqual({ binary: updated, reverified: true });
+    expect(reverified).toBe(1);
+  });
+
+  it('refuses a second change after the re-verification', async () => {
+    const error: unknown = await assertSpawnableOrReverify(
+      first,
+      () => Promise.resolve(updated),
+      queuedFs(updatedIdentity, fileIdentity({ ino: 4n })),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BinaryNotVerifiedError);
+    expect((error as BinaryNotVerifiedError).code).toBe('BINARY_VERIFICATION_FAILED');
+    expect((error as BinaryNotVerifiedError).verification).toEqual({
+      status: 'failed',
+      method: 'sha256-manifest',
+      mode: 'strict',
+      detail: 'the binary changed again while it was verified a second time',
+    });
+    expect((error as Error).cause).toBeInstanceOf(BinaryChangedError);
+  });
+
+  it('refuses a change during the re-verification', async () => {
+    const error: unknown = await assertSpawnableOrReverify(
+      first,
+      () => Promise.reject(new BinaryChangedError(BIN)),
+      queuedFs(updatedIdentity),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BinaryNotVerifiedError);
+    expect((error as BinaryNotVerifiedError).verification.status).toBe('failed');
+  });
+
+  it('refuses a strict re-verification that is not verified', async () => {
+    const failed: VerifiedBinary = {
+      ...updated,
+      verification: { status: 'failed', method: 'sha256-manifest', mode: 'strict' },
+    };
+    await expect(
+      assertSpawnableOrReverify(first, () => Promise.resolve(failed), queuedFs(updatedIdentity)),
+    ).rejects.toMatchObject({
+      code: 'BINARY_VERIFICATION_FAILED',
+      verification: { status: 'failed' },
+    });
+  });
+
+  it('returns an advisory re-verification whatever its status', async () => {
+    const advisoryFirst: VerifiedBinary = {
+      ...first,
+      verification: { status: 'verified', method: 'sha256-manifest', mode: 'advisory' },
+    };
+    const advisoryNew: VerifiedBinary = {
+      ...updated,
+      verification: { status: 'unverified', method: 'sha256-manifest', mode: 'advisory' },
+    };
+    await expect(
+      assertSpawnableOrReverify(
+        advisoryFirst,
+        () => Promise.resolve(advisoryNew),
+        queuedFs(updatedIdentity),
+      ),
+    ).resolves.toEqual({ binary: advisoryNew, reverified: true });
+  });
+
+  it('passes on other errors of the re-verification and of the first check', async () => {
+    const gone = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    await expect(
+      assertSpawnableOrReverify(first, () => Promise.reject(gone), queuedFs(updatedIdentity)),
+    ).rejects.toBe(gone);
+    let reverified = 0;
+    const notVerified: VerifiedBinary = {
+      ...first,
+      verification: { status: 'unverified', method: 'none', mode: 'strict' },
+    };
+    await expect(
+      assertSpawnableOrReverify(
+        notVerified,
+        () => {
+          reverified += 1;
+          return Promise.resolve(updated);
+        },
+        queuedFs(firstIdentity),
+      ),
+    ).rejects.toBeInstanceOf(BinaryNotVerifiedError);
+    expect(reverified).toBe(0);
   });
 });
 

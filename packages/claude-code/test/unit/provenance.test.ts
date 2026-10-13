@@ -8,6 +8,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CLAUDE_CODE_PUBLISHER,
   CLAUDE_VERSION_PROBE_ARGS,
   CLAUDE_VERSION_PROBE_TIMEOUT_MS,
   KNOWN_BINARIES,
@@ -30,36 +31,38 @@ interface PinFile {
   >;
 }
 
-describe('the committed digest table', () => {
-  const json = readJson('../../src/known-binaries.json') as {
-    readonly $comment: string;
-    readonly versions: unknown;
-  };
+describe('the committed digest table (known-binaries.ts, the single source)', () => {
+  const pin = readJson('../../../../tooling/cli-pin.json') as PinFile;
 
-  it('is mirrored exactly by KNOWN_BINARIES', () => {
-    expect(json.versions).toEqual(KNOWN_BINARIES);
-    expect(Object.keys(json)).toEqual(['$comment', 'versions']);
-  });
-
-  it('holds the pinned linux-x64 and win32-x64 digests of tooling/cli-pin.json', () => {
-    const pin = readJson('../../../../tooling/cli-pin.json') as PinFile;
+  it('equals tooling/cli-pin.json for every pinned platform', () => {
     const entry = KNOWN_BINARIES[pin.version];
     expect(entry).toBeDefined();
-    for (const key of ['linux-x64', 'win32-x64']) {
-      const pinned = pin.platforms[key];
-      expect(pinned?.pendingGate).toBeUndefined();
-      expect(entry?.[key]).toEqual({ sha256: pinned?.sha256, size: pinned?.size });
+    const pinned = Object.entries(pin.platforms).filter(([, value]) => value.pendingGate !== true);
+    expect(pinned.map(([key]) => key).sort()).toEqual(['linux-x64', 'win32-x64']);
+    for (const [key, value] of pinned) {
+      expect(entry?.[key]).toEqual({ sha256: value.sha256, size: value.size });
     }
+    // Nothing beyond the pin: the table has exactly the pinned platforms.
+    expect(Object.keys(entry ?? {}).sort()).toEqual(pinned.map(([key]) => key).sort());
   });
 
   it('has no darwin entry until the macOS gate has recorded one', () => {
-    const pin = readJson('../../../../tooling/cli-pin.json') as PinFile;
     expect(pin.platforms['darwin-arm64']?.pendingGate).toBe(true);
     expect(pin.platforms['darwin-x64']?.pendingGate).toBe(true);
     for (const platforms of Object.values(KNOWN_BINARIES)) {
       expect(Object.keys(platforms).filter((key) => key.startsWith('darwin'))).toEqual([]);
     }
-    expect(json.$comment).toMatch(/macOS gate/);
+  });
+
+  it('is the only copy: no JSON mirror ships beside it', () => {
+    expect(() => readJson('../../src/known-binaries.json')).toThrow();
+  });
+
+  it('pins the Authenticode publisher of the pinned win32-x64 binary (ruling 9)', () => {
+    expect(Object.isFrozen(CLAUDE_CODE_PUBLISHER)).toBe(true);
+    expect(CLAUDE_CODE_PUBLISHER.windowsSubject).toBe(
+      'CN="Anthropic, PBC", O="Anthropic, PBC", L=San Francisco, S=California, C=US, SERIALNUMBER=4860621, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Delaware, OID.1.3.6.1.4.1.311.60.2.1.3=US',
+    );
   });
 
   it('is frozen and well formed', () => {

@@ -4,11 +4,10 @@
  * `--version` probe's argv and output format.
  *
  * @remarks
- * `known-binaries.json` is the reviewed source of the table, updated only by
- * the version-bump PR (K16). {@link KNOWN_BINARIES} mirrors it for the
- * runtime (the build does not ship JSON modules); a unit test keeps the two
- * equal to each other and to `tooling/cli-pin.json`. Nothing is fetched at
- * run time.
+ * `known-binaries.ts` is the one reviewed source of the table and of the
+ * pinned publisher, updated only by the version-bump PR (K16); a unit test
+ * keeps the table equal to `tooling/cli-pin.json`. Nothing is fetched at run
+ * time.
  *
  * darwin entries are absent until the macOS gate (M1) has recorded them: a
  * darwin binary is `unverified` in advisory mode and refused in strict mode
@@ -18,6 +17,10 @@
  */
 
 import process from 'node:process';
+
+import { CLAUDE_CODE_PUBLISHER, KNOWN_BINARIES } from './known-binaries.js';
+
+export { CLAUDE_CODE_PUBLISHER, KNOWN_BINARIES };
 
 /**
  * A digest entry: the shape of the core's `KnownDigest`.
@@ -29,28 +32,6 @@ export interface ClaudeKnownDigest {
   readonly sha256: string;
   readonly size?: number;
 }
-
-/**
- * The committed digest table: version, then platform key, then the binary's
- * sha256 and size. Mirrors `known-binaries.json`.
- *
- * @internal
- */
-export const KNOWN_BINARIES: Readonly<
-  Record<string, Readonly<Record<string, { readonly sha256: string; readonly size: number }>>>
-> = Object.freeze({
-  '2.1.296': Object.freeze({
-    'linux-x64': Object.freeze({
-      sha256: '24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de',
-      size: 257068216,
-    }),
-    'win32-x64': Object.freeze({
-      sha256: '76de74f7694a5bdc03378a5f837c9e132827bf004c98c276bc4e9094ff06769a',
-      size: 260489376,
-    }),
-    // darwin-arm64, darwin-x64: added only after the macOS gate (M1).
-  }),
-});
 
 /**
  * The platform key of the table: `<process.platform>-<process.arch>`, as

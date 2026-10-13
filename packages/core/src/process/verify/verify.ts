@@ -45,6 +45,7 @@ import {
   checkOsSignature,
   nodeSignatureDeps,
   signaturePlatformOf,
+  type PublisherPin,
   type SignatureDeps,
   type SignaturePlatform,
 } from './os-signature.js';
@@ -144,10 +145,11 @@ export class BinaryNotVerifiedError extends Error {
   readonly path: string;
   readonly verification: BinaryVerification;
 
-  constructor(binary: VerifiedBinary) {
+  constructor(binary: VerifiedBinary, options?: { readonly cause?: unknown }) {
     super(
       `refusing to run ${JSON.stringify(binary.path)}: verification ${binary.verification.status}` +
         (binary.verification.detail === undefined ? '' : ` (${binary.verification.detail})`),
+      options,
     );
     this.path = binary.path;
     this.verification = binary.verification;
@@ -214,6 +216,12 @@ export interface VerifyBinaryOptions {
   readonly digests: readonly KnownDigest[];
   /** Which OS signature check strict mode runs; the host's by default. */
   readonly platform?: SignaturePlatform;
+  /**
+   * The publisher strict mode requires of the OS signature (W3-Z ruling 9);
+   * on Windows a strict check without {@link PublisherPin.windowsSubject}
+   * fails. Ignored in advisory mode.
+   */
+  readonly publisher?: PublisherPin;
   /** The host environment, read only for `SystemRoot` by the Windows check; `process.env` by default. */
   readonly hostEnv?: Readonly<Record<string, string | undefined>>;
   readonly cache?: VerificationCache;
@@ -270,6 +278,7 @@ function cacheKey(binary: ResolvedExecutable, options: VerifyBinaryOptions): str
     binary.size,
     binary.mtimeMs,
     options.platform ?? '',
+    options.publisher?.windowsSubject ?? null,
     table,
   ]);
 }
@@ -360,6 +369,7 @@ async function verifyUncached(
     hostEnv: options.hostEnv ?? process.env,
     ...nodeSignatureDeps,
     ...options.deps?.signature,
+    ...(options.publisher === undefined ? {} : { publisher: options.publisher }),
   });
   if (signature.kind === 'invalid') {
     return {
@@ -501,4 +511,73 @@ export async function assertSpawnable(
     throw new BinaryNotVerifiedError(binary);
   }
   await recheckBinary(binary, fs);
+}
+
+/**
+ * The binary to spawn after {@link assertSpawnableOrReverify}.
+ *
+ * @public
+ */
+export interface SpawnableBinary {
+  readonly binary: VerifiedBinary;
+  /**
+   * True when the first check found the file changed and the binary was
+   * resolved and verified again: the caller re-runs what depends on the
+   * bytes (the version probe, K4) before it trusts the new verdict.
+   */
+  readonly reverified: boolean;
+}
+
+/**
+ * {@link assertSpawnable} with one recovery: when the file changed since it
+ * was verified ({@link BinaryChangedError}), a legitimate update may have
+ * replaced it, so `reverify` resolves and fully verifies it once more and
+ * the new result is checked again (W3-Z ruling 9).
+ *
+ * @remarks
+ * - At most one re-verification. A second change, during the
+ *   re-verification or after it, is {@link BinaryNotVerifiedError}
+ *   (`BINARY_VERIFICATION_FAILED`) with status `failed`.
+ * - The re-verified result passes {@link assertSpawnable} like the first:
+ *   strict mode refuses anything but `verified`; advisory mode returns the
+ *   new verdict, which the caller reports.
+ * - `reverify` reads the file again; the {@link VerificationCache} is keyed
+ *   by realpath, size and mtime and re-checks the identity on a hit, so a
+ *   replaced file never reuses the old verdict.
+ *
+ * @throws {@link BinaryNotVerifiedError}; whatever `reverify` throws other
+ * than {@link BinaryChangedError} (for example when the file is gone)
+ * @public
+ */
+export async function assertSpawnableOrReverify(
+  binary: VerifiedBinary,
+  reverify: () => Promise<VerifiedBinary>,
+  fs: IdentityFs = nodeIdentityFs,
+): Promise<SpawnableBinary> {
+  try {
+    await assertSpawnable(binary, fs);
+    return { binary, reverified: false };
+  } catch (error) {
+    if (!(error instanceof BinaryChangedError)) throw error;
+  }
+  let again: VerifiedBinary;
+  try {
+    again = await reverify();
+    await assertSpawnable(again, fs);
+  } catch (error) {
+    if (!(error instanceof BinaryChangedError)) throw error;
+    throw new BinaryNotVerifiedError(
+      {
+        ...binary,
+        verification: {
+          status: 'failed',
+          method: binary.verification.method,
+          mode: binary.verification.mode,
+          detail: 'the binary changed again while it was verified a second time',
+        },
+      },
+      { cause: error },
+    );
+  }
+  return { binary: again, reverified: true };
 }

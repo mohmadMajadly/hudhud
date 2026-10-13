@@ -14,6 +14,10 @@
  *   names as empty strings, `childEnv`); env names and values with NUL, `=`
  *   in a name, case-insensitive duplicate names on Windows, and on Windows a
  *   map without a non-empty `SYSTEMROOT` are refused before anything runs.
+ * - cwd: a hudhud-owned empty directory created for this probe
+ *   (`mkdtemp` under `os.tmpdir()`) and removed after it, never the
+ *   application's cwd or a project directory (W3-Z ruling 9), so nothing the
+ *   binary might read from its cwd is under anyone else's control.
  * - Bounded: a timeout (default 15 s) and an stdout cap (default 4 KiB);
  *   stdin and stderr are not connected, so nothing the child writes to
  *   stderr is kept.
@@ -23,6 +27,10 @@
  *
  * @packageDocumentation
  */
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import type { ProcessPlatform } from '../cwd.js';
 import { pathProblem } from '../cwd.js';
@@ -81,8 +89,6 @@ export interface VersionProbeOptions {
   readonly args: readonly string[];
   /** The child's complete environment. */
   readonly env: Readonly<Record<string, string>>;
-  /** Absolute working directory. */
-  readonly cwd: string;
   readonly platform: ProcessPlatform;
   /** Defaults to {@link DEFAULT_VERSION_PROBE_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
@@ -92,12 +98,34 @@ export interface VersionProbeOptions {
   readonly deps?: {
     readonly fs?: IdentityFs;
     readonly run?: (command: BoundedCommand) => Promise<CommandOutcome>;
+    readonly workDir?: ProbeWorkDir;
   };
 }
 
+/**
+ * Creates and removes the probe's working directory.
+ *
+ * @public
+ */
+export interface ProbeWorkDir {
+  /** Creates a new, empty directory owned by this process; returns its absolute path. */
+  create(): Promise<string>;
+  /** Removes the directory and anything in it. */
+  remove(dir: string): Promise<void>;
+}
+
+/**
+ * A new directory under `os.tmpdir()` per probe (`mkdtemp`, mode 0700 on
+ * POSIX), removed after the probe.
+ *
+ * @public
+ */
+export const tempProbeWorkDir: ProbeWorkDir = {
+  create: () => mkdtemp(path.join(tmpdir(), 'hudhud-probe-')),
+  remove: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3 }),
+};
+
 function checkProbeSpec(options: VersionProbeOptions): void {
-  const cwdProblem = pathProblem(options.cwd, options.platform);
-  if (cwdProblem !== undefined) throw new VersionProbeError('spec-refused', `cwd ${cwdProblem}`);
   options.args.forEach((arg, index) => {
     if (arg.includes('\0')) throw new VersionProbeError('spec-refused', `arg ${String(index)}`);
   });
@@ -131,15 +159,24 @@ export async function runVersionProbe(
   checkProbeSpec(options);
   await assertSpawnable(binary, options.deps?.fs);
   const run = options.deps?.run ?? ((command: BoundedCommand) => runBoundedCommand(command));
-  const outcome = await run({
-    file: binary.path,
-    args: options.args,
-    env: options.env,
-    cwd: options.cwd,
-    platform: options.platform,
-    timeoutMs: options.timeoutMs ?? DEFAULT_VERSION_PROBE_TIMEOUT_MS,
-    maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_VERSION_PROBE_MAX_BYTES,
-  });
+  const workDir = options.deps?.workDir ?? tempProbeWorkDir;
+  const cwd = await workDir.create();
+  let outcome: CommandOutcome;
+  try {
+    const cwdProblem = pathProblem(cwd, options.platform);
+    if (cwdProblem !== undefined) throw new VersionProbeError('spec-refused', `cwd ${cwdProblem}`);
+    outcome = await run({
+      file: binary.path,
+      args: options.args,
+      env: options.env,
+      cwd,
+      platform: options.platform,
+      timeoutMs: options.timeoutMs ?? DEFAULT_VERSION_PROBE_TIMEOUT_MS,
+      maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_VERSION_PROBE_MAX_BYTES,
+    });
+  } finally {
+    await workDir.remove(cwd);
+  }
   if (outcome.kind === 'spawn-error') throw new VersionProbeError('spawn-error', outcome.errno);
   if (outcome.kind !== 'exited') throw new VersionProbeError(outcome.kind);
   if (outcome.exitCode !== 0) {
