@@ -1,0 +1,6 @@
+{"t":0,"dir":"config","v":{"suite":"resume-not-found","case":"main","platform":"win32","argv":["--resume=<uuid-1>","--output-format=stream-json","--input-format=stream-json","--verbose","--setting-sources=","--permission-mode=default"],"env":{}}}
+{"t":0,"dir":"in","v":{"type":"control_request","request_id":"init_1","request":{"subtype":"initialize"}}}
+{"t":767,"dir":"err","v":"No conversation found with session ID: <uuid-1>\n"}
+{"t":767,"dir":"out","v":{"type":"result","subtype":"error_during_execution","duration_ms":0,"duration_api_ms":0,"is_error":true,"num_turns":0,"stop_reason":null,"session_id":"<uuid-1>","total_cost_usd":0,"usage":{"output_tokens_details":{"thinking_tokens":0},"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard","fallback_credit":null},"modelUsage":{},"permission_denials":[],"uuid":"<uuid-2>","errors":["No conversation found with session ID: <uuid-1>"],"result_index":0}}
+{"t":841,"dir":"exit","v":{"code":1,"signal":null}}
+{"t":971,"dir":"cmd","v":{"stdin":"eof"}}
