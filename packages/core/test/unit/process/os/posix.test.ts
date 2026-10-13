@@ -13,21 +13,33 @@ import {
 } from '../../../../src/process/os/posix.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { parseProcStat } from '../../../../src/process/tree/proc-stat.js';
-import { ChildTracker, hostSnapshot, within } from '../spawn-support.js';
+import {
+  ChildTracker,
+  hangGuard,
+  hostSnapshot,
+  NONE_LISTED_GUARD,
+  noLeaksGuard,
+  TABLE_READ_MS,
+  within,
+} from '../spawn-support.js';
 
 const LINUX = process.platform === 'linux';
 const POSIX = process.platform !== 'win32';
-const TIMEOUT = 60_000;
+// Each test and hook timeout is a hang guard sized from the product bounds
+// it consumes (spawn-support.ts hangGuard).
 
 const tracker = new ChildTracker();
 
-afterEach(async () => {
-  await tracker.assertNoLeaks();
-}, TIMEOUT);
+afterEach(
+  async () => {
+    await tracker.assertNoLeaks();
+  },
+  noLeaksGuard(1, false),
+);
 
 afterAll(async () => {
   await tracker.assertNoneListed();
-}, TIMEOUT);
+}, NONE_LISTED_GUARD);
 
 function errno(code: string): Error {
   return Object.assign(new Error(code), { code });
@@ -149,7 +161,8 @@ describe('createPosixSignalCalls', () => {
         signal: 'SIGTERM',
       });
     },
-    TIMEOUT,
+    // The identity read and a snapshot (one table read each), the exit wait.
+    hangGuard(2 * TABLE_READ_MS, 10_000),
   );
 
   it.runIf(LINUX)(
@@ -176,6 +189,7 @@ describe('createPosixSignalCalls', () => {
       const after = await hostSnapshot();
       expect(record === undefined ? null : findIdentity(after.records, record)).toBeNull();
     },
-    TIMEOUT,
+    // Two snapshots (one table read each), the exit wait.
+    hangGuard(2 * TABLE_READ_MS, 10_000),
   );
 });

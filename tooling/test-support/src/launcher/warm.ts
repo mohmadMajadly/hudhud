@@ -21,13 +21,19 @@ export class WarmUpError extends Error {
   override readonly name = 'WarmUpError';
 }
 
+/** Default bound of each of the two waits of {@link warmSandbox}: the result, then the exit. */
+export const DEFAULT_WARM_TIMEOUT_MS = 60_000;
+
 /**
  * Runs one session in `sandbox` and checks that it exited with 0 and left
  * `<cfg>/.claude.json`.
  *
  * @throws WarmUpError, or the session's timeout error.
  */
-export async function warmSandbox(sandbox: Sandbox, timeoutMs = 60_000): Promise<void> {
+export async function warmSandbox(
+  sandbox: Sandbox,
+  timeoutMs: number = DEFAULT_WARM_TIMEOUT_MS,
+): Promise<void> {
   const session = await RecordingSession.start(sandbox);
   try {
     session.user('[[mock:text]] warm-up');

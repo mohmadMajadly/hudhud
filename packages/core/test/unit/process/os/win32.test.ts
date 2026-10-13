@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   CIM_SCRIPT,
+  DEFAULT_LIMITS,
   createWin32CimTableCalls,
   POWERSHELL_ARGS,
   runCommand,
@@ -18,12 +19,18 @@ import {
   type CommandRunner,
 } from '../../../../src/process/os/win32.js';
 import { osCallsFor } from '../../../../src/process/spawn.js';
+import { DEFAULT_TASKKILL_TIMEOUT_MS } from '../../../../src/process/taskkill.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { compareStartTime } from '../../../../src/process/tree/start-time.js';
 import type { ProcessRecord } from '../../../../src/process/tree/types.js';
 import { parseWin32ProcessJson } from '../../../../src/process/tree/win32.js';
 import {
   CHILD_CWD,
+  hangGuard,
+  NONE_LISTED_GUARD,
+  noLeaksGuard,
+  PID_FILE_IDENTITY_MS,
+  TABLE_READ_MS,
   ChildTracker,
   hostSnapshot,
   identityFromPidFile,
@@ -33,6 +40,8 @@ import {
 } from '../spawn-support.js';
 
 const WIN32 = process.platform === 'win32';
+// Each test and hook timeout is a hang guard sized from the product bounds
+// it consumes (spawn-support.ts hangGuard); TIMEOUT is for tests with none.
 const TIMEOUT = 60_000;
 
 const tracker = new ChildTracker();
@@ -45,11 +54,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await tracker.assertNoneListed();
   await rm(scratch, { recursive: true, force: true, maxRetries: 10 });
-}, TIMEOUT);
+}, NONE_LISTED_GUARD);
 
-afterEach(async () => {
-  await tracker.assertNoLeaks();
-}, TIMEOUT);
+afterEach(
+  async () => {
+    await tracker.assertNoLeaks();
+  },
+  noLeaksGuard(1, true),
+);
 
 const HOST_ENV = { SystemRoot: 'D:\\Win' };
 
@@ -161,7 +173,7 @@ describe('createWin32CimTableCalls', () => {
       expect(table.records.find((record) => record.pid === process.pid)?.ppid).toBe(process.ppid);
       expect(table.records.length).toBeGreaterThan(10);
     },
-    TIMEOUT,
+    hangGuard(TABLE_READ_MS),
   );
 
   it.runIf(WIN32)(
@@ -203,7 +215,8 @@ describe('createWin32CimTableCalls', () => {
         expect(record).toEqual(cmdlet.get(record.pid));
       }
     },
-    TIMEOUT,
+    // The two queries run in parallel, each bounded by DEFAULT_LIMITS.
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
   );
 });
 
@@ -256,7 +269,8 @@ describe('the win32 terminate calls of osCallsFor', () => {
       await within(child.exited, 10_000, 'exit after taskkill');
       await iterator.return?.();
     },
-    TIMEOUT,
+    // Identity read and snapshot (one table read each), taskkill, the exit wait.
+    hangGuard(2 * TABLE_READ_MS, DEFAULT_TASKKILL_TIMEOUT_MS, 10_000),
   );
 });
 
@@ -281,7 +295,8 @@ describe('runCommand (win32 copy)', () => {
         exitCode: 7,
       });
     },
-    TIMEOUT,
+    // Two commands, each bounded by DEFAULT_LIMITS.
+    hangGuard(2 * DEFAULT_LIMITS.timeoutMs),
   );
 
   it(
@@ -323,7 +338,8 @@ describe('runCommand (win32 copy)', () => {
         expect(String(await settled)).toMatch(/timed out after 10000 ms/);
       });
     },
-    TIMEOUT,
+    // The command times out on the fake clock; the identity read is real.
+    hangGuard(PID_FILE_IDENTITY_MS),
   );
 
   it(
@@ -340,7 +356,8 @@ describe('runCommand (win32 copy)', () => {
       await writeFile(`${pidFile}.go`, '');
       expect(String(await settled)).toMatch(/more than 1000 bytes/);
     },
-    TIMEOUT,
+    // The command (30 s bound) runs while the identity is read.
+    hangGuard(Math.max(PID_FILE_IDENTITY_MS, 30_000)),
   );
 
   it(
@@ -349,6 +366,6 @@ describe('runCommand (win32 copy)', () => {
       const child = await runCommand(node, ['-e', "process.stdout.write('a'.repeat(200000))"], {});
       expect(child.stdout.length).toBe(200000);
     },
-    TIMEOUT,
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
   );
 });

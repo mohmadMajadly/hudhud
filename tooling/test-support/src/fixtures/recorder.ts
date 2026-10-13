@@ -73,6 +73,10 @@ export interface HandshakeTimeouts {
   readonly exitMs?: number | undefined;
 }
 
+/** Defaults of {@link HandshakeTimeouts}. */
+export const DEFAULT_HANDSHAKE_TIMEOUTS: Readonly<{ frameMs: number; exitMs: number }> =
+  Object.freeze({ frameMs: 60_000, exitMs: 30_000 });
+
 /** A finished recording. */
 export interface Recording {
   readonly session: RecordingSession;
@@ -88,8 +92,8 @@ export async function recordHandshake(
   sandbox: Sandbox,
   timeouts: HandshakeTimeouts = {},
 ): Promise<Recording> {
-  const frameMs = timeouts.frameMs ?? 60_000;
-  const exitMs = timeouts.exitMs ?? 30_000;
+  const frameMs = timeouts.frameMs ?? DEFAULT_HANDSHAKE_TIMEOUTS.frameMs;
+  const exitMs = timeouts.exitMs ?? DEFAULT_HANDSHAKE_TIMEOUTS.exitMs;
   const session = await RecordingSession.start(sandbox);
   try {
     session.control('init_1', 'initialize');

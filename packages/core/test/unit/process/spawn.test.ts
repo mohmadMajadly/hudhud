@@ -28,15 +28,21 @@ import {
   BASE_ENV,
   CHILD_CWD,
   ChildTracker,
+  hangGuard,
   hostSnapshot,
+  NONE_LISTED_GUARD,
+  noLeaksGuard,
   readAll,
   sleep,
+  TABLE_READ_MS,
   within,
 } from './spawn-support.js';
 
 const WIN32 = process.platform === 'win32';
 const LINUX = process.platform === 'linux';
 const DARWIN = process.platform === 'darwin';
+// Each test and hook timeout is a hang guard sized from the product bounds
+// it consumes (spawn-support.ts hangGuard); TIMEOUT is for tests with none.
 const TIMEOUT = 60_000;
 
 const tracker = new ChildTracker();
@@ -49,12 +55,15 @@ beforeAll(async () => {
 afterAll(async () => {
   await tracker.assertNoneListed();
   await rm(scratch, { recursive: true, force: true, maxRetries: 10 });
-}, TIMEOUT);
+}, NONE_LISTED_GUARD);
 
-afterEach(async () => {
-  vi.unstubAllEnvs();
-  await tracker.assertNoLeaks();
-}, TIMEOUT);
+afterEach(
+  async () => {
+    vi.unstubAllEnvs();
+    await tracker.assertNoLeaks();
+  },
+  noLeaksGuard(3, false),
+);
 
 /** The child's environment as it sees it, as JSON. */
 const PRINT_ENV = 'process.stdout.write(JSON.stringify(process.env))';
@@ -252,7 +261,8 @@ describe('identity', () => {
       child.endStdin();
       await expect(child.exited).resolves.toEqual({ code: 0, signal: null });
     },
-    TIMEOUT,
+    // The identity read and a snapshot: one table read each.
+    hangGuard(2 * TABLE_READ_MS),
   );
 
   it(

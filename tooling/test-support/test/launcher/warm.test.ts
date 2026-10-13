@@ -6,7 +6,8 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
-import { warmSandbox, WarmUpError } from '../../src/launcher/warm.js';
+import { DEFAULT_WARM_TIMEOUT_MS, warmSandbox, WarmUpError } from '../../src/launcher/warm.js';
+import { hangGuard } from '../hang-guard.js';
 import { makeFakeCli, scopedPolicy } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
 
@@ -48,26 +49,47 @@ async function sandboxWith(mode: string) {
   };
 }
 
+// Each test's timeout is the hang guard of warmSandbox's two waits (the
+// result, then the exit), each bounded by the timeout it is given.
+const WAIT_MS = 30_000;
+const WARM_GUARD = hangGuard(2 * WAIT_MS);
+
 describe('warmSandbox', () => {
-  it('runs one session and leaves the CLI-written .claude.json', async () => {
-    const sandbox = await sandboxWith('normal');
-    await warmSandbox(sandbox, 30_000);
-    expect(existsSync(path.join(sandbox.dirs.cfg, '.claude.json'))).toBe(true);
-    await sandbox.dispose();
-  }, 60_000);
+  it(
+    'runs one session and leaves the CLI-written .claude.json',
+    async () => {
+      const sandbox = await sandboxWith('normal');
+      await warmSandbox(sandbox, WAIT_MS);
+      expect(existsSync(path.join(sandbox.dirs.cfg, '.claude.json'))).toBe(true);
+      await sandbox.dispose();
+    },
+    WARM_GUARD,
+  );
 
-  it('fails when the session exits non-zero', async () => {
-    const sandbox = await sandboxWith('exit-1');
-    await expect(warmSandbox(sandbox, 30_000)).rejects.toBeInstanceOf(WarmUpError);
-  }, 60_000);
+  it(
+    'fails when the session exits non-zero',
+    async () => {
+      const sandbox = await sandboxWith('exit-1');
+      await expect(warmSandbox(sandbox, WAIT_MS)).rejects.toBeInstanceOf(WarmUpError);
+    },
+    WARM_GUARD,
+  );
 
-  it('fails when no config file was written', async () => {
-    const sandbox = await sandboxWith('no-config');
-    await expect(warmSandbox(sandbox, 30_000)).rejects.toThrow(/no \.claude\.json/);
-  }, 60_000);
+  it(
+    'fails when no config file was written',
+    async () => {
+      const sandbox = await sandboxWith('no-config');
+      await expect(warmSandbox(sandbox, WAIT_MS)).rejects.toThrow(/no \.claude\.json/);
+    },
+    WARM_GUARD,
+  );
 
-  it('uses a default timeout', async () => {
-    const sandbox = await sandboxWith('normal');
-    await expect(warmSandbox(sandbox)).resolves.toBeUndefined();
-  }, 90_000);
+  it(
+    'uses a default timeout',
+    async () => {
+      const sandbox = await sandboxWith('normal');
+      await expect(warmSandbox(sandbox)).resolves.toBeUndefined();
+    },
+    hangGuard(2 * DEFAULT_WARM_TIMEOUT_MS),
+  );
 });

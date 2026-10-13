@@ -19,7 +19,7 @@ import {
 import { DEFAULT_LADDER_TIMING } from '../../../src/process/ladder/types.js';
 import { runWindowsLadder } from '../../../src/process/ladder/windows.js';
 import type { StartTimeReader } from '../../../src/process/spawn.js';
-import { ChildTracker } from '../../unit/process/spawn-support.js';
+import { ChildTracker, NONE_LISTED_GUARD, noLeaksGuard } from '../../unit/process/spawn-support.js';
 import { drive, FakeClock, fakeCim, fakeProcess } from '../ladder/windows-support.js';
 import { FakeJobAddon, fakeDeps } from './fake-addon.js';
 
@@ -225,13 +225,16 @@ describe('createSessionContainment', () => {
 describe('integration with spawnHarnessProcess (no spawn.ts hook needed)', () => {
   const tracker = new ChildTracker();
 
-  afterEach(async () => {
-    await tracker.assertNoLeaks();
-  }, 60_000);
+  afterEach(
+    async () => {
+      await tracker.assertNoLeaks();
+    },
+    noLeaksGuard(1, false),
+  );
 
   afterAll(async () => {
     await tracker.assertNoneListed();
-  }, 60_000);
+  }, NONE_LISTED_GUARD);
 
   it('assigns before spawnHarnessProcess resolves, so before any write', async () => {
     const fake = new FakeJobAddon({ processes: new Map() });

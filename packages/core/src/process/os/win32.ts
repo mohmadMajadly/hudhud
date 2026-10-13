@@ -148,7 +148,8 @@ export interface CommandLimits {
   readonly maxStdoutBytes: number;
 }
 
-const DEFAULT_LIMITS: CommandLimits = Object.freeze({
+/** The default limits of {@link runCommand}: the bound of one process table read. */
+export const DEFAULT_LIMITS: CommandLimits = Object.freeze({
   timeoutMs: 60_000,
   maxStdoutBytes: 64 * 1024 * 1024,
 });

@@ -14,6 +14,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { FixtureRecordLine } from '../../../src/fixtures/normalize.js';
 import {
   caseFile,
+  DEFAULT_CASE_EXIT_MS,
   emptyManifest,
   entryLine,
   mergeManifest,
@@ -33,6 +34,7 @@ import { outsideWatchList } from '../../../src/leaks/outside.js';
 import type { ProcessRow, ProcessTable } from '../../../src/leaks/process-table.js';
 import { makeFakeCli, scopedPolicy } from '../../launcher/fake-cli.js';
 import type { FakeCli } from '../../launcher/fake-cli.js';
+import { hangGuard } from '../../hang-guard.js';
 
 const SPEC: CaseSpec = {
   name: '',
@@ -229,7 +231,7 @@ function environment(
     revision: 'abcdef0',
     today: '2026-10-13',
     sandbox: { testRoot: root, ancestorPolicy: scopedPolicy(root) },
-    ...(leave.defaultSettle === true ? {} : { orphanSettleMs: 600 }),
+    ...(leave.defaultSettle === true ? {} : { orphanSettleMs: SETTLE_MS }),
     ...(leave.defaultSampling === true ? {} : { samplingMs: 20 }),
     ...(leave.bare === true ? {} : { wrapSandbox: wrap(table) }),
     ...overrides,
@@ -261,9 +263,27 @@ function wrap(table: FakeTable): (sandbox: Sandbox) => Sandbox {
   });
 }
 
+// Hang guards: a suite's cases run one after another, each bounded by the
+// waits of its script (WAIT_MS each), its exit (exitMs) and the orphan
+// settle time (SETTLE_MS; the leak host is a fake table and never sleeps).
+// A test's timeout is the sum over its cases, plus the margin of hangGuard.
+/** Each wait of a script. */
+const WAIT_MS = 30_000;
+/** The orphan settle time these tests set. */
+const SETTLE_MS = 600;
+/** The exit bound of the setup case below. */
+const SETUP_EXIT_MS = 20_000;
+/** TEXT_CASE's script: two waits. */
+const TEXT_DRIVE_MS = 2 * WAIT_MS;
+
+/** The bound of one case: its script, its exit, the orphan settle. */
+function caseBound(driveMs: number, exitMs = DEFAULT_CASE_EXIT_MS): number {
+  return driveMs + exitMs + SETTLE_MS;
+}
+
 async function initialize(session: ScriptSession): Promise<void> {
   session.control('init_1', 'initialize');
-  await session.waitType('control_response', 'success', 30_000);
+  await session.waitType('control_response', 'success', WAIT_MS);
 }
 
 const TEXT_CASE: CaseSpec = {
@@ -272,139 +292,160 @@ const TEXT_CASE: CaseSpec = {
   async drive(session) {
     await initialize(session);
     session.user('hello');
-    await session.waitType('result', undefined, 30_000);
+    await session.waitType('result', undefined, WAIT_MS);
   },
   exit: 0,
   shape: ['out control_response/success init_1', 'out system/init', 'out result/success', 'exit 0'],
 };
 
 describe('recordSuites with the fake CLI', () => {
-  it('writes the fixtures and the manifest, normalized and redacted', async () => {
-    const table = new FakeTable();
-    const suites: SuiteSpec[] = [
-      { name: 'text', scenario: 'a text turn', research: '05 §5', cases: [TEXT_CASE] },
-      {
-        name: 'packed',
-        scenario: 'compressed',
-        research: '05 §11',
-        compress: true,
-        credential: 'fake-auth-token',
-        cases: [
-          { ...TEXT_CASE, name: 'setup', exit: 1, shape: ['out never'], exitMs: 20_000 },
-          {
-            ...TEXT_CASE,
-            launch: () => ({ env: { FAKE_CLI_MODE: 'normal' } }),
-          },
-        ],
-      },
-    ];
-    const plain = path.join(root, 'plain');
-    mkdirSync(plain);
-    const log: string[] = [];
-    const count = await recordSuites(
-      suites,
-      environment(table, {
-        plainDir: plain,
-        physicalRoot: { testRoot: root, physical: path.join(root, 'physical') },
-      }),
-      (text) => log.push(text),
-    );
-    expect(count).toBe(3);
-    expect(log).toHaveLength(3);
-    const text = readFileSync(path.join(out, 'text', 'linux.jsonl'), 'utf8');
-    const lines = text
-      .trimEnd()
-      .split('\n')
-      .map((entry) => JSON.parse(entry) as { dir: string; v: unknown });
-    expect(lines[0]).toMatchObject({ dir: 'config', v: { suite: 'text', case: 'main' } });
-    expect(text).not.toContain(root);
-    expect(text).not.toContain('sk-ant-fake-hudhud-');
-    const packed = gunzipSync(readFileSync(path.join(out, 'packed', 'linux.jsonl.gz'))).toString();
-    expect(packed).toBe(readFileSync(path.join(plain, 'packed.linux.jsonl'), 'utf8'));
-    expect(existsSync(path.join(out, 'packed', 'linux.setup.jsonl.gz'))).toBe(true);
-    const manifest = readManifest(path.join(out, 'manifest.json'));
-    expect(manifest.entries.map((entry) => entry.file)).toEqual([
-      'packed/linux.jsonl.gz',
-      'packed/linux.setup.jsonl.gz',
-      'text/linux.jsonl',
-    ]);
-    const setup = manifest.entries.find((entry) => entry.case === 'setup');
-    expect(setup).toMatchObject({
-      researchExit: 1,
-      shapeMissing: ['out never'],
-      compressed: true,
-      recorderRevision: 'abcdef0',
-      recordedOn: '2026-10-13',
-    });
-    expect(manifest.entries.find((entry) => entry.file === 'text/linux.jsonl')).toMatchObject({
-      shapeMissing: [],
-      exit: { code: 0, signal: null },
-    });
-    expect(manifest.entries.some((entry) => 'researchExit' in entry && entry.case === 'main')).toBe(
-      false,
-    );
-  }, 120_000);
+  it(
+    'writes the fixtures and the manifest, normalized and redacted',
+    async () => {
+      const table = new FakeTable();
+      const suites: SuiteSpec[] = [
+        { name: 'text', scenario: 'a text turn', research: '05 §5', cases: [TEXT_CASE] },
+        {
+          name: 'packed',
+          scenario: 'compressed',
+          research: '05 §11',
+          compress: true,
+          credential: 'fake-auth-token',
+          cases: [
+            { ...TEXT_CASE, name: 'setup', exit: 1, shape: ['out never'], exitMs: SETUP_EXIT_MS },
+            {
+              ...TEXT_CASE,
+              launch: () => ({ env: { FAKE_CLI_MODE: 'normal' } }),
+            },
+          ],
+        },
+      ];
+      const plain = path.join(root, 'plain');
+      mkdirSync(plain);
+      const log: string[] = [];
+      const count = await recordSuites(
+        suites,
+        environment(table, {
+          plainDir: plain,
+          physicalRoot: { testRoot: root, physical: path.join(root, 'physical') },
+        }),
+        (text) => log.push(text),
+      );
+      expect(count).toBe(3);
+      expect(log).toHaveLength(3);
+      const text = readFileSync(path.join(out, 'text', 'linux.jsonl'), 'utf8');
+      const lines = text
+        .trimEnd()
+        .split('\n')
+        .map((entry) => JSON.parse(entry) as { dir: string; v: unknown });
+      expect(lines[0]).toMatchObject({ dir: 'config', v: { suite: 'text', case: 'main' } });
+      expect(text).not.toContain(root);
+      expect(text).not.toContain('sk-ant-fake-hudhud-');
+      const packed = gunzipSync(
+        readFileSync(path.join(out, 'packed', 'linux.jsonl.gz')),
+      ).toString();
+      expect(packed).toBe(readFileSync(path.join(plain, 'packed.linux.jsonl'), 'utf8'));
+      expect(existsSync(path.join(out, 'packed', 'linux.setup.jsonl.gz'))).toBe(true);
+      const manifest = readManifest(path.join(out, 'manifest.json'));
+      expect(manifest.entries.map((entry) => entry.file)).toEqual([
+        'packed/linux.jsonl.gz',
+        'packed/linux.setup.jsonl.gz',
+        'text/linux.jsonl',
+      ]);
+      const setup = manifest.entries.find((entry) => entry.case === 'setup');
+      expect(setup).toMatchObject({
+        researchExit: 1,
+        shapeMissing: ['out never'],
+        compressed: true,
+        recorderRevision: 'abcdef0',
+        recordedOn: '2026-10-13',
+      });
+      expect(manifest.entries.find((entry) => entry.file === 'text/linux.jsonl')).toMatchObject({
+        shapeMissing: [],
+        exit: { code: 0, signal: null },
+      });
+      expect(
+        manifest.entries.some((entry) => 'researchExit' in entry && entry.case === 'main'),
+      ).toBe(false);
+      // Three cases: text, packed/setup (its own exit bound), packed/main.
+    },
+    hangGuard(
+      caseBound(TEXT_DRIVE_MS),
+      caseBound(TEXT_DRIVE_MS, SETUP_EXIT_MS),
+      caseBound(TEXT_DRIVE_MS),
+    ),
+  );
 
-  it('records an orphan that exits by itself, and fails on one that does not', async () => {
-    const table = new FakeTable();
-    const orphan = (afterExitReads: number) => ({
-      row: (parent: ProcessRow): ProcessRow => ({
-        pid: 999_999,
-        ppid: parent.pid,
-        startTime: '200',
-        name: 'rg',
-        commandLine: `rg --files ${parent.commandLine.slice('fake '.length)}`,
-      }),
-      afterExitReads,
-    });
-    table.planted.push(orphan(2));
-    const entries = await recordSuite(
-      { name: 'orphan', scenario: 'x', research: 'y', cases: [TEXT_CASE] },
-      environment(table, { platform: 'win32' }, { defaultSampling: true }),
-    );
-    expect(entries[0]?.file).toBe('orphan/win32.jsonl');
-    expect(entries[0]?.orphansSelfExited).toEqual(['rg: rg --files <root>']);
+  it(
+    'records an orphan that exits by itself, and fails on one that does not',
+    async () => {
+      const table = new FakeTable();
+      const orphan = (afterExitReads: number) => ({
+        row: (parent: ProcessRow): ProcessRow => ({
+          pid: 999_999,
+          ppid: parent.pid,
+          startTime: '200',
+          name: 'rg',
+          commandLine: `rg --files ${parent.commandLine.slice('fake '.length)}`,
+        }),
+        afterExitReads,
+      });
+      table.planted.push(orphan(2));
+      const entries = await recordSuite(
+        { name: 'orphan', scenario: 'x', research: 'y', cases: [TEXT_CASE] },
+        environment(table, { platform: 'win32' }, { defaultSampling: true }),
+      );
+      expect(entries[0]?.file).toBe('orphan/win32.jsonl');
+      expect(entries[0]?.orphansSelfExited).toEqual(['rg: rg --files <root>']);
 
-    const stuck = new FakeTable();
-    stuck.planted.push(orphan(Number.POSITIVE_INFINITY));
-    await expect(
-      recordSuite(
-        { name: 'stuck', scenario: 'x', research: 'y', cases: [TEXT_CASE] },
-        environment(stuck, {}, { defaultSampling: true }),
-      ),
-    ).rejects.toThrow(/leaked process/);
-    expect(stuck.killed).toContain(999_999);
-  }, 120_000);
+      const stuck = new FakeTable();
+      stuck.planted.push(orphan(Number.POSITIVE_INFINITY));
+      await expect(
+        recordSuite(
+          { name: 'stuck', scenario: 'x', research: 'y', cases: [TEXT_CASE] },
+          environment(stuck, {}, { defaultSampling: true }),
+        ),
+      ).rejects.toThrow(/leaked process/);
+      expect(stuck.killed).toContain(999_999);
+      // Two suites of one text case each.
+    },
+    hangGuard(2 * caseBound(TEXT_DRIVE_MS)),
+  );
 
-  it('reports a failing script with the labels of what was recorded', async () => {
-    const table = new FakeTable();
-    const failing = (reason: unknown, name: string): CaseSpec => ({
-      ...TEXT_CASE,
-      name,
-      async drive(session) {
-        await initialize(session);
-        throw reason;
-      },
-    });
-    await expect(
-      recordSuite(
-        { name: 'fail', scenario: 'x', research: 'y', cases: [failing(new Error('boom'), '')] },
-        environment(table),
-      ),
-    ).rejects.toThrow(/^fail\/main: boom\n {2}in control_request\/initialize init_1/);
-    await expect(
-      recordSuite(
-        { name: 'fail2', scenario: 'x', research: 'y', cases: [failing('text', 'setup')] },
-        environment(new FakeTable()),
-      ),
-    ).rejects.toThrow(/^fail2\/setup: "text"/);
-    await expect(
-      recordSuite(
-        { name: 'fail3', scenario: 'x', research: 'y', cases: [failing(undefined, '')] },
-        environment(new FakeTable()),
-      ),
-    ).rejects.toThrow(/fail3\/main: drive failed/);
-  }, 120_000);
+  it(
+    'reports a failing script with the labels of what was recorded',
+    async () => {
+      const table = new FakeTable();
+      const failing = (reason: unknown, name: string): CaseSpec => ({
+        ...TEXT_CASE,
+        name,
+        async drive(session) {
+          await initialize(session);
+          throw reason;
+        },
+      });
+      await expect(
+        recordSuite(
+          { name: 'fail', scenario: 'x', research: 'y', cases: [failing(new Error('boom'), '')] },
+          environment(table),
+        ),
+      ).rejects.toThrow(/^fail\/main: boom\n {2}in control_request\/initialize init_1/);
+      await expect(
+        recordSuite(
+          { name: 'fail2', scenario: 'x', research: 'y', cases: [failing('text', 'setup')] },
+          environment(new FakeTable()),
+        ),
+      ).rejects.toThrow(/^fail2\/setup: "text"/);
+      await expect(
+        recordSuite(
+          { name: 'fail3', scenario: 'x', research: 'y', cases: [failing(undefined, '')] },
+          environment(new FakeTable()),
+        ),
+      ).rejects.toThrow(/fail3\/main: drive failed/);
+      // Three suites of one case each, whose script fails after one wait.
+    },
+    hangGuard(3 * caseBound(WAIT_MS)),
+  );
 
   it('accepts a root that exited before its table query, and fails one that did not', async () => {
     const quick = new FakeTable();

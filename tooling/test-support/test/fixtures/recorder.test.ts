@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_HANDSHAKE_TIMEOUTS,
   describeRecord,
   formatJsonl,
   HANDSHAKE_SHAPE,
@@ -17,6 +18,7 @@ import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
 import type { LaunchHooks, LaunchOptions, Sandbox } from '../../src/launcher/sandbox.js';
 import { makeFakeCli, scopedPolicy } from '../launcher/fake-cli.js';
 import type { FakeCli } from '../launcher/fake-cli.js';
+import { hangGuard } from '../hang-guard.js';
 
 let fake: FakeCli;
 let root = '';
@@ -55,52 +57,70 @@ async function fakeSandbox(mode: string): Promise<Sandbox> {
   };
 }
 
+/**
+ * The hang guard of one recordHandshake: two awaited frames, then the exit
+ * (or, after a failed wait, the stop), each bounded by its timeout.
+ */
+function handshakeGuard(timeouts: { frameMs: number; exitMs: number }): number {
+  return hangGuard(2 * timeouts.frameMs + timeouts.exitMs);
+}
+
+const TIMEOUTS = { frameMs: 30_000, exitMs: 30_000 };
+const NO_FRAME_TIMEOUTS = { frameMs: 300, exitMs: 30_000 };
+
 describe('recordHandshake', () => {
-  it('records the 05 §5 handshake shape, normalized and redacted', async () => {
-    const sandbox = await fakeSandbox('normal');
-    const { lines, exit, session } = await recordHandshake(sandbox, {
-      frameMs: 30_000,
-      exitMs: 30_000,
-    });
-    expect(exit.code).toBe(0);
-    expect(missingShape(lines, HANDSHAKE_SHAPE)).toEqual([]);
-    const text = formatJsonl(lines);
-    expect(text).not.toContain(FAKE_API_KEY);
-    expect(text).not.toContain(sandbox.dirs.root);
-    expect(text).not.toContain(sandbox.dirs.root.replaceAll('\\', '/'));
-    expect(text).not.toContain(`"pid":${String(session.process.pid)},`);
-    expect(text).not.toContain(`${String(session.process.pid)}.json`);
-    expect(text).toContain('"pid":1001');
-    expect(text).toContain('<work>');
-    expect(text).toContain('<cfg>');
-    expect(text).toContain('<proj>');
-    expect(text).toContain('<uuid-1>');
-    expect(text).toContain('"claude_code_version":"<version>"');
-    expect(text).toContain('"duration_ms":0');
-    expect(text).toContain('"key":"<redacted>"');
-    for (const line of text.trimEnd().split('\n')) {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
-      expect(Object.keys(parsed).sort()).toEqual(['dir', 't', 'v']);
-      expect(Number.isInteger(parsed['t'])).toBe(true);
-    }
-    const file = path.join(root, 'out', 'handshake', 'win32.jsonl');
-    await writeFixture(file, lines);
-    expect(await readFile(file, 'utf8')).toBe(text);
-    await sandbox.dispose();
-  }, 60_000);
+  it(
+    'records the 05 §5 handshake shape, normalized and redacted',
+    async () => {
+      const sandbox = await fakeSandbox('normal');
+      const { lines, exit, session } = await recordHandshake(sandbox, TIMEOUTS);
+      expect(exit.code).toBe(0);
+      expect(missingShape(lines, HANDSHAKE_SHAPE)).toEqual([]);
+      const text = formatJsonl(lines);
+      expect(text).not.toContain(FAKE_API_KEY);
+      expect(text).not.toContain(sandbox.dirs.root);
+      expect(text).not.toContain(sandbox.dirs.root.replaceAll('\\', '/'));
+      expect(text).not.toContain(`"pid":${String(session.process.pid)},`);
+      expect(text).not.toContain(`${String(session.process.pid)}.json`);
+      expect(text).toContain('"pid":1001');
+      expect(text).toContain('<work>');
+      expect(text).toContain('<cfg>');
+      expect(text).toContain('<proj>');
+      expect(text).toContain('<uuid-1>');
+      expect(text).toContain('"claude_code_version":"<version>"');
+      expect(text).toContain('"duration_ms":0');
+      expect(text).toContain('"key":"<redacted>"');
+      for (const line of text.trimEnd().split('\n')) {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        expect(Object.keys(parsed).sort()).toEqual(['dir', 't', 'v']);
+        expect(Number.isInteger(parsed['t'])).toBe(true);
+      }
+      const file = path.join(root, 'out', 'handshake', 'win32.jsonl');
+      await writeFixture(file, lines);
+      expect(await readFile(file, 'utf8')).toBe(text);
+      await sandbox.dispose();
+    },
+    handshakeGuard(TIMEOUTS),
+  );
 
-  it('uses default timeouts', async () => {
-    const sandbox = await fakeSandbox('normal');
-    const { exit } = await recordHandshake(sandbox);
-    expect(exit.code).toBe(0);
-  }, 120_000);
+  it(
+    'uses default timeouts',
+    async () => {
+      const sandbox = await fakeSandbox('normal');
+      const { exit } = await recordHandshake(sandbox);
+      expect(exit.code).toBe(0);
+    },
+    handshakeGuard(DEFAULT_HANDSHAKE_TIMEOUTS),
+  );
 
-  it('stops the CLI and rethrows when a frame never comes', async () => {
-    const sandbox = await fakeSandbox('no-result');
-    await expect(recordHandshake(sandbox, { frameMs: 300, exitMs: 30_000 })).rejects.toThrow(
-      /timeout/,
-    );
-  }, 60_000);
+  it(
+    'stops the CLI and rethrows when a frame never comes',
+    async () => {
+      const sandbox = await fakeSandbox('no-result');
+      await expect(recordHandshake(sandbox, NO_FRAME_TIMEOUTS)).rejects.toThrow(/timeout/);
+    },
+    handshakeGuard(NO_FRAME_TIMEOUTS),
+  );
 });
 
 describe('shape helpers', () => {

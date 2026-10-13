@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   createDarwinPsTableCalls,
+  DEFAULT_LIMITS,
   PS_ARGS,
   PS_ENV,
   PS_PATH,
@@ -17,6 +18,11 @@ import {
 import { parsePsOutput } from '../../../../src/process/tree/ps.js';
 import {
   CHILD_CWD,
+  hangGuard,
+  NONE_LISTED_GUARD,
+  noLeaksGuard,
+  PID_FILE_IDENTITY_MS,
+  TABLE_READ_MS,
   ChildTracker,
   identityFromPidFile,
   PID_FILE_IDLER,
@@ -25,6 +31,8 @@ import {
 
 const DARWIN = process.platform === 'darwin';
 const POSIX = process.platform !== 'win32';
+// Each test and hook timeout is a hang guard sized from the product bounds
+// it consumes (spawn-support.ts hangGuard); TIMEOUT is for tests with none.
 const TIMEOUT = 60_000;
 
 const tracker = new ChildTracker();
@@ -37,11 +45,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await tracker.assertNoneListed();
   await rm(scratch, { recursive: true, force: true, maxRetries: 10 });
-}, TIMEOUT);
+}, NONE_LISTED_GUARD);
 
-afterEach(async () => {
-  await tracker.assertNoLeaks();
-}, TIMEOUT);
+afterEach(
+  async () => {
+    await tracker.assertNoLeaks();
+  },
+  noLeaksGuard(1, true),
+);
 
 describe('createDarwinPsTableCalls', () => {
   it('runs exactly /bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm= with LC_ALL=C and TZ=UTC0 only', async () => {
@@ -70,7 +81,7 @@ describe('createDarwinPsTableCalls', () => {
       const table = parsePsOutput(await createDarwinPsTableCalls().runPs());
       expect(table.records.find((record) => record.pid === process.pid)?.ppid).toBe(process.ppid);
     },
-    TIMEOUT,
+    hangGuard(TABLE_READ_MS),
   );
 });
 
@@ -91,7 +102,7 @@ describe('runCommand (darwin copy)', () => {
       );
       expect(JSON.parse(Buffer.from(out).toString('utf8'))).toEqual([['& |'], 'r']);
     },
-    TIMEOUT,
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
   );
 
   it(
@@ -101,7 +112,7 @@ describe('runCommand (darwin copy)', () => {
         /exited with 3/,
       );
     },
-    TIMEOUT,
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
   );
 
   it.runIf(POSIX)(
@@ -111,7 +122,7 @@ describe('runCommand (darwin copy)', () => {
         runCommand(node, ['-e', "process.kill(process.pid, 'SIGKILL')"], {}),
       ).rejects.toThrow(/exited with SIGKILL/);
     },
-    TIMEOUT,
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
   );
 
   it(
@@ -153,7 +164,8 @@ describe('runCommand (darwin copy)', () => {
         expect(String(await settled)).toMatch(/timed out after 10000 ms/);
       });
     },
-    TIMEOUT,
+    // The command times out on the fake clock; the identity read is real.
+    hangGuard(PID_FILE_IDENTITY_MS),
   );
 
   it(
@@ -170,6 +182,7 @@ describe('runCommand (darwin copy)', () => {
       await writeFile(`${pidFile}.go`, '');
       expect(String(await settled)).toMatch(/more than 1000 bytes/);
     },
-    TIMEOUT,
+    // The command (30 s bound) runs while the identity is read.
+    hangGuard(Math.max(PID_FILE_IDENTITY_MS, 30_000)),
   );
 });

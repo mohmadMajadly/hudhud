@@ -5,6 +5,8 @@ import process from 'node:process';
 
 import { expect, vi } from 'vitest';
 
+import { DEFAULT_LIMITS as DARWIN_LIMITS } from '../../../src/process/os/darwin.js';
+import { DEFAULT_LIMITS as WIN32_LIMITS } from '../../../src/process/os/win32.js';
 import {
   osCallsFor,
   spawnHarnessProcess,
@@ -15,6 +17,68 @@ import {
 import { findIdentity } from '../../../src/process/tree/descendants.js';
 import { takeSnapshot } from '../../../src/process/tree/snapshot.js';
 import type { ProcessIdentity, ProcessSnapshot } from '../../../src/process/tree/types.js';
+
+/**
+ * Product bound of one host process-table read: the Windows CIM query and
+ * the macOS `ps` are child processes bounded by their adapter's
+ * `DEFAULT_LIMITS`; Linux reads `/proc` without a child.
+ */
+export const TABLE_READ_MS =
+  process.platform === 'win32'
+    ? WIN32_LIMITS.timeoutMs
+    : process.platform === 'darwin'
+      ? DARWIN_LIMITS.timeoutMs
+      : 0;
+
+/**
+ * Margin of a hang guard for the test's own work beyond the product bounds:
+ * spawning node children, file I/O, assertions. Tests with real children
+ * took at most 16 s on the GitHub-hosted Windows runner (the identity test,
+ * which also includes two table reads).
+ */
+const TEST_WORK_MARGIN_MS = 30_000;
+
+/** The suite's default hang guard (vitest.config.ts). */
+const HANG_GUARD_MS = 60_000;
+
+/** Each wait of {@link ChildTracker.assertNoLeaks} for one child's exit. */
+const CHILD_EXIT_WAIT_MS = 10_000;
+
+/**
+ * A test or hook timeout: a hang guard, not a performance budget
+ * (vitest.config.ts HANG_GUARD_MS, W3-Z ruling 4). It is the sum of the
+ * product bounds the test legitimately consumes one after another, plus
+ * {@link TEST_WORK_MARGIN_MS}, and never less than the suite default.
+ */
+export function hangGuard(...productBoundsMs: readonly number[]): number {
+  const sum = productBoundsMs.reduce((total, ms) => total + ms, 0);
+  return Math.max(HANG_GUARD_MS, sum + TEST_WORK_MARGIN_MS);
+}
+
+/**
+ * The hook timeout of an `afterEach` running {@link ChildTracker.assertNoLeaks}
+ * after tests that spawn at most `children` children: two exit waits each,
+ * plus one snapshot when a descendant was recorded.
+ */
+export function noLeaksGuard(children: number, descendants: boolean): number {
+  return hangGuard(children * 2 * CHILD_EXIT_WAIT_MS, descendants ? TABLE_READ_MS : 0);
+}
+
+/**
+ * The hook timeout of an `afterAll` running
+ * {@link ChildTracker.assertNoneListed}: the pending identity reads (one
+ * table read each, run in parallel) and one snapshot.
+ */
+export const NONE_LISTED_GUARD = hangGuard(TABLE_READ_MS, TABLE_READ_MS);
+
+/** The default deadline of {@link identityFromPidFile}. */
+const PID_FILE_DEADLINE_MS = 15_000;
+
+/**
+ * Bound of {@link identityFromPidFile} with its default deadline: the
+ * deadline plus the snapshot it may have started just before it.
+ */
+export const PID_FILE_IDENTITY_MS = PID_FILE_DEADLINE_MS + TABLE_READ_MS;
 
 /** A cwd every test child can use: the realpath of the OS temp directory. */
 export const CHILD_CWD = realpathSync(tmpdir());
@@ -91,7 +155,10 @@ export async function within<T>(promise: Promise<T>, ms: number, what: string): 
  * the parent pid. Used for children started by code that does not hand out
  * a handle (the OS adapters' command runners).
  */
-export async function identityFromPidFile(file: string, ms = 15_000): Promise<ProcessIdentity> {
+export async function identityFromPidFile(
+  file: string,
+  ms = PID_FILE_DEADLINE_MS,
+): Promise<ProcessIdentity> {
   const deadline = Date.now() + ms;
   for (;;) {
     const pid = Number(await readFile(file, 'utf8').catch(() => ''));
@@ -181,11 +248,11 @@ export class ChildTracker {
     for (const child of children) {
       child.endStdin();
       try {
-        await within(child.exited, 10_000, `exit of ${String(child.pid)}`);
+        await within(child.exited, CHILD_EXIT_WAIT_MS, `exit of ${String(child.pid)}`);
       } catch {
         running.push(child.pid);
         child.killViaHandle('SIGKILL');
-        await within(child.exited, 10_000, `forced exit of ${String(child.pid)}`);
+        await within(child.exited, CHILD_EXIT_WAIT_MS, `forced exit of ${String(child.pid)}`);
       }
       this.#reads.push(child.identity);
     }

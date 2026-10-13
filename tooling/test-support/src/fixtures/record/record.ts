@@ -114,6 +114,9 @@ export interface RecorderEnvironment {
   readonly samplingMs?: number;
 }
 
+/** Default bound of a case from its EOF to the exit ({@link CaseSpec.exitMs}). */
+export const DEFAULT_CASE_EXIT_MS = 30_000;
+
 /** Default of {@link RecorderEnvironment.orphanSettleMs}. */
 export const ORPHAN_SETTLE_MS = 5000;
 
@@ -285,13 +288,13 @@ async function recordCase(
     // Only a root that already exited may be missing from the table; the
     // command-line sweep and descendant sampling still cover its tree.
     if ((await session.waitExit(1000)) === undefined) {
-      await session.stop(spec.exitMs ?? 30_000);
+      await session.stop(spec.exitMs ?? DEFAULT_CASE_EXIT_MS);
       throw error;
     }
   }
   const stopSampling = tracker.startSampling(env.samplingMs ?? (platform === 'win32' ? 1000 : 250));
   const failure = await driven;
-  const exit = await session.stop(spec.exitMs ?? 30_000);
+  const exit = await session.stop(spec.exitMs ?? DEFAULT_CASE_EXIT_MS);
   await stopSampling();
   const orphans = await settleOrphans(tracker, sandbox, env.orphanSettleMs ?? ORPHAN_SETTLE_MS);
   if (failure !== undefined) {
