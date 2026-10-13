@@ -1,5 +1,5 @@
 // A simulated macOS host for the gate harness: virtual clock, process table
-// rendered as `/bin/ps -A -o pid=,ppid=,pgid=,lstart=,comm=` output (C locale,
+// rendered as `/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=` output (C locale,
 // UTC), an in-memory file system, a fake mock server and a scriptable CLI that
 // speaks stream-json the way research 05 observed it. No process is spawned,
 // no file outside the test's own temp directory is touched, nothing is fetched.
@@ -26,7 +26,10 @@ export interface SimProcess {
   pgid: number;
   /** Seconds since the epoch. */
   start: number;
+  /** `comm` as macOS prints it: a path, `-zsh`, or `(name)` when the arguments are unreadable. */
   name: string;
+  /** The `stat` column; `S` when absent, `Z` for a zombie. */
+  state?: string;
 }
 
 /** `lstart` in the C locale, UTC. */
@@ -273,18 +276,26 @@ export class SimHost implements GateHost {
     return record;
   }
 
+  /** Removes `pid`; its live children move to launchd, which reaps its zombie children at once. */
   remove(pid: number): void {
     this.table.delete(pid);
-    for (const record of this.table.values()) {
-      if (record.ppid === pid) record.ppid = 1;
+    for (const record of [...this.table.values()]) {
+      if (record.ppid !== pid) continue;
+      if (record.state === 'Z') this.table.delete(record.pid);
+      else record.ppid = 1;
     }
   }
 
+  /**
+   * The table as macOS `/bin/ps` prints it: numbers right-aligned in width
+   * 5, `stat` left-justified in width 4, `lstart` left-justified in width 28
+   * (4 spaces after the 24-character date), one space between columns.
+   */
   ps(): string {
     return [...this.table.values()]
       .map(
         (p) =>
-          `${String(p.pid).padStart(5)} ${String(p.ppid).padStart(5)} ${String(p.pgid).padStart(5)} ${lstart(p.start)} ${p.name}`,
+          `${String(p.pid).padStart(5)} ${String(p.ppid).padStart(5)} ${String(p.pgid).padStart(5)} ${(p.state ?? 'S').padEnd(4)} ${lstart(p.start).padEnd(28)} ${p.name}`,
       )
       .join('\n')
       .concat('\n');
@@ -510,7 +521,10 @@ function defaultRun(sim: SimHost, file: string, args: readonly string[]): RunRes
       }
       return result('', { stderr: 'valid on disk' });
     case '/usr/bin/xattr':
+    case '/bin/chmod':
       return result();
+    case '/usr/bin/security':
+      return result('    "/Users/runner/Library/Keychains/login.keychain-db"\n');
     case '/usr/bin/uname':
       return result(sim.arch === 'x64' ? 'x86_64\n' : 'arm64\n');
     case '/usr/sbin/sysctl':
@@ -537,6 +551,18 @@ export interface CliFlags {
   termLeavesTools?: boolean;
   /** SIGINT exits 130 and still emits a result. */
   intResult?: boolean;
+  /** SIGINT emits `result/error_during_execution`, then exits 0 (macOS gate run 1). */
+  intErrorResultExit0?: boolean;
+  /**
+   * Every turn leaves a `security` child that `ps` shows as the zombie
+   * `(security)` until the CLI exits (macOS gate run 1); a `security` shim
+   * first on `PATH` is called instead and logs its argv.
+   */
+  zombieSecurity?: boolean;
+  /** `ps` cannot read the Bash tool's arguments: the shell and `sleep` show as `(zsh)`, `(sleep)`. */
+  hiddenToolArgs?: boolean;
+  /** A resumed session never starts a user message written before the initialize response. */
+  resumeEagerStall?: boolean;
   /** SIGTERM is ignored. */
   ignoreTerm?: boolean;
   /** EOF is ignored. */
@@ -578,6 +604,7 @@ export class SimCli {
   private sessionId: string;
   private history: number;
   private turnOpen = false;
+  private initAnswered = false;
   private noisy = false;
   private tool: SimProcess | undefined;
   private pendingTool: { id: string; command: string } | undefined;
@@ -607,21 +634,14 @@ export class SimCli {
     }
     const frame = JSON.parse(text) as Record<string, unknown>;
     if (frame['type'] === 'control_request') {
-      this.child.emit({
-        type: 'control_response',
-        response: {
-          subtype: 'success',
-          request_id: frame['request_id'],
-          response: {
-            pid: this.pid,
-            account: {
-              apiKeySource:
-                this.flags.apiKeySource ??
-                (this.child.env['ANTHROPIC_API_KEY'] === undefined ? 'none' : 'ANTHROPIC_API_KEY'),
-            },
-          },
-        },
-      });
+      if (this.flags.resumeEagerStall === true && this.resumed) {
+        // Answer later, so a user message written right behind `initialize` arrives first.
+        this.sim.at(50, () => {
+          this.answerInitialize(frame);
+        });
+        return;
+      }
+      this.answerInitialize(frame);
       return;
     }
     if (frame['type'] === 'control_response') {
@@ -629,9 +649,40 @@ export class SimCli {
       return;
     }
     if (frame['type'] === 'user') {
+      if (this.flags.resumeEagerStall === true && this.resumed && !this.initAnswered) {
+        this.child.emit({
+          type: 'command_lifecycle',
+          command_uuid: frame['uuid'],
+          state: 'queued',
+        });
+        return;
+      }
       const message = frame['message'] as { content: string };
       this.turn(message.content);
     }
+  }
+
+  private get resumed(): boolean {
+    return this.child.args.some((arg) => arg.startsWith('--resume='));
+  }
+
+  private answerInitialize(frame: Record<string, unknown>): void {
+    this.initAnswered = true;
+    this.child.emit({
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: frame['request_id'],
+        response: {
+          pid: this.pid,
+          account: {
+            apiKeySource:
+              this.flags.apiKeySource ??
+              (this.child.env['ANTHROPIC_API_KEY'] === undefined ? 'none' : 'ANTHROPIC_API_KEY'),
+          },
+        },
+      },
+    });
   }
 
   private socketPath(): string {
@@ -698,6 +749,7 @@ export class SimCli {
         this.sim.remove(security.pid);
       });
     }
+    if (this.flags.zombieSecurity === true) this.callSecurity();
     const bash = /cmd=([A-Za-z0-9+/=]+)/.exec(content);
     if (content.includes('[[mock:slow')) {
       this.sim.at(10_000, () => {
@@ -734,16 +786,37 @@ export class SimCli {
     });
   }
 
+  /** `security` through `PATH`: the shim when one is first on `PATH`, else a child left as a zombie. */
+  private callSecurity(): void {
+    const first = (this.child.env['PATH'] ?? '').split(':')[0] ?? '';
+    if (this.sim.files.has(`${first}/security`)) {
+      const log = `${first.slice(0, first.lastIndexOf('/'))}/security-argv.log`;
+      const previous = this.sim.files.get(log)?.text ?? '';
+      this.sim.files.set(log, {
+        kind: 'file',
+        text: `${previous}[find-generic-password][-s][Claude Code-credentials]\n`,
+      });
+      return;
+    }
+    const zombie = this.sim.addProcess(this.pid, '(security)', false);
+    zombie.state = 'Z';
+  }
+
   private runTool(): void {
     const pending = this.pendingTool;
     if (pending === undefined) return;
     this.pendingTool = undefined;
     const config = this.child.env['CLAUDE_CONFIG_DIR'] ?? '';
     this.sim.files.set(`${config}/shell-snapshots/snapshot-zsh-1.sh`, { kind: 'file', text: '' });
-    const shell = this.sim.addProcess(this.pid, '/bin/zsh', this.flags.sharedGroup !== true);
+    const hidden = this.flags.hiddenToolArgs === true;
+    const shell = this.sim.addProcess(
+      this.pid,
+      hidden ? '(zsh)' : '/bin/zsh',
+      this.flags.sharedGroup !== true,
+    );
     if (pending.command.startsWith('sleep')) {
       this.tool = shell;
-      this.sim.addProcess(shell.pid, '/bin/sleep', false, shell.pgid);
+      this.sim.addProcess(shell.pid, hidden ? '(sleep)' : '/bin/sleep', false, shell.pgid);
       return;
     }
     const output = pending.command.replace(/^echo /, '');
@@ -795,6 +868,11 @@ export class SimCli {
     if (!(name === 'SIGTERM' && this.flags.termLeavesTools === true)) this.killTools();
     for (const record of this.sim.descendantsOf(this.pid)) {
       if (!(name === 'SIGTERM' && this.flags.termLeavesTools === true)) this.sim.remove(record.pid);
+    }
+    if (name === 'SIGINT' && this.flags.intErrorResultExit0 === true) {
+      this.result(false, 'interrupted');
+      this.child.exit(0, null);
+      return;
     }
     if (name === 'SIGINT' && this.flags.intResult === true) {
       this.result(false, 'interrupted');

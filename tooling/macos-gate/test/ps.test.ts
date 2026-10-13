@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   commandName,
   identityLabel,
+  liveIdentity,
   ProcessLedger,
   PS_ARGS,
   PS_ENV,
   PS_PATH,
+  psRawLines,
   psSnapshot,
+  recordLabel,
 } from '../src/ps.js';
 import { SimHost, T0 } from './sim.js';
 
@@ -30,7 +33,7 @@ describe('psSnapshot', () => {
       args: PS_ARGS,
       options: { env: PS_ENV, timeoutMs: 15_000 },
     });
-    expect(PS_ARGS).toEqual(['-A', '-o', 'pid=,ppid=,pgid=,lstart=,comm=']);
+    expect(PS_ARGS).toEqual(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']);
     expect(PS_ENV).toEqual({ LC_ALL: 'C', TZ: 'UTC0' });
     expect(snapshot.source).toBe('darwin-ps');
     expect(snapshot.rejected).toBe(0);
@@ -50,6 +53,48 @@ describe('psSnapshot', () => {
     expect(commandName('/usr/bin/security')).toBe('security');
     expect(commandName('-zsh')).toBe('zsh');
     expect(identityLabel({ pid: 3, startTime: '9' })).toBe('3@9');
+  });
+
+  it('names a (p_comm) entry by the kernel name inside the parentheses (gate run 1)', () => {
+    expect(commandName('(security)')).toBe('security');
+    expect(commandName('(xcodebuild)')).toBe('xcodebuild');
+    expect(commandName('(a/b)')).toBe('a/b');
+    expect(commandName('/tmp/(x)')).toBe('(x)');
+    expect(commandName('(x')).toBe('(x');
+  });
+
+  it('parses the BSD layout exactly: no padding in names, zombies marked', async () => {
+    const sim = new SimHost();
+    const root = sim.addProcess(sim.pid, '/tmp/claude', false);
+    const zombie = sim.addProcess(root.pid, '(git)', false);
+    zombie.state = 'Z';
+    const snapshot = await psSnapshot(sim);
+    expect(snapshot.rejected).toBe(0);
+    const byPid = new Map(snapshot.records.map((record) => [record.pid, record]));
+    expect(byPid.get(root.pid)?.name).toBe('/tmp/claude');
+    expect(byPid.get(zombie.pid)).toMatchObject({ name: '(git)', zombie: true });
+    const dead = byPid.get(zombie.pid);
+    expect(dead === undefined ? undefined : recordLabel(dead)).toBe('(git) [zombie]');
+    const at = (pid: number, start: number): { pid: number; startTime: string } => ({
+      pid,
+      startTime: String(start),
+    });
+    expect(liveIdentity(snapshot.records, at(zombie.pid, zombie.start))).toBeNull();
+    expect(liveIdentity(snapshot.records, at(root.pid, root.start))).toMatchObject({
+      pid: root.pid,
+    });
+  });
+
+  it('keeps the raw ps lines of the requested pids as evidence', async () => {
+    const sim = new SimHost();
+    const root = sim.addProcess(sim.pid, '/tmp/claude', false);
+    const lines = await psRawLines(sim, [root.pid]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^ +\d+ +900 +900 S {4}\w{3} \w{3} [ \d]\d [\d:]{8} \d{4} {5}\/tmp\/claude$/,
+    );
+    sim.psFails = true;
+    await expect(psRawLines(sim, [root.pid])).rejects.toThrow(/failed: code 1/);
   });
 });
 

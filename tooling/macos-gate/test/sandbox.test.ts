@@ -8,6 +8,7 @@ import {
   mockMarker,
   SESSION_ARGS,
   sandboxEnv,
+  SYSTEM_PATH,
 } from '../src/sandbox.js';
 import { SimHost } from './sim.js';
 
@@ -49,6 +50,10 @@ describe('sandbox', () => {
     expect(sandboxEnv({ sandbox, mockUrl: 'u', user: 'r', apiKey: false })).not.toHaveProperty(
       'ANTHROPIC_API_KEY',
     );
+    expect(sandboxEnv({ sandbox, mockUrl: 'u', user: 'r', pathPrefix: '/base/shim' })['PATH']).toBe(
+      `/base/shim:${SYSTEM_PATH}`,
+    );
+    expect(SYSTEM_PATH).toBe('/usr/bin:/bin:/usr/sbin:/sbin');
     expect(SESSION_ARGS).toContain('--setting-sources=');
     expect(SESSION_ARGS).toContain('--permission-mode=default');
   });

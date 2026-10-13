@@ -159,6 +159,20 @@ export class CliSession {
     });
   }
 
+  /**
+   * Waits for the `initialize` response (request id `init_1`); `undefined`
+   * on timeout or exit. Item 6 writes the first user message of a resumed
+   * session only after it, as research 07 §1 did.
+   */
+  initialized(timeoutMs: number): Promise<Frame | undefined> {
+    return this.waitFor(
+      (frame) =>
+        frame.value['type'] === 'control_response' &&
+        field(frame.value['response'], 'request_id') === 'init_1',
+      timeoutMs,
+    );
+  }
+
   /** Sends a user message and opens a turn. */
   user(text: string): void {
     this.userSeq += 1;
@@ -278,6 +292,8 @@ export interface ScenarioOptions {
   readonly prepare?: (sandbox: Sandbox) => Promise<void>;
   /** Reuses an existing sandbox (item 6 resume runs). */
   readonly sandbox?: Sandbox;
+  /** A directory searched before the system `PATH` (item 3 `security` shim). */
+  readonly pathPrefix?: (sandbox: Sandbox) => string;
 }
 
 /** One running scenario. */
@@ -318,6 +334,7 @@ export async function runScenario<T>(
       mockUrl: mock.url,
       user: host.user,
       ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+      ...(options.pathPrefix === undefined ? {} : { pathPrefix: options.pathPrefix(sandbox) }),
     });
     const child = host.spawn(context.binary, [...SESSION_ARGS, ...(options.args ?? [])], {
       cwd,
