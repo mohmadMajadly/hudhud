@@ -349,9 +349,13 @@ describe('sandbox defaults', () => {
       ...base,
       gitBashPath: null,
       nonessentialTraffic: 'allowed',
+      credential: 'fake-auth-token',
     });
     try {
       expect(byDefault.env['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC']).toBe('1');
+      expect(byDefault.env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+      expect(none.env['ANTHROPIC_AUTH_TOKEN']).toMatch(/^sk-ant-fake-hudhud-/);
+      expect(none.env['ANTHROPIC_API_KEY']).toBeUndefined();
       expect(none.env['CLAUDE_CODE_GIT_BASH_PATH']).toBeUndefined();
       expect(none.env['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC']).toBeUndefined();
       expect(path.basename(byDefault.dirs.root)).toMatch(/^hudhud-run-/);

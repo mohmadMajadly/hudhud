@@ -5,6 +5,7 @@ import {
   checkMockUrl,
   defaultGitBashPath,
   FAKE_API_KEY,
+  FAKE_AUTH_TOKEN,
   isProtectedEnvName,
   redactEnv,
   windowsSystemRoot,
@@ -154,6 +155,34 @@ describe('buildSandboxEnv', () => {
         nonessentialTraffic: 'disabled',
       })['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'],
     ).toBe('1');
+  });
+
+  it('passes the fake auth token instead of the key only through the test-only option', () => {
+    const base = { platform: 'linux' as const, dirs: POSIX_DIRS, mockUrl: MOCK, hostEnv: {} };
+    const token = buildSandboxEnv({ ...base, credential: 'fake-auth-token' });
+    expect(token['ANTHROPIC_AUTH_TOKEN']).toBe(FAKE_AUTH_TOKEN);
+    expect(token['ANTHROPIC_API_KEY']).toBeUndefined();
+    expect(token['ANTHROPIC_BASE_URL']).toBe(MOCK);
+    expect(token['HTTPS_PROXY']).toBe(MOCK);
+    for (const credential of [undefined, 'api-key'] as const) {
+      const key = buildSandboxEnv({ ...base, credential });
+      expect(key['ANTHROPIC_API_KEY']).toBe(FAKE_API_KEY);
+      expect(key['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
+    }
+    // The protected-name rule is not loosened: no caller sets the token.
+    expect(() =>
+      buildSandboxEnv({ ...base, extra: { ANTHROPIC_AUTH_TOKEN: FAKE_AUTH_TOKEN } }),
+    ).toThrow(SandboxRefusedError);
+    expect(() =>
+      buildSandboxEnv({
+        ...base,
+        credential: 'fake-auth-token',
+        extra: { ANTHROPIC_API_KEY: FAKE_API_KEY },
+      }),
+    ).toThrow(SandboxRefusedError);
+    // The one fake-key shape the privacy gate allows.
+    expect(FAKE_AUTH_TOKEN).toMatch(/^sk-ant-fake-hudhud-[A-Za-z0-9]+$/);
+    expect(redactEnv(token)['ANTHROPIC_AUTH_TOKEN']).toBe('<redacted>');
   });
 });
 

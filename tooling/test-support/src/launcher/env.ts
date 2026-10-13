@@ -27,6 +27,23 @@ import { SandboxRefusedError } from './errors.js';
  */
 export const FAKE_API_KEY = 'sk-ant-fake-hudhud-NotACredential0000000000000000';
 
+/**
+ * The fake bearer token of the one test-only sandbox that runs the CLI with
+ * `ANTHROPIC_AUTH_TOKEN` instead of an API key (W3-Z ruling 5, K10: the
+ * fixture that shows which `apiKeySource` the CLI reports for it). Same
+ * rules as {@link FAKE_API_KEY}: it authenticates nowhere and has the one
+ * key shape the privacy gate allows.
+ */
+export const FAKE_AUTH_TOKEN = 'sk-ant-fake-hudhud-NotAnAuthToken000000000000000000';
+
+/**
+ * Which fake credential a sandbox passes: `api-key` (the default,
+ * `ANTHROPIC_API_KEY`) or `fake-auth-token` (`ANTHROPIC_AUTH_TOKEN` only, for
+ * the K10 fixture). Protected names stay refused as extra variables; this
+ * is the only way to set the token.
+ */
+export type SandboxCredential = 'api-key' | 'fake-auth-token';
+
 /** The directories of one sandbox. All absolute; all inside {@link SandboxDirs.root}. */
 export interface SandboxDirs {
   readonly root: string;
@@ -65,6 +82,8 @@ export interface SandboxEnvInput {
    * proxy variables (the trap) stay set either way. Default `disabled`.
    */
   readonly nonessentialTraffic?: 'disabled' | 'allowed' | undefined;
+  /** See {@link SandboxCredential}. Default `api-key`. */
+  readonly credential?: SandboxCredential | undefined;
 }
 
 /** Account and domain name a Windows sandbox reports instead of the real ones. */
@@ -220,6 +239,10 @@ export function buildSandboxEnv(input: SandboxEnvInput): Readonly<Record<string,
     NO_PROXY: mockHost,
     no_proxy: mockHost,
   };
+  if (input.credential === 'fake-auth-token') {
+    delete env['ANTHROPIC_API_KEY'];
+    env['ANTHROPIC_AUTH_TOKEN'] = FAKE_AUTH_TOKEN;
+  }
   if (input.nonessentialTraffic === 'allowed') {
     delete env['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'];
   }

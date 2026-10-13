@@ -26,7 +26,7 @@ import path from 'node:path';
 import { assertNoForbiddenAncestors, testRootInstructions } from './ancestors.js';
 import type { AncestorProbe } from './ancestors.js';
 import { buildSandboxEnv, defaultGitBashPath } from './env.js';
-import type { SandboxDirs } from './env.js';
+import type { SandboxCredential, SandboxDirs } from './env.js';
 import { SandboxRefusedError } from './errors.js';
 import { assertIssuedCli, recheckPinnedCli } from './pinned-cli.js';
 import type { VerifiedCli } from './pinned-cli.js';
@@ -157,6 +157,11 @@ export interface SandboxOptions {
   readonly gitBashPath?: string | null | undefined;
   /** See `SandboxEnvInput.nonessentialTraffic`; only for the one trap test (plan §4.5). */
   readonly nonessentialTraffic?: 'disabled' | 'allowed' | undefined;
+  /**
+   * Test-only: `fake-auth-token` runs the CLI with a fake `ANTHROPIC_AUTH_TOKEN`
+   * instead of the fake API key (the K10 fixture, see `SandboxCredential`).
+   */
+  readonly credential?: SandboxCredential | undefined;
   /**
    * Forbidden-ancestor inputs. Default: the real homes and the real file
    * system. Only the launcher's own tests replace it, to exercise the launch
@@ -315,6 +320,7 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
       hostEnv,
       gitBashPath,
       nonessentialTraffic: options.nonessentialTraffic,
+      credential: options.credential,
     };
     const env = buildSandboxEnv({ ...baseEnv, extra: options.env });
     const { cli } = options;

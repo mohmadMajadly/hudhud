@@ -14,7 +14,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { FAKE_API_KEY } from '../launcher/env.js';
+import { FAKE_API_KEY, FAKE_AUTH_TOKEN } from '../launcher/env.js';
 import type { Sandbox } from '../launcher/sandbox.js';
 import { normalizeRecords } from './normalize.js';
 import type { FixtureRecordLine, NormalizeContext } from './normalize.js';
@@ -37,7 +37,7 @@ export function sandboxContext(sandbox: Sandbox, session: RecordingSession): Nor
       { path: sandbox.mockUrl, token: '<mock>' },
     ],
     pids: [session.process.pid],
-    secrets: [FAKE_API_KEY],
+    secrets: [FAKE_API_KEY, FAKE_AUTH_TOKEN],
     version: sandbox.cli.version,
     cwd: dirs.work,
   };
