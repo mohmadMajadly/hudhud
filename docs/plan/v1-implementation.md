@@ -85,7 +85,9 @@ tooling/
     src/leaks/                  process-leak assertions
     src/snapshots/              request-shape structural snapshots
     src/canary/                 degradation classifier, local bump helper
-  macos-gate/                   one-off macOS gate scripts (workflow_dispatch)
+  macos-gate/                   one-off macOS gate scripts (workflow_dispatch); as built a plain
+                                directory, not a workspace package: it imports test-support and core
+                                sources by relative path and its tests run in the `unit` project
 scripts/
   schema/                       schema build, check, additive diff linter (logic in scripts/lib/schema/)
   addon/                        digest manifest writer, addon build wrapper
@@ -307,6 +309,7 @@ Per turn: `{ turnId (= user message uuid, or bg-<n>), origin: 'application' | 'h
 - Interrupt gating: an interrupt before the turn's `system/init` is stored and sent once it arrives (D5, GH#98713); on a settled turn it is a no-op.
 - Plan decision: if the interrupt response's `still_queued` contains the target uuid after its `system/init`, re-send once after 50 ms and emit `interrupt.still-queued-retry`. Reason: 05 §7 names the workaround; one retry, then report.
 - Turn end: `result` with matching `user_message_uuid(s)`, else the oldest started turn; synthesized from `session_state_changed` `idle` or process exit (05 §9). `error_during_execution` with `terminal_reason` `aborted_streaming`/`aborted_tools` after an interrupt is outcome `cancelled`, raw kept.
+- As built (W2-Z ruling C): the outcome, `isError` and stop reason of an observed `result` come from `classifyResult` of `protocol/events/normalize.ts`, the one mapping of result frames; any `aborted*` `terminal_reason` is `cancelled`, with or without hudhud's interrupt. Synthesized results stay in the turn machine and always carry `isError: true`. A `result` that matches no unsettled turn is ignored with diagnostic `turn.unmatched-result`.
 
 #### `protocol/machine/session.ts` (internal) — the composed Claude machine, implements `HarnessMachine`
 
@@ -347,6 +350,8 @@ Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> termi
 
 `normalizeFrame(frame, ctx) -> HudhudEventData[]` into the neutral vocabulary. Claude tool mapping: Bash, PowerShell -> execute; Read, NotebookRead -> read; Edit, Write, NotebookEdit -> edit; Glob, Grep -> search; WebFetch, WebSearch -> fetch; everything else -> other. Every event built from a frame carries `raw`; unmapped frames emit `harness.frame`.
 
+As built (W2-T5): `normalizeFrame` emits no turn or permission events. `system/init` yields nothing and `result` yields only `usage.update`; the turn machine builds `turn.started` and `turn.completed`, the permission machine `permission.requested`. `classifyResult(frame): { outcome, isError, stopReason? }` is exported for the turn machine (ruling C).
+
 ### 1.6 Binding layer: `@hudhud/core` root (ordinary async, harness-neutral)
 
 | Module | Responsibility | Key API | ADR |
@@ -385,6 +390,14 @@ Plan decision: the per-event byte size used by queues is the raw frame byte coun
 | `verify/` | yes | `verifyBinary(path, opts: { mode: 'advisory' \| 'strict'; digests }): Promise<BinaryVerification>` | K8: advisory checks the digest table only; strict runs the OS signature check first (win32 Authenticode, darwin `/usr/bin/codesign --verify --strict`) and then the digest table |
 | `containment/win32-job.ts` | yes | `loadJobAddon(deps): JobAddonLoad` | never throws; pre-`dlopen` sha256 (defence in depth); arm64 reports `unavailable` in v1 (K17); see §6 |
 | `os/win32.ts`, `os/posix.ts`, `os/darwin.ts` | no | thin syscall adapters behind `interface OsCalls` | no logic; coverage-scoped per OS (§4.8) |
+
+As built (Wave 2, W2-Z):
+
+- `spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess>`; the handle signals only through its own child handle, `killViaHandle(signal)`, never by a bare pid. On win32, `childEnv(env, platform)` passes every name of `WIN32_REQUIRED_ENV_NAMES` the map lacks as `''`, so libuv copies nothing from the host; a map without a non-empty `SYSTEMROOT` is refused. The adapter's `buildChildEnv` reports those names in `spawnInjected` (one list, ruling H). `osCallsFor(platform, hostPid): OsCalls` is the public OS seam; the adapter modules under `os/` stay internal.
+- `runPosixLadder(proc: PosixLadderProcess, hooks, timing, deps: { intent, os: PosixOsCalls, clock: LadderClock })`.
+- `runWindowsLadder(proc: WindowsLadderProcess, hooks, timing, job: JobHandle | null, deps: { intent, initializePid, clock: LadderClock, os: WindowsOsCalls })`. The best-effort path takes S1 before EOF and, whenever the process is seen to have exited, sweeps the S1 descendants still matching pid and start time (`taskkill /F /PID`, no `/T`, leaf first).
+- `sweep(request: { spawned, signalTarget, recorded: ProcessSnapshot[] }, deps: { hostPid, processTable, signals }): Promise<SweepResult>` (POSIX); the plan comes from `planSweep` over a fresh snapshot.
+- One `LadderClock { now(); schedule(ms, callback): cancel }` in `ladder/types.ts` (ruling A). One `taskkill` implementation, `taskkill.ts` (`createTaskkillCalls`, realpath-checked `%SystemRoot%\System32\taskkill.exe`), used by `osCallsFor('win32')`.
 
 Ladder timing defaults (initial, tunable, H5): `interruptWaitMs 1000`, Windows `eofGraceMs 2000`, `taskkillGraceMs 2000`; POSIX `eofGraceMs 2000`, `termGraceMs 5000`. Every ladder records its termination intent before the first signal (ADR-0008 E8). The interrupt step is a hook (`hooks.interrupt(): Promise<'acknowledged' | 'timeout' | 'not-applicable'>`) supplied by the driver from the machine's `control.settle` or `interrupt-wait` timer (plan decision; reason: ladder stays ordinary async, the protocol step stays in the machine, ADR-0006 E5).
 
@@ -750,7 +763,7 @@ export declare const CLAUDE_CODE_COMPAT: { readonly minTested: string; readonly 
 
 `continue` is not part of v1 (K6). A custom spawner is not public in v1 (K18).
 
-Cross-field validation (`INVALID_OPTIONS` unless noted): `workspaceTrust` and `claudeCode.settingSources` both set; `workspaceTrust: 'context'` is `CAPABILITY_UNSUPPORTED`; `permissionMode: 'bypassPermissions'` without `dangerouslyAllowBypassPermissions: true`, or the flag with another mode; `projectCredentialEnv` set while the effective sources contain neither `project` nor `local`; rule strings failing `rules.ts`; non-UUID `resume` ids (plan decision: titles are not addressable identities, 07 §1 a12); frame caps outside `[1 MiB, 1 GiB]`, timeouts outside `[1000, 86400000]` ms; env names that are not valid variable names, values containing NUL; `env.add` or `env.remove` naming a hudhud-pinned key (`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CONFIG_DIR`, `TRACEPARENT`, `TRACESTATE`); `trace.traceparent` not in W3C format.
+Cross-field validation (`INVALID_OPTIONS` unless noted): `workspaceTrust` and `claudeCode.settingSources` both set; `workspaceTrust: 'context'` is `CAPABILITY_UNSUPPORTED`; `permissionMode: 'bypassPermissions'` without `dangerouslyAllowBypassPermissions: true` (as built, ruling F2: the flag authorizes bypass for the session, as the initial mode or through a later `setPermissionMode`, so it is valid with any initial mode); a Windows command line above 32,000 UTF-16 code units, measured as `CreateProcess` receives it after libuv's quoting (`checkCommandLine`, ruling F1, before spawn); `projectCredentialEnv` set while the effective sources contain neither `project` nor `local`; rule strings failing `rules.ts`; non-UUID `resume` ids (plan decision: titles are not addressable identities, 07 §1 a12); frame caps outside `[1 MiB, 1 GiB]`, timeouts outside `[1000, 86400000]` ms; env names that are not valid variable names, values containing NUL; `env.add` or `env.remove` naming a hudhud-pinned key (`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, `DISABLE_AUTOUPDATER`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CONFIG_DIR`, `TRACEPARENT`, `TRACESTATE`); `trace.traceparent` not in W3C format.
 
 ### 2.4 Options: defaults and securityPosture membership
 
@@ -797,7 +810,7 @@ Plan decision: `includePartialMessages` defaults to `false`. Reason: each partia
 
 ```
 --output-format=stream-json --input-format=stream-json --verbose
---setting-sources=<csv>                         always (05 §13.1, 07 §9 p5)
+--setting-sources=<csv>                         always (05 §13.1, 07 §9 p5); canonical order user,project,local, no duplicates (ruling F3)
 --permission-mode=<mode>                        always (05 §6, D4)
 create: --session-id=<uuid>                     resume: --resume=<id>        fork: --resume=<id> --fork-session --session-id=<new uuid>
 [--permission-prompt-tool=stdio]                iff onPermission
