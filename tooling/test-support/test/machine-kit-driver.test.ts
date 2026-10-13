@@ -83,13 +83,16 @@ describe('KitDriver', () => {
     expect(driver.feed(line('{"type":"ask","toolName":"Bash"}'))).toBe(true);
     expect(driver.feed(line('{"type":"ask","toolName":"Edit"}'))).toBe(true);
     expect(driver.pendingAsks).toEqual(['ref_1', 'ref_2']);
+    expect(driver.feed(line('{"type":"ask","toolName":"Read"}'))).toBe(true);
     expect(driver.answer('ref_1', { behavior: 'allow' })).toBe(true);
     expect(driver.abortAsk('ref_2')).toBe(true);
+    expect(driver.permissionError('ref_3', 'invalid-decision')).toBe(true);
     expect(driver.pendingAsks).toEqual([]);
-    // Neither is pending any more: no step, no violation.
+    // None is pending any more: no step, no violation.
     const steps = driver.steps.length;
     expect(driver.answer('ref_1', { behavior: 'allow' })).toBe(true);
     expect(driver.abortAsk('ref_2')).toBe(true);
+    expect(driver.permissionError('ref_3', 'no-handler')).toBe(true);
     expect(driver.steps).toHaveLength(steps);
     expect(driver.feed(line('{"type":"result","isError":false}'))).toBe(true);
     expect(driver.feed({ type: 'process.exit', code: 0, signal: null })).toBe(true);
@@ -119,6 +122,7 @@ describe('KitDriver', () => {
     expect(stopped.send('t1', 'x')).toBe(false);
     expect(stopped.answer('ref_1', {})).toBe(false);
     expect(stopped.abortAsk('ref_1')).toBe(false);
+    expect(stopped.permissionError('ref_1', 'handler-failed')).toBe(false);
     expect(stopped.fireTimer('handshake')).toBe(false);
     expect(stopped.steps).toHaveLength(steps);
     expect(driver.stopped).toBe(false);

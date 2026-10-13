@@ -1,6 +1,7 @@
 /**
  * The permission bridge: `permission.ask` effects become calls of the
- * application's handler, and its answers become `cmd.permission` inputs
+ * application's handler, and its answers become `cmd.permission` inputs, or
+ * `cmd.permission-error` inputs when no valid decision could be obtained
  * (ADR-0006 "Callbacks", ADR-0007, ADR-0012 §3, plan §1.6).
  *
  * @remarks
@@ -17,19 +18,21 @@
  *   object, is handed to the machine, so the application cannot change it
  *   afterwards.
  * - Fail closed: a missing handler, a throwing or rejecting handler and an
- *   invalid decision are answered through the machine with a
- *   non-interrupting deny with a fixed message (never an allow), and the
- *   application gets a diagnostic naming what failed. The handler's own
- *   error text never reaches the harness or the model.
- *
- * The neutral contract has no separate "handler failed" input, so the fixed
- * deny decision is that answer (plan §1.6).
+ *   invalid decision are answered with the contract input
+ *   `cmd.permission-error` and a fixed reason (`no-handler`,
+ *   `handler-failed`, `invalid-decision`); the machine answers the harness
+ *   with its own fail-closed answer (never an allow, a contract invariant the
+ *   machine kit checks). The application gets a diagnostic naming what
+ *   failed (`permission.handler-failed` with the thrown value's class name,
+ *   or `permission.invalid-decision` with the refusal); the machine reports
+ *   nothing more. The handler's own error text never reaches the machine, the
+ *   harness or the model.
  *
  * @packageDocumentation
  */
 
 import type { JsonObject, JsonValue } from '../protocol/json.js';
-import type { PermissionRequestData } from '../protocol/machine/contract.js';
+import type { PermissionErrorReason, PermissionRequestData } from '../protocol/machine/contract.js';
 
 /**
  * A permission request as the application's handler receives it (plan
@@ -101,29 +104,6 @@ export const MAX_COPY_DEPTH = 64;
 
 /** Most JSON nodes (values of any kind) accepted in one decision or user input. */
 export const MAX_COPY_NODES = 100_000;
-
-/**
- * The deny the bridge answers with when the handler threw, rejected or was
- * missing.
- *
- * @beta
- */
-export const HANDLER_FAILED_DECISION: JsonObject = Object.freeze({
-  behavior: 'deny',
-  message: 'hudhud: permission handler failed',
-  interrupt: false,
-});
-
-/**
- * The deny the bridge answers with when the handler's decision was invalid.
- *
- * @beta
- */
-export const INVALID_DECISION_DECISION: JsonObject = Object.freeze({
-  behavior: 'deny',
-  message: 'hudhud: invalid permission decision',
-  interrupt: false,
-});
 
 /** Thrown inside {@link copyJson} to abandon the copy. */
 class NotJson extends Error {}
@@ -255,6 +235,8 @@ export interface PermissionBridgeDeps {
   readonly handler: PermissionHandler | undefined;
   /** Feeds `cmd.permission` for `requestId` with `decision` (through the driver's queue). */
   answer(requestId: string, decision: JsonObject): void;
+  /** Feeds `cmd.permission-error` for `requestId` (through the driver's queue): the machine fails closed. */
+  fail(requestId: string, reason: PermissionErrorReason): void;
   /** Reports a failure to the application as a `diagnostic` event. */
   diagnostic(code: string, message: string, data: JsonObject): void;
 }
@@ -348,7 +330,7 @@ export class PermissionBridge {
           : 'The permission handler failed; the request was denied.',
         { requestId, error: failureName(outcome.error) },
       );
-      this.#deps.answer(requestId, HANDLER_FAILED_DECISION);
+      this.#deps.fail(requestId, handler === undefined ? 'no-handler' : 'handler-failed');
       return;
     }
     const checked = validateDecision(outcome.decision);
@@ -358,7 +340,7 @@ export class PermissionBridge {
         'The permission decision was invalid; the request was denied.',
         { requestId, reason: checked.reason },
       );
-      this.#deps.answer(requestId, INVALID_DECISION_DECISION);
+      this.#deps.fail(requestId, 'invalid-decision');
       return;
     }
     this.#deps.answer(requestId, checked.decision);

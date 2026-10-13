@@ -40,6 +40,10 @@ export type CommandInput = {
     readonly type: 'cmd.permission-abort';
     readonly requestId: string;
 } | {
+    readonly type: 'cmd.permission-error';
+    readonly requestId: string;
+    readonly reason: PermissionErrorReason;
+} | {
     readonly type: 'cmd.set-permission-mode';
     readonly mode: string;
     readonly correlation: string;
@@ -457,6 +461,9 @@ export type ParseJsonLineResult = {
     readonly ok: false;
     readonly reason: 'not-json' | 'not-object' | 'too-deep';
 };
+
+// @public
+export type PermissionErrorReason = 'no-handler' | 'handler-failed' | 'invalid-decision';
 
 // @public
 export interface PermissionRequestData {

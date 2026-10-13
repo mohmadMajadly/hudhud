@@ -565,6 +565,15 @@ function dispatch(d: Draft, input: MachineInput): void {
       d.event({ type: 'permission.resolved', requestId, behavior: 'cancelled', by: 'application' });
       return;
     }
+    case 'cmd.permission-error': {
+      // The machine's own fail-closed answer: a refusal naming the reason.
+      const { requestId, reason } = input;
+      if (!d.s.asks.includes(requestId)) return;
+      d.s.asks = d.s.asks.filter((ask) => ask !== requestId);
+      d.write({ op: 'refuse', rid: requestId, reason });
+      d.event({ type: 'permission.resolved', requestId, behavior: 'deny', by: 'application' });
+      return;
+    }
     case 'cmd.close':
       if (d.s.closing || d.s.intent !== 'none') return;
       d.s.closing = true;

@@ -454,6 +454,34 @@ describe('application answers', () => {
     ]);
   });
 
+  it('a binding permission error gets the fixed fail-closed deny of its reason, nothing reported again', () => {
+    for (const [reason, message] of [
+      ['no-handler', HANDLER_FAILED_DENY_MESSAGE],
+      ['handler-failed', HANDLER_FAILED_DENY_MESSAGE],
+      ['invalid-decision', INVALID_DECISION_DENY_MESSAGE],
+      // Data from elsewhere: any other reason is a failed handler.
+      ['from-a-newer-peer', HANDLER_FAILED_DENY_MESSAGE],
+    ] as const) {
+      const { effects } = run([
+        ask('r1'),
+        { type: 'binding.permission-error', requestId: 'r1', reason, atMs: 5 },
+      ]);
+      expect(effects.slice(1)).toEqual([
+        {
+          type: 'write',
+          frame: successResponse('r1', { behavior: 'deny', message, interrupt: false }),
+        },
+        expect.objectContaining({
+          type: 'permission.resolved',
+          behavior: 'deny',
+          by: 'application',
+          waitedMs: 5,
+        }),
+      ]);
+      expectWireValid(effects);
+    }
+  });
+
   it('deny and deny+interrupt are written as given', () => {
     for (const decision of [
       { behavior: 'deny', message: 'host says no' },
@@ -604,6 +632,7 @@ describe('application answers', () => {
     for (const input of [
       answer('nope', { behavior: 'allow' }, 3),
       { type: 'cmd.permission-error', requestId: 'nope', error: 'e', atMs: 3 },
+      { type: 'binding.permission-error', requestId: 'nope', reason: 'handler-failed', atMs: 3 },
       { type: 'cmd.permission-abort', requestId: 'nope', atMs: 3 },
       { type: 'cli.cancel', requestId: 'nope', atMs: 3 },
     ] as const) {
@@ -710,6 +739,7 @@ describe('cancellation (ADR-0007, K12)', () => {
       { type: 'cmd.close', atMs: 1 },
       answer('r1', { behavior: 'allow' }, 2),
       { type: 'cmd.permission-error', requestId: 'r1', error: 'e', atMs: 2 },
+      { type: 'binding.permission-error', requestId: 'r1', reason: 'no-handler', atMs: 2 },
       { type: 'cmd.permission-abort', requestId: 'r1', atMs: 2 },
       { type: 'cli.cancel', requestId: 'r1', atMs: 2 },
     ]);
@@ -931,6 +961,15 @@ describe('every ask ends exactly once (property)', () => {
       arbitrary: id.map(
         (r) => ({ type: 'cmd.permission-error', requestId: r, error: 'e', atMs: 0 }) as const,
       ),
+    },
+    {
+      weight: 1,
+      arbitrary: fc
+        .tuple(id, fc.constantFrom('no-handler', 'handler-failed', 'invalid-decision'))
+        .map(
+          ([r, reason]) =>
+            ({ type: 'binding.permission-error', requestId: r, reason, atMs: 0 }) as const,
+        ),
     },
     {
       weight: 1,

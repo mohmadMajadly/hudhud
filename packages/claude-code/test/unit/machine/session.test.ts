@@ -22,7 +22,11 @@ import {
   stepSession,
   type ClaudeSessionState,
 } from '../../../src/protocol/machine/index.js';
-import { CLOSING_DENY_MESSAGE } from '../../../src/protocol/machine/permission.js';
+import {
+  CLOSING_DENY_MESSAGE,
+  HANDLER_FAILED_DENY_MESSAGE,
+  INVALID_DECISION_DENY_MESSAGE,
+} from '../../../src/protocol/machine/permission.js';
 import {
   CLI_PID,
   SESSION_ID,
@@ -883,6 +887,46 @@ describe('permissions (fail closed, K12)', () => {
       behavior: 'cancelled',
       by: 'application',
     });
+  });
+
+  it('answers a binding permission error fail-closed, as a failed handler, without a second report', () => {
+    const run = running();
+    run.line(canUseTool('a'), canUseTool('b'));
+    const failed = run.feed({
+      type: 'cmd.permission-error',
+      requestId: 'a',
+      reason: 'handler-failed',
+    });
+    expect(writes(failed)).toEqual([
+      {
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: 'a',
+          response: { behavior: 'deny', message: HANDLER_FAILED_DENY_MESSAGE, interrupt: false },
+        },
+      },
+    ]);
+    expect(events(failed).map((event) => event['type'])).toEqual(['permission.resolved']);
+    expect(events(failed, 'permission.resolved')[0]).toMatchObject({
+      requestId: 'a',
+      behavior: 'deny',
+      by: 'application',
+    });
+    const invalid = run.feed({
+      type: 'cmd.permission-error',
+      requestId: 'b',
+      reason: 'invalid-decision',
+    });
+    expect(writes(invalid)[0]).toMatchObject({
+      response: {
+        response: { behavior: 'deny', message: INVALID_DECISION_DENY_MESSAGE, interrupt: false },
+      },
+    });
+    // The ask already ended: a repeat is an unknown request, nothing written.
+    const again = run.feed({ type: 'cmd.permission-error', requestId: 'a', reason: 'no-handler' });
+    expect(writes(again)).toEqual([]);
+    expect(events(again, 'diagnostic')[0]?.['code']).toBe('permission.unknown-request');
   });
 
   it('cancels when the CLI withdraws its request', () => {

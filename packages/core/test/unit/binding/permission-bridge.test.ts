@@ -5,8 +5,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   copyJson,
-  HANDLER_FAILED_DECISION,
-  INVALID_DECISION_DECISION,
   MAX_COPY_DEPTH,
   MAX_COPY_NODES,
   PermissionBridge,
@@ -14,7 +12,10 @@ import {
   type PermissionHandler,
 } from '../../../src/binding/permission-bridge.js';
 import type { JsonObject } from '../../../src/protocol/json.js';
-import type { PermissionRequestData } from '../../../src/protocol/machine/contract.js';
+import type {
+  PermissionErrorReason,
+  PermissionRequestData,
+} from '../../../src/protocol/machine/contract.js';
 import { settle } from './driver-support.js';
 
 const REQUEST: PermissionRequestData = {
@@ -116,16 +117,19 @@ describe('validateDecision', () => {
 function bridgeWith(handler: PermissionHandler | undefined): {
   readonly bridge: PermissionBridge;
   readonly answers: [string, JsonObject][];
+  readonly failures: [string, PermissionErrorReason][];
   readonly diagnostics: [string, JsonObject][];
 } {
   const answers: [string, JsonObject][] = [];
+  const failures: [string, PermissionErrorReason][] = [];
   const diagnostics: [string, JsonObject][] = [];
   const bridge = new PermissionBridge({
     handler,
     answer: (requestId, decision) => answers.push([requestId, decision]),
+    fail: (requestId, reason) => failures.push([requestId, reason]),
     diagnostic: (code, _message, data) => diagnostics.push([code, data]),
   });
-  return { bridge, answers, diagnostics };
+  return { bridge, answers, failures, diagnostics };
 }
 
 describe('PermissionBridge', () => {
@@ -171,40 +175,45 @@ describe('PermissionBridge', () => {
       'unknown',
     ],
   ])(
-    'a handler that %s answers with the fixed deny and a diagnostic',
+    'a handler that %s fails closed through the machine, with a diagnostic',
     async (_name, handler, error) => {
-      const { bridge, answers, diagnostics } = bridgeWith(handler);
+      const { bridge, answers, failures, diagnostics } = bridgeWith(handler);
       bridge.ask('r1', REQUEST);
       await settle();
-      expect(answers).toEqual([['r1', HANDLER_FAILED_DECISION]]);
+      expect(answers).toEqual([]);
+      expect(failures).toEqual([['r1', 'handler-failed']]);
       expect(diagnostics).toEqual([['permission.handler-failed', { requestId: 'r1', error }]]);
     },
   );
 
-  it('an invalid decision answers with the fixed deny and names the reason', async () => {
-    const { bridge, answers, diagnostics } = bridgeWith(() =>
+  it('an invalid decision fails closed through the machine and names the refusal', async () => {
+    const { bridge, answers, failures, diagnostics } = bridgeWith(() =>
       Promise.resolve({ behavior: 'allow', extra: 1 } as never),
     );
     bridge.ask('r1', REQUEST);
     await settle();
-    expect(answers).toEqual([['r1', INVALID_DECISION_DECISION]]);
+    expect(answers).toEqual([]);
+    expect(failures).toEqual([['r1', 'invalid-decision']]);
     expect(diagnostics).toEqual([
       ['permission.invalid-decision', { requestId: 'r1', reason: 'unknown-key' }],
     ]);
   });
 
   it('no handler fails closed', async () => {
-    const { bridge, answers, diagnostics } = bridgeWith(undefined);
+    const { bridge, answers, failures, diagnostics } = bridgeWith(undefined);
     bridge.ask('r1', REQUEST);
     await settle();
-    expect(answers).toEqual([['r1', HANDLER_FAILED_DECISION]]);
-    expect(diagnostics[0]?.[0]).toBe('permission.handler-failed');
+    expect(answers).toEqual([]);
+    expect(failures).toEqual([['r1', 'no-handler']]);
+    expect(diagnostics).toEqual([
+      ['permission.handler-failed', { requestId: 'r1', error: 'Error' }],
+    ]);
   });
 
   it('cancel aborts the signal in a microtask and drops the late answer; cancelAll aborts every ask', async () => {
     const signals: AbortSignal[] = [];
     const releases: (() => void)[] = [];
-    const { bridge, answers } = bridgeWith((_request, { signal }) => {
+    const { bridge, answers, failures } = bridgeWith((_request, { signal }) => {
       signals.push(signal);
       return new Promise((resolve) => {
         releases.push(() => {
@@ -228,6 +237,7 @@ describe('PermissionBridge', () => {
     for (const release of releases) release();
     await settle();
     expect(answers).toEqual([]);
+    expect(failures).toEqual([]);
     expect(bridge.pending).toBe(0);
   });
 });

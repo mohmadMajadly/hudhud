@@ -419,6 +419,9 @@ export class SessionDriver<State, Config> implements SessionCore {
       answer: (requestId, decision) => {
         this.#enqueue({ body: { type: 'cmd.permission', requestId, decision } });
       },
+      fail: (requestId, reason) => {
+        this.#enqueue({ body: { type: 'cmd.permission-error', requestId, reason } });
+      },
       diagnostic: (code, message, data) => {
         this.#diagnostic(code, message, data);
       },

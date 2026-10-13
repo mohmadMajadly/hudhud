@@ -17,6 +17,7 @@ import { HostExitHook } from '../../../src/binding/host-exit.js';
 import { SessionDriver } from '../../../src/binding/driver.js';
 import { LoopbackTransport } from '../../../src/binding/loopback.js';
 import type { PermissionHandler } from '../../../src/binding/permission-bridge.js';
+import type { PermissionErrorReason } from '../../../src/protocol/machine/contract.js';
 import {
   collector,
   guardProcess,
@@ -182,38 +183,30 @@ describe("only 'block' pauses input processing", () => {
 });
 
 describe('handler exceptions never escape into the driver', () => {
-  const cases: [string, PermissionHandler, Record<string, unknown>][] = [
+  const cases: [string, PermissionHandler, PermissionErrorReason][] = [
     [
       'a synchronous throw',
       () => {
         throw new TypeError('sync');
       },
-      { message: 'hudhud: permission handler failed' },
+      'handler-failed',
     ],
-    [
-      'a rejection',
-      () => Promise.reject(new RangeError('async')),
-      { message: 'hudhud: permission handler failed' },
-    ],
+    ['a rejection', () => Promise.reject(new RangeError('async')), 'handler-failed'],
     [
       'an invalid decision',
       () => Promise.resolve({ behavior: 'maybe' } as never),
-      { message: 'hudhud: invalid permission decision' },
+      'invalid-decision',
     ],
   ];
   it.each(cases)(
-    '%s answers with a deny through the machine, never an allow',
-    async (_name, handler, deny) => {
+    '%s fails closed through the machine (cmd.permission-error), never an allow',
+    async (_name, handler, reason) => {
       const r = rig({ onPermission: handler });
       await ready(r);
       const events = collector(r.session.events());
       r.say({ t: 'ask', rid: 'r1' });
       await settle();
-      expect(r.ops().at(-1)).toEqual({
-        op: 'answer',
-        rid: 'r1',
-        decision: { behavior: 'deny', interrupt: false, ...deny },
-      });
+      expect(r.ops().at(-1)).toEqual({ op: 'refuse', rid: 'r1', reason });
       r.transport.exit({ code: 0, signal: null });
       const seen = (await events.result()).events;
       expect(seen.find((event) => event.type === 'diagnostic')).toMatchObject({
@@ -299,7 +292,7 @@ describe('handler exceptions never escape into the driver', () => {
     await ready(none);
     none.say({ t: 'ask', rid: 'r1' });
     await settle();
-    expect(none.ops().at(-1)).toMatchObject({ decision: { behavior: 'deny' } });
+    expect(none.ops().at(-1)).toEqual({ op: 'refuse', rid: 'r1', reason: 'no-handler' });
   });
 });
 

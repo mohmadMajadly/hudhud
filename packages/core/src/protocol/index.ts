@@ -65,6 +65,7 @@ export type {
   MachineEffect,
   MachineInput,
   MachineStep,
+  PermissionErrorReason,
   PermissionRequestData,
   SessionInfoData,
   TimerName,

@@ -16,7 +16,9 @@
  * Checked over the trace: every turn settles exactly once (a
  * `send.rejected` ends only the send of its own step); each
  * `permission.ask` ends exactly once (a `permission.cancel` effect or a
- * `cmd.permission` / `cmd.permission-abort` input); no `write` after
+ * `cmd.permission` / `cmd.permission-abort` / `cmd.permission-error`
+ * input); a `cmd.permission-error` is answered fail-closed (its step
+ * resolves the ask as a deny and never as an allow); no `write` after
  * `stdin.end`; event `seq` strictly increases by 1; timers are cleared or
  * fired before `session.end`; nothing is emitted after `session.end`; a
  * control correlation settles at most once.
@@ -37,6 +39,7 @@ import type {
   JsonObject,
   JsonValue,
   MachineInput,
+  PermissionErrorReason,
   TransportInput,
 } from '@hudhud/core/protocol';
 import fc from 'fast-check';
@@ -86,6 +89,8 @@ export type KitAction =
   | { readonly kind: 'answer'; readonly target: number; readonly decision: JsonObject }
   /** `cmd.permission-abort` for a pending ask. */
   | { readonly kind: 'abort-ask'; readonly target: number }
+  /** `cmd.permission-error` for a pending ask: the binding got no valid decision. */
+  | { readonly kind: 'fail-ask'; readonly target: number; readonly reason: PermissionErrorReason }
   /** Advance the clock to an armed timer's deadline and fire it. */
   | { readonly kind: 'fire-timer'; readonly target: number }
   /** Advance the clock. */
@@ -102,6 +107,13 @@ export interface MachineActionOptions {
   /** Most actions per run. Default 40. */
   readonly maxActions?: number;
 }
+
+/** Every reason of `cmd.permission-error` (the contract's closed vocabulary). */
+export const PERMISSION_ERROR_REASONS: readonly PermissionErrorReason[] = [
+  'no-handler',
+  'handler-failed',
+  'invalid-decision',
+];
 
 /** Exit observations worth exploring: success, error, signals, the Windows `-1`. */
 const EXITS: readonly KitInputBody[] = [
@@ -155,6 +167,9 @@ export function machineActions(options: MachineActionOptions = {}): fc.Arbitrary
       decision: allow ? { behavior: 'allow' } : { behavior: 'deny', message: 'no' },
     })),
     index.map((target): KitAction => ({ kind: 'abort-ask', target })),
+    fc
+      .record({ target: index, reason: fc.constantFrom(...PERMISSION_ERROR_REASONS) })
+      .map(({ target, reason }): KitAction => ({ kind: 'fail-ask', target, reason })),
     index.map((target): KitAction => ({ kind: 'fire-timer', target })),
     fc.integer({ min: 0, max: 60_000 }).map((ms): KitAction => ({ kind: 'advance', ms })),
     extra.map((input): KitAction => ({ kind: 'input', input })),
@@ -502,20 +517,26 @@ export class KitDriver<State, Config> {
 
   /** Feeds one input at the current clock; `false` once a violation stopped the driver. */
   feed(body: KitInputBody): boolean {
+    return this.stepOf(body) !== undefined;
+  }
+
+  /** Feeds one input; its recorded step, or `undefined` when a violation stopped the driver. */
+  private stepOf(body: KitInputBody): KitStep<State> | undefined {
     const state = this.current;
-    if (state === undefined || this.stopped) return false;
+    if (state === undefined || this.stopped) return undefined;
     const now = this.clock;
     const input: MachineInput = { ...body, atMs: now, at: new Date(now).toISOString() };
     const found = stepChecked(this.machine, state, input);
     if (typeof found === 'string') {
       this.violations.push(`${body.type}: ${found}`);
-      return false;
+      return undefined;
     }
     const recorded = this.tracker.record(found.effects, now);
-    this.steps.push({ input, effects: found.effects, state: found.state });
+    const step: KitStep<State> = { input, effects: found.effects, state: found.state };
+    this.steps.push(step);
     this.current = found.state;
     for (const message of recorded) this.violations.push(`${body.type}: ${message}`);
-    return recorded.length === 0;
+    return recorded.length === 0 ? step : undefined;
   }
 
   /** `cmd.send` of a turn that the contract then expects to settle exactly once. */
@@ -540,6 +561,34 @@ export class KitDriver<State, Config> {
     if (this.stopped) return false;
     if (!this.tracker.endAsk(requestId)) return true;
     return this.feed({ type: 'cmd.permission-abort', requestId });
+  }
+
+  /**
+   * `cmd.permission-error` for a pending ask; `true` without a step when it
+   * is not pending. The contract requires a fail-closed answer: the step
+   * must resolve the ask as a deny (a `permission.resolved` event for it
+   * with behavior `deny`) and never as an allow; anything else is a
+   * violation (a machine that ignores the input included).
+   */
+  permissionError(requestId: string, reason: PermissionErrorReason): boolean {
+    if (this.stopped) return false;
+    if (!this.tracker.endAsk(requestId)) return true;
+    const step = this.stepOf({ type: 'cmd.permission-error', requestId, reason });
+    if (step === undefined) return false;
+    // The step passed the trace checks: every event effect carries an event object.
+    const behaviors = step.effects
+      .filter((effect) => effect.type === 'event')
+      .map((effect) => field(effect, 'event') as object)
+      .filter(
+        (event) =>
+          field(event, 'type') === 'permission.resolved' && field(event, 'requestId') === requestId,
+      )
+      .map((event) => field(event, 'behavior'));
+    if (behaviors.length === 1 && behaviors[0] === 'deny') return true;
+    this.violations.push(
+      `cmd.permission-error: permission ${requestId} not resolved as one deny (fail closed): ${JSON.stringify(behaviors)}`,
+    );
+    return false;
   }
 
   /**
@@ -603,12 +652,14 @@ export function runMachine<State, Config>(
           correlation: `corr-${String(correlations)}`,
         });
       case 'answer':
-      case 'abort-ask': {
+      case 'abort-ask':
+      case 'fail-ask': {
         const requestId = pick(driver.pendingAsks, action.target);
         if (requestId === undefined) return true;
-        return action.kind === 'answer'
-          ? driver.answer(requestId, action.decision)
-          : driver.abortAsk(requestId);
+        if (action.kind === 'answer') return driver.answer(requestId, action.decision);
+        return action.kind === 'abort-ask'
+          ? driver.abortAsk(requestId)
+          : driver.permissionError(requestId, action.reason);
       }
       case 'fire-timer': {
         const timer = pick(driver.timers, action.target);
@@ -1017,6 +1068,17 @@ function referenceStep(d: Draft, input: MachineInput): void {
       });
       return;
     }
+    case 'cmd.permission-error':
+      // Fail closed: the reference machine's own deny.
+      if (!d.asks.includes(input.requestId)) return;
+      d.asks = d.asks.filter((id) => id !== input.requestId);
+      d.write({ type: 'answer', requestId: input.requestId, allow: false });
+      d.event('permission.resolved', {
+        requestId: input.requestId,
+        behavior: 'deny',
+        by: 'application',
+      });
+      return;
     case 'cmd.close':
       if (!d.stdinOpen || d.intent !== 'none') return;
       d.intent = 'close';

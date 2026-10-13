@@ -138,6 +138,8 @@ describe('reference machine through the kit', () => {
       { kind: 'answer', target: 0, decision: { behavior: 'deny', message: 'no' } },
       ask,
       { kind: 'abort-ask', target: 0 },
+      ask,
+      { kind: 'fail-ask', target: 0, reason: 'handler-failed' },
       // An ask without a tool name: the reference machine names it `tool`
       // (deterministic coverage, not left to the generated interleavings).
       { kind: 'line', text: '{"type":"ask"}' },
@@ -165,7 +167,16 @@ describe('reference machine through the kit', () => {
       .flatMap((step) => step.effects)
       .filter((effect) => effect.type === 'permission.ask')
       .map((effect) => (effect as unknown as { request: { toolName: string } }).request.toolName);
-    expect(asked).toEqual(['Shell', 'Shell', 'Shell', 'tool']);
+    expect(asked).toEqual(['Shell', 'Shell', 'Shell', 'Shell', 'tool']);
+    // The failed ask was answered by the machine itself, as a deny.
+    const failed = first.steps.find((step) => step.input.type === 'cmd.permission-error');
+    expect(failed?.effects).toEqual([
+      { type: 'write', line: '{"type":"answer","requestId":"ref_4","allow":false}\n' },
+      expect.objectContaining({
+        type: 'event',
+        event: expect.objectContaining({ behavior: 'deny', requestId: 'ref_4' }) as unknown,
+      }),
+    ]);
     expect(types).toContain('control.settle');
     expect(types).toContain('turn.settle');
     const outcomes = first.steps
@@ -205,6 +216,7 @@ describe('reference machine through the kit', () => {
     const actions: KitAction[] = [
       { kind: 'answer', target: 3, decision: {} },
       { kind: 'abort-ask', target: 1 },
+      { kind: 'fail-ask', target: 0, reason: 'no-handler' },
       { kind: 'interrupt', target: 2, cancelQueued: false },
     ];
     const run = runMachine(referenceMachine, CONFIG, actions, { finale: [], requireEnd: false });
@@ -232,6 +244,16 @@ describe('reference machine through the kit', () => {
       state,
       effects: [],
     });
+    // A permission error for no pending ask (the kit never feeds one) does nothing.
+    expect(
+      referenceMachine.step(state, {
+        type: 'cmd.permission-error',
+        requestId: 'stray',
+        reason: 'no-handler',
+        atMs: 0,
+        at,
+      }),
+    ).toEqual({ state, effects: [] });
   });
 
   it('defaults to 200 runs', () => {
@@ -445,6 +467,63 @@ describe('the kit catches contract violations', () => {
     ]);
   });
 
+  it('a permission error that is not answered fail-closed', () => {
+    const failAsk: KitAction = { kind: 'fail-ask', target: 0, reason: 'handler-failed' };
+    // Ignored: the ask ends (the input ended it) but nothing resolved it;
+    // events of another type or for another request do not count.
+    const ignores: RefMachine = {
+      initialState: referenceMachine.initialState,
+      step: (state, body) => {
+        if (body.type !== 'cmd.permission-error') return referenceMachine.step(state, body);
+        const base = { ts: body.at, sessionId: state.config.sessionId };
+        return {
+          state: { ...state, seq: state.seq + 2 },
+          effects: [
+            fx('event', {
+              event: { ...base, type: 'diagnostic', code: 'x', message: 'x', seq: state.seq },
+            }),
+            fx('event', {
+              event: {
+                ...base,
+                type: 'permission.resolved',
+                requestId: 'other',
+                behavior: 'deny',
+                by: 'application',
+                seq: state.seq + 1,
+              },
+            }),
+          ],
+        };
+      },
+    };
+    expect(violations(ignores, [send, ready, ask, failAsk])).toEqual([
+      'cmd.permission-error: permission ref_1 not resolved as one deny (fail closed): []',
+    ]);
+    // Answered with an allow.
+    const allows = withEffects((effects) =>
+      effects.map((effect) => {
+        const event = (effect as { event?: { type?: string } }).event;
+        return event?.type === 'permission.resolved'
+          ? { ...effect, event: { ...event, behavior: 'allow' } }
+          : effect;
+      }),
+    );
+    expect(violations(allows, [send, ready, ask, failAsk])).toEqual([
+      'cmd.permission-error: permission ref_1 not resolved as one deny (fail closed): ["allow"]',
+    ]);
+    // A violation of the step itself comes first and stops the driver.
+    const throws: RefMachine = {
+      initialState: referenceMachine.initialState,
+      step: (state, body) => {
+        if (body.type === 'cmd.permission-error') throw new Error('boom');
+        return referenceMachine.step(state, body);
+      },
+    };
+    expect(violations(throws, [send, ready, ask, failAsk])).toEqual([
+      'cmd.permission-error: step threw: Error: boom',
+    ]);
+  });
+
   it('a control settled twice', () => {
     const machine = withEffects((effects) =>
       effects.flatMap((effect) => (effect.type === 'control.settle' ? [effect, effect] : [effect])),
@@ -556,6 +635,7 @@ describe('arbitraries and seeds', () => {
         'abort-ask',
         'advance',
         'answer',
+        'fail-ask',
         'fire-timer',
         'input',
         'interrupt',

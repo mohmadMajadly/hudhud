@@ -100,6 +100,7 @@ const miniMachine: HarnessMachine<MiniState, null> = {
       case 'cmd.interrupt':
       case 'cmd.permission':
       case 'cmd.permission-abort':
+      case 'cmd.permission-error':
       case 'cmd.set-permission-mode':
       case 'cmd.close':
         return { state, effects: [] };

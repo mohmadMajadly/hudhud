@@ -1507,6 +1507,15 @@ function dispatch(d: Draft, input: MachineInput): boolean {
     case 'cmd.permission-abort':
       d.feedPermission({ type: 'cmd.permission-abort', requestId: input.requestId, atMs: d.atMs });
       return false;
+    case 'cmd.permission-error':
+      // Fail closed, with the same answer as a failed handler (never an allow).
+      d.feedPermission({
+        type: 'binding.permission-error',
+        requestId: input.requestId,
+        reason: input.reason,
+        atMs: d.atMs,
+      });
+      return false;
     case 'cmd.set-permission-mode':
       onSetPermissionMode(d, input.mode, input.correlation);
       return false;

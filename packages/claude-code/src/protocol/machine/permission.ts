@@ -182,6 +182,18 @@ export type PermissionInput = { readonly atMs: number } & (
       readonly error: string;
     }
   | { readonly type: 'cmd.permission-abort'; readonly requestId: string }
+  | {
+      /**
+       * The binding got no valid decision (the neutral `cmd.permission-error`)
+       * and has told the application why itself: the same fail-closed answer
+       * as a failed handler (`invalid-decision`: as a refused decision), and
+       * nothing reported again. Any reason but `invalid-decision` counts as a
+       * failed handler.
+       */
+      readonly type: 'binding.permission-error';
+      readonly requestId: string;
+      readonly reason: string;
+    }
   | { readonly type: 'cmd.close' }
   | { readonly type: 'cmd.abort' }
 );
@@ -556,6 +568,16 @@ export function stepPermission(
           error: input.error,
         }),
         nonInterruptingDeny(entry.requestId, HANDLER_FAILED_DENY_MESSAGE),
+        resolved(entry, input.atMs, 'deny', 'application'),
+      ]);
+    case 'binding.permission-error':
+      return settle(state, input.requestId, input.atMs, (entry) => [
+        nonInterruptingDeny(
+          entry.requestId,
+          input.reason === 'invalid-decision'
+            ? INVALID_DECISION_DENY_MESSAGE
+            : HANDLER_FAILED_DENY_MESSAGE,
+        ),
         resolved(entry, input.atMs, 'deny', 'application'),
       ]);
     case 'cmd.permission-abort':
