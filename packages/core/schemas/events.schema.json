@@ -93,7 +93,8 @@
             "permission.ignored-after-abort",
             "permission.duplicate-request-id",
             "stdin.error",
-            "turn.unmatched-result"
+            "turn.unmatched-result",
+            "turn.dropped"
           ]
         },
         {

@@ -34,6 +34,8 @@ const FRAMES: readonly JsonValue[] = [
   { type: 'assistant', message: { content: [{ type: 'text' }] } },
   { type: 'assistant', message: { content: [{ type: 'tool_use' }] } },
   { type: 'system', subtype: 'task_started' },
+  { type: 'command_lifecycle', state: 'queued' },
+  { type: 'command_lifecycle', state: 'completed' },
 ];
 
 const record = (v: JsonValue): OutRecord => ({ t: 0, dir: 'out', v });
@@ -88,7 +90,7 @@ class ScriptedSession implements ScriptSession {
   }
 }
 
-/** Plan §4.3, in plan order, then the K10 suite. */
+/** Plan §4.3, in plan order, then the K10 suite and the dropped-message suite (research 10). */
 const PLAN_SUITES = [
   'handshake',
   'text-turn',
@@ -122,10 +124,11 @@ const PLAN_SUITES = [
   'utf8-arabic',
   'crlf-bom',
   'auth-token-source',
+  'resume-duplicate-uuid',
 ];
 
 describe('the suites', () => {
-  it('are the suites of plan §4.3 in plan order, then the K10 auth-token suite', () => {
+  it('are the suites of plan §4.3 in plan order, then the K10 and research 10 suites', () => {
     expect(SUITES.map((suite) => suite.name)).toEqual(PLAN_SUITES);
     const k10 = SUITES.find((suite) => suite.name === 'auth-token-source');
     expect(k10?.credential).toBe('fake-auth-token');

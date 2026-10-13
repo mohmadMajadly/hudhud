@@ -88,6 +88,7 @@ export {
   SessionPoisonedError,
   SpawnError,
   SubscriberOverflowError,
+  TurnDroppedError,
 } from './binding/errors.js';
 
 export type { ParsePostureResult, PostureEntryInput } from './security/posture.js';

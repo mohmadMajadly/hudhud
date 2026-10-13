@@ -326,6 +326,20 @@ export class ProcessExitedError extends HudhudError {
 }
 
 /**
+ * Code `TURN_DROPPED` (plan §3.1): the harness dropped a user message without
+ * running a turn for it, for example a message whose id the session
+ * transcript already holds (research 10 §3). `details.turnId` and
+ * `details.lifecycle` (the states the harness reported for it) say what was
+ * seen.
+ *
+ * @public
+ */
+export class TurnDroppedError extends HudhudError {
+  static override readonly code = 'TURN_DROPPED';
+  static override readonly errorName = 'TurnDroppedError';
+}
+
+/**
  * Code `SESSION_CLOSED` (plan §3.1).
  *
  * @public
@@ -434,6 +448,7 @@ const ERROR_CLASSES: Readonly<Record<HudhudErrorCode, ErrorClass>> = {
   OUTBOUND_FRAME_TOO_LARGE: OutboundFrameTooLargeError,
   CONTROL_REQUEST_FAILED: ControlRequestError,
   PROCESS_EXITED: ProcessExitedError,
+  TURN_DROPPED: TurnDroppedError,
   SESSION_CLOSED: SessionClosedError,
   HARNESS_DISPOSED: HarnessDisposedError,
   ABORTED: AbortError,

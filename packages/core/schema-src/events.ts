@@ -75,6 +75,7 @@ export const DiagnosticCode = openEnum([
   'permission.duplicate-request-id',
   'stdin.error',
   'turn.unmatched-result',
+  'turn.dropped',
 ] as const);
 
 const usageProperties = {

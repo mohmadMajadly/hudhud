@@ -43,6 +43,7 @@ const ENTRY_NAMES = {
     'StderrTail',
     'SubscriberOverflowError',
     'TRUNCATED',
+    'TurnDroppedError',
     'UsageEstimator',
     'adapterApiVersion',
     'buildPosture',

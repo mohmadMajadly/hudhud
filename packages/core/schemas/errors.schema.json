@@ -31,6 +31,7 @@
             "OUTBOUND_FRAME_TOO_LARGE",
             "CONTROL_REQUEST_FAILED",
             "PROCESS_EXITED",
+            "TURN_DROPPED",
             "SESSION_CLOSED",
             "HARNESS_DISPOSED",
             "ABORTED",

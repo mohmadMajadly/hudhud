@@ -45,6 +45,7 @@ const EXPECTED: readonly (readonly [string, HudhudErrorCode, boolean])[] = [
   ['OutboundFrameTooLargeError', 'OUTBOUND_FRAME_TOO_LARGE', false],
   ['ControlRequestError', 'CONTROL_REQUEST_FAILED', true],
   ['ProcessExitedError', 'PROCESS_EXITED', true],
+  ['TurnDroppedError', 'TURN_DROPPED', true],
   ['SessionClosedError', 'SESSION_CLOSED', false],
   ['HarnessDisposedError', 'HARNESS_DISPOSED', false],
   ['AbortError', 'ABORTED', false],

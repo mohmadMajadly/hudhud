@@ -20,6 +20,19 @@
  *   the oldest queued turn. A `system/init` belongs to the oldest started turn
  *   that has not seen one yet; with no such turn and no queued turn it starts
  *   a harness-originated turn `bg-<n>` (background shell after EOF, 07 §7).
+ * - Dropped message (research 10 §3): a `command_lifecycle` frame is
+ *   correlated strictly by `command_uuid` with an application turn, before
+ *   or after `system/init` (the frame itself proves the lifecycle feature),
+ *   and its state is recorded on the turn. `completed` for a turn that is
+ *   still `queued` and never reported `started` means the harness dropped
+ *   the message (Claude Code 2.1.296 does so for a `uuid` the session
+ *   transcript already holds): the turn fails with `TURN_DROPPED` and
+ *   diagnostic `turn.dropped` carries the observed states. Every other turn
+ *   is untouched. A `result` naming the turn first settles it, so a later
+ *   `completed` finds no turn; a `result` after the drop matches no turn
+ *   (`turn.unmatched-result`). A message merged into another turn reports
+ *   `started` before `completed` (recorded with 2.1.296), so it is never
+ *   taken for a drop.
  * - Interrupt gating (GH#98713, D5): an interrupt of a turn whose
  *   `system/init` has not been observed is held and written in the step that
  *   observes it, never in the step of the user frame write. Held interrupts
@@ -79,6 +92,14 @@ export const INTERRUPT_RETRY_DELAY_MS = 50;
 export const LIFECYCLE_CAPABILITY = 'msg_lifecycle_v1';
 
 /**
+ * Most lifecycle states kept per turn (evidence for `turn.dropped`; the
+ * frames come from the harness, so the record is bounded).
+ *
+ * @internal
+ */
+export const MAX_LIFECYCLE_STATES = 16;
+
+/**
  * Prefix of the retry timer names (`turn.interrupt-retry:<interruptId>`).
  *
  * @internal
@@ -120,6 +141,13 @@ export interface TurnEntry {
   readonly phase: TurnPhase;
   readonly initSeen: boolean;
   readonly pendingInterrupt?: HeldInterrupt;
+  /**
+   * The `command_lifecycle` states reported for this turn's `uuid`, in order
+   * (at most {@link MAX_LIFECYCLE_STATES}; absent until the first one).
+   */
+  readonly lifecycleStates?: readonly string[];
+  /** A `command_lifecycle` `started` was reported for it. */
+  readonly lifecycleStarted?: true;
 }
 
 /**
@@ -452,13 +480,60 @@ function onFrame(d: Draft, frame: JsonObject): void {
     else if (subtype === 'session_state_changed' && ownString(frame, 'state') === 'idle') {
       onIdle(d, frame);
     }
-  } else if (type === 'command_lifecycle' && d.lifecycle) {
-    const uuid = ownString(frame, 'command_uuid') ?? '';
-    const turn = findTurn(d, uuid);
-    if (ownString(frame, 'state') === 'started' && turn?.phase === 'queued') {
-      startTurn(d, turn, false, frame);
-    }
+  } else if (type === 'command_lifecycle') {
+    onLifecycle(d, frame);
   }
+}
+
+/**
+ * A `command_lifecycle` frame: recorded on the application turn its
+ * `command_uuid` names (strict correlation, before or after `system/init`).
+ * `started` starts a queued turn once `msg_lifecycle_v1` was seen (before
+ * that, `system/init` starts it with its capabilities); `completed` on a
+ * queued turn that never started is a dropped message.
+ */
+function onLifecycle(d: Draft, frame: JsonObject): void {
+  const uuid = ownString(frame, 'command_uuid');
+  const state = ownString(frame, 'state');
+  const turn = uuid === undefined ? undefined : findTurn(d, uuid);
+  if (turn?.origin !== 'application' || state === undefined) return;
+  const states = turn.lifecycleStates ?? [];
+  const lifecycleStates = states.length < MAX_LIFECYCLE_STATES ? [...states, state] : states;
+  const recorded: TurnEntry = {
+    ...turn,
+    lifecycleStates,
+    ...(state === 'started' ? { lifecycleStarted: true as const } : {}),
+  };
+  replaceTurn(d, recorded);
+  if (state === 'started') {
+    if (d.lifecycle && recorded.phase === 'queued') startTurn(d, recorded, false, frame);
+  } else if (
+    state === 'completed' &&
+    recorded.phase === 'queued' &&
+    recorded.lifecycleStarted !== true
+  ) {
+    dropTurn(d, recorded, lifecycleStates);
+  }
+}
+
+/** Fails a turn whose message the harness dropped (`TURN_DROPPED`, research 10 §3). */
+function dropTurn(d: Draft, turn: TurnEntry, states: readonly string[]): void {
+  const lifecycle = [...states];
+  d.effects.push({
+    type: 'diagnostic',
+    code: 'turn.dropped',
+    message: 'the harness reported the user message completed without starting it; the turn fails',
+    data: { turnId: turn.turnId, lifecycle },
+  });
+  terminateTurn(d, turn, {
+    type: 'turn.fail',
+    turnId: turn.turnId,
+    error: makeErrorData(
+      'TURN_DROPPED',
+      'The harness dropped the user message without running a turn for it.',
+      { turnId: turn.turnId, lifecycle },
+    ),
+  });
 }
 
 function onInit(d: Draft, frame: JsonObject): void {
@@ -710,12 +785,9 @@ function replaceTurn(d: Draft, next: TurnEntry): void {
 }
 
 function withoutHeld(turn: TurnEntry): TurnEntry {
-  return {
-    turnId: turn.turnId,
-    origin: turn.origin,
-    phase: turn.phase,
-    initSeen: turn.initSeen,
-  };
+  const next: Mutable<TurnEntry> = { ...turn };
+  delete next.pendingInterrupt;
+  return next;
 }
 
 function retryTimer(interruptId: string): string {

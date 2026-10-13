@@ -124,6 +124,11 @@ const frames: fc.Arbitrary<JsonObject> = fc.oneof(
   fc.constant(systemInit({ session_id: 'another-id' })),
   fc.constant(systemInit({ capabilities: ['ui_surface_v1'] })),
   turnUuid.map((id) => lifecycle(id, 'started')),
+  // Research 10 §3: `completed` without `started` is a dropped message
+  // (TURN_DROPPED); `queued` and `cancelled` are recorded only.
+  fc
+    .record({ id: turnUuid, state: fc.constantFrom('queued', 'completed', 'cancelled') })
+    .map(({ id, state }) => lifecycle(id, state)),
   turnUuid.map((id) => result({ user_message_uuid: id })),
   fc.constant(result()),
   fc.constant(

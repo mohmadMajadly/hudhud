@@ -203,8 +203,9 @@ function resumedCase(args: (context: SuiteContext) => readonly string[]): CaseSp
 const TEXT_SHAPE = ['out system/init', 'out assistant', 'out result/success'];
 
 /**
- * Every suite of plan §4.3, in plan order, then the K10 suite; `delay`
- * paces the scripts (real timers by default).
+ * Every suite of plan §4.3, in plan order, then the K10 suite and the
+ * dropped-message suite of research 10; `delay` paces the scripts (real
+ * timers by default).
  */
 export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
   return [
@@ -921,6 +922,47 @@ export function createSuites(delay: Delay = sleep): readonly SuiteSpec[] {
             'out result/success',
             'exit 1',
           ],
+        },
+      ],
+    },
+    {
+      name: 'resume-duplicate-uuid',
+      scenario:
+        'setup: --session-id=U1, one turn with user-message uuid N1; main: --resume=U1 and a user message with uuid N1 again: command_lifecycle completed only, no turn',
+      research: '10 §3',
+      cases: [
+        {
+          name: 'setup',
+          launch: (context) => ({ args: [`--session-id=${sessionId(context, 'U1')}`] }),
+          async drive(session) {
+            await initialize(session);
+            session.send(userFrame('[[mock:echo]] ALPHA', turnUuid(1)));
+            await result(session);
+          },
+          exit: 0,
+          shape: [
+            'out control_response/success init_1',
+            'out command_lifecycle',
+            'out system/init',
+            'out result/success',
+            'exit 0',
+          ],
+        },
+        {
+          name: '',
+          launch: (context) => ({ args: [`--resume=${sessionId(context, 'U1')}`] }),
+          async drive(session) {
+            await initialize(session);
+            session.send(userFrame('[[mock:echo]] BRAVO', turnUuid(1)));
+            await session.waitFor(
+              (record) =>
+                isFrame(record, 'command_lifecycle') && field(record.v, 'state') === 'completed',
+              FRAME_MS,
+              'command_lifecycle completed',
+            );
+          },
+          exit: 0,
+          shape: ['out control_response/success init_1', 'out command_lifecycle', 'cmd', 'exit 0'],
         },
       ],
     },

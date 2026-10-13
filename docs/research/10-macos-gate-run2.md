@@ -125,7 +125,20 @@ Every process exited 0 on EOF; the mock recorded 5 requests and no egress violat
 ### 3.5 Product impact
 
 - The binding contract already requires a fresh random UUID for every `cmd.send` ("never reused, never chosen by the application", `CommandInput` in `packages/core/src/protocol/machine/contract.ts`), so a correct binding cannot trigger the drop. ADR-0008 item 4 now records the fact and why the uniqueness must hold across the whole transcript, including earlier processes of a resumed session.
-- No product code changed. Two things are left for the lead (§7, decisions 2 and 3).
+- The turn machine now fails a dropped message instead of leaving its turn pending (lead decision A, §7): `TURN_DROPPED` and diagnostic `turn.dropped`, correlated strictly by the turn's `uuid`, before or after `system/init`. The recorded lifecycle shapes of §3.6 fix the rule: `completed` for a queued turn that never reported `started`.
+
+### 3.6 Lifecycle shapes recorded for the product rule
+
+A second Linux run (same container, CLI and sandbox as §3.3; slow mock turns to force queueing) recorded the `command_lifecycle` states the turn machine has to tell apart (`cl` as in §3.3; times in ms after the spawn):
+
+| Run | Frames | Meaning |
+|---|---|---|
+| merge: message 01 streams slowly, 02 and 03 are sent while it runs | 310 `cl:queued:01`, 312 `cl:started:01`, 337 `system/init`, 660 `cl:queued:02`, 660 `cl:queued:03`, 2194 `result/success` [01], 2196 `cl:completed:01`, 2197 `cl:started:02`, 2198 `cl:started:03`, 2203 `system/init`, 2218 `result/success` [02, 03], 2219 `cl:completed:02`, `cl:completed:03` | merged messages each report `started` before `completed`; one `result` names both |
+| same process, after 03 completed: message 01's `uuid` sent again | nothing at all within 3 s | a repeat inside one process gets no frame; only the fresh-UUID rule of the binding prevents it |
+| resume: a fresh message 05 streams slowly, then a message with the transcript `uuid` 03 | 257 `cl:queued:05`, 258 `cl:started:05`, 279 `system/init`, **608 `cl:completed:03`**, 2130 `result/success` [05], 2131 `cl:completed:05` | the drop also happens after `system/init`, while another turn runs, and leaves that turn alone |
+| resume: `uuid` 02 (part of the merged turn) and a fresh 04, back to back | `cl:queued:02`, `cl:started:02`, `system/init`, `result/success` [02], `cl:completed:02`, `cl:started:04`, `system/init`, `result/success` [04] | 02 was not dropped: the transcript evidently does not hold the merged message under its own `uuid`. The drop depends on the transcript, which is why the product rule keys on the frames, not on the `uuid` history |
+
+Exit 0 on EOF everywhere; the mock recorded no egress violation.
 
 ## 4. Round-1 fixes
 
@@ -153,14 +166,16 @@ Not added to `KNOWN_BINARIES`, `cli-pin.json` or `CLAUDE_CODE_PUBLISHER.darwinTe
 
 ## 6. Session-machine rule
 
-W3-Z ruling 3 (research 09 §8) made the session machine hold every command until the `initialize` response in all modes, because research 09 §5 suspected a write-order race on resume. §3.3 refutes that motivation: the eager order resumes correctly with a fresh `uuid`. The rule still matches the verified method of research 07 §1 and costs only the `initialize` round trip that hudhud pays anyway (ADR-0008 item 2), so this change leaves it in place.
+W3-Z ruling 10 (research 09 §8) made the session machine hold every command until the `initialize` response in all modes, because research 09 §5 suspected a write-order race on resume. §3.3 refutes that motivation: the eager order resumes correctly with a fresh `uuid`. Lead decision B keeps the rule as a conservative ordering: it matches the verified method of research 07 §1 and costs only the `initialize` round trip that hudhud pays anyway. ADR-0008 item 2 and the plan now give this rationale.
 
-## 7. Open decisions for the lead
+## 7. Lead decisions after this report
 
-1. **Pin the darwin digests and the Team ID** (§5) in `cli-pin.json`, `KNOWN_BINARIES` and `CLAUDE_CODE_PUBLISHER`, after round 3 passes.
-2. **Keep or relax the `initialize`-first rule** (§6). Keeping it costs nothing; its documented reason changes.
-3. **A dropped message in the turn machine.** If a binding ever re-sent a stored `uuid`, the turn would never start: the CLI writes no `system/init`, so the machine has not yet seen `msg_lifecycle_v1` and ignores the `completed` frame, and the turn waits for a watchdog. A defensive rule (settle a queued turn with a typed error when a terminal `command_lifecycle` arrives for its `uuid` without `started`) needs an error code and a decision on lifecycle frames before `system/init`. Not done here.
-4. **A decisive Keychain probe**, if local macOS isolation is wanted (research 09 §4.2 option 2): on the GitHub-hosted runner only, add a generic password under a unique service to the runner's own login keychain, look it up with the sandbox `HOME` (with and without `CFFIXED_USER_HOME`) and without `-d user` limits, then delete it. Found means not isolated. This writes to the runner's keychain, so it needs the lead's approval and must never run on a developer Mac.
+The questions this report raised, as the lead decided them:
+
+- **A. Dropped turn (product): implemented.** Before, the turn would never start: the CLI writes no `system/init`, so the machine had not yet seen `msg_lifecycle_v1`, ignored the `completed` frame and waited for a watchdog. Now `command_lifecycle` frames are correlated strictly by `uuid` before or after `system/init`, and `completed` for a queued turn that never reported `started` fails it with `TURN_DROPPED` (retryable: a new send carries a fresh id; `details.turnId`, `details.lifecycle`) and diagnostic `turn.dropped`. Covered by unit tests, the turn-machine model check, the machine-kit contract run (every turn settles exactly once), and a replay of the run-2 frames in create, resume and fork.
+- **B. `initialize`-first rule: kept** as a conservative ordering, with the rationale of §6.
+- **C. Decisive Keychain probe: approved** for GitHub-hosted runners only.
+- **D. Digests and Team ID** (§5): pinned in `cli-pin.json`, `KNOWN_BINARIES` and `CLAUDE_CODE_PUBLISHER` only after round 3 confirms them.
 
 ## 8. What round 3 must confirm
 

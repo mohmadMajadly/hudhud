@@ -132,6 +132,7 @@ export type DiagnosticCode =
   | 'permission.duplicate-request-id'
   | 'stdin.error'
   | 'turn.unmatched-result'
+  | 'turn.dropped'
   | (string & {});
 
 /**

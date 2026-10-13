@@ -25,7 +25,11 @@ type Op =
   | { readonly op: 'send'; readonly reuse: number | null }
   | { readonly op: 'interrupt'; readonly target: number | null; readonly cancelQueued: boolean }
   | { readonly op: 'init'; readonly caps: boolean; readonly model: boolean }
-  | { readonly op: 'lifecycle'; readonly target: number; readonly started: boolean }
+  | {
+      readonly op: 'lifecycle';
+      readonly target: number;
+      readonly state: 'queued' | 'started' | 'completed' | 'cancelled';
+    }
   | {
       readonly op: 'result';
       readonly match: 'none' | 'one' | 'many' | 'unknown';
@@ -74,7 +78,7 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
     arbitrary: fc.record({
       op: fc.constant('lifecycle' as const),
       target: index,
-      started: fc.boolean(),
+      state: fc.constantFrom('queued', 'started', 'completed', 'cancelled'),
     }),
   },
   {
@@ -128,6 +132,8 @@ type TurnStatus = 'queued' | 'started' | 'terminated';
 /** Independent bookkeeping, fed only by inputs and effects. */
 class Model {
   readonly turns = new Map<string, TurnStatus>();
+  /** Turns whose lifecycle reported `started` (a later `completed` is no drop). */
+  readonly lifecycleStarted = new Set<string>();
   /** Every id ever offered to `send`, in order (resolves `reuse` and targets). */
   readonly ids: string[] = [];
   readonly correlations = new Map<string, 'pending' | 'settled'>();
@@ -174,7 +180,7 @@ function resolve(op: Op, model: Model, state: TurnMachineState): TurnInput {
         frame: {
           type: 'command_lifecycle',
           command_uuid: pick(model.ids, op.target) ?? 'none',
-          state: op.started ? 'started' : 'queued',
+          state: op.state,
         },
       };
     case 'result': {
@@ -266,6 +272,30 @@ function check(
     }
   }
 
+  // Research 10 §3: `completed` for a queued turn that never reported
+  // `started` fails exactly that turn with TURN_DROPPED; nothing else ends.
+  if (input.type === 'frame' && input.frame['type'] === 'command_lifecycle') {
+    const raw = input.frame['command_uuid'];
+    const id = typeof raw === 'string' ? raw : '';
+    const status = model.turns.get(id);
+    const dropped =
+      input.frame['state'] === 'completed' &&
+      status === 'queued' &&
+      !model.lifecycleStarted.has(id);
+    const ends = effects.filter((e) => e.type === 'turn.settle' || e.type === 'turn.fail');
+    if (dropped) {
+      expect(ends).toHaveLength(1);
+      const end = ends[0];
+      expect(end?.type === 'turn.fail' && end.turnId === id && end.error.code).toBe('TURN_DROPPED');
+      expect(types).toContain('diagnostic');
+    } else {
+      expect(ends).toEqual([]);
+    }
+    if (input.frame['state'] === 'started' && status !== undefined) {
+      model.lifecycleStarted.add(id);
+    }
+  }
+
   for (const effect of effects) {
     switch (effect.type) {
       case 'write.user':
@@ -275,6 +305,7 @@ function check(
         break;
       case 'turn.queued':
         model.turns.set(effect.turnId, 'queued');
+        model.lifecycleStarted.delete(effect.turnId);
         break;
       case 'turn.started': {
         const status = model.turns.get(effect.turnId);
@@ -340,7 +371,9 @@ function check(
         model.timers.delete(effect.name);
         break;
       case 'diagnostic':
-        expect(['turn.unmatched-result', 'interrupt.still-queued-retry']).toContain(effect.code);
+        expect(['turn.unmatched-result', 'interrupt.still-queued-retry', 'turn.dropped']).toContain(
+          effect.code,
+        );
         break;
     }
   }

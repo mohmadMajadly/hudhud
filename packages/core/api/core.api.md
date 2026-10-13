@@ -123,7 +123,7 @@ export class CwdTooLongError extends HudhudError {
 }
 
 // @public
-export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | (string & {});
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | (string & {});
 
 // @public
 export type EnvMap = Readonly<Record<string, string | undefined>>;
@@ -203,7 +203,7 @@ export class HarnessDisposedError extends HudhudError {
 }
 
 // @public
-export const HUDHUD_ERROR_CODES: readonly ["INVALID_OPTIONS", "CAPABILITY_UNSUPPORTED", "ADAPTER_API_VERSION_MISMATCH", "BINARY_NOT_FOUND", "BINARY_REFUSED", "BINARY_VERIFICATION_FAILED", "BINARY_PROBE_FAILED", "CWD_INVALID", "CWD_TOO_LONG", "PROJECT_CREDENTIAL_ENV", "SESSION_ID_IN_USE", "SPAWN_FAILED", "HANDSHAKE_TIMEOUT", "HANDSHAKE_FAILED", "SESSION_NOT_FOUND", "AUTHENTICATION_FAILED", "SESSION_POISONED", "PROTOCOL_ERROR", "OVERSIZED_FRAME", "OUTBOUND_FRAME_TOO_LARGE", "CONTROL_REQUEST_FAILED", "PROCESS_EXITED", "SESSION_CLOSED", "HARNESS_DISPOSED", "ABORTED", "SUBSCRIBER_OVERFLOW"];
+export const HUDHUD_ERROR_CODES: readonly ["INVALID_OPTIONS", "CAPABILITY_UNSUPPORTED", "ADAPTER_API_VERSION_MISMATCH", "BINARY_NOT_FOUND", "BINARY_REFUSED", "BINARY_VERIFICATION_FAILED", "BINARY_PROBE_FAILED", "CWD_INVALID", "CWD_TOO_LONG", "PROJECT_CREDENTIAL_ENV", "SESSION_ID_IN_USE", "SPAWN_FAILED", "HANDSHAKE_TIMEOUT", "HANDSHAKE_FAILED", "SESSION_NOT_FOUND", "AUTHENTICATION_FAILED", "SESSION_POISONED", "PROTOCOL_ERROR", "OVERSIZED_FRAME", "OUTBOUND_FRAME_TOO_LARGE", "CONTROL_REQUEST_FAILED", "PROCESS_EXITED", "TURN_DROPPED", "SESSION_CLOSED", "HARNESS_DISPOSED", "ABORTED", "SUBSCRIBER_OVERFLOW"];
 
 // @public
 export abstract class HudhudError extends Error {
@@ -617,6 +617,14 @@ export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute
 
 // @public
 export const TRUNCATED = "<truncated>";
+
+// @public
+export class TurnDroppedError extends HudhudError {
+    // (undocumented)
+    static readonly code = "TURN_DROPPED";
+    // (undocumented)
+    static readonly errorName = "TurnDroppedError";
+}
 
 // @public
 export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'max-budget' | 'unknown' | (string & {});

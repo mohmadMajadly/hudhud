@@ -12,8 +12,8 @@ import {
 
 describe('error code table', () => {
   it('lists 26 unique codes and a retryability entry for each', () => {
-    expect(HUDHUD_ERROR_CODES).toHaveLength(26);
-    expect(new Set(HUDHUD_ERROR_CODES).size).toBe(26);
+    expect(HUDHUD_ERROR_CODES).toHaveLength(27);
+    expect(new Set(HUDHUD_ERROR_CODES).size).toBe(27);
     expect(Object.keys(ERROR_RETRYABLE).sort()).toEqual([...HUDHUD_ERROR_CODES].sort());
   });
 
@@ -26,6 +26,7 @@ describe('error code table', () => {
       'HANDSHAKE_FAILED',
       'CONTROL_REQUEST_FAILED',
       'PROCESS_EXITED',
+      'TURN_DROPPED',
     ]);
   });
 
