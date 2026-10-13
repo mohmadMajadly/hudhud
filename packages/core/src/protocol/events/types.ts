@@ -133,6 +133,10 @@ export type DiagnosticCode =
   | 'stdin.error'
   | 'turn.unmatched-result'
   | 'turn.dropped'
+  | 'stdout.error'
+  | 'termination.ladder'
+  | 'termination.sweep-after-exit'
+  | 'binding.machine-error'
   | (string & {});
 
 /**
@@ -276,9 +280,26 @@ export type HudhudEvent =
   | (EventBase & { readonly type: 'gap'; readonly dropped: number; readonly raw?: JsonValue })
   | (EventBase & {
       readonly type: 'session.terminated';
+      /**
+       * The termination intent hudhud recorded before any signal
+       * (`TerminationIntent`, `none` when hudhud did not end the process).
+       * Deterministic for a given sequence of harness output and calls.
+       */
       readonly intent: string;
+      /**
+       * How the session ended (`SessionOutcome`), classified from the intent
+       * and the exit (plan §3.3). Deterministic, and what applications decide
+       * on.
+       */
       readonly outcome: string;
+      /**
+       * The raw exit code as the OS reported it. An observation, not a
+       * verdict: the same session can end with different codes by race (for
+       * example a launcher that exits 7 on its own SIGTERM handler versus a
+       * SIGKILL that lands first). Decide on `outcome`, never on this.
+       */
       readonly exitCode?: number;
+      /** The raw signal as the OS reported it; an observation like `exitCode`. */
       readonly signal?: string;
       readonly raw?: JsonValue;
     })

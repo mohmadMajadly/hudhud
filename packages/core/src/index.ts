@@ -3,23 +3,32 @@
  * options and the observability primitives (redaction, stderr tail, usage).
  *
  * @remarks
- * Pre-alpha: the session binding layer (`Harness`, `Session`, `Turn`) lands in
- * later waves. The design is described in docs/architecture.md and the ADRs
- * under docs/adr/.
+ * Pre-alpha: the harness-neutral handles (`Harness`, `Session`, `Turn`) and
+ * adapter registration are here; the session driver behind them is reached
+ * by the adapters (wave 5). The design is described in docs/architecture.md
+ * and the ADRs under docs/adr/.
  *
  * @packageDocumentation
  */
 
-/**
- * The adapter API version implemented by this core.
- *
- * @remarks
- * An integer negotiated at adapter registration; an adapter built against an
- * unsupported value is refused at registration, not at first use (ADR-0004).
- *
- * @public
- */
-export const adapterApiVersion = 1;
+export type { AdapterDefinition } from './binding/adapter.js';
+export { adapterApiVersion, defineAdapter } from './binding/adapter.js';
+
+export type {
+  BinaryInfo,
+  Harness,
+  Session,
+  SessionInfo,
+  Turn,
+  UserContentBlock,
+  UserInput,
+} from './binding/handles.js';
+export type {
+  PermissionDecision,
+  PermissionHandler,
+  PermissionRequest,
+} from './binding/permission-bridge.js';
+export type { BinaryVerification, VerificationMode } from './process/verify/verify.js';
 
 /**
  * Version of the neutral wire model (events, errors, capabilities, posture),

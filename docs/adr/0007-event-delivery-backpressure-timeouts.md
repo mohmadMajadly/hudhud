@@ -27,6 +27,8 @@ The event firehose (`Session.events()`) is opt-in. Each subscriber has its own b
 | `'drop-oldest-with-gap-marker'` | Oldest events are dropped and a gap marker event records how many | opt-in |
 | `'block'` | The producer waits for the subscriber. Documented as dangerous: it can stall control-frame dispatch | opt-in, documented-dangerous |
 
+As built (W4-T1): stdout reading pauses only while a step's events wait for a full `'block'` subscriber; turn results and control answers of that step are settled before it waits. `abort`/`dispose` always cut through: every `'block'` subscriber that still holds the session is cancelled (its iterator rejects with `SESSION_CLOSED`), so cancellation stays possible.
+
 `'block'` is offered because of rule R2 (B3 option ii). It is never the default, and its documentation states the stall hazard explicitly. `'block'` keeps its plain name: it is a correctness hazard (it can stall control-frame dispatch), not a security weakening, so the security-weakening naming rule of [ADR-0012](0012-security-defaults-and-trust.md) does not apply. Its documentation states that it can stall control frames.
 
 ### Handler classes and timeouts
