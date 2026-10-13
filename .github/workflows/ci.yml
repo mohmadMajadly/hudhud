@@ -143,7 +143,15 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: windows-2025
-    timeout-minutes: 15
+    # K15 (ADR-0014 amendment 4): estimated p95 x 2, from measurements of
+    # 2026-10-13. Run 38378992857 reached `vitest` 3 min 20 s after the job
+    # started (setup 65 s, static checks with a clean build 136 s). The test
+    # step takes 28 s on a local Windows 11 host; Linux CI runs the suite
+    # 2.6x slower than that host, so about 75 s here, plus about 40 s for the
+    # API reports, the privacy scan and the post steps. Job about 5.5 min,
+    # p95 taken as 7 min. Estimate, not yet a measured CI p95: re-size from
+    # the first green runs.
+    timeout-minutes: 14
     permissions:
       contents: read
     steps:
@@ -165,7 +173,11 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: macos-15
-    timeout-minutes: 15
+    # K15: estimated p95 x 2. The last two runs took 68 s (green) and 78 s
+    # (tests failed after 21 s); the launcher and leak tests that now run in
+    # full add about 25 s. Job about 2 min, p95 taken as 3 min. Static checks,
+    # unit and conformance only until the macOS gate passes (K15).
+    timeout-minutes: 6
     permissions:
       contents: read
     steps:
