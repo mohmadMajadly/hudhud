@@ -29,6 +29,7 @@
     "schema:diff": "node scripts/schema/diff.mjs",
     "check:no-ajv": "node scripts/schema/no-ajv.mjs",
     "cli:fetch": "tsc --build tooling/test-support && node tooling/test-support/bin/fetch-cli.mjs",
+    "fixtures:record": "tsc --build tooling/test-support && node tooling/test-support/bin/record-fixtures.mjs",
     "check": "pnpm run format:check && pnpm run schema:check && pnpm run schema:diff && pnpm run build && pnpm run check:no-ajv && pnpm run lint && pnpm run lint:md && pnpm run depcruise && pnpm run test:coverage && pnpm run api:check && pnpm run privacy:tree",
     "check:full": "pnpm run check && pnpm run cli:fetch"
   },
