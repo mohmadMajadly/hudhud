@@ -150,8 +150,10 @@ jobs:
     # 2.6x slower than that host, so about 75 s here, plus about 40 s for the
     # API reports, the privacy scan and the post steps. Job about 5.5 min,
     # p95 taken as 7 min. Estimate, not yet a measured CI p95: re-size from
-    # the first green runs.
-    timeout-minutes: 14
+    # the first green runs. Provisional 20 until then (lead): the 27 s CIM
+    # query cause is inferred, and a cancelled run loses the test output that
+    # would show whether it was right.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
