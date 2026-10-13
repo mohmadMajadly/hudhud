@@ -111,6 +111,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@hudhud/test-support':
+        specifier: workspace:*
+        version: link:../../tooling/test-support
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.5

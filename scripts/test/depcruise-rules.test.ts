@@ -61,6 +61,12 @@ const SUPPORT: Record<string, string> = {
   'packages/claude-code/src/raw/index.ts': 'export {};\n',
   'packages/claude-code/src/protocol/wire/types.ts': 'export {};\n',
   'tooling/test-support/src/index.ts': 'export {};\n',
+  // A fixture-only workspace package that no manifest declares: the target of
+  // the undeclared-import case for tests of a package that declares every
+  // real workspace package its tests use.
+  'tooling/planted-undeclared/package.json':
+    '{ "name": "@hudhud/planted-undeclared", "version": "0.0.0", "private": true, "type": "module" }\n',
+  'tooling/planted-undeclared/src/index.ts': 'export {};\n',
   'packages/claude-code/dist/index.js': 'export {};\n',
   'packages/claude-code/dist/index.d.ts': 'export {};\n',
   'tooling/test-support/dist/index.js': 'export {};\n',
@@ -214,8 +220,14 @@ const CASES: readonly Case[] = [
   {
     title: 'test importing an undeclared workspace package by relative path',
     file: 'packages/claude-code/test/planted-undeclared.test.ts',
-    code: "import {} from '../../../tooling/test-support/src/index.js';\n",
+    code: "import {} from '../../../tooling/planted-undeclared/src/index.js';\n",
     rules: ['workspace-deps-declared'],
+  },
+  {
+    title: 'test importing a declared workspace package by relative path (allowed)',
+    file: 'packages/claude-code/test/planted-declared.test.ts',
+    code: "import {} from '../../../tooling/test-support/src/index.js';\n",
+    rules: [],
   },
   {
     title: 'test-support source importing a declared workspace package (allowed)',
