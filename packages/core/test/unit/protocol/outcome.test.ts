@@ -199,6 +199,18 @@ const TABLE: readonly Row[] = [
     { intent: 'none', exit: code(1), turnActive: true, lastResultIsError: true },
     unknownExited,
   ],
+  // none | code 0, no active turn, last result is_error (macOS SIGINT from outside,
+  // research 09: result/error_during_execution, then exit 0) | unknown | settled | PROCESS_EXITED
+  [
+    'none, code 0, idle, last result error (macOS SIGINT)',
+    { intent: 'none', exit: code(0), turnActive: false, lastResultIsError: true },
+    { outcome: 'unknown', turnSynthesis: 'none', error: 'PROCESS_EXITED' },
+  ],
+  [
+    'close, code 0, idle, last result error (macOS SIGINT during close)',
+    { intent: 'close', exit: code(0), turnActive: false, lastResultIsError: true },
+    closed,
+  ],
   // none | a signal | killed-externally | turn fails | PROCESS_EXITED
   [
     'none, SIGTERM (Windows TerminateProcess), active',
@@ -220,11 +232,6 @@ const TABLE: readonly Row[] = [
     'none, code 1, active, last result ok',
     { intent: 'none', exit: code(1), turnActive: true },
     { outcome: 'crashed', turnSynthesis: 'error', error: 'PROCESS_EXITED' },
-  ],
-  [
-    'none, code 0, idle, last result error',
-    { intent: 'none', exit: code(0), turnActive: false, lastResultIsError: true },
-    { outcome: 'crashed', turnSynthesis: 'none', error: 'PROCESS_EXITED' },
   ],
   [
     'none, code 2, active',

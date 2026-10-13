@@ -140,6 +140,9 @@ const REQUESTED_INTENTS: ReadonlySet<TerminationIntent> = new Set([
  * - `close` that does not match its own row (a turn still open, a code other
  *   than 0 or 1, a signal) is classified by the `none` rows: hudhud asked for
  *   a graceful end, so anything else is not hudhud's doing.
+ * - `none`, code 0 after an error result with no turn open (macOS SIGINT
+ *   from outside, macOS gate run 1): `unknown`, like the Linux SIGINT
+ *   shape (code 0, turn open, no result); the turn settled from its result.
  * - `none`, code 1 after an error result, with a turn still open: the code
  *   agrees with the last result but the open turn got none, which is the
  *   same evidence as code 0 with an open turn, hence `unknown`.
@@ -197,6 +200,13 @@ function classifyUnrequested(input: ClassifyExitInput): ExitClassification {
     }
     if (turnActive && (agrees || exit.code === 0)) {
       return { outcome: 'unknown', turnSynthesis: 'error', error: 'PROCESS_EXITED' };
+    }
+    // Code 0 although the last result was an error: the harness did not end
+    // on its own (it exits 1 then). macOS SIGINT from outside ends this way:
+    // `result/error_during_execution`, then exit 0 (macOS gate run 1). The
+    // turn already settled from that result, so nothing is synthesized.
+    if (!turnActive && lastResultIsError && exit.code === 0) {
+      return { outcome: 'unknown', turnSynthesis: 'none', error: 'PROCESS_EXITED' };
     }
   }
   const failTurn = turnActive ? 'error' : 'none';

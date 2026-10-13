@@ -382,7 +382,7 @@ Plan decision: the per-event byte size used by queues is the raw frame byte coun
 | `cwd.ts` | yes | `validateCwd(cwd: string, platform): Promise<string>` | exists, directory, realpath'd (macOS gate item 6); win32 realpath length of 259 UTF-16 units or more throws `CwdTooLong`; never `\\?\` (J10) |
 | `hash.ts` | yes | `sha256File(path): Promise<string>` | streaming |
 | `spawn.ts` | yes | `spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess>` | `shell:false`, `windowsHide:true`, stdio pipes, explicit `env`, not detached; serialized writes with backpressure; stderr into the bounded tail; `error` events become `process.spawn-error`; child stdout `ENOTCONN` after a failed spawn swallowed (07 §6) |
-| `tree/` | yes | `snapshotDescendants(rootPid, deps): Promise<ProcessRecord[]>`; `ProcessRecord {pid, ppid, pgid?, startTime, name}`; `parseProcStat`, `parsePsOutput` | Linux `/proc/<pid>/stat` (start time field 22, comm up to the last `)`); macOS `/bin/ps -A -o pid=,ppid=,pgid=,lstart=,comm=` with `LC_ALL=C` (fields confirmed by the macOS gate) |
+| `tree/` | yes | `snapshotDescendants(rootPid, deps): Promise<ProcessRecord[]>`; `ProcessRecord {pid, ppid, pgid?, startTime, name, zombie?}`; `parseProcStat`, `parsePsOutput` | Linux `/proc/<pid>/stat` (start time field 22, comm up to the last `)`, state `Z` = zombie); macOS `/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=` with `LC_ALL=C` and `TZ=UTC0` (`lstart` padded to 28 columns, confirmed by macOS gate run 1; `stat` to be confirmed by the next run; research 09) |
 | `ladder/types.ts` | yes | `LadderTiming`, `LadderStep`, `LadderReport`, `LadderHooks` | timing injected |
 | `ladder/posix.ts` | yes | `runPosixLadder(proc, hooks, timing): Promise<LadderReport>` | ADR-0010 as amended by K1: interrupt (hook) -> EOF -> 2 s -> S1 + SIGTERM to the signal target -> 5 s -> S2 + SIGKILL of the signal target and the spawned pid + sweep(S1 ∪ S2); never `kill(-pgid)` of the CLI, launcher or host group |
 | `sweep.ts` | yes | `sweep(records, deps)` | kill only if pid and start time still match; `kill(-pgid)` only for groups led by a recorded descendant whose identity matches |
@@ -905,6 +905,7 @@ Rules apply top to bottom; the intent is recorded before any signal.
 | `none` | code 0, no active turn, last result not error | `closed` | none | none |
 | `none` | code 1, last result `is_error` | `closed` | settled from the result | none |
 | `none` | code 0 with an active turn and no result (Linux SIGINT from outside, for example a terminal Ctrl+C, K22; a foreign job close on Windows) | `unknown` | turn fails | `PROCESS_EXITED` |
+| `none` | code 0, no active turn, last result `is_error` (macOS SIGINT from outside: `result/error_during_execution`, then exit 0; research 09) | `unknown` | none (settled from the result) | `PROCESS_EXITED` |
 | `none` | code 143 or 129, or a `signal` (Windows `TerminateProcess` shows as `SIGTERM`) | `killed-externally` | turn fails | `PROCESS_EXITED` |
 | `none` | any other | `crashed` | turn fails | `PROCESS_EXITED` |
 
