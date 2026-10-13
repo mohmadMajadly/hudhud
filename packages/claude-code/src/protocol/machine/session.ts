@@ -59,6 +59,7 @@ import {
   type TerminationIntent,
 } from '@hudhud/core/protocol';
 
+import { parseFeatures } from '../wire/features.js';
 import { classifyResult, normalizeFrame } from '../events/normalize.js';
 import { classifyInbound } from '../wire/inbound.js';
 import { encodeOutboundFrame, userMessage } from '../wire/outbound.js';
@@ -338,10 +339,6 @@ type EventFields = WithoutBase<HudhudEvent>;
 
 function cap(text: string): string {
   return text.length > MAX_ECHO ? `${text.slice(0, MAX_ECHO)}…` : text;
-}
-
-function strings(values: readonly JsonValue[] | undefined): string[] {
-  return (values ?? []).filter((item): item is string => typeof item === 'string');
 }
 
 /** One step's mutable working copy. */
@@ -1035,7 +1032,7 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
   const apiKeySource = account === undefined ? undefined : ownString(account, 'apiKeySource');
   const tokenSource = account === undefined ? undefined : ownString(account, 'tokenSource');
   const permissionMode = ownString(response, 'current_permission_mode');
-  const features = strings(ownArray(response, 'capabilities'));
+  const features = parseFeatures(ownArray(response, 'capabilities') ?? []);
   d.s.apiKeySource = apiKeySource ?? null;
   d.s.tokenSource = tokenSource ?? null;
   const info: Mutable<SessionInfoData> = {
