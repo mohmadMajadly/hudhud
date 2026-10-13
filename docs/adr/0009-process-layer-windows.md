@@ -60,6 +60,8 @@ Initial, tunable values (lead decision, to be validated by measurement): wait up
 
 All termination records its termination intent first, because a job close surfaces as exit code 0.
 
+Drain path sweep (W3-Z ruling 5, 2026-10-13): after a graceful close the CLI may exit by itself and leave descendants running (observed on Linux, [ADR-0010](0010-process-layer-posix.md)). With a job, closing the job handle after the exit ends them (`KILL_ON_JOB_CLOSE`). Without one (best effort), the binding snapshots the descendants at EOF and, after the exit, kills each descendant whose pid and start time still match a fresh snapshot, one `taskkill /F /PID` (no `/T`) each, leaf first, as the best-effort ladder's own sweep does (`snapshotAtEof`, `sweepAfterExit`).
+
 ## Alternatives considered
 
 - napi-rs (Rust) (B1 option i). Rejected: pulls in a Rust toolchain and a large dependency tree for about 150 lines of Win32 calls; weaker auditability and build supply chain than plain C.

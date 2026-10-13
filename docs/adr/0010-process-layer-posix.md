@@ -46,6 +46,8 @@ Never `kill(-pgid of the CLI)`.
 
 Not the ladder. `close()` keeps stdin open until `idle`, then sends EOF and waits for the CLI to finish (see [ADR-0008](0008-turn-and-lifecycle-semantics.md)). `dispose` = abort ladder; `close` = drain.
 
+The drain path sweeps too (W3-Z ruling 5, 2026-10-13). Finding of the golden-fixture recordings (W3-T6): on Linux the pinned CLI exited normally after EOF and left its `rg --files` child running, reparented to init. So when stdin is ended for a graceful close, the binding takes a snapshot of the descendants of the spawned process, rooted at its verified identity (`snapshotAtEof`); after the CLI has exited, every descendant of that snapshot whose pid and start time still match a fresh snapshot is killed (`sweepAfterExit`, the same planner and `SIGKILL` rules as the ladder's sweep: verified groups first, never the host's, the spawned process's or the CLI's group). Nothing is signalled while the spawned process still runs. Residual as for every sweep: the fresh snapshot and the kill calls are not atomic.
+
 ### Containment capability and residuals
 
 - POSIX reports `processContainment: 'best-effort'` in v1.

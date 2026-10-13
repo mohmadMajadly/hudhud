@@ -67,7 +67,7 @@ packages/
         events/                 Claude frame -> neutral event normalization, tool-kind mapping
       generated/                Ajv validators for the option schema
       options.ts, argv.ts, env.ts, rules.ts, settings-guard.ts
-      discovery.ts, provenance.ts, known-binaries.json
+      discovery.ts, provenance.ts, known-binaries.ts
       posture.ts, capabilities.ts, compat.ts, registry.ts
       adapter.ts, connect.ts, session-factory.ts
       raw/index.ts              /raw entry: unstable tier
@@ -81,7 +81,8 @@ tooling/
     src/mock/                   in-process mock Messages API + egress trap
     src/cli/                    pinned CLI fetch, verify, cache; newest-version fetch for the canary
     src/launcher/               sandboxed test launcher (testConnect)
-    src/fixtures/               golden fixture recorder and normalizer
+    src/fixtures/               golden fixture recorder and normalizer; record/: the suite scripts and the
+                                recording driver (pnpm fixtures:record, W3-Z)
     src/leaks/                  process-leak assertions
     src/snapshots/              request-shape structural snapshots
     src/canary/                 degradation classifier, local bump helper
@@ -345,6 +346,7 @@ Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> termi
 - Close (drain, K13): reject new sends; set the `close` timer to `closeTimeoutMs` at the `cmd.close` instant (single deadline); pending permissions are cancelled with the non-interrupting deny (K12); wait for no active turn and `session_state_changed` `idle`, then `stdin.end`; keep consuming frames and accept harness-originated turns after EOF (07 §7); on timer `ladder.start` intent `close-timeout`.
 - Abort/dispose: record the intent first; if the handshake completed and stdin is open, write `interrupt{cancel_queued:true}` and set `interrupt-wait`; emit `ladder.start`; pending permissions cancel with reason `abort`, nothing written (K12).
 - `process.exit`: classify via core `classifyExit`; settle or fail remaining turns; emit `session.terminated`; `session.end`.
+- As built (W3-T1, W3-Z rulings 7 and 10): every write but `initialize` is held until the `initialize` response in every mode (create, resume, fork), so the first user message never precedes it (the macOS resume stall of research 09 §5; 07 §1 method). A `cmd.send` whose turn id is not a UUID or is the id of a live turn is answered with the contract effect `send.rejected`, bound to that command; it never settles or touches the live turn (binding contract: a fresh UUID per send). A stdin failure after the handshake emits diagnostic `stdin.error`; during the handshake it stays `HANDSHAKE_FAILED` cause `stdin-error`. A `can_use_tool` that reuses the id of an earlier, ended request is never asked again (diagnostic `permission.duplicate-request-id`, a non-interrupting deny; nothing is written after abort, K12); an in-flight duplicate is ignored by the correlator (`control.duplicate-request`). Event `seq` starts at 1 (seq 0 is the replayed `compat`).
 
 #### `protocol/events/normalize.ts`, `tool-kind.ts` (internal)
 
@@ -387,7 +389,7 @@ Plan decision: the per-event byte size used by queues is the raw frame byte coun
 | `ladder/posix.ts` | yes | `runPosixLadder(proc, hooks, timing): Promise<LadderReport>` | ADR-0010 as amended by K1: interrupt (hook) -> EOF -> 2 s -> S1 + SIGTERM to the signal target -> 5 s -> S2 + SIGKILL of the signal target and the spawned pid + sweep(S1 ∪ S2); never `kill(-pgid)` of the CLI, launcher or host group |
 | `sweep.ts` | yes | `sweep(records, deps)` | kill only if pid and start time still match; `kill(-pgid)` only for groups led by a recorded descendant whose identity matches |
 | `ladder/windows.ts` | yes | `runWindowsLadder(proc, hooks, timing, job: JobHandle \| null)` | interrupt (wait at most 1 s) -> EOF -> 2 s -> `TerminateJobObject`; fallback `taskkill /T /F` (absolute `%SystemRoot%\System32\taskkill.exe`, `shell:false`) -> 2 s -> `TerminateProcess` via the child handle |
-| `verify/` | yes | `verifyBinary(path, opts: { mode: 'advisory' \| 'strict'; digests }): Promise<BinaryVerification>` | K8: advisory checks the digest table only; strict runs the OS signature check first (win32 Authenticode, darwin `/usr/bin/codesign --verify --strict`) and then the digest table |
+| `verify/` | yes | `verifyBinary(path, opts: { mode: 'advisory' \| 'strict'; digests }): Promise<BinaryVerification>` | K8: advisory checks the digest table only; strict runs the OS signature check first (win32 Authenticode with the pinned publisher subject, darwin `/usr/bin/codesign --verify --strict`) and then the digest table |
 | `containment/win32-job.ts` | yes | `loadJobAddon(deps): JobAddonLoad` | never throws; pre-`dlopen` sha256 (defence in depth); arm64 reports `unavailable` in v1 (K17); see §6 |
 | `os/win32.ts`, `os/posix.ts`, `os/darwin.ts` | no | thin syscall adapters behind `interface OsCalls` | no logic; coverage-scoped per OS (§4.8) |
 
@@ -399,6 +401,12 @@ As built (Wave 2, W2-Z):
 - `runWindowsLadder(proc: WindowsLadderProcess, hooks, timing, job: JobHandle | null, deps: { intent, initializePid, clock: LadderClock, os: WindowsOsCalls })`. The best-effort path takes S1 before EOF and, whenever the process is seen to have exited, sweeps the S1 descendants still matching pid and start time (`taskkill /F /PID`, no `/T`, leaf first).
 - `sweep(request: { spawned, signalTarget, recorded: ProcessSnapshot[] }, deps: { hostPid, processTable, signals }): Promise<SweepResult>` (POSIX); the plan comes from `planSweep` over a fresh snapshot.
 - One `LadderClock { now(); schedule(ms, callback): cancel }` in `ladder/types.ts` (ruling A). One `taskkill` implementation, `taskkill.ts` (`createTaskkillCalls`, realpath-checked `%SystemRoot%\System32\taskkill.exe`), used by `osCallsFor('win32')`.
+
+As built (Wave 3, W3-Z):
+
+- `verify/`: `verifyBinary(binary: ResolvedExecutable, { mode, digests, publisher?, platform?, hostEnv?, cache?, deps? })` binds every verdict to the file identity (`BinaryChangedError` when it changed during verification); `settleProbedVersion` folds the K4 version into it; `assertSpawnable` (strict refuses non-`verified`, then `recheckBinary`) runs before every spawn, and `assertSpawnableOrReverify(binary, reverify)` re-resolves and fully re-verifies once when the file changed (a legitimate update), refusing a second change or a refused re-verification with `BinaryNotVerifiedError` (`BINARY_VERIFICATION_FAILED`). Strict mode pins the publisher (`PublisherPin.windowsSubject`, exact signer subject; no pin fails; the darwin Team ID after the gate). `runVersionProbe` runs in a new empty `mkdtemp` directory under `os.tmpdir()`, removed afterwards (no `cwd` option); `runBoundedCommand` bounds every checker and probe (timeout, stdout cap, `shell:false`).
+- `containment/`: `loadJobAddon` as §6.4; `createSessionContainment()` plugs into `SpawnSpec.startTime`, so the job is created and the pid assigned synchronously inside the spawn, before `spawnHarnessProcess` resolves (before the first write), and serves the addon's start time as the identity; `attach` returns `info.containment`, the `JobHandle` for `runWindowsLadder`, a `containment.fallback` diagnostic on failure (K2), and closes the job after the exit. The shipped digest table is empty until A2.
+- `ladder/after-exit.ts` (W3-Z ruling 5): `snapshotAtEof` and `sweepAfterExit`, the sweep of the graceful close path (ADR-0008, ADR-0009, ADR-0010): the binding snapshots the descendants when it ends stdin and, after the CLI exited by itself, kills the survivors of that snapshot (POSIX through `sweep`; Windows best effort, `taskkill /F /PID` leaf first); nothing while the spawned process runs. W4 calls both on its close path.
 
 Ladder timing defaults (initial, tunable, H5): `interruptWaitMs 1000`, Windows `eofGraceMs 2000`, `taskkillGraceMs 2000`; POSIX `eofGraceMs 2000`, `termGraceMs 5000`. Every ladder records its termination intent before the first signal (ADR-0008 E8). The interrupt step is a hook (`hooks.interrupt(): Promise<'acknowledged' | 'timeout' | 'not-applicable'>`) supplied by the driver from the machine's `control.settle` or `interrupt-wait` timer (plan decision; reason: ladder stays ordinary async, the protocol step stays in the machine, ADR-0006 E5).
 
@@ -414,7 +422,7 @@ Process identity and signal target (K1): identity, containment root and sweep ro
 | `env.ts` | no | presets and the object form `{ preset, add, remove }` (K19); pinned keys; dropped and added names; win32 case-insensitive names | ADR-0012 §4 |
 | `settings-guard.ts` | no | `projectCredentialEnv: 'refuse'` pre-spawn check (read only, K5) | ADR-0012 §2 |
 | `discovery.ts` | no | discovery order ratified in K7 | ADR-0011 §5 |
-| `provenance.ts`, `known-binaries.json` | no | digest table for the tested window plus application digests (K8) | ADR-0011 |
+| `provenance.ts`, `known-binaries.ts` | no | digest table for the tested window plus application digests (K8); the pinned publisher | ADR-0011 |
 | `posture.ts` | no | Claude posture entries; `managedPolicy` from the child env and a read-only parse of the user's settings `env` (K23) | ADR-0012 §5, §7 |
 | `capabilities.ts` | no | `HarnessCapabilities` for Claude Code v1 | architecture "Capability model" |
 | `compat.ts` | no | `CLAUDE_CODE_COMPAT = { minTested, maxTested, knownBroken }`, `compatStatus(version)` | ADR-0004 §4 |
@@ -424,7 +432,7 @@ Process identity and signal target (K1): identity, containment root and sweep ro
 
 Discovery (K7): (1) `binaryPath`; (2) the native installer launcher `~/.local/bin/claude` (`%USERPROFILE%\.local\bin\claude.exe`) resolved to its version directory; (3) a `PATH` lookup that skips empty and relative entries and the current directory, accepts only `.exe` on win32 and refuses `.cmd`/`.bat`. No `node_modules` probing.
 
-Verification (K8, K9): `known-binaries.json` is a committed digest table (version -> platform -> sha256, size) for the tested window, updated by the bump PR the lead prepares locally (K16); applications may add digests (`claudeCode.binaryDigests`). Nothing is fetched at run time. `binaryVerification: 'advisory'` (default) uses the digest table only (`verified` on a match, `failed` on a mismatch, `unverified` for an unknown version). `'strict'` first runs the OS signature check (Windows: `Get-AuthenticodeSignature` through `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive`, `shell:false`, the path passed as a separate argument; macOS: `/usr/bin/codesign --verify --strict`), then the digest table, and refuses anything but `verified`. Results are cached per (realpath, size, mtime) for the Harness lifetime.
+Verification (K8, K9): `known-binaries.ts` is a committed digest table (version -> platform -> sha256, size) for the tested window, updated by the bump PR the lead prepares locally (K16); applications may add digests (`claudeCode.binaryDigests`). Nothing is fetched at run time. `binaryVerification: 'advisory'` (default) uses the digest table only (`verified` on a match, `failed` on a mismatch, `unverified` for an unknown version). `'strict'` first runs the OS signature check (Windows: `Get-AuthenticodeSignature` through `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive`, `shell:false`, the path passed as a separate argument; macOS: `/usr/bin/codesign --verify --strict`), then the digest table, and refuses anything but `verified`. Results are cached per (realpath, size, mtime) for the Harness lifetime. As built (W3-Z ruling 9): `known-binaries.ts` is the single source (the JSON mirror is gone; no `resolveJsonModule`), kept equal to `tooling/cli-pin.json` for every pinned platform by a test, and it holds `CLAUDE_CODE_PUBLISHER`, the exact Authenticode signer subject strict mode requires on Windows (read read-only from the pinned win32-x64 binary; leaf and chain thumbprints recorded as evidence, not pinned, ADR-0011). The adapter passes it as `publisher` to `verifyBinary` and uses `assertSpawnableOrReverify` before the probe and every session spawn (W5).
 
 Connect (K4): `connect()` validates options, resolves and verifies the binary, runs one `claude --version` probe (explicit env, `shell:false`, 15 s timeout; zero network requests, 05 §1) to populate `binary.version` and `compat`, and builds `securityPosture`. Sessions compare `initialize.claude_code_version` with it and emit `binary.version-changed` on drift.
 
@@ -434,7 +442,7 @@ Settings guard (K5): runs whenever the effective setting sources include `projec
 
 `core/src/security/posture.ts` (neutral model and builder): `buildPosture(entries: PostureEntryInput[]): SecurityPosture`, each entry `{ setting, value, defaultValue, deviates }`, `deviates` by deep JSON equality. `claude-code/src/posture.ts` produces the Claude entries. Membership is fixed in [§2.4](#24-options-defaults-and-securityposture-membership); a test enumerates the option schema and fails if a security-relevant option lacks an entry (ADR-0012 §7).
 
-`managedPolicy` (K23): `'not-fetched-custom-base-url'` when `ANTHROPIC_BASE_URL` is set in the child env or in the `env` of the user settings file (`<config dir>/settings.json`, where the config dir is `claudeCode.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`); `'not-applicable-third-party-provider'` when a `CLAUDE_CODE_USE_*` switch is set there; otherwise `'fetched-if-eligible'`. The user settings file is parsed read-only for these keys only; values are never logged or stored (only booleans leave the parser); the file is never written (R6).
+`managedPolicy` (K23): `'not-fetched-custom-base-url'` when `ANTHROPIC_BASE_URL` is set in the child env or in the `env` of the user settings file (`<config dir>/settings.json`, where the config dir is `claudeCode.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`); `'not-applicable-third-party-provider'` when a `CLAUDE_CODE_USE_*` switch is set there; otherwise `'fetched-if-eligible'`. The user settings file is parsed read-only for these keys only; values are never logged or stored (only booleans leave the parser); the file is never written (R6). As built (W3-T4, W3-Z ruling 3): two more values, `'unknown-raw-settings'` (the `/raw` `extraArgs` pass `--settings`) and `'unknown-user-settings-unreadable'`; precedence base URL, provider, raw settings, unreadable. The user settings file is `<config dir>/settings.json` only. `ClaudePostureInput.projectSettings` (from `projectSettingsFlagsOf` over the guard's findings when the session runs with `projectCredentialEnv: 'allow'`) feeds the same decision; the adapter assembly (W5) runs the scan under `'allow'` and wires it. The neutral builder (`buildPosture`, `parsePosture`, `serializePosture`, `postureDeviations`, `postureEntry`) is exported from the `@hudhud/core` root.
 
 ### 1.10 Errors, capabilities, observability
 
@@ -456,12 +464,15 @@ Settings guard (K5): runs whenever the effective setting sources include `projec
 | `launcher/warm.ts` | warms a fresh config dir with one session before concurrent fan-out (J11) | |
 | `leaks/` | records every spawned root, samples descendants, asserts zero survivors; suite-level sweep by sandbox root in command lines (07 §13); sources: Linux `/proc`, Windows one WMI query, macOS the core `ps` adapter plus one `ps ... args=` run joined by pid and start time | `S/sandbox/driver/t06-tree.mjs` |
 | `fixtures/recorder.ts` | drives the pinned CLI directly (not through hudhud) and records `in`/`out`/`err`/`exit` into the conformance format; normalizer replaces uuids, pids, paths, versions, timestamps, durations and costs | `lib.mjs` `Session` |
+| `fixtures/record/` | as built (W3-Z ruling 5): the suite scripts of §4.3 (`suites.ts`, against a `ScriptSession` with an injected delay) and the recording driver (`record.ts`: per suite a fresh sandbox and mock, the egress trap, the leak tracker with sampling, the orphan settle, the outside-write check; `main.ts`, `pnpm fixtures:record`), reused by the canary; `RecordingSession` attaches its listeners in the launch's `onSpawn` hook | W3-T6 scratch recorder |
 | `machine-kit.ts` | reusable fast-check kit asserting the contract invariants of §1.4 against any `HarnessMachine` | K3 |
 | `snapshots/request-shape.ts` | normalized structural snapshots; semantic change fails, additive warns | ADR-0013 §4 |
 | `canary/classify.ts` | classifies a red canary run as `mock-inadequate` or `protocol-regressed` and writes the job summary | ADR-0013 §8 |
-| `canary/bump.ts` | local, lead-run helper (`pnpm cli:bump <version>`): updates `tooling/cli-pin.json`, `known-binaries.json`, `CLAUDE_CODE_COMPAT.maxTested`, re-records fixtures; never pushes | K16 |
+| `canary/bump.ts` | local, lead-run helper (`pnpm cli:bump <version>`): updates `tooling/cli-pin.json`, `known-binaries.ts`, `CLAUDE_CODE_COMPAT.maxTested`, re-records fixtures; never pushes | K16 |
 
 Golden fixtures: `packages/claude-code/conformance/<suite>/<case>.jsonl`; line format from the neutral `conformance.schema.json`: `{"t":<ms>,"dir":"config"|"in"|"out"|"err"|"exit"|"cmd"|"timer","v":<json>}` followed by `{"dir":"expect","effects":[...],"events":[...]}` blocks. The conformance runner replays them against `claudeSessionMachine.step` with a fake clock.
+
+As built (W3-Z): the launcher refuses the real pinned CLI on a local macOS host (`launcher/host-policy.ts`, ruling 10: the CLI calls `security(1)` on the login keychain even with an API key) unless `CI=true` and `RUNNER_ENVIRONMENT=github-hosted`, or `HUDHUD_ALLOW_LOCAL_MACOS_REAL_CLI=1`; the macOS gate checks the same policy. A sandbox may be created with the test-only `credential: 'fake-auth-token'` (`ANTHROPIC_AUTH_TOKEN` set to a fake `sk-ant-fake-hudhud-` token, no API key) for the K10 fixture; callers still cannot set protected names. Every Vitest project runs with a 60 s hang guard as its test and hook timeout (ruling 4; ADR-0013 item 20).
 
 ---
 
@@ -960,7 +971,7 @@ Exit codes never prove success (05 §9, 07 §2). The redacted stderr tail is att
 
 ### 4.3 Golden fixtures (ADR-0006, ADR-0013 §10)
 
-Recorded by `tooling/test-support/src/fixtures/recorder.ts` from the pinned CLI on Windows and Linux, normalized, hand-minimized, stored in `packages/claude-code/conformance/`. Suites: `handshake`, `text-turn`, `two-turns`, `partial-messages`, `tool-bash`, `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response`, `permission-never-answered-interrupt`, `permission-eof`, `interrupt-midstream`, `interrupt-queued`, `interrupt-cancel-queued`, `interrupt-same-write` (GH#98713), `eof-idle`, `eof-midstream`, `eof-midtool`, `resume`, `resume-not-found`, `fork`, `fork-session-id`, `auth-401-no-retry`, `auth-401-retries` (shortened timing), `overloaded-529`, `max-turns`, `bg-shell-turn-after-eof`, `session-state-events`, `big-frame-5mb` (stored compressed), `utf8-arabic`, `crlf-bom`. Both OSes are recorded where the sequence differs (05 §14). A fixture with `apiKeySource: "ANTHROPIC_AUTH_TOKEN"` is recorded when the mock harness can produce it; only then is that source added to `authFailFastSources` (K10). Fixtures are re-recorded by the lead's local bump (K16) and the diff is reviewed.
+Recorded by `tooling/test-support/src/fixtures/recorder.ts` from the pinned CLI on Windows and Linux, normalized, hand-minimized, stored in `packages/claude-code/conformance/`. Suites: `handshake`, `text-turn`, `two-turns`, `partial-messages`, `tool-bash`, `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response`, `permission-never-answered-interrupt`, `permission-eof`, `interrupt-midstream`, `interrupt-queued`, `interrupt-cancel-queued`, `interrupt-same-write` (GH#98713), `eof-idle`, `eof-midstream`, `eof-midtool`, `resume`, `resume-not-found`, `fork`, `fork-session-id`, `auth-401-no-retry`, `auth-401-retries` (shortened timing), `overloaded-529`, `max-turns`, `bg-shell-turn-after-eof`, `session-state-events`, `big-frame-5mb` (stored compressed), `utf8-arabic`, `crlf-bom`. Both OSes are recorded where the sequence differs (05 §14). A fixture with `apiKeySource: "ANTHROPIC_AUTH_TOKEN"` is recorded when the mock harness can produce it; only then is that source added to `authFailFastSources` (K10). As built (W3-Z): suite `auth-token-source` (sandbox credential `fake-auth-token`, then a 401 with no retries) recorded on Windows and Linux: `account.apiKeySource` is `"none"` and the token shows as `account.tokenSource: "ANTHROPIC_AUTH_TOKEN"`; the 401 yields the same `authentication_failed` assistant frame and `api_error_status: 401`. Extending fail-fast to the token needs the machine to read `tokenSource` (open lead decision); `authFailFastSources` stays `['ANTHROPIC_API_KEY']`. Fixtures are re-recorded by the lead's local bump (K16) and the diff is reviewed.
 
 ### 4.4 Integration tests (pinned CLI + in-process mock)
 
@@ -1100,7 +1111,7 @@ Acceptance highlights:
 | Id | Title | Owns | Deps | Tier | Size |
 |---|---|---|---|---|---|
 | W3-T1 | Claude session machine on the neutral contract | `packages/claude-code/src/protocol/machine/{session,index}.ts`, tests | W2-T1..T5 | Opus | XL |
-| W3-T2 | Verification and discovery (K7, K8, K9) | `packages/core/src/process/verify/**`, `packages/claude-code/src/{discovery,provenance}.ts`, `packages/claude-code/src/known-binaries.json`, tests | W1-T8, W2-T6 | Opus | L |
+| W3-T2 | Verification and discovery (K7, K8, K9) | `packages/core/src/process/verify/**`, `packages/claude-code/src/{discovery,provenance}.ts`, `packages/claude-code/src/known-binaries.json` (as built: `known-binaries.ts`, W3-Z), tests | W1-T8, W2-T6 | Opus | L |
 | W3-T3 | Project credential guard (K5, L1) | `packages/claude-code/src/settings-guard.ts`, tests | W2-T9, W0-T2 report (08) | Opus | M |
 | W3-T4 | Security posture (K19, K23) | `packages/core/src/security/**`, `packages/claude-code/src/posture.ts`, tests | W2-T9 | Opus | M |
 | W3-T5 | Job addon loader and containment (K2, K17) | `packages/core/src/process/containment/**`, tests | A2, W2-T8 | Opus | M |
@@ -1117,6 +1128,12 @@ Acceptance highlights:
 - W3-T5: §6.4.
 - W3-T6: suites of §4.3 recorded on Windows and Linux.
 - A3: §6.3.
+
+As built (W3-Z, 2026-10-13; merged in this order: macOS gate round 2, W3-T5, W3-T2, W3-T3, W3-T4, W3-T1, W3-T6):
+
+- `@hudhud/win32-job-x64` is NOT yet an optional dependency of core: the platform package does not exist until A2 lands; the loader resolves it and reports `package-missing` until then. Ruling 1: A1's `processTimes(pid)` must return `{ creationTime: string }` (decimal FILETIME, as `assignProcess`) and `version` must be a string; the loader checks both (§6.1).
+- Exports: `@hudhud/core/process` gains verification, the version probe, the job addon loader and containment, and `snapshotAtEof`/`sweepAfterExit`; the `@hudhud/core` root the posture builder; `@hudhud/core/protocol` the `send.rejected` effect and the diagnostic codes `stdin.error` and `permission.duplicate-request-id`. The Claude Code modules of W3 (session machine, discovery, provenance, settings guard, posture) stay internal until W5.
+- Rulings applied: guard variables widened to proxy and TLS-trust names and the user config dir skipped in the ancestor fallback (2); posture inputs and values (3); timeouts as hang guards (4); the graceful close sweep, the `RecordingSession` spawn-time attach, the fake auth-token credential and the K10 fixture, the recorder moved into test-support, the Linux re-recording (5); the session machine rulings (7, 10); the `sha256File` read invariants with injected short reads (8); verification (9); the local-macOS refusal (10).
 
 ### 5.6 Wave 4 — generic binding layer and conformance
 
@@ -1158,7 +1175,7 @@ Each task cites the evidence run per scenario (for example W6-T1 `resume-not-fou
 | W7-T1 | CI integration (K15) | `.github/workflows/ci.yml`, `.github/actions/setup/action.yml`, `scripts/lib/ci-*.mjs` only if tier rules change (with tests) | W6 | Opus | M |
 | W7-T2 | Canary (K16) | `.github/workflows/nightly.yml`, `.github/workflows/canary-weekly.yml`, `scripts/nightly-check.mjs`, `scripts/lib/nightly.mjs`, `scripts/lib/canary-weekly.mjs`, `scripts/test/nightly*.test.ts`, `scripts/test/canary-weekly*.test.ts` | W6-T5, W1-T7 | Opus | M |
 | W7-T3 | User documentation | `docs/guide/**`, `README.md`, `NOTICE`, every-way registry table | W5 | Sonnet | M |
-| W7-T4 | Release readiness | `docs/plan/v1-release-checklist.md`, darwin entries of `tooling/cli-pin.json` and `known-binaries.json` from M1, `CLAUDE_CODE_COMPAT` | M1 results, all | Opus | S |
+| W7-T4 | Release readiness | `docs/plan/v1-release-checklist.md`, darwin entries of `tooling/cli-pin.json` and `known-binaries.ts` (and the darwin Team ID pin) from M1, `CLAUDE_CODE_COMPAT` | M1 results, all | Opus | S |
 
 W7-T1 (K15): Linux and Windows jobs run `pnpm check:full`; the Windows job builds the addon x64 from source and writes the digest table before tests; OS-scoped coverage step; CLI cache step; `timeout-minutes` per job set to the measured p95 from W6 times 2, with the measurements and the formula written in the workflow comment and in ADR-0014; until the macOS gate passes, the macOS job runs static checks, unit and conformance only (`pnpm check`), integration on macOS is enabled by W7-T4 after M1 lands.
 
@@ -1196,8 +1213,8 @@ N-API surface (plain C on `node_api.h`, `NAPI_VERSION 8`):
 | `terminateJob(job, exitCode)` | `TerminateJobObject` | idempotent |
 | `closeJob(job)` | `CloseHandle` | idempotent; later use fails with `ERR_JOB_CLOSED` |
 | `listPids(job)` | `QueryInformationJobObject(JobObjectBasicProcessIdList)` | buffer bounded at 65536 entries |
-| `processTimes(pid)` | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes` | identity for tests and sweeps |
-| `version` | constant | ABI check |
+| `processTimes(pid)` -> `{ creationTime: string }` | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes` | identity for tests and sweeps; same shape and unit as `assignProcess` (W3-Z ruling 1, checked by the loader) |
+| `version` | constant string | ABI check against the shipped digest table (a non-string is refused) |
 
 Errors: JS `Error` with `code` `WIN32_<GetLastError>` and the API name; no `FormatMessage`. No other Win32 calls.
 

@@ -60,7 +60,7 @@ Modelled on the SDK's "bidirectional needs" rule (02 §6.1): stdin stays open wh
 
 | Operation | Meaning | Mechanism |
 |---|---|---|
-| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit; one deadline `closeTimeoutMs` (default 30 s) runs from the `close()` call (K13), then the abort ladder; pending permissions resolve `cancelled` and the CLI receives a non-interrupting deny ([ADR-0007](0007-event-delivery-backpressure-timeouts.md), K12) |
+| `session.close()` | Drain | Keep stdin open until idle, then EOF; wait for exit; one deadline `closeTimeoutMs` (default 30 s) runs from the `close()` call (K13), then the abort ladder; pending permissions resolve `cancelled` and the CLI receives a non-interrupting deny ([ADR-0007](0007-event-delivery-backpressure-timeouts.md), K12). The descendants are snapshotted at EOF and, after the CLI exited by itself, the survivors of that snapshot are swept (W3-Z ruling 5: on Linux the CLI left its `rg --files` child running after a normal exit; POSIX in [ADR-0010](0010-process-layer-posix.md), Windows best effort in [ADR-0009](0009-process-layer-windows.md), the job path ends the tree by `KILL_ON_JOB_CLOSE`) |
 | `session[Symbol.asyncDispose]` / `AbortSignal` | Abort | The termination ladder of [ADR-0009](0009-process-layer-windows.md) / [ADR-0010](0010-process-layer-posix.md), starting with `interrupt{cancel_queued:true}` |
 
 ### Termination intent and exit-code semantics (E8)
