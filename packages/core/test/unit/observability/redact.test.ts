@@ -115,6 +115,21 @@ describe('redactText', () => {
     expect(redactText('abcd', ['ab', 'cd'])).toBe(R);
   });
 
+  it('never lets a known secret split a credential shape, nor a shape split a known secret', () => {
+    // Every rule matches on the original text and the union is masked at once.
+    // W4-Z: the StderrTail property found an sk-ant- key with the known secret
+    // '91D0' inside keep its tail '0000' when the literal mask ran first and
+    // cut the key (here with the repository's fake key prefix).
+    expect(redactText(' sk-ant-fake-hudhud-AA0A91D00000 ', ['91D0', '0AAA'])).toBe(` ${R} `);
+    expect(redactText('Authorization Bearer abcSECRET1def x', ['SECRET1'])).toBe(
+      `Authorization Bearer ${R} x`,
+    );
+    expect(redactText('https://user:paSECRET1ss@host/p', ['SECRET1'])).toBe(`https://${R}@host/p`);
+    expect(redactText('api_key=abcSECRET1def;', ['SECRET1'])).toBe(`api_key=${R};`);
+    expect(redactText('XYZsk-ant-abc', ['XYZsk'])).toBe(R);
+    expect(redactText('token: aSECRET1b\nnext', ['SECRET1'])).toBe(`token: ${R}\nnext`);
+  });
+
   it('masks multi-line secrets whole and line by line', () => {
     const pem = 'BEGIN\nMIIfakeLINE1\r\n   \nMIIfakeLINE2';
     expect(redactText(`k=${pem}.`, [pem])).toBe(`k=${R}.`);

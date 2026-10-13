@@ -188,6 +188,28 @@ const stream = fc
       .join(''),
   }));
 
+describe('StderrTail regressions', () => {
+  it('keeps no fragment of a key cut by a known secret (shrunk property counterexample)', () => {
+    // The property below found it with seed 2115420365: the literal mask cut
+    // the key and its tail survived the cut at the front. The key carries the
+    // repository's fake prefix here, so the line bound is longer than in the
+    // counterexample (the line must stay whole, as it was there).
+    const tail = new StderrTail({
+      secrets: ['91D0', '0AAA'],
+      maxChars: 2,
+      maxLines: 1,
+      maxLineChars: 40,
+    });
+    tail.push(utf8(' sk-ant-fake-hudhud-AA0A91D00000 '));
+    expect(tail.read()).not.toMatch(/[A-Z0-9]/);
+    tail.end();
+    expect(tail.read()).not.toMatch(/[A-Z0-9]/);
+    const whole = new StderrTail({ secrets: ['91D0'] });
+    whole.push(' sk-ant-fake-hudhud-AA0A91D00000 \n');
+    expect(whole.read()).toBe(` ${REDACTED} \n`);
+  });
+});
+
 describe('StderrTail properties', () => {
   it('never exposes any fragment of a secret, at any read, across any chunking', () => {
     fc.assert(

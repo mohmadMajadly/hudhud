@@ -2,8 +2,13 @@
  * Redaction of diagnostic text and JSON (ADR-0016 §1, ADR-0012 §4).
  *
  * @remarks
- * Redaction is mandatory and cannot be disabled per call. Every masked value
- * is replaced by {@link REDACTED}. The rules run in this order on every call:
+ * Redaction is mandatory and cannot be disabled per call. Every rule below
+ * finds its matches in the original text; the union of every match is masked
+ * at once, each run of overlapping or adjacent matches by one
+ * {@link REDACTED}. So no rule can split another's match: a known secret
+ * inside a key, a `Bearer` token or a URL userinfo never leaves the rest of
+ * that credential readable, and a credential shape that overlaps a known
+ * secret is masked with it as a whole. The rules:
  *
  * 1. Known secrets (literal values): each value passed in `secrets` (usually
  *    {@link secretsFromEnv} of the child environment) is masked wherever it
@@ -224,7 +229,7 @@ function maskIntervals(text: string, intervals: Interval[]): string {
 }
 
 /** Rule 1: every occurrence (overlapping included) of every literal secret. */
-function maskLiterals(text: string, secrets: readonly string[]): string {
+function literalIntervals(text: string, secrets: readonly string[]): Interval[] {
   const intervals: Interval[] = [];
   for (const secret of secrets) {
     let at = text.indexOf(secret);
@@ -233,26 +238,30 @@ function maskLiterals(text: string, secrets: readonly string[]): string {
       at = text.indexOf(secret, at + 1);
     }
   }
-  return maskIntervals(text, intervals);
+  return intervals;
 }
 
 const NAME_COLON = /(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]*)[ \t]*:[ \t]*/g;
 
-/** Rule 2: `sensitive-name: value` masks the rest of the line. */
-function maskHeaderLines(text: string): string {
-  return text
-    .split(/(\r\n|\r|\n)/)
-    .map((line) => {
-      for (const match of line.matchAll(NAME_COLON)) {
+/** Rule 2: `sensitive-name: value` masks the rest of the line (the first such name of a line). */
+function headerIntervals(text: string): Interval[] {
+  const intervals: Interval[] = [];
+  let offset = 0;
+  // Lines at even indexes, line breaks at odd ones.
+  text.split(/(\r\n|\r|\n)/).forEach((part, index) => {
+    if (index % 2 === 0) {
+      for (const match of part.matchAll(NAME_COLON)) {
         const valueAt = match.index + match[0].length;
-        const next = line.charAt(valueAt);
+        const next = part.charAt(valueAt);
         if (isSensitiveFieldName(String(match[1])) && next !== '' && next !== '"' && next !== "'") {
-          return line.slice(0, valueAt) + REDACTED;
+          intervals.push([offset + valueAt, offset + part.length]);
+          break;
         }
       }
-      return line;
-    })
-    .join('');
+    }
+    offset += part.length;
+  });
+  return intervals;
 }
 
 const AUTH_SCHEME = /\b(Bearer|Basic)([ \t]+)[^\s"'\\<>]+/gi;
@@ -281,8 +290,21 @@ function innerValue(value: string, at: number): Interval {
   return [at, at + value.length];
 }
 
+/** Rules 3 to 5: the part of each match of `pattern` from `skip` code units on, minus `trim` at its end. */
+function shapeIntervals(
+  text: string,
+  pattern: RegExp,
+  skip: (match: RegExpExecArray) => number,
+  trim = 0,
+): Interval[] {
+  return [...text.matchAll(pattern)].map((match): Interval => [
+    match.index + skip(match),
+    match.index + match[0].length - trim,
+  ]);
+}
+
 /** Rule 6: values of sensitive names in assignments. */
-function maskAssignments(text: string): string {
+function assignmentIntervals(text: string): Interval[] {
   const intervals: Interval[] = [];
   for (const match of text.matchAll(NAME_SEPARATOR)) {
     if (!isSensitiveFieldName(String(match[2]))) continue;
@@ -293,7 +315,7 @@ function maskAssignments(text: string): string {
     const inner = innerValue(value, at);
     if (inner[1] > inner[0]) intervals.push(inner);
   }
-  return maskIntervals(text, intervals);
+  return intervals;
 }
 
 /**
@@ -302,12 +324,20 @@ function maskAssignments(text: string): string {
  * @internal
  */
 export function redactNormalized(text: string, secrets: readonly string[]): string {
-  let out = maskLiterals(text, secrets);
-  out = maskHeaderLines(out);
-  out = out.replace(AUTH_SCHEME, `$1$2${REDACTED}`);
-  out = out.replace(ANTHROPIC_KEY, REDACTED);
-  out = out.replace(URL_USERINFO, `$1${REDACTED}@`);
-  return maskAssignments(out);
+  return maskIntervals(text, [
+    ...literalIntervals(text, secrets),
+    ...headerIntervals(text),
+    // The token after the scheme and its blanks.
+    ...shapeIntervals(
+      text,
+      AUTH_SCHEME,
+      (match) => String(match[1]).length + String(match[2]).length,
+    ),
+    ...shapeIntervals(text, ANTHROPIC_KEY, () => 0),
+    // The userinfo between the scheme and the `@` (an empty one still gets a marker).
+    ...shapeIntervals(text, URL_USERINFO, (match) => String(match[1]).length, 1),
+    ...assignmentIntervals(text),
+  ]);
 }
 
 /**
