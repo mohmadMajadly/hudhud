@@ -73,6 +73,7 @@ import {
   type UsageTotals,
 } from '@hudhud/core/protocol';
 
+import { LIFECYCLE_CAPABILITY, parseFeatures } from '../wire/features.js';
 import { classifyResult } from '../events/normalize.js';
 
 /**
@@ -83,13 +84,6 @@ import { classifyResult } from '../events/normalize.js';
  * @internal
  */
 export const INTERRUPT_RETRY_DELAY_MS = 50;
-
-/**
- * The `system/init` capability that announces `command_lifecycle` frames.
- *
- * @internal
- */
-export const LIFECYCLE_CAPABILITY = 'msg_lifecycle_v1';
 
 /**
  * Most lifecycle states kept per turn (evidence for `turn.dropped`; the
@@ -539,7 +533,7 @@ function dropTurn(d: Draft, turn: TurnEntry, states: readonly string[]): void {
 function onInit(d: Draft, frame: JsonObject): void {
   const capabilities = ownArray(frame, 'capabilities');
   if (capabilities !== undefined) {
-    d.features = capabilities.filter((item): item is string => typeof item === 'string');
+    d.features = parseFeatures(capabilities);
     d.lifecycle = d.features.includes(LIFECYCLE_CAPABILITY);
   }
   d.model = ownString(frame, 'model') ?? d.model;
