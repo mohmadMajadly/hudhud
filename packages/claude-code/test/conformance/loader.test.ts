@@ -169,13 +169,18 @@ describe('loadConformanceSuites', () => {
     ]);
   });
 
-  it('fails a suite without expectations, unless the update mode asks for them to be optional', () => {
+  it('fails a suite without expectations, unless the update mode ignores them', () => {
     const root = dataDir({ files: { 'demo/linux.jsonl': jsonl(records()) } });
     expect(problems(root)).toEqual([
       'demo/linux.expect.jsonl: missing (the suite has no expectations)',
     ]);
-    const [suite] = load(root, { expectations: 'optional' });
+    const [suite] = load(root, { expectations: 'ignored' });
     expect(suite?.variants[0]?.expect).toBeUndefined();
+    // Stale expect files (the update mode after a re-recording) are not read.
+    const stale = dataDir({
+      files: { 'demo/linux.jsonl': jsonl(records()), 'demo/linux.expect.jsonl': 'stale\n' },
+    });
+    expect(load(stale, { expectations: 'ignored' })[0]?.variants[0]?.expect).toBeUndefined();
   });
 
   it('fails data without a manifest entry, and a directory outside the catalogue', () => {

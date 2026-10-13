@@ -24,7 +24,7 @@ import { summarize } from './summary.js';
 
 const UPDATE = process.env['HUDHUD_CONFORMANCE_UPDATE'] === '1';
 
-const suites = loadConformanceSuites({ expectations: UPDATE ? 'optional' : 'required' });
+const suites = loadConformanceSuites({ expectations: UPDATE ? 'ignored' : 'required' });
 
 describe('the conformance suite set', () => {
   // Read from the plan itself: the list after "Suites:" and every
@@ -37,12 +37,10 @@ describe('the conformance suite set', () => {
     expect(suites.map((suite) => suite.name)).toEqual([...list, ...additions]);
   });
 
-  it('records every suite on Linux and Windows, except the Linux-only addition', () => {
+  it('records every suite on Linux and Windows', () => {
     for (const suite of suites) {
       const platforms = [...new Set(suite.variants.map((variant) => variant.platform))];
-      expect(platforms, suite.name).toEqual(
-        suite.name === 'resume-duplicate-uuid' ? ['linux'] : ['linux', 'win32'],
-      );
+      expect(platforms, suite.name).toEqual(['linux', 'win32']);
     }
   });
 
@@ -54,8 +52,8 @@ describe('the conformance suite set', () => {
     }
   });
 
-  it('counts 72 recorded variants', () => {
-    expect(suites.flatMap((suite) => suite.variants)).toHaveLength(72);
+  it('counts 74 recorded variants', () => {
+    expect(suites.flatMap((suite) => suite.variants)).toHaveLength(74);
   });
 });
 

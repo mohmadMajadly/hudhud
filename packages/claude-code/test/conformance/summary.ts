@@ -4,8 +4,7 @@
 
 import type { JsonValue, MachineEffect } from '@hudhud/core/protocol';
 
-const PLACEHOLDER_UUID = /^00000000-0000-4000-8000-(\d{12})$/u;
-const SEND_UUID = /^00000000-0000-4000-9000-(\d{12})$/u;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
 /** What a replay shows, as short readable strings. */
 export interface ReplaySummary {
@@ -29,15 +28,30 @@ export interface ReplaySummary {
   readonly session: string;
 }
 
+/** The turn id an effect or its event names, if any. */
+function turnIdOf(effect: MachineEffect): string | undefined {
+  const holder: object = effect.type === 'event' ? effect.event : effect;
+  const value = Object.hasOwn(holder, 'turnId')
+    ? (Reflect.get(holder, 'turnId') as unknown)
+    : undefined;
+  return typeof value === 'string' ? value : undefined;
+}
+
 /**
- * A readable name of a turn id: `<uuid-N>` for a recorded uuid, `send-N` for
- * a send whose recording had none, as is otherwise (`bg-<n>`).
+ * Readable names of the turns of a replay, independent of the recorded ids
+ * (whose placeholder numbers differ between recordings): an application
+ * turn (a UUID) is `turn-<k>` in the order it first appears in the effects,
+ * a harness turn keeps its own id (`bg-<n>`).
  */
-export function turnName(turnId: string): string {
-  const recorded = PLACEHOLDER_UUID.exec(turnId);
-  if (recorded !== null) return `<uuid-${String(Number(recorded[1]))}>`;
-  const sent = SEND_UUID.exec(turnId);
-  return sent === null ? turnId : `send-${String(Number(sent[1]))}`;
+export function turnNames(effects: readonly MachineEffect[]): (turnId: string) => string {
+  const names = new Map<string, string>();
+  for (const effect of effects) {
+    const id = turnIdOf(effect);
+    if (id !== undefined && UUID.test(id) && !names.has(id)) {
+      names.set(id, `turn-${String(names.size + 1)}`);
+    }
+  }
+  return (turnId) => names.get(turnId) ?? turnId;
 }
 
 /** An event field as text (a string as is, anything else as JSON). */
@@ -56,6 +70,7 @@ export function summarize(effects: readonly MachineEffect[]): ReplaySummary {
   const controls: string[] = [];
   const ladder: string[] = [];
   const diagnostics: string[] = [];
+  const turnName = turnNames(effects);
   for (const effect of effects) {
     if (effect.type === 'handshake.ok') {
       handshake = 'ok';

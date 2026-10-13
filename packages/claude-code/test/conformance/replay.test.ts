@@ -304,7 +304,7 @@ describe('replayVariant', () => {
     expect(result.frames[2]).toMatchObject({ response: { request_id: 'hudhud_1' } });
     expect(summarize(result.effects.flat())).toMatchObject({
       handshake: 'ok',
-      turns: ['send-1 completed'],
+      turns: ['turn-1 completed'],
       permissions: ['cancelled by application'],
     });
   });
@@ -356,7 +356,7 @@ describe('replayVariant', () => {
     const crossed = replayVariant(variant(body), { machine: boundary });
     expect(crossed.effects).toEqual(direct.effects);
     expect(crossed.violations).toEqual([]);
-    expect(summarize(direct.effects.flat()).turns).toEqual(['<uuid-1> completed']);
+    expect(summarize(direct.effects.flat()).turns).toEqual(['turn-1 completed']);
   });
 });
 

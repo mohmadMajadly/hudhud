@@ -29,9 +29,10 @@
 //   blocks. A driver other than the direct `step` (the loopback) passes its
 //   machine to `replayVariant`.
 //
-// `options.expectations: 'optional'` loads variants whose expect file is
-// missing (with `expect` undefined); only the update mode of the runner uses
-// it, and that mode always fails its run.
+// `options.expectations: 'ignored'` reads no expect file (every `expect` is
+// undefined): only the update mode of the runner uses it, which rewrites
+// them from the replay after a re-recording, and that mode always fails its
+// run.
 
 import { Buffer } from 'node:buffer';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -116,7 +117,7 @@ export interface ConformanceVariant {
   readonly launch: LaunchConfig;
   /** Every record line, the config line first. */
   readonly records: readonly RecordLine[];
-  /** One block per record line; `undefined` only with `expectations: 'optional'`. */
+  /** One block per record line; `undefined` only with `expectations: 'ignored'`. */
   readonly expect: readonly ExpectBlock[] | undefined;
   /** Absolute path of the expect file (written by the update mode). */
   readonly expectFile: string;
@@ -137,8 +138,8 @@ export interface LoadOptions {
   readonly catalogue?: readonly SuiteDeclaration[];
   /** The pinned CLI version every entry must name. Default: `tooling/cli-pin.json`. */
   readonly cliVersion?: string;
-  /** `'required'` (default) or `'optional'` (the update mode only). */
-  readonly expectations?: 'required' | 'optional';
+  /** `'required'` (default) or `'ignored'` (the update mode only). */
+  readonly expectations?: 'required' | 'ignored';
 }
 
 /** Every problem a load found. */
@@ -484,7 +485,7 @@ export function readManifest(root: string, cliVersion: string): ManifestEntry[] 
 export function loadConformanceSuites(options: LoadOptions = {}): ConformanceSuite[] {
   const root = options.root ?? CONFORMANCE_ROOT;
   const catalogue = options.catalogue ?? CATALOGUE;
-  const optional = options.expectations === 'optional';
+  const ignored = options.expectations === 'ignored';
   const entries = readManifest(root, options.cliVersion ?? pinnedCliVersion());
   const problems: string[] = [];
 
@@ -526,7 +527,7 @@ export function loadConformanceSuites(options: LoadOptions = {}): ConformanceSui
         continue;
       }
       try {
-        variants.push(loadVariant(root, entry, optional));
+        variants.push(loadVariant(root, entry, ignored));
       } catch (error) {
         if (!(error instanceof ConformanceDataError)) throw error;
         problems.push(...error.problems);
@@ -544,7 +545,7 @@ export function loadConformanceSuites(options: LoadOptions = {}): ConformanceSui
   return suites;
 }
 
-function loadVariant(root: string, entry: ManifestEntry, optional: boolean): ConformanceVariant {
+function loadVariant(root: string, entry: ManifestEntry, ignored: boolean): ConformanceVariant {
   const recordPath = path.join(root, entry.file);
   if (!existsSync(recordPath)) throw new ConformanceDataError([`${entry.file}: missing`]);
   const text = decodeStored(readFileSync(recordPath), entry.compressed, entry.file);
@@ -552,14 +553,15 @@ function loadVariant(root: string, entry: ManifestEntry, optional: boolean): Con
   const expectName = expectFileOf(entry.file);
   const expectFile = path.join(root, expectName);
   let expect: ExpectBlock[] | undefined;
-  if (existsSync(expectFile)) {
+  if (!ignored) {
+    if (!existsSync(expectFile)) {
+      throw new ConformanceDataError([`${expectName}: missing (the suite has no expectations)`]);
+    }
     expect = parseExpect(
       decodeStored(readFileSync(expectFile), false, expectName),
       expectName,
       records.length,
     );
-  } else if (!optional) {
-    throw new ConformanceDataError([`${expectName}: missing (the suite has no expectations)`]);
   }
   const base = entry.case === 'main' ? entry.platform : `${entry.platform}.${entry.case}`;
   return {

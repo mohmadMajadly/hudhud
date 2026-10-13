@@ -16,7 +16,7 @@ import {
   projectBlock,
   textMarker,
 } from './expect.js';
-import { summarize, turnName } from './summary.js';
+import { summarize, turnNames } from './summary.js';
 
 const ERROR = { code: 'SESSION_CLOSED', message: 'closed', retryable: false };
 
@@ -78,10 +78,23 @@ describe('expect projection', () => {
 });
 
 describe('summary', () => {
-  it('names turns by their recorded placeholder, send number or own id', () => {
-    expect(turnName('00000000-0000-4000-8000-000000000012')).toBe('<uuid-12>');
-    expect(turnName('00000000-0000-4000-9000-000000000003')).toBe('send-3');
-    expect(turnName('bg-1')).toBe('bg-1');
+  it('names application turns in order of first appearance, harness turns by their own id', () => {
+    const second = '00000000-0000-4000-8000-000000000012';
+    const first = '00000000-0000-4000-9000-000000000003';
+    const name = turnNames([
+      { type: 'timer.set', name: 'idle', ms: 1 },
+      {
+        type: 'event',
+        event: { type: 'turn.queued', turnId: first, seq: 1, ts: 't', sessionId: 's' },
+      },
+      { type: 'turn.fail', turnId: second, error: ERROR },
+      { type: 'turn.fail', turnId: first, error: ERROR },
+      { type: 'turn.fail', turnId: 'bg-1', error: ERROR },
+    ]);
+    expect(name(first)).toBe('turn-1');
+    expect(name(second)).toBe('turn-2');
+    expect(name('bg-1')).toBe('bg-1');
+    expect(name('unknown')).toBe('unknown');
   });
 
   it('summarizes every effect kind it reads, in order', () => {
