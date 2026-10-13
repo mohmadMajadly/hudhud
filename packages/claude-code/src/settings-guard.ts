@@ -32,7 +32,16 @@
  * unreadable, oversized or malformed `.git` file, an unreadable `gitdir` or
  * `commondir`, or a link to another host), the guard falls back to the K5
  * superset, the cwd and every ancestor, and reports diagnostic
- * `settings-guard.git-root-unresolved`.
+ * `settings-guard.git-root-unresolved`. The fallback skips the user's config
+ * directory (the effective `CLAUDE_CONFIG_DIR`, else `~/.claude`, compared by
+ * physical path): its settings are user settings, the user's own choice. The
+ * skip is recorded (`skipped`, reason `'user-config-dir'`) and the directory
+ * is never read.
+ *
+ * Refused `env` names are credential, routing or TLS-trust variables
+ * ({@link isProjectCredentialEnvName}): API credentials and endpoints,
+ * provider switches, proxies and TLS trust settings, each of which lets a
+ * repository redirect or intercept the API traffic and its credentials.
  *
  * Reading (fail closed: anything the guard cannot evaluate refuses):
  *
@@ -79,6 +88,7 @@
 
 import { constants } from 'node:fs';
 import { lstat, open, readlink } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
 import { ProjectCredentialEnvError, type JsonObject } from '@hudhud/core';
@@ -101,10 +111,27 @@ export const SETTINGS_FILE_NAMES: readonly string[] = ['settings.json', 'setting
 
 const NAME_OUTPUT_MAX = 256;
 
+/**
+ * Credential, routing or TLS-trust variables: each lets a repository redirect
+ * or intercept the CLI's API traffic and the credentials it carries (C3,
+ * 07 §9). `NO_PROXY` is not listed: it only narrows proxying.
+ */
 const CREDENTIAL_EXACT = new Set([
+  // credential and routing
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
+  // traffic interception: proxies
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'ALL_PROXY',
+  // traffic interception: TLS trust
+  'NODE_TLS_REJECT_UNAUTHORIZED',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
 ]);
 const ANTHROPIC_ANY_BASE_URL = /^ANTHROPIC_[\s\S]*_BASE_URL$/;
 
@@ -118,9 +145,14 @@ function matchesCredentialPattern(name: string): boolean {
 }
 
 /**
- * Whether a project settings `env` key sets a credential or routing variable:
- * `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
- * `ANTHROPIC_*_BASE_URL` or `CLAUDE_CODE_USE_*` (ADR-0012 §2).
+ * Whether a project settings `env` key sets a credential, routing or
+ * TLS-trust variable: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`,
+ * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_*_BASE_URL`, `CLAUDE_CODE_USE_*`
+ * (ADR-0012 §2), and the interception variables `HTTPS_PROXY`,
+ * `HTTP_PROXY`, `ALL_PROXY`, `NODE_TLS_REJECT_UNAUTHORIZED`,
+ * `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`,
+ * `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` (lead ruling: the same class as
+ * C3). `NO_PROXY` is not refused. `projectCredentialEnv: 'allow'` lifts all.
  *
  * @remarks
  * Any case, on every OS (win32 names are case-insensitive; elsewhere this
@@ -180,6 +212,28 @@ export interface SettingsGuardDeps {
   readonly platform: ProcessPlatform;
   /** The host's working directory, used when the cwd option is not set. */
   readonly processCwd: string;
+  /**
+   * The user's config directory ({@link userConfigDirOf}). Its settings are
+   * user settings, the user's own choice: the ancestor fallback never reads
+   * them. `null` when there is none to skip.
+   */
+  readonly userConfigDir: string | null;
+}
+
+/**
+ * The user's config directory: the `configDir` option, else a non-empty
+ * `CLAUDE_CONFIG_DIR` in `env`, else `<home>/.claude`.
+ */
+export function userConfigDirOf(
+  configDir: string | null,
+  env: Readonly<Record<string, string | undefined>>,
+  home: string,
+  platform: ProcessPlatform,
+): string {
+  if (configDir !== null) return configDir;
+  const fromEnv = env['CLAUDE_CONFIG_DIR'];
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
+  return (platform === 'win32' ? path.win32 : path.posix).join(home, '.claude');
 }
 
 interface StatsLike {
@@ -284,8 +338,14 @@ export function nodeSettingsGuardFs(): SettingsGuardFs {
 }
 
 /** Host dependencies: Node's `fs`, the host platform and `process.cwd()`. */
-export function nodeSettingsGuardDeps(): SettingsGuardDeps {
-  return { fs: nodeSettingsGuardFs(), platform: hostPlatform(), processCwd: process.cwd() };
+export function nodeSettingsGuardDeps(configDir: string | null): SettingsGuardDeps {
+  const platform = hostPlatform();
+  return {
+    fs: nodeSettingsGuardFs(),
+    platform,
+    processCwd: process.cwd(),
+    userConfigDir: userConfigDirOf(configDir, process.env, homedir(), platform),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -619,6 +679,17 @@ export interface SettingsGuardReport {
   readonly files: readonly string[];
   readonly symlinks: readonly SettingsSymlink[];
   readonly diagnostics: readonly SettingsGuardDiagnostic[];
+  /** Directories the ancestor fallback left unread (the user's config directory). */
+  readonly skipped: readonly SettingsGuardSkip[];
+}
+
+/**
+ * A `.claude` directory the ancestor fallback did not read: it is the
+ * user's config directory, whose settings are user settings (lead ruling).
+ */
+export interface SettingsGuardSkip {
+  readonly path: string;
+  readonly reason: 'user-config-dir';
 }
 
 interface FileFinding {
@@ -638,6 +709,7 @@ class Scan {
   readonly findings: FileFinding[] = [];
   readonly problems: FileProblem[] = [];
   readonly diagnostics: SettingsGuardDiagnostic[] = [];
+  readonly skipped: SettingsGuardSkip[] = [];
   readonly #seen = new Set<string>();
   readonly #ctx: Context;
 
@@ -663,8 +735,21 @@ class Scan {
   }
 }
 
-async function scanRoot(root: string, scan: Scan, ctx: Context): Promise<void> {
+async function scanRoot(
+  root: string,
+  userConfigKey: string | null,
+  scan: Scan,
+  ctx: Context,
+): Promise<void> {
   const physicalRoot = await resolvePhysical(root, ctx);
+  if (physicalRoot.ok && userConfigKey !== null) {
+    // Only lstat/readlink: the user's config directory is never read.
+    const claude = await resolveBelow(physicalRoot.path, ['.claude'], ctx);
+    if (claude.ok && fold(claude.path, ctx) === userConfigKey) {
+      scan.skipped.push({ path: ctx.p.join(root, '.claude'), reason: 'user-config-dir' });
+      return;
+    }
+  }
   for (const name of SETTINGS_FILE_NAMES) {
     const file = ctx.p.join(root, '.claude', name);
     if (!physicalRoot.ok) {
@@ -719,6 +804,17 @@ async function scanFile(file: string, physical: string, scan: Scan, ctx: Context
   }
 }
 
+/**
+ * The physical spelling of the user's config directory, folded, resolved with
+ * the same component-wise link handling; `null` when there is none or it
+ * cannot be resolved (then nothing is skipped: fail closed).
+ */
+async function userConfigKeyOf(dir: string | null, ctx: Context): Promise<string | null> {
+  if (dir === null || !ctx.p.isAbsolute(dir)) return null;
+  const resolved = await resolvePhysical(ctx.p.normalize(dir), ctx);
+  return resolved.ok && resolved.kind === 'directory' ? fold(resolved.path, ctx) : null;
+}
+
 const unique = (items: readonly string[], ctx: Context): string[] => {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -738,13 +834,20 @@ const unique = (items: readonly string[], ctx: Context): string[] => {
  *   evaluated. `details`: `files` (every file with a finding or a problem),
  *   `variables` (names), `apiKeyHelper`, `unparseable` (files with a
  *   problem), `problems` (`{ file, reason }`), `findings` (per file),
- *   `symlinks`, `scope` and `diagnostics`. Never a value.
+ *   `symlinks`, `skipped`, `scope` and `diagnostics`. Never a value.
  */
 export async function checkProjectCredentialEnv(
   session: Pick<EffectiveSessionOptions, 'cwd' | 'settingSources' | 'projectCredentialEnv'>,
   deps: SettingsGuardDeps,
 ): Promise<SettingsGuardReport> {
-  const empty = { scope: null, roots: [], files: [], symlinks: [], diagnostics: [] } as const;
+  const empty = {
+    scope: null,
+    roots: [],
+    files: [],
+    symlinks: [],
+    diagnostics: [],
+    skipped: [],
+  } as const;
   const sources = session.settingSources;
   if (!sources.includes('project') && !sources.includes('local')) {
     return { outcome: 'not-applicable', ...empty };
@@ -780,7 +883,8 @@ export async function checkProjectCredentialEnv(
     fallback ? [...roots, ...starts.flatMap((start) => ancestorsOf(start, ctx))] : roots,
     ctx,
   );
-  for (const root of scanned) await scanRoot(root, scan, ctx);
+  const userConfigKey = fallback ? await userConfigKeyOf(deps.userConfigDir, ctx) : null;
+  for (const root of scanned) await scanRoot(root, userConfigKey, scan, ctx);
 
   const scope = fallback ? 'ancestors' : 'git-roots';
   if (scan.findings.length === 0 && scan.problems.length === 0) {
@@ -791,6 +895,7 @@ export async function checkProjectCredentialEnv(
       files: scan.files,
       symlinks: scan.symlinks,
       diagnostics: scan.diagnostics,
+      skipped: scan.skipped,
     };
   }
   throw guardError(scan, scope);
@@ -815,6 +920,7 @@ function guardError(scan: Scan, scope: 'git-roots' | 'ancestors'): ProjectCreden
         apiKeyHelper,
       })),
       symlinks: scan.symlinks.map(({ path: file, target }) => ({ path: file, target })),
+      skipped: scan.skipped.map(({ path: dir, reason }) => ({ path: dir, reason })),
       scope,
       diagnostics: scan.diagnostics.map(({ code, message: text, data }) => ({
         code,

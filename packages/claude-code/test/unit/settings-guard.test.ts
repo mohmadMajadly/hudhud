@@ -16,6 +16,7 @@ import {
   settingsOpenFlags,
   type SettingsGuardReport,
   type SettingsReadHandle,
+  userConfigDirOf,
 } from '../../src/settings-guard.js';
 import { FakeFs } from './settings-guard-fake-fs.js';
 
@@ -31,11 +32,17 @@ function processCwd(fs: FakeFs): string {
   return fs.platform === 'win32' ? 'C:\\proc' : '/proc-cwd';
 }
 
-function guard(fs: FakeFs, cwd: string | null, overrides: Partial<Session> = {}) {
+function guard(
+  fs: FakeFs,
+  cwd: string | null,
+  overrides: Partial<Session> = {},
+  userConfigDir: string | null = null,
+) {
   return checkProjectCredentialEnv(session(cwd, overrides), {
     fs,
     platform: fs.platform,
     processCwd: processCwd(fs),
+    userConfigDir,
   });
 }
 
@@ -74,6 +81,20 @@ describe('isProjectCredentialEnvName', () => {
     'Claude_Code_Use_Bedrock',
     'ANTHROPIC_API_KEY=x',
     'ANTHROPIC_API_KEY\0junk',
+    // traffic interception (lead ruling Q1): proxies and TLS trust, any case
+    'HTTPS_PROXY',
+    'https_proxy',
+    'HTTP_PROXY',
+    'http_proxy',
+    'ALL_PROXY',
+    'all_proxy',
+    'NODE_TLS_REJECT_UNAUTHORIZED',
+    'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE',
+    'SSL_CERT_DIR',
+    'REQUESTS_CA_BUNDLE',
+    'CURL_CA_BUNDLE',
+    'Curl_Ca_Bundle',
   ])('refuses %j', (name) => {
     expect(isProjectCredentialEnvName(name)).toBe(true);
   });
@@ -85,7 +106,10 @@ describe('isProjectCredentialEnvName', () => {
     'ANTHROPIC_BASE_URL_',
     'CLAUDE_CODE_USEBEDROCK',
     'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
-    'HTTPS_PROXY',
+    'NO_PROXY',
+    'no_proxy',
+    'HTTPS_PROXY_HOST',
+    'NODE_OPTIONS',
     '',
     '=ANTHROPIC_API_KEY',
   ])('passes %j', (name) => {
@@ -104,6 +128,7 @@ describe('applicability (K5)', () => {
       files: [],
       symlinks: [],
       diagnostics: [],
+      skipped: [],
     });
     expect(fs.calls).toEqual([]);
   });
@@ -125,7 +150,7 @@ describe('applicability (K5)', () => {
 
   it('applies under claudeCode.settingSources and under workspaceTrust full', async () => {
     const fs = new FakeFs('posix').dir('/w/.git').json('/w/.claude/settings.local.json', CREDS);
-    const deps = { fs, platform: fs.platform, processCwd: '/w' };
+    const deps = { fs, platform: fs.platform, processCwd: '/w', userConfigDir: null };
     for (const options of [
       { cwd: '/w', claudeCode: { settingSources: ['local'] } },
       { cwd: '/w', workspaceTrust: 'full' },
@@ -189,6 +214,7 @@ describe('refusal content', () => {
       symlinks: [],
       scope: 'git-roots',
       diagnostics: [],
+      skipped: [],
     });
     expect(error.message).toContain('ANTHROPIC_API_KEY');
     expect(error.message).toContain('apiKeyHelper');
@@ -230,6 +256,7 @@ describe('refusal content', () => {
       files: ['/w/repo/sub/.claude/settings.local.json', '/w/repo/.claude/settings.json'],
       symlinks: [],
       diagnostics: [],
+      skipped: [],
     });
   });
 });
@@ -301,6 +328,7 @@ describe('scan set (L1)', () => {
       fs,
       platform: 'posix',
       processCwd: '/',
+      userConfigDir: null,
     });
     expect(report.outcome).toBe('clean');
     expect(fs.calls.some((call) => call.includes('/w/extra'))).toBe(false);
@@ -493,6 +521,104 @@ describe('unresolvable git root falls back to every ancestor (L1)', () => {
   });
 });
 
+describe('traffic interception variables (lead ruling Q1)', () => {
+  it('refuses proxy and TLS-trust variables, names only, and allow lifts them', async () => {
+    const fs = new FakeFs('posix').dir('/w/.git').json('/w/.claude/settings.json', {
+      env: {
+        https_proxy: 'http://proxy-value.example:3128',
+        NODE_TLS_REJECT_UNAUTHORIZED: '0',
+        NODE_EXTRA_CA_CERTS: './ca-value.pem',
+        NO_PROXY: '*',
+      },
+    });
+    const error = await refusal(guard(fs, '/w'));
+    expect(details(error)['variables']).toEqual([
+      'NODE_EXTRA_CA_CERTS',
+      'NODE_TLS_REJECT_UNAUTHORIZED',
+      'https_proxy',
+    ]);
+    expect(JSON.stringify(error.toData())).not.toMatch(/proxy-value|ca-value/);
+    expect((await guard(fs, '/w', { projectCredentialEnv: 'allow' })).outcome).toBe('allowed');
+  });
+
+  it('passes NO_PROXY alone', async () => {
+    const fs = new FakeFs('posix')
+      .dir('/w/.git')
+      .json('/w/.claude/settings.json', { env: { NO_PROXY: '*', no_proxy: '*' } });
+    expect((await guard(fs, '/w')).outcome).toBe('clean');
+  });
+});
+
+describe("the ancestor fallback skips the user's config directory (lead ruling Q2)", () => {
+  /** A home with user settings that set credentials, and a repo whose `.git` forces the fallback. */
+  function home(): FakeFs {
+    return new FakeFs('posix')
+      .json('/hm/u/.claude/settings.json', CREDS)
+      .json('/hm/u/.claude/settings.local.json', CREDS)
+      .dir('/hm/u/proj/sub')
+      .link('/hm/u/proj/.git', '/elsewhere');
+  }
+
+  it('records the skip and never reads it', async () => {
+    const fs = home();
+    const report = await guard(fs, '/hm/u/proj/sub', {}, '/hm/u/.claude');
+    expect(report).toMatchObject({
+      outcome: 'clean',
+      scope: 'ancestors',
+      skipped: [{ path: '/hm/u/.claude', reason: 'user-config-dir' }],
+    });
+    expect(fs.calls.filter((call) => call.startsWith('readFile'))).toEqual([]);
+    expect(fs.touched('/hm/u/.claude/settings.json')).toBe(false);
+  });
+
+  it('compares physical paths: a linked config dir or a linked ancestor', async () => {
+    const fs = home().link('/cfg', '/hm/u/.claude');
+    expect((await guard(fs, '/hm/u/proj/sub', {}, '/cfg')).skipped).toHaveLength(1);
+    const linkedHome = home().link('/h', '/hm/u').link('/hm/u/proj/.git', '/x');
+    const report = await guard(linkedHome, '/h/proj/sub', {}, '/hm/u/.claude/');
+    expect(report.skipped.map((s) => s.path)).toEqual(['/h/.claude', '/hm/u/.claude']);
+  });
+
+  it('records the skip in the error details too', async () => {
+    const fs = home().json('/hm/u/proj/.claude/settings.json', CREDS);
+    const error = await refusal(guard(fs, '/hm/u/proj/sub', {}, '/hm/u/.claude'));
+    expect(details(error)['files']).toEqual(['/hm/u/proj/.claude/settings.json']);
+    expect(details(error)['skipped']).toEqual([
+      { path: '/hm/u/.claude', reason: 'user-config-dir' },
+    ]);
+  });
+
+  it.each([
+    ['no config dir', null],
+    ['another directory', '/other/.claude'],
+    ['a relative path', 'home/u/.claude'],
+    ['a missing directory', '/missing/.claude'],
+    ['a file', '/hm/u/.claude/settings.json'],
+  ])('reads the user settings when the config dir is %s (fail closed)', async (_name, dir) => {
+    const error = await refusal(guard(home(), '/hm/u/proj/sub', {}, dir));
+    expect(details(error)['files']).toEqual([
+      '/hm/u/.claude/settings.json',
+      '/hm/u/.claude/settings.local.json',
+    ]);
+  });
+
+  it('skips nothing outside the fallback', async () => {
+    const fs = home().dir('/hm/u/.git');
+    const error = await refusal(guard(fs, '/hm/u', {}, '/hm/u/.claude'));
+    expect(details(error)['skipped']).toEqual([]);
+  });
+
+  it('resolves the effective config dir', () => {
+    const env = { CLAUDE_CONFIG_DIR: '/env/cfg' };
+    expect(userConfigDirOf('/opt/cfg', env, '/hm/u', 'posix')).toBe('/opt/cfg');
+    expect(userConfigDirOf(null, env, '/hm/u', 'posix')).toBe('/env/cfg');
+    expect(userConfigDirOf(null, { CLAUDE_CONFIG_DIR: '' }, '/hm/u', 'posix')).toBe(
+      '/hm/u/.claude',
+    );
+    expect(userConfigDirOf(null, {}, 'C:\\Profiles\\u', 'win32')).toBe('C:\\Profiles\\u\\.claude');
+  });
+});
+
 describe('parsing (CLI 2.1.296: UTF-8 or UTF-16LE with BOM, one U+FEFF removed, JSON.parse)', () => {
   async function verdict(content: string | Uint8Array): Promise<string> {
     const fs = new FakeFs('posix').dir('/w/.git').file('/w/.claude/settings.json', content);
@@ -636,6 +762,7 @@ describe('file problems (fail closed)', () => {
       fs: racing,
       platform: 'posix',
       processCwd: '/',
+      userConfigDir: null,
     });
     expect(report.files).toEqual([]);
   });

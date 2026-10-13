@@ -44,7 +44,7 @@ async function repo(name: string): Promise<string> {
 function guard(cwd: string): Promise<SettingsGuardReport> {
   return checkProjectCredentialEnv(
     { cwd, settingSources: ['user', 'project', 'local'], projectCredentialEnv: 'refuse' },
-    nodeSettingsGuardDeps(),
+    nodeSettingsGuardDeps(null),
   );
 }
 
