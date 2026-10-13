@@ -16,7 +16,9 @@ export type SandboxRefusalCode =
   /** The binary is not the verified pinned CLI, or changed since it was verified. */
   | 'binary'
   /** The mock (and with it the egress trap) is not a loopback URL. */
-  | 'mock';
+  | 'mock'
+  /** A real-CLI run on a host where it is refused (a local macOS host, `host-policy.ts`). */
+  | 'host';
 
 /** Error raised when the sandbox cannot be built or a launch would weaken it. */
 export class SandboxRefusedError extends Error {

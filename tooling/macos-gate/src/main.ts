@@ -19,6 +19,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { parsePin } from '../../test-support/src/cli/pin.js';
+import { assertRealCliHostAllowed } from '../../test-support/src/launcher/host-policy.js';
 import { DEFAULT_SDK_VERSION, digestRecord } from './digests.js';
 import type { GateHost } from './host.js';
 import { errorMessage } from './items/common.js';
@@ -133,6 +134,9 @@ export async function runGate(
   options: GateOptions,
   prepare: PrepareBinaries,
 ): Promise<number> {
+  // The gate runs the real CLI: GitHub-hosted runners only, unless the
+  // developer opts in on a local Mac (W3-Z ruling 10, ADR-0014 item 3).
+  assertRealCliHostAllowed(host.platform, host.env);
   const startedAt = new Date(host.now()).toISOString();
   const pin = parsePin(JSON.parse(await host.fs.readFile(options.pin)), options.pin);
   const platform = `darwin-${host.arch}`;

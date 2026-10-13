@@ -197,7 +197,12 @@ export class SimHost implements GateHost {
   readonly pid = 900;
   readonly user = 'runner';
   readonly tmpdir = '/var/folders/zz/abc123/T';
-  readonly env: Record<string, string | undefined> = { ImageOS: 'macos15', RUNNER_ARCH: 'ARM64' };
+  readonly env: Record<string, string | undefined> = {
+    ImageOS: 'macos15',
+    RUNNER_ARCH: 'ARM64',
+    CI: 'true',
+    RUNNER_ENVIRONMENT: 'github-hosted',
+  };
   readonly nodeVersion = 'v22.20.0';
   time = T0;
   readonly table = new Map<number, SimProcess>();

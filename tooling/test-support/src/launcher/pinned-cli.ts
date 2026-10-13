@@ -20,6 +20,7 @@ import { hostPlatform, libcFromReport, loadPin } from '../cli/pin.js';
 import { verifyPinnedCli } from '../cli/pinned.js';
 import type { CliBinary } from '../cli/pinned.js';
 import { SandboxRefusedError } from './errors.js';
+import { assertRealCliHostAllowed } from './host-policy.js';
 
 /** A pinned binary verified in this process, with the file identity it had then. */
 export interface VerifiedCli extends CliBinary {
@@ -104,6 +105,22 @@ export function isInside(root: string, file: string): boolean {
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
+/** The pin file of the options: the repository pin unless another is named. */
+function pinFileOf(options: PinnedCliOptions): string {
+  return options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json');
+}
+
+/**
+ * The repository pin names the real Claude Code CLI: refuse it on a local
+ * macOS host (host-policy.ts, W3-Z ruling 10). A test's own pin (the fake
+ * CLI) is not the real binary.
+ */
+function refuseRealCliHost(pinFile: string, options: PinnedCliOptions): void {
+  if (path.resolve(pinFile) === path.resolve(options.repoRoot, 'tooling', 'cli-pin.json')) {
+    assertRealCliHostAllowed(options.hostPlatform ?? process.platform, options.env);
+  }
+}
+
 /** Every {@link VerifiedCli} issued by {@link resolvePinnedCli} in this process. */
 const ISSUED = new WeakSet<VerifiedCli>();
 
@@ -115,10 +132,10 @@ const ISSUED = new WeakSet<VerifiedCli>();
  *   a verifying copy (run `pnpm cli:fetch`).
  */
 export async function resolvePinnedCli(options: PinnedCliOptions): Promise<VerifiedCli> {
+  const pinFile = pinFileOf(options);
+  refuseRealCliHost(pinFile, options);
   const cacheRoot = options.cacheRoot ?? defaultCacheRoot(options.repoRoot, options.env);
-  const pin = await loadPin(
-    options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json'),
-  );
+  const pin = await loadPin(pinFile);
   const binary = await verifyPinnedCli({
     pin,
     platform: options.platformKey ?? hostPlatformKey(options.env),
@@ -163,9 +180,7 @@ export type PinnedCliProbe =
  */
 export async function probePinnedCli(options: PinnedCliOptions): Promise<PinnedCliProbe> {
   const platform = options.platformKey ?? hostPlatformKey(options.env);
-  const pin = await loadPin(
-    options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json'),
-  );
+  const pin = await loadPin(pinFileOf(options));
   const entry = pin.platforms.get(platform);
   if (entry !== undefined && 'pendingGate' in entry) {
     return {

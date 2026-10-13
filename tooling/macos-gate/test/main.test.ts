@@ -205,6 +205,22 @@ describe('runGate', () => {
     expect(sim.spawned).toEqual([]);
   });
 
+  it('refuses a local Mac before anything runs, unless the developer opts in', async () => {
+    const { sim, options } = gate();
+    delete sim.env['CI'];
+    delete sim.env['RUNNER_ENVIRONMENT'];
+    await expect(
+      runGate(sim, options, () => Promise.reject(new Error('unused'))),
+    ).rejects.toMatchObject({ code: 'host' });
+    expect(sim.spawned).toEqual([]);
+    sim.env['HUDHUD_ALLOW_LOCAL_MACOS_REAL_CLI'] = '1';
+    sim.files.set(options.pin, { kind: 'file', text: '{"version":"x"}' });
+    // Past the host check: the next refusal is the invalid pin.
+    await expect(runGate(sim, options, () => Promise.reject(new Error('unused')))).rejects.toThrow(
+      /SemVer/,
+    );
+  });
+
   it('refuses an invalid pin before anything runs', async () => {
     const { sim, options } = gate();
     sim.files.set(options.pin, { kind: 'file', text: '{"version":"x"}' });
