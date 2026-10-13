@@ -11,14 +11,14 @@
       "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=0: synthetic authentication_failed assistant, error result",
       "research": "05 §9",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "auth-401-no-retry",
@@ -47,14 +47,14 @@
       "scenario": "HTTP 401 with CLAUDE_CODE_MAX_RETRIES=2 (shortened from the default 10): system/api_retry x2, then the error result",
       "research": "05 §9",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "auth-401-retries",
@@ -73,6 +73,24 @@
       "compressed": false,
       "shapeMissing": [],
       "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+    },
+    {
+      "suite": "auth-token-source",
+      "case": "main",
+      "file": "auth-token-source/linux.jsonl",
+      "platform": "linux",
+      "cliVersion": "2.1.296",
+      "scenario": "K10: a fake ANTHROPIC_AUTH_TOKEN instead of an API key; the apiKeySource the CLI reports, then HTTP 401 with CLAUDE_CODE_MAX_RETRIES=0",
+      "research": "05 §9, plan §4.3 (K10)",
+      "recordedOn": "2026-10-13",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
+      "exit": {
+        "code": 1,
+        "signal": null
+      },
+      "compressed": false,
+      "shapeMissing": []
     },
     {
       "suite": "auth-token-source",
@@ -101,14 +119,14 @@
       "scenario": "a background Bash shell (sleep 3) outlives its turn; after EOF the CLI waits, then runs a new turn on its completion",
       "research": "07 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "bg-shell-turn-after-eof",
@@ -137,14 +155,14 @@
       "scenario": "a 5 MB model text: assistant and result frames of about 5 MB each, unsplit",
       "research": "05 §11",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": true,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "big-frame-5mb",
@@ -173,14 +191,14 @@
       "scenario": "a UTF-8 BOM before the first line, CRLF line ends and a whitespace-only line on stdin",
       "research": "05 §11",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "crlf-bom",
@@ -209,14 +227,14 @@
       "scenario": "initialize, then stdin EOF with no turn",
       "research": "05 §8",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "eof-idle",
@@ -245,14 +263,14 @@
       "scenario": "stdin EOF while a 2 s reply is streaming: the turn finishes, then exit",
       "research": "05 §8",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "eof-midstream",
@@ -281,14 +299,14 @@
       "scenario": "stdin EOF while a Bash tool (sleep 3) runs: the tool completes, the model is called again",
       "research": "05 §8",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "eof-midtool",
@@ -317,14 +335,14 @@
       "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
       "research": "07 §1 a5",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "fork-session-id",
@@ -335,14 +353,14 @@
       "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session --session-id=U2 (id U2)",
       "research": "07 §1 a5",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "fork-session-id",
@@ -389,14 +407,14 @@
       "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
       "research": "07 §1 a4",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "fork",
@@ -407,14 +425,14 @@
       "scenario": "setup: --session-id=U1; main: --resume=U1 --fork-session (a new session id)",
       "research": "07 §1 a4",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "fork",
@@ -461,14 +479,14 @@
       "scenario": "initialize, one text turn, EOF",
       "research": "05 §5",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "handshake",
@@ -497,14 +515,14 @@
       "scenario": "interrupt with cancel_queued:true while a second message is queued: it is dropped",
       "research": "05 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "interrupt-cancel-queued",
@@ -533,14 +551,14 @@
       "scenario": "interrupt after the first streamed delta of a 20-delta reply (--include-partial-messages)",
       "research": "05 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "interrupt-midstream",
@@ -569,14 +587,14 @@
       "scenario": "interrupt while a second user message is queued: still_queued, the queued turn runs next",
       "research": "05 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "interrupt-queued",
@@ -605,14 +623,14 @@
       "scenario": "GH#98713: after a completed turn, the turn-2 user message and an interrupt in one stdin write; the interrupt is ignored",
       "research": "05 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "interrupt-same-write",
@@ -641,14 +659,14 @@
       "scenario": "--max-turns=1 with a model that calls a tool at every step: error_max_turns",
       "research": "05 §9",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "max-turns",
@@ -677,14 +695,14 @@
       "scenario": "HTTP 529 on every request: system/api_retry x2 (the 529 cap of 3 attempts), then the error result",
       "research": "05 §9",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "overloaded-529",
@@ -713,14 +731,14 @@
       "scenario": "--include-partial-messages, a text reply streamed in 5 deltas",
       "research": "05 §7",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "partial-messages",
@@ -749,14 +767,14 @@
       "scenario": "can_use_tool answered allow with updatedInput; the tool runs",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-allow",
@@ -785,14 +803,14 @@
       "scenario": "can_use_tool answered deny with interrupt:true; the turn aborts",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-deny-interrupt",
@@ -821,14 +839,14 @@
       "scenario": "can_use_tool answered deny with a message; the turn continues",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-deny",
@@ -857,14 +875,14 @@
       "scenario": "can_use_tool left unanswered, then stdin EOF: the request fails and the turn completes",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-eof",
@@ -893,14 +911,14 @@
       "scenario": "can_use_tool answered with a control_response of subtype error",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-error-response",
@@ -929,14 +947,14 @@
       "scenario": "can_use_tool left unanswered for 3 s, then interrupt: the CLI withdraws its request",
       "research": "05 §6",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "permission-never-answered-interrupt",
@@ -965,14 +983,14 @@
       "scenario": "--resume=<unknown uuid>: an error result before any control_response, exit 1",
       "research": "07 §1 a11",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 1,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "resume-not-found",
@@ -1001,14 +1019,14 @@
       "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
       "research": "07 §1 a1, a2",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "resume",
@@ -1019,14 +1037,14 @@
       "scenario": "setup: --session-id=U1 one turn; main: --resume=U1 one turn (same id in system/init)",
       "research": "07 §1 a1, a2",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "resume",
@@ -1073,14 +1091,14 @@
       "scenario": "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1: session_state_changed running/idle around a text turn",
       "research": "05 §12",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "session-state-events",
@@ -1109,14 +1127,14 @@
       "scenario": "initialize, one text turn with a user-message uuid (command_lifecycle), EOF",
       "research": "05 §5",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "text-turn",
@@ -1145,14 +1163,14 @@
       "scenario": "a read-only Bash tool call (echo hi), auto-allowed in default mode without a prompt tool",
       "research": "05 §6, §14",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "tool-bash",
@@ -1181,14 +1199,14 @@
       "scenario": "initialize, two sequential turns (text, echo), EOF",
       "research": "05 §4",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "two-turns",
@@ -1217,14 +1235,14 @@
       "scenario": "Arabic user text echoed back, then a mock reply with Arabic, emoji and an accented letter",
       "research": "05 §11",
       "recordedOn": "2026-10-13",
-      "recorderRevision": "e0ce6e1",
+      "recorder": "@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)",
+      "recorderRevision": "a10601a",
       "exit": {
         "code": 0,
         "signal": null
       },
       "compressed": false,
-      "shapeMissing": [],
-      "recorder": "@hudhud/test-support RecordingSession + normalizeRecords (W3-T6 suite scripts)"
+      "shapeMissing": []
     },
     {
       "suite": "utf8-arabic",
