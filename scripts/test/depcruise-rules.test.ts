@@ -340,7 +340,7 @@ describe('dependency-cruiser layer rules', () => {
   }, 120_000);
 
   afterAll(() => {
-    rmSync(fixture, { recursive: true, force: true });
+    rmSync(fixture, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('fails the run when any rule is violated', () => {

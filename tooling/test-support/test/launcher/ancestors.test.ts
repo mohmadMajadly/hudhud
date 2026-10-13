@@ -173,7 +173,7 @@ describe('the real file-system probe', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('finds a planted .claude directory, CLAUDE.md and .mcp.json above the run directory', async () => {

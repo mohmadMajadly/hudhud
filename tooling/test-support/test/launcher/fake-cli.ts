@@ -102,7 +102,7 @@ export async function makeFakeCli(): Promise<FakeCli> {
     identity,
     process.platform,
   );
-  await rm(staging, { recursive: true, force: true });
+  await rm(staging, { recursive: true, force: true, maxRetries: 10 });
   const pinFile = path.join(root, 'cli-pin.json');
   await writeFile(
     pinFile,

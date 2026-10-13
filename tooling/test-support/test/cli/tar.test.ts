@@ -520,5 +520,8 @@ describe('extractTarEntry: fuzzing', () => {
       ),
       { numRuns: 300 },
     );
-  });
+    // 300 full extractions of a 1 MiB-bounded archive, up to 31 chunks each.
+    // Measured on Windows under the default --maxWorkers with coverage: max
+    // 3.70 s over 4 runs; x2.
+  }, 8_000);
 });

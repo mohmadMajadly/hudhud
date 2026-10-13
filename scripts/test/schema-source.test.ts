@@ -94,7 +94,7 @@ describe('loadSchemaSource', () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('bundles and imports a TypeScript entry with relative imports', async () => {

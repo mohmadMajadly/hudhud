@@ -290,7 +290,7 @@ describe('validateCwd on the host filesystem', () => {
   });
 
   afterAll(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('returns the canonical path of an existing directory', async () => {

@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10 });
 });
 
 function pinFor(r: Release, overrides: Record<string, unknown> = {}): CliPin {

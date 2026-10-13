@@ -88,7 +88,7 @@ async function load(source: string): Promise<Record<string, Validate>> {
     writeFileSync(file, code);
     return (await import(pathToFileURL(file).href)) as Record<string, Validate>;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
   }
 }
 

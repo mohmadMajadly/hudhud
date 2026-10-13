@@ -386,7 +386,9 @@ describe('turn machine over random event orders', () => {
       }),
       fcParams(1500),
     );
-  });
+    // 1500 model-checked runs. Measured on Windows under the default
+    // --maxWorkers with coverage: max 2.84 s over 4 runs; x2.
+  }, 6_000);
 
   it('is deterministic: the same inputs give byte-identical outputs', () => {
     fc.assert(

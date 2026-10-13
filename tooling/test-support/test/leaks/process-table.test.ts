@@ -126,7 +126,7 @@ describe('table sources', () => {
     });
 
     afterEach(async () => {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10 });
     });
 
     it('lists and reads a /proc-shaped tree; missing files read as null', async () => {

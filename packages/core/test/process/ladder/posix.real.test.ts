@@ -185,7 +185,7 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
   });
 
   afterAll(() => {
-    if (workDir !== '') rmSync(workDir, { recursive: true, force: true });
+    if (workDir !== '') rmSync(workDir, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('SIGTERM reaches the CLI behind the launcher (K1); the CLI cleans up; nothing survives', async () => {

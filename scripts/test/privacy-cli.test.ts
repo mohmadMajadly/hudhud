@@ -83,7 +83,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 describe('privacy-scan --staged', () => {
@@ -156,7 +156,7 @@ describe('privacy-scan --tree', () => {
     expect(nested.status).toBe(0);
     expect(scan('--tree').status).toBe(0);
 
-    rmSync(path.join(dir, 'nested'), { recursive: true, force: true });
+    rmSync(path.join(dir, 'nested'), { recursive: true, force: true, maxRetries: 10 });
     write(`${DENIED}/inner.md`, 'clean\n');
     expect(spawnSync('git', ['init', '--quiet'], { cwd: path.join(dir, DENIED) }).status).toBe(0);
     expect(scan('--tree').status).toBe(1);

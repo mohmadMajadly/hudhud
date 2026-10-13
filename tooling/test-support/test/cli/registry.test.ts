@@ -267,7 +267,7 @@ describe('downloadTarball', () => {
     dir = await mkdtemp(path.join(tmpdir(), 'hudhud-dl-'));
   });
   afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('streams to a new file and returns its sha512 SRI', async () => {

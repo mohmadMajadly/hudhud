@@ -222,7 +222,7 @@ describe('prepareBinaries', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   function host(registry: ReturnType<typeof fakeRegistry>): SimHost {

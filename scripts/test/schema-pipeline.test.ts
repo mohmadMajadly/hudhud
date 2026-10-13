@@ -78,7 +78,7 @@ describe('writeOutputs and compareOutputs', () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('writes every output once and then reports nothing changed', () => {

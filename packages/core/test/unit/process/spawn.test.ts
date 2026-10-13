@@ -44,7 +44,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await tracker.assertNoneListed();
-  await rm(scratch, { recursive: true, force: true });
+  await rm(scratch, { recursive: true, force: true, maxRetries: 10 });
 }, TIMEOUT);
 
 afterEach(async () => {

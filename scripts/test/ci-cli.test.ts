@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
 function node(script: string, args: readonly string[], env: Record<string, string>) {
@@ -45,7 +45,18 @@ function commit(file: string): string {
   writeFileSync(path.join(dir, file), `${file}\n`);
   git('add', file);
   git('commit', '--quiet', '--no-verify', '-m', file);
-  return git('rev-parse', 'HEAD');
+  return head();
+}
+
+/**
+ * The commit HEAD names, read from the repository files instead of a third
+ * git process per commit (each spawn costs tens of milliseconds on Windows,
+ * far more on a loaded host).
+ */
+function head(): string {
+  const ref = readFileSync(path.join(dir, '.git', 'HEAD'), 'utf8').trim();
+  if (!ref.startsWith('ref: ')) return ref;
+  return readFileSync(path.join(dir, '.git', ref.slice('ref: '.length)), 'utf8').trim();
 }
 
 function classify(event: string, payload: unknown, extra: Record<string, string> = {}) {
@@ -130,7 +141,9 @@ describe('ci-classify.mjs', () => {
     expect(push('f'.repeat(40), docsHead)).toContain('tier=FULL');
     // tags are always FULL, even docs-only
     expect(push(base, docsHead, { GITHUB_REF: 'refs/tags/v1.0.0' })).toContain('tier=FULL');
-  });
+    // Real git and node processes (8 git, 8 node). Measured on Windows under
+    // the default --maxWorkers with coverage: max 3.44 s over 4 runs; x2.
+  }, 7_000);
 
   it('classifies a local file list', () => {
     const result = node('ci-classify.mjs', ['--files', 'docs/a.md', 'README.md'], {});

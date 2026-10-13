@@ -231,7 +231,7 @@ describe('resolveExecutable on the host filesystem', () => {
   });
 
   afterAll(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('resolves an executable file with the host defaults', async () => {

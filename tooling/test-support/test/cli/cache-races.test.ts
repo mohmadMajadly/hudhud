@@ -78,7 +78,7 @@ afterEach(async () => {
   hooks.beforeOpen = undefined;
   hooks.afterOpen = undefined;
   hooks.lstatAs = undefined;
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10 });
 });
 
 async function reason(): Promise<string> {

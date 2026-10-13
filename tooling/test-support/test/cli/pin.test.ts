@@ -175,7 +175,7 @@ describe('loadPin', () => {
     dir = await mkdtemp(path.join(tmpdir(), 'hudhud-pin-'));
   });
   afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 10 });
   });
 
   it('refuses invalid JSON and oversized files', async () => {

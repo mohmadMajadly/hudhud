@@ -99,7 +99,7 @@ describe('resolvePinnedCli', () => {
       });
       expect(viaEnv.available).toBe(true);
     } finally {
-      await rm(repo, { recursive: true, force: true });
+      await rm(repo, { recursive: true, force: true, maxRetries: 10 });
     }
   });
 

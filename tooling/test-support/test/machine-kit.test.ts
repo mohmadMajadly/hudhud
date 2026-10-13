@@ -138,7 +138,9 @@ describe('reference machine through the kit', () => {
       { kind: 'answer', target: 0, decision: { behavior: 'deny', message: 'no' } },
       ask,
       { kind: 'abort-ask', target: 0 },
-      ask,
+      // An ask without a tool name: the reference machine names it `tool`
+      // (deterministic coverage, not left to the generated interleavings).
+      { kind: 'line', text: '{"type":"ask"}' },
       { kind: 'line', text: '{"type":"cancel-ask"}' },
       { kind: 'interrupt', target: 0, cancelQueued: true },
       { kind: 'interrupt', target: -1, cancelQueued: false },
@@ -157,6 +159,11 @@ describe('reference machine through the kit', () => {
     expect(second).toEqual(first);
     const types = first.steps.flatMap((step) => step.effects.map((effect) => effect.type));
     expect(types).toContain('permission.ask');
+    const asked = first.steps
+      .flatMap((step) => step.effects)
+      .filter((effect) => effect.type === 'permission.ask')
+      .map((effect) => (effect as unknown as { request: { toolName: string } }).request.toolName);
+    expect(asked).toEqual(['Shell', 'Shell', 'Shell', 'tool']);
     expect(types).toContain('control.settle');
     expect(types).toContain('turn.settle');
     expect(types.at(-1)).toBe('session.end');

@@ -18,7 +18,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10 });
 });
 
 afterEach(() => {
@@ -51,13 +51,16 @@ describe('sha256File', () => {
   // Content stays small: the read count is size / chunkBytes, and size is not
   // the property here (the 8 MiB test below covers large files). Chunk sizes
   // still span below, at and above the content length.
+  // One file, rewritten per run: creating 200 new files made the property
+  // slow under load on Windows (each new file is scanned on creation).
   it('property: equals the one-shot digest for any content and chunk size', async () => {
+    const target = await file('');
     await fc.assert(
       fc.asyncProperty(
         fc.uint8Array({ maxLength: 512 }),
         fc.integer({ min: 1, max: 600 }),
         async (content, chunkBytes) => {
-          const target = await file(content);
+          await writeFile(target, content);
           const result = await sha256File(target, { chunkBytes });
           expect(result.sha256).toBe(oneShot(content));
           expect(result.size).toBe(content.length);
@@ -65,16 +68,35 @@ describe('sha256File', () => {
       ),
       { numRuns: 200 },
     );
-  });
+    // 200 real file writes and hashes (open, stat, read, stat, close each).
+    // Measured on Windows under the default --maxWorkers with coverage: max
+    // 3.84 s over 4 runs; x2.
+  }, 8_000);
 
   it('streams a large file through one fixed buffer (bounded memory)', async () => {
     const content = new Uint8Array(8 * 1024 * 1024 + 17);
     for (let i = 0; i < content.length; i += 4093) content[i] = i % 251;
     const target = await file(content);
-    const alloc = vi.spyOn(Buffer, 'allocUnsafe');
+    // Measures only the code under test: the buffers sha256File hands to
+    // FileHandle.read (a spy on Buffer.allocUnsafe also counted allocations
+    // of Node internals and of other work in the same worker).
+    const probe = await open(target);
+    const proto: { read: (...args: never[]) => unknown } = Object.getPrototypeOf(probe) as {
+      read: (...args: never[]) => unknown;
+    };
+    await probe.close();
+    const original = proto.read;
+    const buffers: unknown[] = [];
+    vi.spyOn(proto, 'read').mockImplementation(function (this: unknown, ...args: never[]) {
+      buffers.push(args[0]);
+      return Reflect.apply(original, this, args);
+    });
     const digest = await sha256File(target);
     expect(digest.sha256).toBe(oneShot(content));
-    expect(alloc.mock.calls).toEqual([[65536]]);
+    // ceil(size / 64 KiB) chunks plus the read that returns 0 bytes, all into one buffer.
+    expect(buffers).toHaveLength(Math.ceil(content.length / 65536) + 1);
+    expect(new Set(buffers).size).toBe(1);
+    expect((buffers[0] as Uint8Array).length).toBe(65536);
   });
 
   it('binds the digest to the identity of the hashed file', async () => {

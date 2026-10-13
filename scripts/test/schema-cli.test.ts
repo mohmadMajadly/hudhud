@@ -46,7 +46,7 @@ describe('schema entry points', () => {
     });
 
     afterEach(() => {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true, maxRetries: 10 });
     });
 
     const put = (file: string, text: string) => {

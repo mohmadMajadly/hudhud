@@ -232,7 +232,7 @@ describe('a planted orphan on the real host', () => {
   afterEach(async () => {
     if (orphan !== undefined) await killVerified(orphan, host);
     orphan = undefined;
-    if (marker !== '') await rm(marker, { recursive: true, force: true });
+    if (marker !== '') await rm(marker, { recursive: true, force: true, maxRetries: 10 });
     marker = '';
   });
 

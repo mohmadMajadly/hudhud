@@ -303,7 +303,7 @@ export async function createSandbox(options: SandboxOptions): Promise<Sandbox> {
       },
     };
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
     throw error;
   }
 }

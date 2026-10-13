@@ -375,7 +375,7 @@ describe('diffPackages, updateBaseline and formatViolations', () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   });
 
   const write = (file: string, value: unknown) => {
