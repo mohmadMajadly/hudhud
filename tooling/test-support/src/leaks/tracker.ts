@@ -17,6 +17,11 @@
  * - every process whose command line contains the marker, normally the
  *   sandbox root (`command-line`, the 07 §13 sweep).
  *
+ * On Windows the `conhost.exe` of a recorded root that has exited gets a
+ * bounded settle window first ({@link CONHOST_SETTLE_MS}): it is a leak
+ * only if a fresh read after the window still lists it. Every other
+ * survivor is a leak at once.
+ *
  * Leaks fail the test and are then killed, each only after its pid and
  * start time were confirmed again in a fresh snapshot, within one deadline
  * per leak ({@link KILL_DEADLINE_MS}); the {@link LeakError} names what
@@ -99,6 +104,22 @@ export interface LeakTrackerOptions extends LeakHost {
 export const KILL_DEADLINE_MS = 15_000;
 /** The wait after a check that still lists the process (or less, at the deadline). */
 export const KILL_CHECK_MS = 100;
+
+/**
+ * The settle window of a root's own console host on Windows (W6-Z ruling 2):
+ * a `conhost.exe` whose parent is a recorded root that has exited is a leak
+ * only if a table read taken this long after the leak check still lists it.
+ *
+ * @remarks
+ * Sized as 3x the slowest measured teardown, rounded up to whole
+ * milliseconds (W6-Z, Windows 11, the core's spawn): after Node observed a
+ * root's exit, its own `conhost.exe` was gone within 0.28 ms for the pinned
+ * CLI (n=79, the whole integration project) and within 0.2 ms for a Node
+ * child (n=40); 3 x 0.28 ms = 0.84 ms. One confirming read follows the
+ * window (a CIM query of 1.2 s or more there), so the window is a floor,
+ * not a budget. Every other survivor is a leak at once.
+ */
+export const CONHOST_SETTLE_MS = 1;
 
 function key(identity: ProcessIdentity): string {
   return `${String(identity.pid)}@${identity.startTime}`;
@@ -264,6 +285,8 @@ export class LeakTracker {
   readonly #known = new Map<string, ProcessRow>();
   /** Roots recorded by the identity their spawn read ({@link LeakTracker.recordIdentity}). */
   readonly #roots = new Map<string, ProcessIdentity>();
+  /** Every recorded root, by either record method. */
+  readonly #rootIds = new Map<string, ProcessIdentity>();
   #sampling: SamplingState | undefined;
 
   constructor(options: LeakTrackerOptions) {
@@ -302,6 +325,7 @@ export class LeakTracker {
     if (row === undefined)
       throw new Error(`root pid ${String(pid)} is not running; record it right after the spawn`);
     this.#known.set(key(row), row);
+    this.#rootIds.set(key(row), row);
     return row;
   }
 
@@ -319,7 +343,9 @@ export class LeakTracker {
     if (identity.pid === this.#self) {
       throw new Error(`pid ${String(identity.pid)} is the host process, not a spawned root`);
     }
-    this.#roots.set(key(identity), { pid: identity.pid, startTime: identity.startTime });
+    const root = { pid: identity.pid, startTime: identity.startTime };
+    this.#roots.set(key(identity), root);
+    this.#rootIds.set(key(identity), root);
   }
 
   /** Adds every current descendant of a known process. Returns how many are known. */
@@ -410,8 +436,33 @@ export class LeakTracker {
    * @throws LeakError
    */
   async assertNoLeaks(): Promise<void> {
-    const leaks = await this.findLeaks();
+    const found = await this.findLeaks();
+    const settling = found.filter((leak) => this.#isExitedRootsConhost(leak, found));
+    let leaks = found;
+    if (settling.length > 0) {
+      // A root's own console host gets the settle window, then one fresh read.
+      await (this.#host.sleep ?? defaultSleep)(CONHOST_SETTLE_MS);
+      const rows = await this.#host.table.read();
+      const settled = settling.filter((leak) => !rows.some((row) => key(row) === key(leak)));
+      leaks = found.filter((leak) => !settled.includes(leak));
+    }
     if (leaks.length === 0) return;
     throw new LeakError(leaks, await killAll(leaks, this.#host));
+  }
+
+  /**
+   * Whether `leak` is the `conhost.exe` of a recorded root that is no longer
+   * listed (Windows only; see {@link CONHOST_SETTLE_MS}). `rows` are the
+   * leak check's survivors: a root among them has not exited.
+   */
+  #isExitedRootsConhost(leak: LeakedProcess, rows: readonly ProcessRow[]): boolean {
+    if (this.#host.table.source !== 'win32-cim' || !/^conhost\.exe$/i.test(leak.name)) return false;
+    if (leak.reason === 'command-line') return false;
+    const root = [...this.#rootIds.values()].find((candidate) => candidate.pid === leak.ppid);
+    return (
+      root !== undefined &&
+      startedNoEarlier(leak, root) &&
+      !rows.some((row) => key(row) === key(root))
+    );
   }
 }

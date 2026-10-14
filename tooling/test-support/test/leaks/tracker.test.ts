@@ -10,6 +10,7 @@ import { hostProcessTable } from '../../src/leaks/process-table.js';
 import type { ProcessRow, ProcessTable } from '../../src/leaks/process-table.js';
 import {
   assertNoSurvivors,
+  CONHOST_SETTLE_MS,
   findSurvivors,
   KILL_CHECK_MS,
   KILL_DEADLINE_MS,
@@ -102,6 +103,159 @@ describe('LeakTracker with a scripted table', () => {
     // Through sampling too: a reused pid's child is never absorbed.
     expect(await tracker.sample()).toBe(1 + 1);
     expect(tracker.tracked.map((r) => r.pid)).toEqual([402]);
+  });
+
+  describe("a root's own conhost.exe on Windows (W6-Z ruling 2)", () => {
+    const conhost = (pid: number, ppid: number, start: number): ProcessRow => ({
+      ...row(pid, ppid, start),
+      name: 'conhost.exe',
+    });
+
+    /** A Windows tracker with root 400 (start 10) recorded and exited. */
+    async function windowsTracker(): Promise<{
+      table: FakeTable;
+      tracker: LeakTracker;
+      waits: number[];
+      killed: number[];
+    }> {
+      const table = new FakeTable('win32-cim');
+      table.rows = [row(SELF, 0, 1)];
+      const waits: number[] = [];
+      const killed: number[] = [];
+      const tracker = new LeakTracker({
+        table,
+        selfPid: SELF,
+        kill: (pid) => {
+          killed.push(pid);
+          table.rows = table.rows.filter((r) => r.pid !== pid);
+        },
+        sleep: (ms) => {
+          waits.push(ms);
+          return Promise.resolve();
+        },
+      });
+      await tracker.begin();
+      tracker.recordIdentity({ pid: 400, startTime: '10' });
+      return { table, tracker, waits, killed };
+    }
+
+    it('is no leak when a read after the settle window no longer lists it', async () => {
+      const { table, tracker, waits, killed } = await windowsTracker();
+      table.rows = [row(SELF, 0, 1), conhost(401, 400, 11)];
+      const reads = table.reads;
+      const read = table.read.bind(table);
+      table.read = () => {
+        // The first read (the leak check) lists it; it is gone by the next one.
+        const rows = read();
+        table.rows = [row(SELF, 0, 1)];
+        return rows;
+      };
+      await expect(tracker.assertNoLeaks()).resolves.toBeUndefined();
+      expect(waits).toEqual([CONHOST_SETTLE_MS]);
+      expect(table.reads - reads).toBe(2);
+      expect(killed).toEqual([]);
+    });
+
+    it('is a leak, killed, when the read after the window still lists it', async () => {
+      const { table, tracker, waits, killed } = await windowsTracker();
+      table.rows = [row(SELF, 0, 1), conhost(401, 400, 11)];
+      const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(LeakError);
+      expect((error as LeakError).leaks.map((l) => [l.pid, l.reason])).toEqual([
+        [401, 'descendant'],
+      ]);
+      expect(waits[0]).toBe(CONHOST_SETTLE_MS);
+      expect(killed).toEqual([401]);
+    });
+
+    it('gives no window to any other survivor, and still settles the root conhost', async () => {
+      const { table, tracker, waits, killed } = await windowsTracker();
+      // 402 a tool process of the root, 403 the conhost of that tool (not
+      // the root's own), 401 the root's own conhost.
+      table.rows = [row(SELF, 0, 1), conhost(401, 400, 11), row(402, 400, 12)];
+      table.rows.push(conhost(403, 402, 13));
+      const read = table.read.bind(table);
+      let first = true;
+      table.read = () => {
+        const rows = read();
+        if (first) {
+          first = false;
+          table.rows = table.rows.filter((r) => r.pid !== 401);
+        }
+        return rows;
+      };
+      const error: unknown = await tracker.assertNoLeaks().catch((e: unknown) => e);
+      expect((error as LeakError).leaks.map((l) => l.pid)).toEqual([402, 403]);
+      expect(waits.slice(0, 1)).toEqual([CONHOST_SETTLE_MS]);
+      expect(killed).toEqual([402, 403]);
+    });
+
+    it('gives no window while the root runs, to a marked conhost, or off Windows', async () => {
+      const running = await windowsTracker();
+      running.table.rows = [row(SELF, 0, 1), row(400, SELF, 10), conhost(401, 400, 11)];
+      const error: unknown = await running.tracker.assertNoLeaks().catch((e: unknown) => e);
+      expect((error as LeakError).leaks.map((l) => l.pid)).toEqual([400, 401]);
+      expect(running.waits).not.toContain(CONHOST_SETTLE_MS);
+
+      const marked = new FakeTable('win32-cim');
+      marked.rows = [row(SELF, 0, 1)];
+      const waits: number[] = [];
+      const markedTracker = new LeakTracker({
+        table: marked,
+        selfPid: SELF,
+        marker: 'c:\\sandbox\\it1',
+        kill: (pid) => {
+          marked.rows = marked.rows.filter((r) => r.pid !== pid);
+        },
+        sleep: (ms) => {
+          waits.push(ms);
+          return Promise.resolve();
+        },
+      });
+      await markedTracker.begin();
+      markedTracker.recordIdentity({ pid: 400, startTime: '10' });
+      marked.rows.push({ ...conhost(405, 1, 11), commandLine: 'C:\\sandbox\\it1 x' });
+      await expect(markedTracker.assertNoLeaks()).rejects.toBeInstanceOf(LeakError);
+      expect(waits).not.toContain(CONHOST_SETTLE_MS);
+
+      const linux = new FakeTable('linux-proc');
+      linux.rows = [row(SELF, 0, 1)];
+      const linuxWaits: number[] = [];
+      const linuxTracker = new LeakTracker({
+        table: linux,
+        selfPid: SELF,
+        kill: (pid) => {
+          linux.rows = linux.rows.filter((r) => r.pid !== pid);
+        },
+        sleep: (ms) => {
+          linuxWaits.push(ms);
+          return Promise.resolve();
+        },
+      });
+      await linuxTracker.begin();
+      linuxTracker.recordIdentity({ pid: 400, startTime: '10' });
+      linux.rows.push(conhost(401, 400, 11));
+      const linuxError: unknown = await linuxTracker.assertNoLeaks().catch((e: unknown) => e);
+      expect((linuxError as LeakError).leaks.map((l) => l.pid)).toEqual([401]);
+      expect(linuxWaits).not.toContain(CONHOST_SETTLE_MS);
+    });
+
+    it('settles the conhost of a root recorded by its pid, on a real timer by default', async () => {
+      const table = new FakeTable('win32-cim');
+      table.rows = [row(SELF, 0, 1)];
+      const tracker = new LeakTracker({ table, selfPid: SELF, kill: () => undefined });
+      await tracker.begin();
+      table.rows.push(row(400, SELF, 10));
+      await tracker.recordRoot(400);
+      table.rows = [row(SELF, 0, 1), conhost(401, 400, 11)];
+      const read = table.read.bind(table);
+      table.read = () => {
+        const rows = read();
+        table.rows = [row(SELF, 0, 1)];
+        return rows;
+      };
+      await expect(tracker.assertNoLeaks()).resolves.toBeUndefined();
+    });
   });
 
   it('passes when nothing is left', async () => {
