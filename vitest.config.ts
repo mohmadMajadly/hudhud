@@ -108,6 +108,16 @@ export default defineConfig({
           ...HANG_GUARD,
           name: 'integration',
           include: PROJECTS.integration.map((dir) => `${dir}/**/*.test.ts`),
+          // One test file at a time (W6-Z): every test drives real CLIs and
+          // its leak tracker reads the whole host process table (one CIM query
+          // per read on Windows, sampled every second). With a worker per
+          // core (15 on the 16-core W6-Z host) the reads queued behind each
+          // other: identity reads took 4.9 to 5.8 s and 12 of 92 tests hit
+          // the hang guard; file by file they took 1.2 to 1.5 s and all
+          // passed. The timing bounds of plan §4.4 are measured on an
+          // unloaded host, and a run must not depend on the core count.
+          // Concurrency stays inside a test, after `warm()` (J11).
+          fileParallelism: false,
         },
       },
       {
