@@ -72,6 +72,8 @@ import { productHostSeams, samePath } from './product-host.js';
 import type { ProductHostOptions, ProductHostSeams } from './product-host.js';
 import { checkTestRoot, createSandbox, fsProbe, realHomes, resolveTestRoot } from './sandbox.js';
 import type { AncestorPolicy, Sandbox, SandboxOptions } from './sandbox.js';
+import { writeTestLauncher } from './test-launcher.js';
+import type { TestLauncher, TestLauncherOptions, WriteTestLauncherInput } from './test-launcher.js';
 
 /** What the harness needs of a Harness the product connected (the core `Harness`). */
 export interface ConnectedHarness extends AsyncDisposable {
@@ -80,7 +82,7 @@ export interface ConnectedHarness extends AsyncDisposable {
 
 /** What {@link ProductConnect} must pass to the product besides the test's options. */
 export interface ProductConnectRequest {
-  /** The verified pinned binary: the product's `binaryPath`. */
+  /** The verified pinned binary (or the test's launcher in front of it): the product's `binaryPath`. */
   readonly binaryPath: string;
   /** The sandbox config directory: the product's `claudeCode.configDir`. */
   readonly configDir: string;
@@ -106,6 +108,12 @@ export interface TestSetup {
   readonly sandbox?:
     | Pick<SandboxOptions, 'name' | 'env' | 'gitBashPath' | 'nonessentialTraffic' | 'credential'>
     | undefined;
+  /**
+   * A launcher in front of the pinned CLI (`test-launcher.ts`; the K1
+   * signal-target tests, 07 §4), written into the sandbox root; the
+   * product then connects with the launcher as its `binaryPath`. POSIX only.
+   */
+  readonly launcher?: TestLauncherOptions | undefined;
 }
 
 /** Options of {@link IntegrationSuite}. */
@@ -139,6 +147,8 @@ export interface IntegrationSeams {
   readonly startMock?: ((options?: MockServerOptions) => Promise<MockServer>) | undefined;
   /** The spawn and probe runner after the launch check; default the core's. */
   readonly productHost?: Pick<ProductHostOptions, 'spawn' | 'run'> | undefined;
+  /** Writes a test's launcher; default `writeTestLauncher`. */
+  readonly writeLauncher?: ((input: WriteTestLauncherInput) => Promise<TestLauncher>) | undefined;
 }
 
 /**
@@ -180,6 +190,8 @@ interface TestState<H> {
 export interface TestContext {
   readonly mock: MockServer;
   readonly sandbox: Sandbox;
+  /** The test's launcher, when {@link TestSetup.launcher} asked for one. */
+  readonly launcher: TestLauncher | undefined;
   readonly tracker: LeakTracker;
   readonly stopSampling: () => Promise<void>;
 }
@@ -336,6 +348,15 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       ancestorPolicy: this.#seams.ancestorPolicy,
     });
     test.sandbox = sandbox;
+    const launcher =
+      setup.launcher === undefined
+        ? undefined
+        : await (this.#seams.writeLauncher ?? writeTestLauncher)({
+            dir: sandbox.dirs.root,
+            cli: sandbox.cli,
+            platform: sandbox.platform,
+            options: setup.launcher,
+          });
     const tracker = new LeakTracker({ ...this.#leakHost, marker: sandbox.dirs.root });
     await tracker.begin();
     test.tracker = tracker;
@@ -343,7 +364,7 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       this.#seams.samplingMs ?? samplingIntervalMs(process.platform),
     );
     test.stopSampling = stopSampling;
-    return { mock, sandbox, tracker, stopSampling };
+    return { mock, sandbox, launcher, tracker, stopSampling };
   }
 
   async #startMock(
@@ -368,17 +389,22 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
    * Connects the product to the pinned CLI in the test's sandbox (plan
    * §1.11, §4.4). The Harness is disposed after the test.
    *
+   * With a test launcher, the product connects with the launcher as its
+   * binary, and reports the launcher's path with the pinned CLI's version.
+   *
    * @throws SandboxRefusedError `binary` when the pinned binary changed
    *   since its verification or the product reports another binary; every
    *   error of the product's `connect`.
    */
   async testConnect(options?: O): Promise<H> {
     const test = this.#current();
-    const { sandbox, tracker } = await this.setup();
+    const { sandbox, tracker, launcher } = await this.setup();
     const { cli } = sandbox;
     recheckPinnedCli(cli);
+    const binaryPath = launcher?.path ?? cli.binaryPath;
     const host = productHostSeams({
       sandbox,
+      launcher,
       ...this.#seams.productHost,
       onRoot: (root) => {
         this.#recordRoot(test, tracker, root);
@@ -386,18 +412,18 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       onRefused: (error) => test.refusals.push(error),
     });
     const harness = await this.#options.connect(options, {
-      binaryPath: cli.binaryPath,
+      binaryPath,
       configDir: sandbox.dirs.cfg,
       host,
     });
     test.harnesses.push(harness);
     if (
-      !samePath(harness.binary.path, cli.binaryPath, sandbox.platform) ||
+      !samePath(harness.binary.path, binaryPath, sandbox.platform) ||
       harness.binary.version !== cli.version
     ) {
       throw new SandboxRefusedError(
         'binary',
-        `the product connected ${harness.binary.path} ${harness.binary.version}, not the pinned ${cli.binaryPath} ${cli.version}`,
+        `the product connected ${harness.binary.path} ${harness.binary.version}, not the pinned ${binaryPath} ${cli.version}`,
       );
     }
     return harness;

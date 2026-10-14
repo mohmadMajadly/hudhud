@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -16,6 +16,7 @@ import {
 } from '../../src/launcher/product-host.js';
 import { createSandbox, testTempBase } from '../../src/launcher/sandbox.js';
 import type { Sandbox } from '../../src/launcher/sandbox.js';
+import { writeTestLauncher } from '../../src/launcher/test-launcher.js';
 import { makeFakeCli, oneSpellingPerName, scopedPolicy } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
 import { fakeProcess, identityOf } from './fake-process.js';
@@ -153,6 +154,43 @@ describe('checkProductLaunch', () => {
         checkProductLaunch(sessionSpec({ env: noKey }), sandbox, 'session');
       }).message,
     ).toMatch(/changes ANTHROPIC_API_KEY.*dropped/);
+  });
+});
+
+describe('checkProductLaunch with a test launcher (K1, 07 §4)', () => {
+  it('runs only the unchanged launcher, never the binary behind it', async () => {
+    const launcher = await writeTestLauncher({
+      dir: sandbox.dirs.root,
+      cli: sandbox.cli,
+      platform: 'linux',
+      nodePath: '/usr/local/bin/node',
+    });
+    expect(() => {
+      checkProductLaunch(sessionSpec({ file: launcher.path }), sandbox, 'session', launcher);
+    }).not.toThrow();
+    const direct = refusalOf(() => {
+      checkProductLaunch(sessionSpec(), sandbox, 'session', launcher);
+    });
+    expect(direct.code).toBe('binary');
+    expect(direct.message).toMatch(/runs only its launcher/);
+
+    const refused: unknown[] = [];
+    const seams = productHostSeams({
+      sandbox,
+      launcher,
+      onRoot: () => undefined,
+      onRefused: (error) => refused.push(error),
+      spawn: () => Promise.reject(new Error('not spawned in this test')),
+    });
+    await writeFile(
+      launcher.path,
+      `${launcher.source}// tampered
+`,
+    );
+    await expect(seams.spawn(sessionSpec({ file: launcher.path }))).rejects.toThrow(
+      /changed since it was written/,
+    );
+    expect(refused).toHaveLength(1);
   });
 });
 

@@ -22,6 +22,7 @@ import type {
   SuiteHooks,
 } from '../../src/launcher/integration.js';
 import { testTempBase } from '../../src/launcher/sandbox.js';
+import { TEST_LAUNCHER_FILE, writeTestLauncher } from '../../src/launcher/test-launcher.js';
 import type { ProcessRow, ProcessTable } from '../../src/leaks/process-table.js';
 import { LeakError } from '../../src/leaks/tracker.js';
 import type { MockServer } from '../../src/mock/server.js';
@@ -333,6 +334,60 @@ describe('IntegrationSuite lifecycle', () => {
     expect((failure as Error).message).toMatch(/only binary a sandbox runs is the pinned/);
     await suite.endSuite();
   });
+
+  it('connects through a test launcher in front of the pinned CLI (K1, 07 §4)', async () => {
+    const suite = suiteWith({
+      writeLauncher: (input) =>
+        writeTestLauncher({ ...input, platform: 'linux', nodePath: '/usr/local/bin/node' }),
+    });
+    await suite.beginSuite();
+    suite.beginTest();
+    const context = await suite.setup({ launcher: { lingerMs: 5, ignoreSigterm: true } });
+    const launcher = context.launcher;
+    expect(launcher?.path).toBe(path.join(context.sandbox.dirs.root, TEST_LAUNCHER_FILE));
+    expect(launcher?.source).toContain('const IGNORE_SIGTERM = true;');
+    const launcherPath = launcher?.path ?? '';
+    queued(750);
+    const harness = await suite.testConnect({ sessions: 1 });
+    expect(harness.request.binaryPath).toBe(launcherPath);
+    expect(harness.processes).toHaveLength(1);
+    // The pinned binary itself is refused while the test runs a launcher.
+    await expect(suite.testConnect({ path: fake.cli.binaryPath })).rejects.toThrow(
+      /not the pinned .*claude-launcher\.cjs/,
+    );
+    await expect(suite.testConnect({ sessions: 1, file: fake.cli.binaryPath })).rejects.toThrow(
+      /runs only its launcher/,
+    );
+    const failure = await failureOf(suite.endTest());
+    expect(failure).toBeInstanceOf(SandboxRefusedError);
+    expect((failure as Error).message).toMatch(/runs only its launcher/);
+    await suite.endSuite();
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'refuses a test launcher on Windows by default (it would have to be a native executable)',
+    async () => {
+      const suite = suiteWith();
+      await suite.beginSuite();
+      suite.beginTest();
+      await expect(suite.setup({ launcher: {} })).rejects.toThrow(/native executable/);
+      await suite.endTest();
+      await suite.endSuite();
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'writes a test launcher with the running Node.js by default',
+    async () => {
+      const suite = suiteWith();
+      await suite.beginSuite();
+      suite.beginTest();
+      const context = await suite.setup({ launcher: {} });
+      expect(context.launcher?.source.split('\n')[0]).toBe(`#!${process.execPath}`);
+      await suite.endTest();
+      await suite.endSuite();
+    },
+  );
 
   it('closes what a failed setup opened', async () => {
     const noMock = suiteWith({ startMock: () => Promise.reject(new Error('no port')) });
