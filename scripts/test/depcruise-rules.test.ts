@@ -185,6 +185,14 @@ const CASES: readonly Case[] = [
     rules: ['raw-only-from-raw'],
   },
   {
+    // W5-T1: the raw channel lives outside raw/ because the session factory
+    // wraps every transport with it; it may never reach into the raw tier.
+    title: 'the raw channel importing the unstable tier',
+    file: 'packages/claude-code/src/raw-channel.ts',
+    code: "import {} from './raw/index.js';\n",
+    rules: ['raw-only-from-raw'],
+  },
+  {
     title: 'process layer importing the binding layer',
     file: 'packages/core/src/process/planted-binding.ts',
     code: "import {} from '../binding/driver.js';\n",

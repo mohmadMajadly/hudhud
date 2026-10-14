@@ -21,6 +21,12 @@
  *   permission destinations without `dangerouslyAllowConfigWrites` (R6). The
  *   outbound cap applies (`OUTBOUND_FRAME_TOO_LARGE`, nothing written).
  *
+ * Why here and not under `src/raw/`: the session factory wraps every
+ * session's transport with this channel, and `src/raw/` is a leaf no other
+ * adapter source may import (dependency-cruiser `raw-only-from-raw`, which
+ * also keeps this file from importing `src/raw/`). The public functions of
+ * the tier (`raw`, `createSessionRaw`) live in `src/raw/session.ts`.
+ *
  * A raw control request is correlated by its own request id
  * (`hudhud-raw-<n>`, never one the machine uses); the machine sees the answer
  * as an unknown response (diagnostic `control.unknown-response`). It settles

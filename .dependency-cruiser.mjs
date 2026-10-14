@@ -247,7 +247,9 @@ export default {
       name: 'raw-only-from-raw',
       severity: 'error',
       comment:
-        'The unstable tier is a leaf: no other adapter source depends on src/raw/ (ADR-0003).',
+        'The unstable tier is a leaf: no other adapter source depends on src/raw/ (ADR-0003). ' +
+        'This includes src/raw-channel.ts, the transport tap behind /raw: it lives outside raw/ ' +
+        'because the session factory wraps every transport with it (W5-T1).',
       from: { path: '^packages/claude-code/src/', pathNot: '^packages/claude-code/src/raw/' },
       to: {
         path: String.raw`^(packages/claude-code/(src|dist)/raw/|node_modules/@hudhud/claude-code/(src|dist)/raw/)`,
