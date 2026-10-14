@@ -432,6 +432,19 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
   }
 
   /**
+   * Resolves once the identity (pid plus start time) of every session
+   * process the test spawned so far has been read, whatever the reads
+   * found (`endTest` judges them). A test that ends a session within
+   * moments of its spawn, for example an abort right after the first
+   * permission request, awaits it first: on Windows one read is a CIM query
+   * of several hundred milliseconds, and a root that exits before its read
+   * completes cannot be tracked for leaks, which fails the test.
+   */
+  async identified(): Promise<void> {
+    await Promise.allSettled(this.#current().pending);
+  }
+
+  /**
    * Pre-initializes the test's fresh config directory with one complete
    * session before the test fans out several sessions into it (J11): a
    * Harness runs the injected `warmUp` and is disposed; the config
