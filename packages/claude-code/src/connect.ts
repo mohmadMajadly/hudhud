@@ -37,6 +37,7 @@ import {
   buildPosture,
   isCredentialEnvName,
   type BinaryInfo,
+  type CompatInfo,
   type Harness,
   type HarnessCapabilities,
   type SecurityPosture,
@@ -92,6 +93,19 @@ import {
  * @public
  */
 export interface ClaudeCodeHarness extends Harness {
+  /**
+   * The binary as `connect` verified and probed it: facts from connect. When
+   * a session later finds the file changed, it verifies and probes it again
+   * (refused under the same rules) and reports the change as the diagnostic
+   * `binary.version-changed` with `reverified: true`; this property stays.
+   */
+  readonly binary: BinaryInfo;
+  /**
+   * The tested window and the status of the probed version: facts from
+   * connect. A session's `compat` replay carries the status of the binary it
+   * runs (see {@link ClaudeCodeHarness.binary}).
+   */
+  readonly compat: CompatInfo;
   readonly sessions: {
     /** Starts a new session (`--session-id` with a fresh UUID). */
     create(opts?: SessionOptions): Promise<Session>;

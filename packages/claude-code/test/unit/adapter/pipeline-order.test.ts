@@ -9,7 +9,16 @@ import { describe, expect, it } from 'vitest';
 import { InvalidOptionsError, ProjectCredentialEnvError, SessionIdInUseError } from '@hudhud/core';
 
 import { connectWith, sessionWith } from '../../../src/connect.js';
-import { at, BINARY, captureEvents, DIGEST, FakeHost, PROJECT, settle } from './fake-host.js';
+import {
+  at,
+  BINARY,
+  captureEvents,
+  DIGEST,
+  FakeHost,
+  PROJECT,
+  settle,
+  VERSION,
+} from './fake-host.js';
 
 const CREDS = { env: { ANTHROPIC_BASE_URL: 'http://redirect.example' } };
 
@@ -193,6 +202,43 @@ describe('the spawn gate re-verifies before every spawn (TOCTOU)', () => {
     expect(fake.log).not.toContain('spawn');
     expect(harness.registry.size).toBe(0);
     await harness[Symbol.asyncDispose]();
+  });
+
+  it('a re-verified binary whose new version is known-broken is refused without the opt-in (Q7)', async () => {
+    const policy = {
+      minTested: VERSION,
+      maxTested: VERSION,
+      knownBroken: [{ version: '2.1.297', reason: 'loses turns (test listing)' }],
+    };
+    for (const allow of [false, true]) {
+      const fake = new FakeHost({ compat: policy });
+      const harness = await connectWith(
+        { binaryPath: BINARY, claudeCode: { dangerouslyAllowKnownBrokenVersion: allow } },
+        fake.make,
+      );
+      fake.binary = {
+        ...fake.binary,
+        mtimeMs: 2000,
+        ino: 2,
+        sha256: 'e'.repeat(64),
+        version: '2.1.297',
+      };
+      if (allow) {
+        const session = await harness.sessions.create();
+        expect(session.info.version).toBe('2.1.297');
+        await session.close();
+      } else {
+        await expect(harness.sessions.create()).rejects.toMatchObject({
+          code: 'HARNESS_VERSION_KNOWN_BROKEN',
+          details: { version: '2.1.297', reason: 'loses turns (test listing)' },
+        });
+        expect(fake.log).not.toContain('spawn');
+        expect(harness.registry.size).toBe(0);
+      }
+      // The Harness keeps the connect facts either way.
+      expect(harness.binary.version).toBe(VERSION);
+      await harness[Symbol.asyncDispose]();
+    }
   });
 
   it('a binary that changes again right before the spawn is refused', async () => {
