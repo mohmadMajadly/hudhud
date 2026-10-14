@@ -26,7 +26,10 @@
  * may leave out only the credential, which the product never gives it, and
  * a launch may add only a switch that restricts the CLI further
  * (`STRICTER_ADDITIONS`: the nonessential-traffic switch a sandbox of the
- * one trap test leaves out). A
+ * one trap test leaves out). A test of the K1 signal target may put a
+ * generated launcher in front of the binary (`test-launcher.ts`); the
+ * launcher, unchanged and naming the unchanged pinned binary, is then the
+ * only file a launch may run. A
  * refusal is reported to `onRefused` (the harness fails the test with it
  * even when the product maps it to its own spawn error) and thrown. Each
  * spawned session process is reported to `onRoot` before the product sees
@@ -49,6 +52,8 @@ import { SandboxRefusedError } from './errors.js';
 import { recheckPinnedCli } from './pinned-cli.js';
 import { assertKeepsIsolation, STRICTER_ADDITIONS } from './sandbox.js';
 import type { Sandbox } from './sandbox.js';
+import { recheckTestLauncher } from './test-launcher.js';
+import type { TestLauncher } from './test-launcher.js';
 
 /** Credential variables the product leaves out of the version probe (least privilege). */
 export const PROBE_DROPPED_CREDENTIALS: readonly string[] = [
@@ -79,6 +84,11 @@ export interface ProductHostOptions {
   readonly spawn?: ((spec: SpawnSpec) => Promise<HarnessProcess>) | undefined;
   /** The probe's command runner after the check; default the core's `runBoundedCommand`. */
   readonly run?: ((command: BoundedCommand) => Promise<CommandOutcome>) | undefined;
+  /**
+   * The test's launcher in front of the pinned CLI (`test-launcher.ts`):
+   * when set, it is the only file a launch may run, instead of the binary.
+   */
+  readonly launcher?: TestLauncher | undefined;
 }
 
 /** A launch as the product builds it. */
@@ -106,23 +116,32 @@ export function isWithin(root: string, dir: string, platform: NodeJS.Platform): 
 /**
  * Checks a launch the product is about to start (see the module remarks).
  *
+ * With a test `launcher`, the launcher (unchanged, naming the unchanged
+ * pinned binary) is the only file a launch may run.
+ *
  * @throws SandboxRefusedError `binary` for any file other than the verified
- *   pinned binary or a changed one, `unsafe-option` for a working directory
- *   outside the sandbox or an environment that undoes its isolation.
+ *   pinned binary (or the test's launcher) or a changed one, `unsafe-option`
+ *   for a working directory outside the sandbox or an environment that
+ *   undoes its isolation.
  */
 export function checkProductLaunch(
   launch: ProductLaunch,
   sandbox: Sandbox,
   kind: 'session' | 'probe',
+  launcher?: TestLauncher,
 ): void {
   const { cli, platform } = sandbox;
-  if (!samePath(launch.file, cli.binaryPath, platform)) {
+  const expected = launcher?.path ?? cli.binaryPath;
+  if (!samePath(launch.file, expected, platform)) {
     throw new SandboxRefusedError(
       'binary',
-      `the product would run ${launch.file}; the only binary a sandbox runs is the pinned ${cli.binaryPath}`,
+      launcher === undefined
+        ? `the product would run ${launch.file}; the only binary a sandbox runs is the pinned ${cli.binaryPath}`
+        : `the product would run ${launch.file}; this test runs only its launcher ${launcher.path}`,
     );
   }
-  recheckPinnedCli(cli);
+  if (launcher === undefined) recheckPinnedCli(cli);
+  else recheckTestLauncher(launcher);
   if (!isWithin(sandbox.dirs.root, launch.cwd, platform)) {
     throw new SandboxRefusedError(
       'unsafe-option',
@@ -137,12 +156,12 @@ export function checkProductLaunch(
 
 /** The seams of a sandboxed product host (see the module remarks). */
 export function productHostSeams(options: ProductHostOptions): ProductHostSeams {
-  const { sandbox, onRoot, onRefused } = options;
+  const { sandbox, onRoot, onRefused, launcher } = options;
   const spawn = options.spawn ?? spawnHarnessProcess;
   const run = options.run ?? runBoundedCommand;
   const checked = (launch: ProductLaunch, kind: 'session' | 'probe'): void => {
     try {
-      checkProductLaunch(launch, sandbox, kind);
+      checkProductLaunch(launch, sandbox, kind, launcher);
     } catch (error) {
       onRefused(error);
       throw error;
