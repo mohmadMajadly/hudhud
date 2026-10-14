@@ -156,6 +156,32 @@ describe('checkProductLaunch', () => {
   });
 });
 
+describe('checkProductLaunch in the trap sandbox (nonessential traffic allowed)', () => {
+  it('lets the product add the nonessential-traffic switch, and nothing looser', async () => {
+    const trap = await createSandbox({
+      cli: fake.cli,
+      mock: { url: 'http://127.0.0.1:47311' },
+      testRoot: root,
+      ancestorPolicy: scopedPolicy(root),
+      nonessentialTraffic: 'allowed',
+    });
+    const env = oneSpellingPerName(trap.env);
+    const launch = { file: trap.cli.binaryPath, cwd: trap.dirs.work };
+    const name = 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC';
+    expect(env[name]).toBeUndefined();
+    expect(() => {
+      checkProductLaunch({ ...launch, env: { ...env, [name]: '1' } }, trap, 'probe');
+    }).not.toThrow();
+    expect(() => {
+      checkProductLaunch({ ...launch, env }, trap, 'session');
+    }).not.toThrow();
+    expect(() => {
+      checkProductLaunch({ ...launch, env: { ...env, [name]: '0' } }, trap, 'session');
+    }).toThrow(/changes CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC/);
+    await trap.dispose();
+  });
+});
+
 describe('productHostSeams', () => {
   it('replaces the parent environment, the home and the working directory', () => {
     const seams = productHostSeams({

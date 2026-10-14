@@ -23,7 +23,10 @@
  * isolation variable of the sandbox (`assertKeepsIsolation`: home, config
  * and temp directories, the fake credential, the mock as base URL and as
  * the proxy trap, `NO_PROXY`, the nonessential-traffic variable); the probe
- * may leave out only the credential, which the product never gives it. A
+ * may leave out only the credential, which the product never gives it, and
+ * a launch may add only a switch that restricts the CLI further
+ * (`STRICTER_ADDITIONS`: the nonessential-traffic switch a sandbox of the
+ * one trap test leaves out). A
  * refusal is reported to `onRefused` (the harness fails the test with it
  * even when the product maps it to its own spawn error) and thrown. Each
  * spawned session process is reported to `onRoot` before the product sees
@@ -44,7 +47,7 @@ import type {
 
 import { SandboxRefusedError } from './errors.js';
 import { recheckPinnedCli } from './pinned-cli.js';
-import { assertKeepsIsolation } from './sandbox.js';
+import { assertKeepsIsolation, STRICTER_ADDITIONS } from './sandbox.js';
 import type { Sandbox } from './sandbox.js';
 
 /** Credential variables the product leaves out of the version probe (least privilege). */
@@ -126,12 +129,10 @@ export function checkProductLaunch(
       `the product would run the CLI in ${launch.cwd}, outside the sandbox ${sandbox.dirs.root}`,
     );
   }
-  assertKeepsIsolation(
-    launch.env,
-    sandbox.env,
-    platform,
-    kind === 'probe' ? PROBE_DROPPED_CREDENTIALS : [],
-  );
+  assertKeepsIsolation(launch.env, sandbox.env, platform, {
+    mayDrop: kind === 'probe' ? PROBE_DROPPED_CREDENTIALS : [],
+    mayAdd: STRICTER_ADDITIONS,
+  });
 }
 
 /** The seams of a sandboxed product host (see the module remarks). */

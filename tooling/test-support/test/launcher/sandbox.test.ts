@@ -21,6 +21,7 @@ import {
   realHomes,
   resolveTestRoot,
   STREAM_ARGS,
+  STRICTER_ADDITIONS,
   testTempBase,
   worstCaseSocketPath,
 } from '../../src/launcher/sandbox.js';
@@ -245,18 +246,42 @@ describe('assertKeepsIsolation', () => {
       assertKeepsIsolation(noKey, SANDBOX, 'linux');
     }).toThrow(/changes ANTHROPIC_API_KEY.*dropped/u);
     expect(() => {
-      assertKeepsIsolation(noKey, SANDBOX, 'linux', ['anthropic_api_key']);
+      assertKeepsIsolation(noKey, SANDBOX, 'linux', { mayDrop: ['anthropic_api_key'] });
     }).not.toThrow();
     // Only left out: a changed value is still refused.
     expect(() => {
-      assertKeepsIsolation({ ...SANDBOX, ANTHROPIC_API_KEY: 'x' }, SANDBOX, 'win32', [
-        'ANTHROPIC_API_KEY',
-      ]);
+      assertKeepsIsolation({ ...SANDBOX, ANTHROPIC_API_KEY: 'x' }, SANDBOX, 'win32', {
+        mayDrop: ['ANTHROPIC_API_KEY'],
+      });
     }).toThrow(/changes ANTHROPIC_API_KEY.*changed/u);
     // Unprotected variables may differ.
     expect(() => {
       assertKeepsIsolation(without(SANDBOX, 'LANG'), without(SANDBOX, 'LANG'), 'linux');
     }).not.toThrow();
+  });
+
+  it('lets a launch add only the stricter switches the sandbox left out, with their value', () => {
+    const name = 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC';
+    expect(STRICTER_ADDITIONS).toEqual({ [name]: '1' });
+    const stricter = { mayAdd: STRICTER_ADDITIONS };
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, [name]: '1' }, SANDBOX, 'linux');
+    }).toThrow(/changes CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC.*added/u);
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, [name]: '1' }, SANDBOX, 'linux', stricter);
+    }).not.toThrow();
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, [name.toLowerCase()]: '1' }, SANDBOX, 'win32', stricter);
+    }).not.toThrow();
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, [name]: '0' }, SANDBOX, 'linux', stricter);
+    }).toThrow(/changes CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC/u);
+    // A value the sandbox pins is never replaced, not even by the allowed one.
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, [name]: '1' }, { ...SANDBOX, [name]: 'yes' }, 'linux', {
+        mayAdd: STRICTER_ADDITIONS,
+      });
+    }).toThrow(/changes CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC.*changed/u);
   });
 });
 

@@ -354,6 +354,25 @@ export function exactLaunch(
   };
 }
 
+/** What {@link assertKeepsIsolation} lets a launch do beyond keeping the sandbox's values. */
+export interface IsolationAllowance {
+  /** Protected names the launch may leave out. */
+  readonly mayDrop?: readonly string[] | undefined;
+  /** Protected names the sandbox leaves out that the launch may add, with their one value. */
+  readonly mayAdd?: Readonly<Record<string, string>> | undefined;
+}
+
+/**
+ * Switches a launch may add although the sandbox leaves them out: they only
+ * restrict the CLI further. A sandbox made with `nonessentialTraffic:
+ * 'allowed'` (the one trap test, plan §4.5) leaves the nonessential-traffic
+ * switch out, and hudhud still sets it where its own option says so (the
+ * version probe always does).
+ */
+export const STRICTER_ADDITIONS: Readonly<Record<string, string>> = Object.freeze({
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+});
+
 /**
  * Checks that a product-built environment keeps every isolation variable
  * of the sandbox: each name the sandbox pins or protects
@@ -361,8 +380,10 @@ export function exactLaunch(
  * both. Names compare as the OS compares them; on Windows a name that
  * appears twice in different case is refused. A name may be left out only
  * when the platform never reads it ({@link UNREAD_ENV_NAMES}) or when it is
- * listed in `mayDrop` (the version probe, which the product runs without
- * any credential).
+ * listed in `allowance.mayDrop` (the version probe, which the product runs
+ * without any credential); a name the sandbox leaves out may be added only
+ * with the value `allowance.mayAdd` gives it (a switch that restricts the
+ * CLI further, see {@link STRICTER_ADDITIONS}).
  *
  * @throws SandboxRefusedError `unsafe-option` naming the variable, never its value.
  */
@@ -370,8 +391,10 @@ export function assertKeepsIsolation(
   env: Readonly<Record<string, string>>,
   sandboxEnv: Readonly<Record<string, string>>,
   platform: NodeJS.Platform,
-  mayDrop: readonly string[] = [],
+  allowance: IsolationAllowance = {},
 ): void {
+  const mayDrop = allowance.mayDrop ?? [];
+  const mayAdd = allowance.mayAdd ?? {};
   if (platform === 'win32') {
     const seen = new Set<string>();
     for (const name of Object.keys(env)) {
@@ -394,7 +417,10 @@ export function assertKeepsIsolation(
     if (!isProtectedEnvName(name)) continue;
     const kept = envValue(env, name, platform);
     if (kept === undefined && droppable.has(name.toUpperCase())) continue;
-    if (kept !== envValue(sandboxEnv, name, platform)) {
+    const pinned = envValue(sandboxEnv, name, platform);
+    // A name absent from the sandbox comes from the launch, so `kept` is set.
+    if (pinned === undefined && kept === envValue(mayAdd, name, platform)) continue;
+    if (kept !== pinned) {
       throw new SandboxRefusedError(
         'unsafe-option',
         `the launch changes ${name}, which the sandbox pins (${kept === undefined ? 'dropped' : 'changed or added'})`,
