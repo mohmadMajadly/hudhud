@@ -189,6 +189,38 @@ describe('the pre-handshake replay', () => {
   });
 });
 
+describe('abort and close never reject (W5 lead review, F2)', () => {
+  it('abort resolves when the ladder fails and when the machine broke; close resolves after the end', async () => {
+    const failing = rig({
+      transportOptions: {
+        terminate: async (_request, transport) => {
+          transport.exit({ code: null, signal: 'SIGKILL' });
+          await Promise.resolve();
+          throw new Error('ladder failed');
+        },
+      },
+    });
+    await ready(failing);
+    await expect(failing.driver.abort('dispose')).resolves.toBeUndefined();
+    await expect(failing.driver.abort('abort')).resolves.toBeUndefined();
+    await expect(failing.driver.close()).resolves.toBeUndefined();
+
+    const broken = rig();
+    await ready(broken);
+    broken.say({ t: 'throw' });
+    await settle();
+    const aborted = broken.driver.abort('abort');
+    broken.transport.exit({ code: null, signal: 'SIGKILL' });
+    await expect(aborted).resolves.toBeUndefined();
+
+    const unstarted = rig();
+    const ending = unstarted.driver.abort('dispose');
+    await settle();
+    unstarted.transport.exit({ code: 0, signal: null });
+    await expect(ending).resolves.toBeUndefined();
+  });
+});
+
 async function collectSome(
   iterable: AsyncIterable<HudhudEvent>,
   count: number,

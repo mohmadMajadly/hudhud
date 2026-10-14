@@ -32,7 +32,7 @@ import {
   verificationError,
 } from '../../../src/adapter.js';
 import type { CompatPolicy } from '../../../src/compat.js';
-import { connectWith, sessionWith } from '../../../src/connect.js';
+import { connectWith, disposeWhenClosed, sessionWith } from '../../../src/connect.js';
 import {
   BINARY,
   captureEvents,
@@ -434,6 +434,26 @@ describe('session(): the private Harness', () => {
     await expect(sessionWith({ binaryPath: BINARY }, fake.make)).rejects.toBeInstanceOf(
       HandshakeError,
     );
+  });
+
+  it('a dispose that rejects (or a closed that rejects) never becomes an unhandled rejection (F1)', async () => {
+    let calls = 0;
+    disposeWhenClosed(Promise.resolve(), () => {
+      calls += 1;
+      return Promise.reject(new Error('dispose failed'));
+    });
+    disposeWhenClosed(Promise.reject(new Error('closed failed')), () => {
+      calls += 1;
+      return Promise.resolve();
+    });
+    disposeWhenClosed(Promise.resolve(), () => {
+      calls += 1;
+      throw new Error('dispose threw');
+    });
+    // An unhandled rejection would fail this test run.
+    await settle();
+    await settle();
+    expect(calls).toBe(2);
   });
 
   it('is disposed when the session closed', async () => {

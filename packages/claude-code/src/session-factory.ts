@@ -623,6 +623,8 @@ export async function openSession(harness: SessionHost, request: SessionRequest)
     ids: host.ids,
     hostExit: host.hostExit,
   });
+  // Neither chain can reject: `conflict` only resolves, `abort` and `ended`
+  // never reject (SessionDriver), and `release`/`close` never throw.
   void conflict.promise.then(() => started.abort('abort'));
   void started.ended.then(() => {
     claim.release();
@@ -700,6 +702,7 @@ async function startSession(
   signal: AbortSignal | undefined,
 ): Promise<Session> {
   const onAbort = (): void => {
+    // Never rejects (SessionDriver.abort resolves with the session's end).
     void driver.abort('abort');
   };
   harness.starting.add(driver);

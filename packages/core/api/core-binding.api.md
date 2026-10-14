@@ -1052,9 +1052,7 @@ export interface SessionCore {
 // @beta
 export class SessionDriver<State, Config> implements SessionCore {
     constructor(options: DriverOptions<State, Config>);
-    // (undocumented)
     abort(intent: 'abort' | 'dispose'): Promise<void>;
-    // (undocumented)
     close(): Promise<void>;
     // (undocumented)
     get closed(): Promise<void>;

@@ -295,6 +295,7 @@ class ClaudeHarness extends HarnessBase implements ClaudeCodeHarness, SessionHos
     if (this.disposed) return super[Symbol.asyncDispose]();
     this.registry.dispose();
     const starting = [...this.starting];
+    // `SessionDriver.abort` never rejects (it resolves with the session's end).
     for (const driver of starting) void driver.abort('dispose');
     const live = super[Symbol.asyncDispose]();
     return Promise.all([live, ...starting.map((driver) => driver.ended)]).then(() => undefined);
@@ -341,8 +342,27 @@ export async function sessionWith(
     await harness[Symbol.asyncDispose]();
     throw error;
   }
-  void session.closed.then(() => harness[Symbol.asyncDispose]());
+  disposeWhenClosed(session.closed, () => harness[Symbol.asyncDispose]());
   return session;
+}
+
+/**
+ * Disposes the private Harness of `session()` once its session closed.
+ * Never rejects and never throws.
+ *
+ * @remarks
+ * By contract neither promise rejects: `Session.closed` never does, and the
+ * Harness's dispose catches every session's dispose and otherwise waits only
+ * on driver ends, which never reject. The final `catch` keeps a broken
+ * contract from becoming an unhandled rejection in the application's
+ * process; it swallows deliberately: the session is over, the application
+ * holds no handle to this private Harness, and there is no event stream left
+ * to report to.
+ *
+ * @internal
+ */
+export function disposeWhenClosed(closed: Promise<void>, dispose: () => Promise<void>): void {
+  closed.then(dispose).catch(() => undefined);
 }
 
 /**

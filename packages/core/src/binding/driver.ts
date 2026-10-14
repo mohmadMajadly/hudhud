@@ -608,6 +608,10 @@ export class SessionDriver<State, Config> implements SessionCore {
     this.#enqueue({ body: input });
   }
 
+  /**
+   * Drains the session (K13). Resolves once it ended and everything was
+   * released; never rejects (it is `closed`, derived from `ended`).
+   */
   close(): Promise<void> {
     this.#begin();
     if (!this.#closeRequested && !this.#abortRequested) {
@@ -617,6 +621,12 @@ export class SessionDriver<State, Config> implements SessionCore {
     return this.#closed;
   }
 
+  /**
+   * Aborts the session (the abort ladder). Resolves once it ended and
+   * everything was released; never rejects, also when the machine broke or
+   * the ladder failed (it is `closed`, derived from `ended`, which only
+   * resolves). Callers may discard it with `void`.
+   */
   abort(intent: 'abort' | 'dispose'): Promise<void> {
     this.#begin();
     if (!this.#abortRequested) {
