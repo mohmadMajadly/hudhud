@@ -5,6 +5,7 @@
 // closed (the ladder runs, no turn starts) unless the application allowed
 // known-broken versions.
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { makeErrorData } from '@hudhud/core/protocol';
@@ -14,14 +15,19 @@ import {
   SessionRun,
   events,
   initResponse,
+  lineOf,
   makeConfig,
   ofType,
+  result,
   shape,
+  systemInit,
   uuid,
   writes,
+  type Body,
 } from './session-support.js';
 
 const LISTED = { version: '2.1.297', reason: 'drops permission answers (test listing)' };
+const VERSION_OK = '2.1.296';
 
 function drifted(version: string, overrides: Parameters<typeof makeConfig>[0] = {}): SessionRun {
   const run = new SessionRun(
@@ -104,6 +110,41 @@ describe('version drift between the connect probe and the session', () => {
       intent: 'handshake-failed',
       outcome: 'failed',
     });
+  });
+
+  it('after a drift refusal no input ever produces a write (property)', () => {
+    const inputs = fc.array(
+      fc.oneof(
+        fc.integer({ min: 2, max: 9 }).map((n): Body => ({
+          type: 'cmd.send',
+          turnId: uuid(n),
+          content: 'x',
+        })),
+        fc.constant<Body>({
+          type: 'cmd.interrupt',
+          cancelQueued: true,
+          correlation: 'c-1',
+        }),
+        fc.constant<Body>({ type: 'cmd.set-permission-mode', mode: 'plan', correlation: 'c-2' }),
+        fc.constant<Body>({ type: 'cmd.close' }),
+        fc.constant<Body>({ type: 'cmd.abort', intent: 'abort' }),
+        fc.constant<Body>(lineOf(initResponse({ claude_code_version: VERSION_OK }))),
+        fc.constant<Body>(lineOf(systemInit())),
+        fc.constant<Body>(lineOf(result())),
+        fc.constant<Body>({ type: 'timer', name: 'first-frame' }),
+        fc.constant<Body>({ type: 'stdout.end' }),
+      ),
+      { maxLength: 12 },
+    );
+    fc.assert(
+      fc.property(inputs, (bodies) => {
+        const run = drifted(LISTED.version);
+        const after = run.feed(...bodies);
+        expect(ofType(after, 'write')).toEqual([]);
+        expect(ofType(after, 'handshake.ok')).toEqual([]);
+        expect(ofType(after, 'turn.settle')).toEqual([]);
+      }),
+    );
   });
 
   it('the opt-in runs a known-broken drift with the warning', () => {
