@@ -73,11 +73,17 @@ export const OVERFLOW_POLICIES: readonly OverflowPolicy[] = Object.freeze([
   'block',
 ]);
 
-/** The numbers that describe an overflow; passed to the error factory. */
+/**
+ * The numbers that describe an overflow; passed to the error factory.
+ *
+ * @beta
+ */
 export interface OverflowInfo {
   /** `'events'` when the count limit was hit, `'bytes'` when the byte limit was. */
   readonly limit: 'events' | 'bytes';
+  /** The subscriber's event limit. */
   readonly maxEvents: number;
+  /** The subscriber's byte limit. */
   readonly maxBytes: number;
   /** Events queued at the moment of the overflow. */
   readonly queuedEvents: number;

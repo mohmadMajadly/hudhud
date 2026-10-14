@@ -89,6 +89,7 @@ const ENTRY_NAMES = {
   ],
   '@hudhud/core/binding': [
     'DEFAULT_OUTPUT_DRAIN_MS',
+    'Fanout',
     'HUDHUD_ERROR_CODES',
     'HarnessBase',
     'HostExitHook',
@@ -260,8 +261,9 @@ describe('@hudhud/core', () => {
       'maskCutEnd',
       'Utf8StreamDecoder',
       'isJsonObjectValue',
+      // The queue stays internal; the fanout over it is beta on the binding
+      // entry since W5-T1 (the Claude Code raw tier's frames).
       'BoundedQueue',
-      'Fanout',
       // The permission bridge and the decision copy stay inside the driver.
       'PermissionBridge',
       'validateDecision',

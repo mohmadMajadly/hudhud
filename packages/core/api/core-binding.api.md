@@ -4,6 +4,16 @@
 
 ```ts
 
+// @beta
+export interface AbortSignalLike {
+    readonly aborted: boolean;
+    addEventListener(type: 'abort', listener: () => void, options?: {
+        readonly once?: boolean;
+    }): void;
+    readonly reason: unknown;
+    removeEventListener(type: 'abort', listener: () => void): void;
+}
+
 // @public
 export interface AfterExitKill {
     // (undocumented)
@@ -213,6 +223,29 @@ export interface ExitObservation {
     readonly code: number | null;
     // (undocumented)
     readonly signal: string | null;
+}
+
+// @beta
+export class Fanout<E> {
+    constructor(deps: FanoutDeps<E>);
+    close(): void;
+    get closed(): boolean;
+    publish(event: E, bytes: number): Promise<void> | undefined;
+    get publishPending(): boolean;
+    subscribe(selection?: Selection<E>, options?: FanoutSubscriberOptions): AsyncIterableIterator<E, undefined, undefined>;
+    get subscriberCount(): number;
+}
+
+// @beta
+export interface FanoutDeps<E> {
+    readonly abortError: (reason: unknown) => Error;
+    readonly gapMarker: (dropped: number) => E;
+    readonly overflowError: (info: OverflowInfo) => Error;
+}
+
+// @beta
+export interface FanoutSubscriberOptions extends Omit<SubscriberOptions, 'signal'> {
+    readonly signal?: AbortSignalLike;
 }
 
 // @public
@@ -808,6 +841,16 @@ export type OsCalls = {
     readonly terminate: Win32TerminateCalls;
 };
 
+// @beta
+export interface OverflowInfo {
+    readonly eventBytes: number;
+    readonly limit: 'events' | 'bytes';
+    readonly maxBytes: number;
+    readonly maxEvents: number;
+    readonly queuedBytes: number;
+    readonly queuedEvents: number;
+}
+
 // @public
 export type OverflowPolicy = 'error' | 'drop-oldest-with-gap-marker' | 'block';
 
@@ -944,6 +987,13 @@ export interface SecurityPostureEntry {
     readonly setting: string;
     // (undocumented)
     readonly value: JsonValue;
+}
+
+// @beta
+export interface Selection<E> {
+    readonly endAfter?: (event: E) => boolean;
+    readonly match?: (event: E) => boolean;
+    readonly replay?: readonly SizedEvent<E>[];
 }
 
 // @public
@@ -1085,6 +1135,12 @@ export type SessionOutcome = 'closed' | 'aborted' | 'failed' | 'crashed' | 'kill
 
 // @public
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
+
+// @beta
+export interface SizedEvent<E> {
+    readonly bytes: number;
+    readonly event: E;
+}
 
 // @public
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});

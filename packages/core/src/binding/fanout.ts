@@ -49,16 +49,20 @@ import type { OverflowInfo, OverflowPolicy } from './queue.js';
  * The part of `AbortSignal` the fanout uses. A standard `AbortSignal`
  * satisfies it; tests use a controllable fake.
  *
- * @internal
+ * @beta
  */
 export interface AbortSignalLike {
+  /** Whether the signal aborted. */
   readonly aborted: boolean;
+  /** The abort reason. */
   readonly reason: unknown;
+  /** Registers the abort listener. */
   addEventListener(
     type: 'abort',
     listener: () => void,
     options?: { readonly once?: boolean },
   ): void;
+  /** Removes the abort listener. */
   removeEventListener(type: 'abort', listener: () => void): void;
 }
 
@@ -85,19 +89,30 @@ export interface SubscriberOptions {
  * {@link SubscriberOptions} as the fanout consumes them: any signal with the
  * `AbortSignal` members it uses.
  *
- * @internal
+ * @beta
  */
 export interface FanoutSubscriberOptions extends Omit<SubscriberOptions, 'signal'> {
+  /** Aborting ends the subscription; its iterator rejects once with the abort error. */
   readonly signal?: AbortSignalLike;
 }
 
-/** An event with its declared byte size. */
+/**
+ * An event with its declared byte size.
+ *
+ * @beta
+ */
 export interface SizedEvent<E> {
+  /** The event. */
   readonly event: E;
+  /** Its declared byte size (counted against maxBytes). */
   readonly bytes: number;
 }
 
-/** Which events a subscriber receives. */
+/**
+ * Which events a subscriber receives.
+ *
+ * @beta
+ */
 export interface Selection<E> {
   /** Receive only events for which this returns true (turn filters). Default: all. */
   readonly match?: (event: E) => boolean;
@@ -113,7 +128,11 @@ export interface Selection<E> {
   readonly replay?: readonly SizedEvent<E>[];
 }
 
-/** Factories injected by the binding that owns the event vocabulary. */
+/**
+ * Factories injected by the binding that owns the event vocabulary.
+ *
+ * @beta
+ */
 export interface FanoutDeps<E> {
   /** Builds a gap marker event for `dropped` events. */
   readonly gapMarker: (dropped: number) => E;
@@ -155,6 +174,7 @@ export function resolveSubscriberOptions(
  * Broadcasts events to bounded, isolated subscribers.
  *
  * @typeParam E - the event type.
+ * @beta
  */
 export class Fanout<E> {
   readonly #deps: FanoutDeps<E>;

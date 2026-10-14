@@ -54,6 +54,18 @@ export { counterIds, cryptoIds, ManualClock, systemClock } from './clock.js';
 export type { ExitEmitter, HostExitTarget } from './host-exit.js';
 export { hostExit, HostExitHook } from './host-exit.js';
 
+// The bounded broadcast behind `events()`, for an adapter's own streams (the
+// Claude Code raw tier's frames, W5-T1).
+export type {
+  AbortSignalLike,
+  FanoutDeps,
+  FanoutSubscriberOptions,
+  Selection,
+  SizedEvent,
+} from './fanout.js';
+export { Fanout } from './fanout.js';
+export type { OverflowInfo } from './queue.js';
+
 export type { HarnessFacts, SessionCore, TurnCore } from './handles.js';
 export { createSession, HarnessBase, normalizeUserInput } from './handles.js';
 
