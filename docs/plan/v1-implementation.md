@@ -614,7 +614,9 @@ export type DiagnosticCode =
   | 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified'
   | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable'
   | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry'
-  | 'session.id-mismatch' | 'control.unknown-response' | (string & {});
+  | 'session.id-mismatch' | 'control.unknown-response'
+  | 'events.pre-handshake-truncated' | 'security.posture' | 'settings-guard.allowed' | 'session.id-in-use'   // W5 (as built: the full list is DiagnosticCode in core events/types.ts and events.schema.json)
+  | (string & {});
 
 export type HudhudEvent =
   | (EventBase & { type: 'compat'; compat: CompatInfo; raw?: JsonValue })

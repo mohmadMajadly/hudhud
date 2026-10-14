@@ -138,6 +138,9 @@ export type DiagnosticCode =
   | 'termination.sweep-after-exit'
   | 'binding.machine-error'
   | 'events.pre-handshake-truncated'
+  | 'security.posture'
+  | 'settings-guard.allowed'
+  | 'session.id-in-use'
   | (string & {});
 
 /**

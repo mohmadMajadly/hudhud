@@ -81,6 +81,9 @@ export const DiagnosticCode = openEnum([
   'termination.sweep-after-exit',
   'binding.machine-error',
   'events.pre-handshake-truncated',
+  'security.posture',
+  'settings-guard.allowed',
+  'session.id-in-use',
 ] as const);
 
 const usageProperties = {
