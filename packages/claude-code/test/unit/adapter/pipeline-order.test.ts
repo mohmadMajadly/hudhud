@@ -73,6 +73,16 @@ describe('connect: resolve -> verify -> gate -> one probe -> posture', () => {
       'probe --version',
       'user-settings /home/user/.claude/settings.json',
     ]);
+    // The probe: the verified realpath, `--version` only, a hudhud-owned
+    // directory, hudhud's pinned keys and no credential (least privilege).
+    expect(fake.probes[0]).toMatchObject({
+      file: BINARY,
+      args: ['--version'],
+      cwd: '/tmp/hudhud-probe-1',
+      timeoutMs: 15_000,
+    });
+    expect(fake.probes[0]?.env).toMatchObject({ PATH: '/usr/bin', DISABLE_AUTOUPDATER: '1' });
+    expect(fake.probes[0]?.env).not.toHaveProperty('ANTHROPIC_API_KEY');
     // Sessions never probe an unchanged binary again.
     const a = await harness.sessions.create();
     const b = await harness.sessions.create();

@@ -140,8 +140,8 @@ export interface ClaudeHost {
   readonly env: EnvMap;
   /** The user's home directory (the default config directory, K23). */
   readonly homedir: string;
-  /** The host's working directory: the default `cwd`. */
-  readonly cwd: string;
+  /** The host's working directory, read when a session starts: the default `cwd`. */
+  readonly cwd: () => string;
   readonly discovery: DiscoveryDeps;
   /** Seams of `verifyBinary`; the host's when absent. */
   readonly verify?: VerifyBinaryOptions['deps'];
@@ -181,7 +181,7 @@ export function nodeHost(): ClaudeHost {
     arch: process.arch,
     env: process.env,
     homedir: homedir(),
-    cwd: process.cwd(),
+    cwd: () => process.cwd(),
     discovery: nodeDiscoveryDeps(),
     guardFs: nodeSettingsGuardFs(),
     settingsReader: nodeSettingsFileReader,
@@ -194,6 +194,15 @@ export function nodeHost(): ClaudeHost {
     compat: CLAUDE_CODE_COMPAT_POLICY,
     knownBinaries: KNOWN_BINARIES,
   };
+}
+
+/**
+ * The path semantics of the host (`win32` or `posix`).
+ *
+ * @internal
+ */
+export function platformOf(host: Pick<ClaudeHost, 'platform'>): ProcessPlatform {
+  return host.platform === 'win32' ? 'win32' : 'posix';
 }
 
 // ---- error mapping (plan §3.1) ---------------------------------------------------------

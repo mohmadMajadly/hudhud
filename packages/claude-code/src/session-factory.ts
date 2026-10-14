@@ -91,6 +91,7 @@ import {
   mapBinaryError,
   mapCwdError,
   mapSpawnError,
+  platformOf,
   probeBinary,
   spawnableBinary,
   verifyExecutable,
@@ -240,13 +241,9 @@ function guardDeps(host: ClaudeHost, connect: EffectiveConnectOptions): Settings
   return {
     fs: host.guardFs,
     platform,
-    processCwd: host.cwd,
+    processCwd: host.cwd(),
     userConfigDir: userConfigDirOf(connect.configDir, host.env, host.homedir, platform),
   };
-}
-
-function platformOf(host: ClaudeHost): ProcessPlatform {
-  return host.platform === 'win32' ? 'win32' : 'posix';
 }
 
 // ---- step 1: validation -----------------------------------------------------------------
@@ -324,7 +321,7 @@ export async function prepareSession(
   }
   let cwd: string;
   try {
-    cwd = await validateCwd(effective.cwd ?? host.cwd, platformOf(host), host.cwdFs);
+    cwd = await validateCwd(effective.cwd ?? host.cwd(), platformOf(host), host.cwdFs);
   } catch (error) {
     throw mapCwdError(error);
   }

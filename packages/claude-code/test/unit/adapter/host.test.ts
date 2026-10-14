@@ -40,11 +40,12 @@ describe('nodeHost', () => {
       platform: process.platform,
       arch: process.arch,
       env: process.env,
-      cwd: process.cwd(),
       compat: CLAUDE_CODE_COMPAT_POLICY,
       knownBinaries: KNOWN_BINARIES,
       hostExit,
     });
+    // Read when a session starts, not when the Harness was made.
+    expect(host.cwd()).toBe(process.cwd());
     expect(host.os().platform).toBe(process.platform);
     // The addon package is not shipped until A2: unavailable on every host for now.
     expect(['loaded', 'unavailable']).toContain(host.loadJobAddon().status);

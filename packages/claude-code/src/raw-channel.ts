@@ -72,6 +72,8 @@ export interface RawFrame {
   readonly frame: JsonValue;
 }
 
+const encoder = new TextEncoder();
+
 /** Longest CLI error text copied into an error. */
 const MAX_ECHO = 256;
 
@@ -170,7 +172,7 @@ export class RawChannel {
     const frame = parsed.value;
     if (direction === 'in') this.#settle(frame);
     if (this.#fanout.subscriberCount === 0) return;
-    const bytes = new TextEncoder().encode(line).byteLength - 1;
+    const bytes = encoder.encode(line).byteLength - 1;
     const raw: RawFrame = {
       direction,
       seq: this.#seq,

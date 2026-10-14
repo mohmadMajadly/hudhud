@@ -35,6 +35,7 @@
 import {
   AbortError,
   buildPosture,
+  isCredentialEnvName,
   type BinaryInfo,
   type Harness,
   type HarnessCapabilities,
@@ -51,6 +52,7 @@ import {
 
 import {
   nodeHost,
+  platformOf,
   probeBinary,
   spawnableBinary,
   verifyExecutable,
@@ -105,10 +107,6 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw AbortError.fromSignal(signal);
 }
 
-function platformOf(host: ClaudeHost): ProcessPlatform {
-  return host.platform === 'win32' ? 'win32' : 'posix';
-}
-
 /** What `connect` established; the Harness is built from it. */
 interface Connected {
   readonly host: ClaudeHost;
@@ -121,14 +119,20 @@ interface Connected {
   readonly securityPosture: SecurityPosture;
 }
 
-/** The environment of the probe: the default `'harness'` preset with hudhud's pinned keys. */
+/**
+ * The environment of the probe: the default `'harness'` preset with hudhud's
+ * pinned keys, without any credential variable (`isCredentialEnvName`):
+ * `--version` needs none and makes no network request (05 §1), so the probe
+ * gets no secret it does not need (least privilege).
+ */
 function probeEnv(
   host: ClaudeHost,
   connect: EffectiveConnectOptions,
   platform: ProcessPlatform,
 ): Readonly<Record<string, string>> {
   const defaults = resolveSessionOptions(undefined).effective;
-  return buildChildEnv(defaults, connect, host.env, platform).env;
+  const env = buildChildEnv(defaults, connect, host.env, platform).env;
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !isCredentialEnvName(name)));
 }
 
 /** Steps 2 to 4 of the module remarks. */

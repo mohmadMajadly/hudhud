@@ -304,6 +304,8 @@ export class FakeHost {
   beforeSpawn: ((spec: SpawnSpec) => void) | undefined;
   script: CliScript;
   readonly clis: FakeCli[] = [];
+  /** Every probe command, with its file, argv, environment and cwd. */
+  readonly probes: BoundedCommand[] = [];
   readonly processes = new Map<number, ProcEntry>();
   /** Signals the sweep sent: `pid:signal`. */
   readonly signals: string[] = [];
@@ -328,7 +330,7 @@ export class FakeHost {
         ANTHROPIC_API_KEY: 'sk-ant-fake-hudhud-0000000000000000',
       },
       homedir: '/home/user',
-      cwd,
+      cwd: () => cwd,
       discovery: {
         platform: platform === 'win32' ? 'win32' : 'posix',
         env: { PATH: '' },
@@ -442,6 +444,7 @@ export class FakeHost {
 
   runProbe(command: BoundedCommand): Promise<CommandOutcome> {
     this.log.push(`probe ${command.args.join(' ')}`);
+    this.probes.push(command);
     return Promise.resolve(
       this.probe?.() ?? {
         kind: 'exited',
