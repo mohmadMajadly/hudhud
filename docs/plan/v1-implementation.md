@@ -511,6 +511,31 @@ Golden fixtures: `packages/claude-code/conformance/<suite>/<case>.jsonl`; line f
 
 As built (W3-Z): the launcher refuses the real pinned CLI on a local macOS host (`launcher/host-policy.ts`, ruling 10: the CLI calls `security(1)` on the login keychain even with an API key) unless `CI=true` and `RUNNER_ENVIRONMENT=github-hosted`, or `HUDHUD_ALLOW_LOCAL_MACOS_REAL_CLI=1`; the macOS gate checks the same policy. The refusal is keyed on what would run, not on the pin's path (lead review): default deny, only a pin entry whose sha256 is that of the running Node.js binary (the stand-in CLI of the unit tests) passes, and the host markers come from the real process environment, never from the caller's `env`. An injected platform can only make the policy stricter: a run counts as macOS when the injected platform or the real `process.platform` is `darwin` (also for the macOS gate). A sandbox may be created with the test-only `credential: 'fake-auth-token'` (`ANTHROPIC_AUTH_TOKEN` set to a fake `sk-ant-fake-hudhud-` token, no API key) for the K10 fixture; callers still cannot set protected names. Every Vitest project runs with a 60 s hang guard as its test and hook timeout (ruling 4; ADR-0013 item 20).
 
+As built (W6-T0, the integration harness): `testConnect` lives in test-support, not in `launcher/sandbox.ts`, as `launcher/integration.ts` (`IntegrationSuite`: suite, test and teardown lifecycle; `registerIntegrationHooks`) and `launcher/product-host.ts` (the host seams and the launch check). Test-support may not depend on the adapter (§4.3 "Single-source launch"), so the product's connect is injected: the composition root is `packages/claude-code/test/integration/support/harness.ts`, which passes the adapter's `connectWith` (the body of the public `connect`) over its real host (`nodeHost()`) with only these seams replaced: the parent environment is the sandbox's explicit map (never `process.env`, so no `env` form, `'inherit'` included, can reach a host variable), `homedir` and `cwd` are the sandbox's, the version probe's directory is made in the sandbox temp directory, and every launch (session spawn and version probe) is checked before the core starts it: the file is the verified pinned binary unchanged since verification (`recheckPinnedCli`: under the cache root, same device, inode, size and mtime), the working directory lies inside the sandbox, and the environment keeps every isolation variable of the sandbox (`assertKeepsIsolation`, shared with `exactLaunch`; the probe alone may lack the credential, which the product never gives it). A refused launch fails the test even when the product caught it. Discovery, verification, the probe, the argv and environment builders, the spawn, the machine and the ladders are the product's own. ESLint keeps `connectWith`, `sessionWith` and `nodeHost` to the composition root. Per suite: the pinned CLI is resolved once (refused on a local macOS host by `host-policy.ts`, unchanged), and a suite directory is made under the test root after the forbidden-ancestor check and used by its real path, because hudhud runs the CLI in the real path of its cwd (`validateCwd`): a `subst` test root must not move the run out of the sandbox. Per test (on first use): a fresh mock with its egress trap, a fresh sandbox in the suite directory, and a leak tracker (before snapshot, descendant sampling every 250 ms, 1 s on Windows); every spawned session process is recorded by its spawn identity (`HarnessProcess.identity`, new `LeakTracker.recordIdentity`; a root whose identity cannot be read, or is read in another unit than the leak table's, fails the test). `afterEach` always disposes every Harness the test connected, then fails the test for a root that has not exited, a tracked, new or command-line-marked survivor (killed by verified pid and start time first), a refused launch, or an egress violation of any of the test's mocks, and closes the mocks and removes the sandbox; `afterAll` sweeps for processes naming the suite directory (07 §13) and removes it. J11: `warm()` runs one complete session through the product (the injected `warmUp`) and checks the CLI-written `.claude.json` before a test fans out.
+
+How a Wave 6 suite uses it (one context per test; tests of a file run one after the other, fan-out happens inside a test after `warm()`):
+
+```ts
+import { integrationSuite } from '../support/harness.js';
+
+const suite = integrationSuite(); // registers beforeAll/beforeEach/afterEach/afterAll
+
+test('...', async () => {
+  // Optional, before the first use: mock provider or allowlist, sandbox options
+  // (nonessentialTraffic 'allowed' for the one trap test, credential, extra env).
+  await suite.setup({ mock: { allow: [] }, sandbox: { name: 'perm' } });
+  const harness = await suite.testConnect({ binaryVerification: 'advisory' }); // connect options minus binaryPath
+  const session = await harness.sessions.create({ onPermission }); // cwd: the sandbox work dir
+  const result = await session.ask('[[mock:bash cmd=...]] go');
+  await session.close();
+  const mock = await suite.mock(); // requests, violations
+  const second = await suite.extraMock(); // e.g. the C3 redirect target, asserted and closed too
+  const sandbox = await suite.sandbox(); // dirs, env
+});
+```
+
+`suite.testSession({ connect, session })` is `testConnect` plus `sessions.create`. Run: `pnpm cli:fetch` once (registry.npmjs.org only, verified against the pin), `pnpm build`, then `pnpm vitest run --project integration`; on Windows set `HUDHUD_TEST_ROOT` to a directory outside the user profile (the default temp directory lies under it and is refused with instructions), for example `C:\hudhud-test-root`.
+
 ---
 
 ## 2. Public API for v1
@@ -1031,6 +1056,8 @@ Test root (plan decision): `HUDHUD_TEST_ROOT`, else `RUNNER_TEMP` on CI, else `o
 Suites (Wave 6): lifecycle; permissions and interrupt; containment and ladders (Windows job, Windows best-effort, Linux SIGTERM/SIGKILL+sweep, host crash, launcher signal target per K1 with a launcher shaped like 07 §4 `t14-launcher.cjs`); security defaults (argv and env at the child via a probe tool call, setting sources and the C3 redirect with a second mock, the credential guard against real project dirs including ancestors and `--add-dir`, ancestor isolation, posture, auth fail-fast with `errn status=401`, oversized frame with `big`); request-shape snapshots.
 
 Flake policy: no automatic retries; timing bounds with a 3x margin over 05/07 measurements.
+
+As built (W6-T0): the harness every Wave 6 suite uses (`testConnect`, the per-test and per-suite assertions, the composition root, how to write and run a suite) is described in §1.11; `packages/claude-code/test/integration/harness/smoke.test.ts` proves it end to end (connect, create, one text turn against the mock, graceful close with outcome `closed`, zero egress violations, zero leaks).
 
 ### 4.5 Egress trap
 

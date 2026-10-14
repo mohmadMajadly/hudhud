@@ -57,7 +57,7 @@ Run the gate by hand with `pnpm privacy:staged` (index) or `pnpm privacy:tree` (
 | API                 | `pnpm api:check`     | API Extractor reports under `packages/*/api/` match the build                                                                                                                                                        |
 | Privacy             | `pnpm privacy:tree`  | the privacy gate over the whole tree                                                                                                                                                                                 |
 
-`pnpm check:full` runs `pnpm check` and then `pnpm cli:fetch`, which fetches, verifies and caches the pinned Claude Code CLI for the integration tests under `.cache/claude-cli` (plan §4.6; it downloads from `registry.npmjs.org` and never runs the binary). Integration and tarball checks join `check:full` when they land.
+`pnpm check:full` runs `pnpm check` and then `pnpm cli:fetch`, which fetches, verifies and caches the pinned Claude Code CLI for the integration tests under `.cache/claude-cli` (plan §4.6; it downloads from `registry.npmjs.org` and never runs the binary). Integration and tarball checks join `check:full` when they land. Until then the integration suites run with `pnpm build` and `pnpm vitest run --project integration` after `pnpm cli:fetch`; on Windows set `HUDHUD_TEST_ROOT` to a directory outside your user profile first (plan §1.11 describes the harness and how to write a suite).
 
 It must pass from a clean clone on Windows and Linux. To check Linux from Windows or macOS, run it in a throw-away `node:22` container on a copy of the repository, never on your working copy or host pnpm store.
 
