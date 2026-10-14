@@ -287,7 +287,8 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
       // The child ignores EOF: the grace only delays the tree kill under test.
       const { report, execCalls } = await runLadderOn(tree, 1000);
 
-      expect(summary(report).slice(0, 5)).toEqual([
+      // On a mismatch, name every step with its detail (why a step was skipped).
+      expect(summary(report).slice(0, 5), JSON.stringify(report.steps)).toEqual([
         'intent:done',
         'interrupt:skipped',
         'snapshot-s1:done',
