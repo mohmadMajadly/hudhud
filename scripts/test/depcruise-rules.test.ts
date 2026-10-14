@@ -493,6 +493,30 @@ describe('ESLint layer rules', () => {
     ]);
   });
 
+  it('leaves the connect internals and the host to the composition root', async () => {
+    const code = [
+      "import { connectWith } from '../../src/connect.js';",
+      "import { sessionWith } from '../../../src/connect';",
+      "import { nodeHost } from '../../src/adapter.js';",
+      "import { platformOf } from '../../src/adapter.js';",
+      'export const all = [connectWith, sessionWith, nodeHost, platformOf];',
+      '',
+    ].join('\n');
+    expect(await layerFindings(INTEGRATION, code)).toEqual([
+      '1:no-restricted-imports',
+      '2:no-restricted-imports',
+      '3:no-restricted-imports',
+    ]);
+    const root = 'packages/claude-code/test/integration/support/harness.ts';
+    expect(await layerFindings(root, code)).toEqual([]);
+    expect(
+      await layerFindings(
+        root,
+        "import { connect } from '@hudhud/claude-code';\nexport { connect };\n",
+      ),
+    ).toEqual(['1:no-restricted-imports']);
+  });
+
   it('allows testConnect from test-support in integration tests', async () => {
     expect(
       await layerFindings(

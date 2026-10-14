@@ -51,6 +51,48 @@ const CORE_ROOT_ENTRY = {
 const INTEGRATION_MESSAGE =
   'Integration tests must use testConnect from @hudhud/test-support, never connect/session from the package root (ADR-0013).';
 
+/** The composition root of the integration harness (plan §1.11). */
+const INTEGRATION_SUPPORT = 'packages/*/test/integration/support/**/*.ts';
+
+/**
+ * The import restrictions of integration tests: never `connect`/`session`
+ * from the package root; outside the composition root, also never the
+ * product's connect internals or host (`connectWith`, `sessionWith`,
+ * `nodeHost`), which only the composition root wires into the harness.
+ *
+ * @param {boolean} internals whether the connect internals are refused too
+ */
+function integrationImports(internals) {
+  return {
+    paths: ['@hudhud/claude-code', 'hudhud'].map((name) => ({
+      name,
+      importNames: ['connect', 'session'],
+      message: INTEGRATION_MESSAGE,
+    })),
+    patterns: [
+      {
+        group: ['**/src', '**/src/index', '**/src/index.js', '**/src/index.ts'],
+        importNames: ['connect', 'session'],
+        message: INTEGRATION_MESSAGE,
+      },
+      ...(internals
+        ? [
+            {
+              group: ['**/src/connect', '**/src/connect.js', '**/src/connect.ts'],
+              importNames: ['connect', 'session', 'connectWith', 'sessionWith'],
+              message: INTEGRATION_MESSAGE,
+            },
+            {
+              group: ['**/src/adapter', '**/src/adapter.js', '**/src/adapter.ts'],
+              importNames: ['nodeHost'],
+              message: INTEGRATION_MESSAGE,
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
 /** @type {RestrictedPattern} */
 const NOT_TO_ADAPTERS = {
   group: ['@hudhud/claude-code', '@hudhud/claude-code/**', 'hudhud'],
@@ -209,24 +251,17 @@ export default defineConfig(
     // @hudhud/test-support: pinned, hash-verified binary, sandboxed config,
     // explicit environment (ADR-0013, plan §1.2). Never the public entry.
     files: ['packages/*/test/integration/**/*.ts'],
+    ignores: [INTEGRATION_SUPPORT],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: ['@hudhud/claude-code', 'hudhud'].map((name) => ({
-            name,
-            importNames: ['connect', 'session'],
-            message: INTEGRATION_MESSAGE,
-          })),
-          patterns: [
-            {
-              group: ['**/src', '**/src/index', '**/src/index.js', '**/src/index.ts'],
-              importNames: ['connect', 'session'],
-              message: INTEGRATION_MESSAGE,
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', integrationImports(true)],
+    },
+  },
+  {
+    // The composition root (plan §1.11) injects the product's `connectWith`
+    // over its own host into test-support's harness; it alone may import them.
+    files: [INTEGRATION_SUPPORT],
+    rules: {
+      'no-restricted-imports': ['error', integrationImports(false)],
     },
   },
   {
