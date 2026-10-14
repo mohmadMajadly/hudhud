@@ -201,7 +201,9 @@ describe('productHostSeams', () => {
     const proc = fakeProcess(4242, identityOf(4242, '7'));
     const seams = productHostSeams({
       sandbox,
-      onRoot: (root) => roots.push(root),
+      onRoot: (root) => {
+        roots.push(root);
+      },
       onRefused: (error) => refused.push(error),
       spawn: (spec) => {
         spawned.push(spec);
@@ -215,6 +217,31 @@ describe('productHostSeams', () => {
     expect(spawned).toHaveLength(1);
     expect(refused).toHaveLength(1);
     expect(refused[0]).toBeInstanceOf(SandboxRefusedError);
+  });
+
+  it('hands the root to the product only once onRoot settled', async () => {
+    const proc = fakeProcess(4343, identityOf(4343, '7'));
+    const release = Promise.withResolvers<undefined>();
+    let reported = false;
+    const seams = productHostSeams({
+      sandbox,
+      onRoot: async () => {
+        reported = true;
+        await release.promise;
+      },
+      onRefused: () => undefined,
+      spawn: () => Promise.resolve(proc.process),
+    });
+    let handed = false;
+    const spawned = seams.spawn(sessionSpec()).then((root) => {
+      handed = true;
+      return root;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reported).toBe(true);
+    expect(handed).toBe(false);
+    release.resolve(undefined);
+    await expect(spawned).resolves.toBe(proc.process);
   });
 
   it('checks each probe run and makes the probe directory in the sandbox', async () => {
@@ -250,7 +277,9 @@ describe('productHostSeams', () => {
     const roots: number[] = [];
     const seams = productHostSeams({
       sandbox,
-      onRoot: (root) => roots.push(root.pid),
+      onRoot: (root) => {
+        roots.push(root.pid);
+      },
       onRefused: () => undefined,
     });
     const child = await seams.spawn(sessionSpec());

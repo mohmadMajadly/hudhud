@@ -320,6 +320,23 @@ describe('IntegrationSuite lifecycle', () => {
     await suite.endSuite();
   });
 
+  it('accepts a root that exited before its identity was read only when the test allows it', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    suite.beginTest();
+    await suite.setup({ rootsMayExitBeforeIdentity: true });
+    queued(780, { identity: null, problem: 'exited' });
+    queued(781, { identity: null, problem: 'not-listed' });
+    await suite.testConnect({ sessions: 2 });
+    const failure = await failureOf(suite.endTest());
+    // The exited root passes; any other identity problem still fails.
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(
+      /^no identity could be read for spawned pid 781 \(not-listed\)/,
+    );
+    await suite.endSuite();
+  });
+
   it('fails the test for a launch the sandbox refused, even when the product caught it', async () => {
     const suite = suiteWith();
     await suite.beginSuite();
@@ -378,6 +395,112 @@ describe('IntegrationSuite lifecycle', () => {
     );
     expect(existsSync(context.sandbox.dirs.root)).toBe(false);
     table.failWith = undefined;
+    await suite.endSuite();
+  });
+
+  it('runs another entry point with the same request and disposes what it returned', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    suite.beginTest();
+    const sandbox = await suite.sandbox();
+    const proc = queued(750);
+    const order: string[] = [];
+    table.rows = [{ pid: 750, ppid: SELF, startTime: '10', name: 'claude', commandLine: '' }];
+    const launched = await suite.testLaunch(async (request) => {
+      expect(request.binaryPath).toBe(fake.cli.binaryPath);
+      expect(request.configDir).toBe(sandbox.dirs.cfg);
+      expect(request.host.env).toBe(sandbox.env);
+      const root = await request.host.spawn({
+        file: request.binaryPath,
+        args: [],
+        cwd: request.host.cwd(),
+        env: oneSpellingPerName(request.host.env),
+      });
+      return {
+        root,
+        [Symbol.asyncDispose]: () => {
+          order.push('launched');
+          proc.exit();
+          table.rows = [];
+          return Promise.resolve();
+        },
+      };
+    });
+    expect(launched.root).toBe(proc.process);
+    await proc.process.identity;
+    const { tracker } = await suite.setup();
+    expect(tracker.roots).toEqual([{ pid: 750, startTime: '10' }]);
+    const harness = await suite.testConnect();
+    const dispose = harness[Symbol.asyncDispose].bind(harness);
+    harness[Symbol.asyncDispose] = () => {
+      order.push('harness');
+      return dispose();
+    };
+    await suite.endTest();
+    // The Harnesses first, then what testLaunch returned.
+    expect(order).toEqual(['harness', 'launched']);
+    await suite.endSuite();
+  });
+
+  it('fails the test for a launched value whose dispose fails and for a root it left running', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    suite.beginTest();
+    queued(760);
+    table.rows = [{ pid: 760, ppid: SELF, startTime: '10', name: 'claude', commandLine: '' }];
+    await suite.testLaunch(async (request) => {
+      await request.host.spawn({
+        file: request.binaryPath,
+        args: [],
+        cwd: request.host.cwd(),
+        env: oneSpellingPerName(request.host.env),
+      });
+      return { [Symbol.asyncDispose]: () => Promise.reject(new Error('launched dispose failed')) };
+    });
+    await expect(suite.testLaunch(() => Promise.reject(new Error('no launch')))).rejects.toThrow(
+      /no launch/,
+    );
+    const messages = messagesOf(await failureOf(suite.endTest()));
+    expect(messages[0]).toBe('launched dispose failed');
+    expect(messages[1]).toMatch(/spawned pid 760 had not exited/);
+    expect(killed).toEqual([760]);
+    await suite.endSuite();
+  });
+
+  it('calls spawn listeners in order before the product receives the root', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    suite.beginTest();
+    const proc = queued(770);
+    const calls: string[] = [];
+    const release = Promise.withResolvers<undefined>();
+    suite.onSpawn(async (root) => {
+      calls.push(`first ${String(root.pid)}`);
+      await release.promise;
+      calls.push('first done');
+    });
+    suite.onSpawn(() => {
+      calls.push('second');
+      throw new Error('listener broke');
+    });
+    suite.onSpawn(() => Promise.reject(new RangeError('listener rejected')));
+    let connected = false;
+    const connecting = suite.testConnect({ sessions: 1 }).then((harness) => {
+      connected = true;
+      return harness;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls).toEqual(['first 770']);
+    expect(connected).toBe(false);
+    release.resolve(undefined);
+    const harness = await connecting;
+    // The spawn went on whatever the listeners did.
+    expect(harness.processes.map((fakeProc) => fakeProc.process)).toEqual([proc.process]);
+    expect(calls).toEqual(['first 770', 'first done', 'second']);
+    expect(messagesOf(await failureOf(suite.endTest()))).toEqual([
+      'a spawn listener failed: Error: listener broke',
+      'a spawn listener failed: RangeError: listener rejected',
+    ]);
     await suite.endSuite();
   });
 

@@ -35,6 +35,10 @@
  * the product with the binary path, the sandbox config directory and the
  * sandbox host seams; every session process it spawns is recorded by its
  * spawn identity (pid plus start time).
+ * {@link IntegrationSuite.testLaunch} runs another entry point of the
+ * product (one whose Harness stays private, such as `session()`) with the
+ * same request and tracking; {@link IntegrationSuite.onSpawn} lets a test
+ * act on each spawned process before the product receives it (W6-T1).
  *
  * After each test ({@link IntegrationSuite.endTest}), always, whatever the
  * test did: every Harness it connected is disposed (which disposes its
@@ -106,6 +110,18 @@ export interface TestSetup {
   readonly sandbox?:
     | Pick<SandboxOptions, 'name' | 'env' | 'gitBashPath' | 'nonessentialTraffic' | 'credential'>
     | undefined;
+  /**
+   * For a test whose CLI ends on its own right after the spawn (for example
+   * a resume of an unknown id, 07 §1 a11, exit 1 before any handshake): a
+   * spawned root whose identity read reports `exited` (the process was
+   * already reaped when the read finished; on Windows one process-table
+   * query takes hundreds of milliseconds, plan §4.7) does not fail the test.
+   * Without an identity its descendants cannot be sampled; the other checks
+   * still apply: the root must have exited, and every new process or process
+   * naming the sandbox that survives the test fails it. Any other identity
+   * problem still fails the test. Default `false`.
+   */
+  readonly rootsMayExitBeforeIdentity?: boolean | undefined;
 }
 
 /** Options of {@link IntegrationSuite}. */
@@ -154,6 +170,9 @@ export const END_TEST_TIMEOUT_MS = 120_000;
 /** Hang guard of {@link IntegrationSuite.beginSuite} (hashing the binary) and {@link IntegrationSuite.endSuite}. */
 export const SUITE_HOOK_TIMEOUT_MS: number = 2 * KILL_DEADLINE_MS + 60_000;
 
+/** A listener of {@link IntegrationSuite.onSpawn}. */
+export type SpawnListener = (root: HarnessProcess) => Promise<void> | void;
+
 /** A spawned session process and whether it has exited. */
 interface Root {
   readonly pid: number;
@@ -168,8 +187,14 @@ interface TestState<H> {
   /** Set once its before snapshot was taken. */
   tracker: LeakTracker | undefined;
   stopSampling: (() => Promise<void>) | undefined;
+  /** {@link TestSetup.rootsMayExitBeforeIdentity} of the test's setup. */
+  rootsMayExitBeforeIdentity: boolean;
   readonly mocks: MockServer[];
   readonly harnesses: H[];
+  /** What {@link IntegrationSuite.testLaunch} returned, disposed after the Harnesses. */
+  readonly launched: AsyncDisposable[];
+  /** Listeners of {@link IntegrationSuite.onSpawn}. */
+  readonly spawnListeners: SpawnListener[];
   readonly roots: Root[];
   readonly pending: Promise<void>[];
   readonly refusals: unknown[];
@@ -292,8 +317,11 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       sandbox: undefined,
       tracker: undefined,
       stopSampling: undefined,
+      rootsMayExitBeforeIdentity: false,
       mocks: [],
       harnesses: [],
+      launched: [],
+      spawnListeners: [],
       roots: [],
       pending: [],
       refusals: [],
@@ -326,6 +354,7 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
   async #open(test: TestState<H>, setup: TestSetup): Promise<TestContext> {
     // Each part is registered in the test state as soon as it exists, so
     // endTest closes it whatever fails next.
+    test.rootsMayExitBeforeIdentity = setup.rootsMayExitBeforeIdentity === true;
     const mock = await this.#startMock(test, setup.mock);
     const sandbox = await createSandbox({
       name: `it${String(test.index)}`,
@@ -374,22 +403,9 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
    */
   async testConnect(options?: O): Promise<H> {
     const test = this.#current();
-    const { sandbox, tracker } = await this.setup();
+    const { sandbox, request } = await this.#request(test);
     const { cli } = sandbox;
-    recheckPinnedCli(cli);
-    const host = productHostSeams({
-      sandbox,
-      ...this.#seams.productHost,
-      onRoot: (root) => {
-        this.#recordRoot(test, tracker, root);
-      },
-      onRefused: (error) => test.refusals.push(error),
-    });
-    const harness = await this.#options.connect(options, {
-      binaryPath: cli.binaryPath,
-      configDir: sandbox.dirs.cfg,
-      host,
-    });
+    const harness = await this.#options.connect(options, request);
     test.harnesses.push(harness);
     if (
       !samePath(harness.binary.path, cli.binaryPath, sandbox.platform) ||
@@ -403,7 +419,66 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
     return harness;
   }
 
-  #recordRoot(test: TestState<H>, tracker: LeakTracker, child: HarnessProcess): void {
+  /**
+   * Runs another entry point of the product in the test's sandbox, with the
+   * same request as {@link IntegrationSuite.testConnect} (the pinned binary,
+   * the sandbox config directory, the checked host seams): for an entry
+   * point that keeps its Harness private, such as the adapter's `session()`.
+   * Every process it spawns is tracked like a Harness's; the value it
+   * resolves with is disposed after the test, after the Harnesses, whatever
+   * the test did.
+   *
+   * @throws SandboxRefusedError `binary` when the pinned binary changed
+   *   since its verification; every error of `launch`.
+   */
+  async testLaunch<R extends AsyncDisposable>(
+    launch: (request: ProductConnectRequest) => Promise<R>,
+  ): Promise<R> {
+    const test = this.#current();
+    const { request } = await this.#request(test);
+    const launched = await launch(request);
+    test.launched.push(launched);
+    return launched;
+  }
+
+  /**
+   * Calls `listener` with every session process the product spawns in this
+   * test from now on, right after the harness recorded it for the leak
+   * checks; the product receives the process only once every listener
+   * settled (for example: await the process's identity, then abort the
+   * session, so the abort reaches the product before its handshake can).
+   * Listeners run one after the other; one that throws or rejects fails the
+   * test and the spawn goes on. A listener that never settles holds the
+   * product's spawn until the test's hang guard.
+   */
+  onSpawn(listener: SpawnListener): void {
+    this.#current().spawnListeners.push(listener);
+  }
+
+  /** The request of a product launch in the test's sandbox (the binary re-checked). */
+  async #request(
+    test: TestState<H>,
+  ): Promise<{ readonly sandbox: Sandbox; readonly request: ProductConnectRequest }> {
+    const { sandbox, tracker } = await this.setup();
+    const { cli } = sandbox;
+    recheckPinnedCli(cli);
+    const host = productHostSeams({
+      sandbox,
+      ...this.#seams.productHost,
+      onRoot: (root) => this.#recordRoot(test, tracker, root),
+      onRefused: (error) => test.refusals.push(error),
+    });
+    return {
+      sandbox,
+      request: { binaryPath: cli.binaryPath, configDir: sandbox.dirs.cfg, host },
+    };
+  }
+
+  async #recordRoot(
+    test: TestState<H>,
+    tracker: LeakTracker,
+    child: HarnessProcess,
+  ): Promise<void> {
     const root: Root = { pid: child.pid, exited: false };
     test.roots.push(root);
     const markExited = (): void => {
@@ -413,6 +488,7 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
     test.pending.push(
       child.identity.then((read) => {
         if (read.identity === null) {
+          if (read.problem === 'exited' && test.rootsMayExitBeforeIdentity) return;
           test.failures.push(
             new Error(
               `no identity could be read for spawned pid ${String(child.pid)} (${read.problem}): its process tree cannot be checked for leaks`,
@@ -429,6 +505,15 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
         }
       }),
     );
+    for (const listener of [...test.spawnListeners]) {
+      try {
+        await listener(child);
+      } catch (error) {
+        test.failures.push(
+          new Error(`a spawn listener failed: ${String(error)}`, { cause: error }),
+        );
+      }
+    }
   }
 
   /**
@@ -464,6 +549,9 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
     await test.setup?.catch(() => undefined);
     for (const harness of [...test.harnesses].reverse()) {
       await collect(failures, () => harness[Symbol.asyncDispose]());
+    }
+    for (const launched of [...test.launched].reverse()) {
+      await collect(failures, () => launched[Symbol.asyncDispose]());
     }
     for (const settled of await Promise.allSettled(test.pending)) {
       if (settled.status === 'rejected') failures.push(settled.reason);
