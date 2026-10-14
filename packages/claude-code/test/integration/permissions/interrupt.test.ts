@@ -211,7 +211,12 @@ test("interrupt right after send: hudhud holds it until the turn's system/init, 
 
 test('a background shell outliving its turn: after close() ends stdin the CLI runs a harness-originated turn, then exits (07 §7 W120, bg-shell-turn-after-eof)', async () => {
   const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
-  const input = { command: 'sleep 3', run_in_background: true, description: 'bg sleep' };
+  // 3 s (07 §7 W120), tagged so a survivor fails the test (W6-Z ruling 3).
+  const input = {
+    command: `sleep ${suite.workloadTag(3)}`,
+    run_in_background: true,
+    description: 'bg sleep',
+  };
 
   const result = await session.ask(
     `[[mock:tool name=Bash in=${b64(JSON.stringify(input))}]] start it`,

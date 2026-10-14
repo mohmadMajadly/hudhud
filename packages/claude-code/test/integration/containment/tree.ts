@@ -4,7 +4,6 @@
 // confirmed in a fresh read first), never by a bare pid or an image name.
 
 import type { HudhudEvent } from '@hudhud/core';
-import { onTestFinished } from 'vitest';
 
 import { hostProcessTable } from '../../../../../tooling/test-support/src/leaks/process-table.js';
 import type { ProcessRow } from '../../../../../tooling/test-support/src/leaks/process-table.js';
@@ -95,25 +94,16 @@ export async function readUntil<T>(
   }
 }
 
-/**
- * A unique duration for a test's `sleep` workload (`<seconds>.<6 random
- * digits>`, which GNU `sleep` accepts), so the test can name its own
- * `sleep` process by its exact argument. Needed on Windows: Git Bash
- * (MSYS2) starts every external command through a short-lived forked copy
- * of `bash.exe` that exits at once, so the Windows parent of `sleep.exe` is
- * an exited process and no parent-pid walk (the leak tracker's, the
- * product's) reaches it from the CLI (measured, W6-T3).
- */
-export function workloadTag(seconds: number): string {
-  return `${String(seconds)}.${String(Math.floor(Math.random() * 1e6)).padStart(6, '0')}`;
-}
-
 /** Whether a row is a `sleep` process (`sleep`, Git for Windows' `sleep.exe`) with argument `arg`. */
 export function isSleep(row: ProcessRow, arg: string): boolean {
   return /^sleep(?:\.exe)?$/i.test(row.name) && row.commandLine.split(/[\s"]+/).includes(arg);
 }
 
-/** The live `sleep <tag>` processes (see {@link workloadTag}). */
+/**
+ * The live `sleep <tag>` processes, `tag` from the harness's
+ * `suite.workloadTag(seconds)`: on Windows no parent-pid walk reaches an
+ * MSYS2 `sleep.exe`, so a test names its own workload by its exact argument.
+ */
 export async function sleepsOf(tag: string): Promise<readonly ProcessRow[]> {
   return (await table.read()).filter((row) => isSleep(row, tag));
 }
@@ -139,31 +129,6 @@ export async function killEach(rows: readonly ProcessRow[]): Promise<readonly Ki
   const outcomes: KillOutcome[] = [];
   for (const row of rows) outcomes.push(await killVerified(row, { table }));
   return outcomes;
-}
-
-/**
- * A tag for a `sleep` workload of the running test (see {@link workloadTag})
- * with a safety net: a test settles every `sleep <tag>` it started itself
- * (asserting it gone, or asserting and killing a documented residual);
- * whatever still runs when the test finished is killed by verified identity
- * and fails the test, because the harness's leak tracker cannot see an
- * MSYS2 command on Windows. The net is an `onTestFinished` hook: it runs
- * after every `afterEach` hook and before the harness's leak checks (the
- * harness registered its own when the test began), also when the test or a
- * hook failed, and never keeps them from running.
- */
-export function workloadOfTest(seconds: number): string {
-  const tag = workloadTag(seconds);
-  onTestFinished(async () => {
-    const rows = await sleepsOf(tag);
-    if (rows.length === 0) return;
-    const outcomes = await killEach(rows);
-    const left = rows.map(
-      (row, index) => `pid ${String(row.pid)} ${row.name} ${tag} -> ${String(outcomes[index])}`,
-    );
-    throw new Error(`the test left its workload running:\n${left.join('\n')}`);
-  });
-  return tag;
 }
 
 /** Every event of a session, collected until its stream ends. */

@@ -26,7 +26,6 @@ import {
   table,
   waitForSleep,
   WINDOWS,
-  workloadOfTest,
 } from './tree.js';
 
 const suite = integrationSuite();
@@ -47,7 +46,7 @@ interface PosixSweep {
 }
 
 test('close: the CLI exits by itself, and the after-exit sweep kills the tree it left behind', async () => {
-  const tag = workloadOfTest(600);
+  const tag = suite.workloadTag(600);
   const session = await suite.testSession({ session: { onPermission: allowAll } });
   const { events, done } = collectEvents(session);
   // On Linux the CLI ends the background shell's process group when the

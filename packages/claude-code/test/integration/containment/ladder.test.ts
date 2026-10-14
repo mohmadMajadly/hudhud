@@ -18,7 +18,6 @@ import {
   sleepsOf,
   waitForSleep,
   WINDOWS,
-  workloadOfTest,
 } from './tree.js';
 
 const suite = integrationSuite();
@@ -32,7 +31,7 @@ test('close: the deadline expires while a background shell holds the CLI, and th
   // 07 §7 W120-W123 / L88: after EOF the CLI waits for a background Bash
   // shell for the shell's whole lifetime (697.7 s observed for `sleep
   // 700`), so only the close deadline ends this session.
-  const tag = workloadOfTest(600);
+  const tag = suite.workloadTag(600);
   const session = await suite.testSession({
     session: { onPermission: allowAll, closeTimeoutMs: CLOSE_DEADLINE_MS },
   });
@@ -93,7 +92,7 @@ test('dispose during a foreground Bash tool: the interrupt ends it without force
   // 05 §7: an interrupt during a tool aborts the turn; the machine then
   // ends stdin, and an idle CLI exits on EOF in 24-47 ms (05 §8 runs
   // 39/43), so neither `taskkill` nor a signal is needed.
-  const tag = workloadOfTest(600);
+  const tag = suite.workloadTag(600);
   const session = await suite.testSession({ session: { onPermission: allowAll } });
   const { events, done } = collectEvents(session);
   const asked = session.ask(`${bashTool({ command: `sleep ${tag}` })} run it`);

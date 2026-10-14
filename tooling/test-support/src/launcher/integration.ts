@@ -45,10 +45,12 @@
  * After each test ({@link IntegrationSuite.endTest}), always, whatever the
  * test did: every Harness it connected is disposed (which disposes its
  * sessions), then the test fails when any spawned root has not exited, any
- * tracked or new descendant or process naming the sandbox in its command
- * line is alive (each killed by verified pid and start time first), a
- * launch was refused, or a mock recorded an egress violation; then the
- * mocks are closed and the sandbox removed. After the suite
+ * tracked or new descendant, process naming the sandbox in its command
+ * line, or process carrying one of the test's workload tags
+ * ({@link IntegrationSuite.workloadTag}) is alive (each killed by verified
+ * pid and start time first), a launch was refused, or a mock recorded an
+ * egress violation; then the mocks are closed and the sandbox removed. The
+ * checks run as the test's `onTestFinished` hook. After the suite
  * ({@link IntegrationSuite.endSuite}): every process whose command line
  * contains the suite directory fails the suite (07 §13, killed first), and
  * the directory is removed.
@@ -58,6 +60,7 @@
  * (J11).
  */
 
+import { randomInt } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -211,6 +214,8 @@ interface TestState<H> {
   readonly pending: Promise<void>[];
   readonly refusals: unknown[];
   readonly failures: Error[];
+  /** Tags handed out by {@link IntegrationSuite.workloadTag}. */
+  readonly tags: string[];
 }
 
 /** The mock, the sandbox and the leak tracking of the running test. */
@@ -340,6 +345,7 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       pending: [],
       refusals: [],
       failures: [],
+      tags: [],
     };
   }
 
@@ -561,6 +567,35 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
   }
 
   /**
+   * A unique tag for a Bash-tool workload of the running test (W6-Z ruling
+   * 3): `<seconds>.<15 random digits>`, a duration GNU `sleep` accepts, so
+   * the workload's own process carries the tag as its argument
+   * (`sleep <tag>`). After the test, every process whose command line
+   * contains one of the test's tags fails the test and is killed by
+   * verified identity (pid plus start time), after the leak tracker's
+   * checks.
+   *
+   * @remarks
+   * Needed on Windows: Git Bash (MSYS2) starts every external command
+   * through a short-lived forked copy of `bash.exe` that exits at once, so
+   * the Windows parent of the command (`sleep.exe`) is an exited process
+   * and no parent-pid walk, the tracker's or the product's, reaches it; its
+   * command line names neither the sandbox nor the CLI (measured, W6-T3;
+   * ADR-0009 MSYS2 residual). The check runs on every platform: on Linux an
+   * orphan re-parented to init between two samples escapes the walk too.
+   */
+  workloadTag(seconds: number): string {
+    if (!Number.isInteger(seconds) || seconds < 0) {
+      throw new Error(`a workload duration must be whole seconds, got ${String(seconds)}`);
+    }
+    const test = this.#current();
+    const digits = Array.from({ length: 15 }, () => String(randomInt(10))).join('');
+    const tag = `${String(seconds)}.${digits}`;
+    test.tags.push(tag);
+    return tag;
+  }
+
+  /**
    * Pre-initializes the test's fresh config directory with one complete
    * session before the test fans out several sessions into it (J11): a
    * Harness runs the injected `warmUp` and is disposed; the config
@@ -614,6 +649,9 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       }
     }
     if (tracker !== undefined) await collect(failures, () => tracker.assertNoLeaks());
+    for (const tag of test.tags) {
+      await collect(failures, () => assertNoSurvivors(this.#leakHost, tag));
+    }
     failures.push(...test.refusals);
     for (const mock of test.mocks) {
       await collect(failures, () => {

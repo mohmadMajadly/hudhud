@@ -618,6 +618,42 @@ describe('IntegrationSuite lifecycle', () => {
     await cold.endSuite();
   });
 
+  it('hands out workload tags and fails the test for a survivor carrying one (W6-Z ruling 3)', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    expect(() => suite.workloadTag(5)).toThrow(/no test is running/);
+    suite.beginTest();
+    const tag = suite.workloadTag(600);
+    const other = suite.workloadTag(5);
+    expect(tag).toMatch(/^600\.\d{15}$/);
+    expect(other).toMatch(/^5\.\d{15}$/);
+    expect(tag.slice(4)).not.toBe(other.slice(2));
+    expect(() => suite.workloadTag(1.5)).toThrow(/whole seconds/);
+    expect(() => suite.workloadTag(-1)).toThrow(/whole seconds/);
+    await suite.setup();
+    // An MSYS2 `sleep.exe` whose Windows parent is an exited fork: no
+    // known parent, no sandbox path, only the tag; and an unrelated sleep.
+    table.rows = [
+      { pid: 770, ppid: 9, startTime: '30', name: 'sleep.exe', commandLine: `sleep ${tag}` },
+      { pid: 771, ppid: 9, startTime: '31', name: 'sleep.exe', commandLine: 'sleep 600' },
+    ];
+    const failure = await failureOf(suite.endTest());
+    expect(failure).toBeInstanceOf(LeakError);
+    expect((failure as LeakError).leaks.map((row) => [row.pid, row.reason])).toEqual([
+      [770, 'command-line'],
+    ]);
+    expect(killed).toEqual([770]);
+
+    // A later test does not inherit the tags.
+    suite.beginTest();
+    table.rows = [
+      { pid: 772, ppid: 9, startTime: '32', name: 'sleep.exe', commandLine: `sleep ${tag}` },
+    ];
+    await suite.endTest();
+    table.rows = [];
+    await suite.endSuite();
+  });
+
   it('fails the suite for a process naming the suite directory, then removes it', async () => {
     const suite = suiteWith();
     await suite.beginSuite();

@@ -34,7 +34,6 @@ import {
   stillListed,
   waitForSleep,
   WINDOWS,
-  workloadOfTest,
 } from './tree.js';
 
 const suite = integrationSuite();
@@ -65,7 +64,7 @@ const WINDOWS_CLI_EXIT_BOUND_MS = 3 * (35 + 1300);
 const WINDOWS_RESIDUAL = new Set(['bash.exe', 'conhost.exe', 'sleep.exe']);
 
 test('host crash during a Bash tool: the CLI does not survive; the tree is the documented residual', async () => {
-  const tag = workloadOfTest(TOOL_SECONDS);
+  const tag = suite.workloadTag(TOOL_SECONDS);
   const host = await startCrashHost(suite, `${bashTool({ command: `sleep ${tag}` })} run it`);
   const session = await host.next('session', HOST_READY_GUARD_MS);
   expect(session.containment).toBe('best-effort');

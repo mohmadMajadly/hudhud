@@ -38,7 +38,6 @@ import {
   sleepsOf,
   waitForSleep,
   WINDOWS,
-  workloadOfTest,
 } from './tree.js';
 import type { DiagnosticEvent } from './tree.js';
 import type { HudhudEvent } from '@hudhud/core';
@@ -80,7 +79,7 @@ async function launcherSession(launcher: {
 async function holdTheCli(
   session: Session,
 ): Promise<{ readonly tag: string; readonly pid: number }> {
-  const tag = workloadOfTest(600);
+  const tag = suite.workloadTag(600);
   const result = await session.ask(
     `${bashTool({ command: `sleep ${tag}`, run_in_background: true })} start it`,
   );
