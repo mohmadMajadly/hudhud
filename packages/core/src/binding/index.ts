@@ -21,6 +21,8 @@ export type { BindingDiagnostic, DriverOptions, SessionEnd } from './driver.js';
 export {
   DEFAULT_OUTPUT_DRAIN_MS,
   openSession,
+  PRE_HANDSHAKE_MAX_BYTES,
+  PRE_HANDSHAKE_MAX_EVENTS,
   SessionDriver,
   SYNTHESIZED_EVENT_BYTES,
 } from './driver.js';

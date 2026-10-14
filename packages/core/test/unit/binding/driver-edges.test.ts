@@ -162,6 +162,8 @@ describe('the end of a session and block subscribers', () => {
     const r = rig();
     await ready(r);
     const blocked = r.session.events({ maxEvents: 1, overflow: 'block' })[Symbol.asyncIterator]();
+    // The replayed pre-handshake event first (W5 lead review); the queue is empty afterwards.
+    expect((await blocked.next()).value).toMatchObject({ type: 'session.started' });
     r.transport.exit({ code: 2, signal: null });
     await settle();
     const closed = state(r.session.closed);
@@ -178,6 +180,8 @@ describe('the end of a session and block subscribers', () => {
     const r = rig();
     await ready(r);
     const blocked = r.session.events({ maxEvents: 1, overflow: 'block' })[Symbol.asyncIterator]();
+    // The replayed pre-handshake event first (W5 lead review); the queue is empty afterwards.
+    expect((await blocked.next()).value).toMatchObject({ type: 'session.started' });
     r.say({ t: 'throw' });
     await settle();
     expect(state(r.session.closed).current()).toBe('pending');

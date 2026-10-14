@@ -42,6 +42,20 @@
  * event counts the byte size of the line it came from when it carries that
  * frame as `raw`, else 256 bytes (plan §1.6).
  *
+ * Events published before the handshake settled (the adapter's diagnostics
+ * passed in `diagnostics`, the machine's `session.started` and every other
+ * event up to the end of the step that settled the handshake) happen before
+ * an application can hold the session, so the driver keeps them in a bounded
+ * pre-handshake buffer ({@link PRE_HANDSHAKE_MAX_EVENTS},
+ * {@link PRE_HANDSHAKE_MAX_BYTES}) and replays them to every `events()`
+ * subscriber right after `compat`, in `seq` order (W5 lead review). The
+ * buffer keeps the earliest events; the newest beyond the cap are dropped and
+ * one diagnostic `events.pre-handshake-truncated` (`data.dropped`) closes it.
+ * The replay goes into each subscriber's own queue within its own limits: when
+ * it does not fit, the subscriber receives the prefix that fits followed by
+ * one `gap` marker (numbered as the first event left out); nothing of it
+ * waits on a publish, so a `'block'` subscriber stalls nobody with it.
+ *
  * End of a session: when the process exits, the driver waits for the
  * ladder (if one runs) and for the graceful close's sweep, reports both as
  * diagnostics, waits for the end of stdout (at most `outputDrainMs`), then
@@ -171,12 +185,27 @@ export const DEFAULT_OUTPUT_DRAIN_MS = 2000;
  */
 export const SYNTHESIZED_EVENT_BYTES = 256;
 
+/**
+ * Most events the pre-handshake buffer keeps (see the module remarks).
+ *
+ * @beta
+ */
+export const PRE_HANDSHAKE_MAX_EVENTS = 256;
+
+/**
+ * Most bytes (as events count them) the pre-handshake buffer keeps.
+ *
+ * @beta
+ */
+export const PRE_HANDSHAKE_MAX_BYTES = 1_048_576;
+
 // ---- fanout items --------------------------------------------------------------------------
 
 /** What travels through the fanout: events plus the binding's own markers. */
 type Item =
   | { readonly kind: 'event'; readonly event: HudhudEvent }
-  | { readonly kind: 'gap'; readonly dropped: number }
+  /** `seq`: set on the replay's truncation marker (the first event left out). */
+  | { readonly kind: 'gap'; readonly dropped: number; readonly seq?: number }
   | { readonly kind: 'turn-end'; readonly turnId: string; readonly error: HudhudError | undefined };
 
 /** Wraps the error a subscription is cut with, so it is not taken for an `AbortSignal` reason. */
@@ -350,6 +379,12 @@ export class SessionDriver<State, Config> implements SessionCore {
 
   // event stream
   #seq = 1;
+  /** Events published before the handshake settled; replayed after `compat`. */
+  readonly #early: { readonly event: HudhudEvent; readonly bytes: number }[] = [];
+  #earlyBytes = 0;
+  #earlyDropped = 0;
+  #earlyOpen = true;
+  #closingEarly = false;
   readonly #outbox: { readonly item: Item; readonly bytes: number }[] = [];
   #blocked: Promise<void> | undefined;
   readonly #blockSignals = new Set<SubscriptionSignal>();
@@ -554,15 +589,10 @@ export class SessionDriver<State, Config> implements SessionCore {
     options: SubscriberOptions | undefined,
   ): AsyncIterableIterator<HudhudEvent, undefined, undefined> {
     const signal = this.#signalFor(options?.signal, options?.overflow ?? this.#defaults.overflow);
+    const resolved = this.#subscriberOptions(options, signal);
     const source = this.#fanout.subscribe(
-      {
-        match: (item) => item.kind === 'event',
-        replay:
-          this.#compat === undefined
-            ? []
-            : [{ event: { kind: 'event', event: this.#compat }, bytes: SYNTHESIZED_EVENT_BYTES }],
-      },
-      this.#subscriberOptions(options, signal),
+      { match: (item) => item.kind === 'event', replay: this.#replayFor(resolved) },
+      resolved,
     );
     return this.#eventsOf(source);
   }
@@ -692,6 +722,8 @@ export class SessionDriver<State, Config> implements SessionCore {
     }
     this.#state = step.state;
     this.#execute(step.effects, item);
+    // The step that settled the handshake is the last one the replay keeps.
+    if (this.#handshake !== 'pending') this.#closeEarly();
   }
 
   // ---- effects --------------------------------------------------------------------------
@@ -888,9 +920,81 @@ export class SessionDriver<State, Config> implements SessionCore {
   #publish(event: HudhudEvent, lineBytes: number | undefined): void {
     const bytes =
       lineBytes !== undefined && Object.hasOwn(event, 'raw') ? lineBytes : SYNTHESIZED_EVENT_BYTES;
-    this.#outbox.push({ item: { kind: 'event', event: { ...event, seq: this.#seq } }, bytes });
+    const numbered = { ...event, seq: this.#seq };
     this.#seq += 1;
+    if (this.#earlyOpen) this.#keepEarly(numbered, bytes);
+    this.#outbox.push({ item: { kind: 'event', event: numbered }, bytes });
     this.#drainOutbox();
+  }
+
+  /**
+   * Keeps a pre-handshake event while it fits; one event slot and its bytes
+   * stay reserved for the truncation diagnostic that closes the buffer.
+   */
+  #keepEarly(event: HudhudEvent, bytes: number): void {
+    const fits =
+      this.#early.length < PRE_HANDSHAKE_MAX_EVENTS - 1 &&
+      this.#earlyBytes + bytes <= PRE_HANDSHAKE_MAX_BYTES - SYNTHESIZED_EVENT_BYTES;
+    // The closing diagnostic always fits: its slot and bytes were reserved.
+    if (fits || this.#closingEarly) {
+      this.#early.push({ event, bytes });
+      this.#earlyBytes += bytes;
+    } else {
+      this.#earlyDropped += 1;
+    }
+  }
+
+  /** The handshake settled (or the session ended without one): the buffer is complete. */
+  #closeEarly(): void {
+    if (!this.#earlyOpen) return;
+    if (this.#earlyDropped > 0) {
+      this.#closingEarly = true;
+      this.#diagnostic(
+        'events.pre-handshake-truncated',
+        'Events published before the handshake exceeded the replay buffer; the newest were not kept.',
+        { dropped: this.#earlyDropped },
+      );
+    }
+    this.#earlyOpen = false;
+  }
+
+  /**
+   * `compat` and the pre-handshake events as one subscriber's replay, cut to
+   * its limits: the prefix that fits, then one gap marker for the rest.
+   */
+  #replayFor(limits: { readonly maxEvents: number; readonly maxBytes: number }): {
+    readonly event: Item;
+    readonly bytes: number;
+  }[] {
+    const all = [
+      ...(this.#compat === undefined
+        ? []
+        : [{ event: this.#compat, bytes: SYNTHESIZED_EVENT_BYTES }]),
+      ...this.#early,
+    ];
+    const total = all.reduce((sum, entry) => sum + entry.bytes, 0);
+    const toItem = (
+      entry: (typeof all)[number],
+    ): { readonly event: Item; readonly bytes: number } => ({
+      event: { kind: 'event', event: entry.event },
+      bytes: entry.bytes,
+    });
+    if (all.length <= limits.maxEvents && total <= limits.maxBytes) return all.map(toItem);
+    const kept: { readonly event: Item; readonly bytes: number }[] = [];
+    let bytes = 0;
+    // Not everything fits, so the loop always stops at an entry left out.
+    let firstLeftOut = 0;
+    for (const entry of all) {
+      // One event slot stays free for the gap marker (0 bytes).
+      if (kept.length + 1 >= limits.maxEvents || bytes + entry.bytes > limits.maxBytes) {
+        firstLeftOut = entry.event.seq;
+        break;
+      }
+      kept.push(toItem(entry));
+      bytes += entry.bytes;
+    }
+    const gap: Item = { kind: 'gap', dropped: all.length - kept.length, seq: firstLeftOut };
+    return [...kept, { event: gap, bytes: 0 }];
   }
 
   /** Publishes a diagnostic of the binding itself. */
@@ -943,7 +1047,7 @@ export class SessionDriver<State, Config> implements SessionCore {
   #subscriberOptions(
     options: SubscriberOptions | undefined,
     signal: SubscriptionSignal,
-  ): FanoutSubscriberOptions {
+  ): Required<Omit<FanoutSubscriberOptions, 'signal'>> & { readonly signal: SubscriptionSignal } {
     const maxEvents = options?.maxEvents ?? this.#defaults.maxEvents;
     const maxBytes = options?.maxBytes ?? this.#defaults.maxBytes;
     const overflow = options?.overflow ?? this.#defaults.overflow;
@@ -1009,6 +1113,19 @@ export class SessionDriver<State, Config> implements SessionCore {
           lastSeq = Math.max(lastSeq, item.event.seq);
           return { done: false, value: item.event };
         case 'gap':
+          // The replay's truncation marker carries the seq of its first event left out.
+          if (item.seq !== undefined) {
+            return {
+              done: false,
+              value: {
+                type: 'gap',
+                dropped: item.dropped,
+                seq: item.seq,
+                ts: this.#clock.nowIso(),
+                sessionId: this.id,
+              },
+            };
+          }
           // Numbered as the first dropped event: the last delivered seq plus one.
           lastSeq += 1;
           return {
@@ -1148,6 +1265,7 @@ export class SessionDriver<State, Config> implements SessionCore {
   async #finish(ending: SessionEnd): Promise<void> {
     if (this.#finishing) return;
     this.#finishing = true;
+    this.#closeEarly();
     // The machine ended (or broke) before the exit: make sure nothing runs on
     // (no-op once a ladder runs or the exit was seen).
     this.#startLadder('abort');

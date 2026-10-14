@@ -87,6 +87,8 @@ describe('ask() and turn.done never wait on a subscriber', () => {
     const r = rig();
     await ready(r);
     const iterator = r.session.events({ maxEvents: 1, overflow: 'block' })[Symbol.asyncIterator]();
+    // The replayed pre-handshake event first; the queue is empty afterwards.
+    expect((await iterator.next()).value).toMatchObject({ type: 'session.started' });
     const turn = r.session.send('x');
     await settle();
     // turn.queued filled the block queue; the result's step settles the turn
@@ -105,6 +107,8 @@ describe("only 'block' pauses input processing", () => {
     const r = rig();
     await ready(r);
     const iterator = r.session.events({ maxEvents: 1, overflow: 'block' })[Symbol.asyncIterator]();
+    // The replayed pre-handshake event first; the queue is empty afterwards.
+    expect((await iterator.next()).value).toMatchObject({ type: 'session.started' });
     const turn = r.session.send('x');
     await settle();
     r.say({ t: 'say', id: turn.id, text: 'blocks' });
@@ -389,7 +393,7 @@ describe('bounded memory', () => {
     });
     // One session subscriber is left; the turn subscriptions are gone.
     expect(r.driver.pending.subscribers).toBe(1);
-    expect((await sub.next()).value).toMatchObject({ type: 'gap', dropped: 595 });
+    expect((await sub.next()).value).toMatchObject({ type: 'gap', dropped: 596 });
     r.transport.exit({ code: 0, signal: null });
     await r.session.closed;
   });

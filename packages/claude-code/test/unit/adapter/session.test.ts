@@ -107,6 +107,26 @@ describe('the launch', () => {
 });
 
 describe("the session's diagnostics", () => {
+  it('reach an application subscriber made after create resolved (pre-handshake replay)', async () => {
+    const fake = new FakeHost({ env: { PATH: '/usr/bin', NODE_OPTIONS: '--x' } });
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    const session = await harness.sessions.create();
+    const events = session.events();
+    await session.close();
+    const seen: HudhudEvent[] = [];
+    for await (const event of events) seen.push(event);
+    expect(
+      seen.slice(0, 4).map((event) => [event.type, (event as { code?: string }).code]),
+    ).toEqual([
+      ['compat', undefined],
+      ['diagnostic', 'security.posture'],
+      ['diagnostic', 'env.dropped'],
+      ['session.started', undefined],
+    ]);
+    expect(seen.map((event) => event.seq)).toEqual(seen.map((_, index) => index));
+    await harness[Symbol.asyncDispose]();
+  });
+
   it('publish the posture, the environment changes and the guard results', async () => {
     const fake = new FakeHost();
     fake.guardFs.dir(`${PROJECT}/.git`).json(`${PROJECT}/.claude/settings.json`, {

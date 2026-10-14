@@ -164,7 +164,7 @@ export interface DarwinPsTableCalls {
 export const DEFAULT_OUTPUT_DRAIN_MS = 2000;
 
 // @public
-export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | 'stdout.error' | 'termination.ladder' | 'termination.sweep-after-exit' | 'binding.machine-error' | (string & {});
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | 'stdout.error' | 'termination.ladder' | 'termination.sweep-after-exit' | 'binding.machine-error' | 'events.pre-handshake-truncated' | (string & {});
 
 // @beta
 export interface DriverOptions<State, Config> {
@@ -940,6 +940,12 @@ export interface PosixSignalCalls {
     // (undocumented)
     signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
 }
+
+// @beta
+export const PRE_HANDSHAKE_MAX_BYTES = 1048576;
+
+// @beta
+export const PRE_HANDSHAKE_MAX_EVENTS = 256;
 
 // @public
 export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';

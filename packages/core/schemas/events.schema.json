@@ -98,7 +98,8 @@
             "stdout.error",
             "termination.ladder",
             "termination.sweep-after-exit",
-            "binding.machine-error"
+            "binding.machine-error",
+            "events.pre-handshake-truncated"
           ]
         },
         {

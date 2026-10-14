@@ -384,7 +384,7 @@ describe('the end of a session', () => {
     expect((await outcome(r.driver.interrupt(undefined, false))).error).toBeInstanceOf(
       SessionClosedError,
     );
-    expect(await collect(r.session.events())).toEqual([]);
+    expect(types(await collect(r.session.events()))).toEqual(['session.started']);
     expect(r.driver.pending).toMatchObject({
       turns: 0,
       controls: 0,
@@ -666,7 +666,7 @@ describe('events', () => {
     await settle();
     r.transport.exit({ code: 0, signal: null });
     const result = await small.result();
-    expect(types(result.events)).toEqual(['turn.queued']);
+    expect(types(result.events)).toEqual(['session.started', 'turn.queued']);
     expect(result.error).toMatchObject({ code: 'SUBSCRIBER_OVERFLOW' });
   });
 
@@ -678,6 +678,7 @@ describe('events', () => {
     await ready(r);
     const iterator = r.session.events()[Symbol.asyncIterator]();
     expect((await iterator.next()).value).toMatchObject({ type: 'compat', seq: 0 });
+    expect((await iterator.next()).value).toMatchObject({ type: 'session.started', seq: 1 });
     // session.started was seq 1; the burst is seq 2..6, of which 2..4 are dropped.
     r.say({ t: 'burst', n: 5 });
     await settle();

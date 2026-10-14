@@ -137,6 +137,7 @@ export type DiagnosticCode =
   | 'termination.ladder'
   | 'termination.sweep-after-exit'
   | 'binding.machine-error'
+  | 'events.pre-handshake-truncated'
   | (string & {});
 
 /**

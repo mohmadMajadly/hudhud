@@ -96,6 +96,8 @@ const ENTRY_NAMES = {
     'LoopbackTransport',
     'LoopbackViolation',
     'ManualClock',
+    'PRE_HANDSHAKE_MAX_BYTES',
+    'PRE_HANDSHAKE_MAX_EVENTS',
     'SYNTHESIZED_EVENT_BYTES',
     'SessionDriver',
     'TransportWriteError',

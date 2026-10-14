@@ -47,10 +47,10 @@
  * The diagnostics of steps 2 to 6 (`security.posture`, `binary.*`, `env.*`,
  * `settings-guard.*`, `containment.fallback`) are published before the
  * machine sees `process.started`, the channel the binding offers for them
- * (`DriverOptions.diagnostics`). As built, `events()` replays only `compat`
- * to an application subscriber, which can subscribe only after `create`
- * resolved: these diagnostics and `session.started` reach no application
- * subscriber (open question to the lead, W5-T1 report).
+ * (`DriverOptions.diagnostics`). The driver keeps everything published before
+ * the handshake settled in its bounded pre-handshake buffer and replays it to
+ * every `events()` subscriber after `compat`, so an application that
+ * subscribes once `create` resolved still receives them (W5 lead review).
  *
  * An `AbortSignal` in the options is checked between the steps; during the
  * handshake it aborts the session (the abort ladder runs) and the call
