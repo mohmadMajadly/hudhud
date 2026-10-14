@@ -8,11 +8,11 @@
 
 import { performance } from 'node:perf_hooks';
 
-import type { Session } from '@hudhud/core';
+import { isHudhudError, type Session } from '@hudhud/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
-import { b64, hasCode, ofType, record, terminatedOf, turnRequests } from './events.js';
+import { b64, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
 
@@ -48,7 +48,7 @@ test('graceful close at idle: drains, ends stdin, outcome closed', async () => {
   expect(terminated.signal).toBeUndefined();
   // After the close every call refuses with SESSION_CLOSED (plan §3.2).
   const error = await rejection(session.ask('[[mock:text]] after close'));
-  expect(hasCode(error, 'SESSION_CLOSED')).toBe(true);
+  expect(isHudhudError(error, 'SESSION_CLOSED')).toBe(true);
   // close() again is harmless.
   await expect(session.close()).resolves.toBeUndefined();
 });
@@ -123,7 +123,7 @@ test('abort before the handshake: an aborted signal spawns nothing', async () =>
   const controller = new AbortController();
   controller.abort(new Error('not wanted'));
   const error = await rejection(harness.sessions.create({ signal: controller.signal }));
-  expect(hasCode(error, 'ABORTED')).toBe(true);
+  expect(isHudhudError(error, 'ABORTED')).toBe(true);
   expect(error).toMatchObject({ name: 'AbortError' });
   expect(spawns).toBe(0);
   // The Harness is unaffected.
@@ -148,7 +148,7 @@ test('abort during the handshake: create rejects with AbortError after the proce
     controller.abort(new Error('changed my mind'));
   });
   const error = await rejection(harness.sessions.create({ signal: controller.signal }));
-  expect(hasCode(error, 'ABORTED')).toBe(true);
+  expect(isHudhudError(error, 'ABORTED')).toBe(true);
   expect((error as Error).cause).toEqual(new Error('changed my mind'));
   expect(exits).toHaveLength(1);
   // Gone before the rejection: already settled.
@@ -167,7 +167,7 @@ test('abort after the handshake: close with an aborted signal ends aborted', asy
   const controller = new AbortController();
   controller.abort();
   const error = await rejection(session.close({ signal: controller.signal }));
-  expect(hasCode(error, 'ABORTED')).toBe(true);
+  expect(isHudhudError(error, 'ABORTED')).toBe(true);
   await session.closed;
   expect(terminatedOf(await recording.done)).toMatchObject({ intent: 'abort', outcome: 'aborted' });
 });
@@ -208,9 +208,9 @@ test('Harness dispose ends every live session and refuses new ones', async () =>
   for (const session of sessions) await session.closed;
 
   const create = await rejection(harness.sessions.create());
-  expect(hasCode(create, 'HARNESS_DISPOSED')).toBe(true);
+  expect(isHudhudError(create, 'HARNESS_DISPOSED')).toBe(true);
   const resume = await rejection(harness.sessions.resume(sessions[0]?.id ?? ''));
-  expect(hasCode(resume, 'HARNESS_DISPOSED')).toBe(true);
+  expect(isHudhudError(resume, 'HARNESS_DISPOSED')).toBe(true);
   // A second dispose is harmless.
   await expect(harness[Symbol.asyncDispose]()).resolves.toBeUndefined();
 });
@@ -242,5 +242,5 @@ test('session(): an open aborted during the handshake rejects and leaves nothing
     controller.abort();
   });
   const error = await rejection(suite.testSessionFunction({ signal: controller.signal }));
-  expect(hasCode(error, 'ABORTED')).toBe(true);
+  expect(isHudhudError(error, 'ABORTED')).toBe(true);
 });

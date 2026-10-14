@@ -1,6 +1,6 @@
 // Helpers of the lifecycle suites (W6-T1): event recording and mock lookups.
 
-import { isHudhudError, type HudhudEvent, type Session } from '@hudhud/core';
+import type { HudhudEvent, Session } from '@hudhud/core';
 
 import type {
   CapturedRequest,
@@ -28,11 +28,6 @@ export function record(session: Session): Recording {
     return events;
   })();
   return { events, done };
-}
-
-/** Whether `error` is a `HudhudError` with this code (plan §3.1). */
-export function hasCode(error: unknown, code: string): boolean {
-  return isHudhudError(error) && error.code === code;
 }
 
 /** The base64 form a mock marker argument takes. */

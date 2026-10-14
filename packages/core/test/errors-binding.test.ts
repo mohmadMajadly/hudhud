@@ -268,6 +268,15 @@ describe('isHudhudError', () => {
     expect(isHudhudError(new Error('x'))).toBe(false);
     expect(isHudhudError({ code: 'ABORTED' })).toBe(false);
     expect(isHudhudError(null)).toBe(false);
+    expect(isHudhudError({ code: 'ABORTED' }, 'ABORTED')).toBe(false);
+  });
+
+  it('matches the code when one is given (plan §2.2)', () => {
+    const error: unknown = new AbortError('stop');
+    expect(isHudhudError(error)).toBe(true);
+    expect(isHudhudError(error, 'ABORTED')).toBe(true);
+    expect(isHudhudError(error, 'PROTOCOL_ERROR')).toBe(false);
+    if (isHudhudError(error, 'ABORTED')) expect(error.code).toBe('ABORTED');
   });
 });
 

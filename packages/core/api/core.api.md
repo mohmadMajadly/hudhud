@@ -431,7 +431,7 @@ export class InvalidOptionsError extends HudhudError {
 export function isCredentialEnvName(name: string): boolean;
 
 // @public
-export function isHudhudError(value: unknown): value is HudhudError;
+export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError;
 
 // @public
 export function isSensitiveFieldName(name: string): boolean;

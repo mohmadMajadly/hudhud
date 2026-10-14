@@ -94,12 +94,18 @@ export abstract class HudhudError extends Error {
 }
 
 /**
- * Narrows to any hudhud error.
+ * Narrows to a hudhud error; with `code`, to a hudhud error with that code
+ * (plan §2.2).
+ *
+ * @example
+ * ```ts
+ * if (isHudhudError(error, 'SESSION_NOT_FOUND')) startOver();
+ * ```
  *
  * @public
  */
-export function isHudhudError(value: unknown): value is HudhudError {
-  return value instanceof HudhudError;
+export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError {
+  return value instanceof HudhudError && (code === undefined || value.code === code);
 }
 
 /**

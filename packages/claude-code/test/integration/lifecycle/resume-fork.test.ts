@@ -8,20 +8,12 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import type { HudhudEvent, Session } from '@hudhud/core';
+import { isHudhudError, type HudhudEvent, type Session } from '@hudhud/core';
 import { expect, test } from 'vitest';
 
 import type { ClaudeCodeHarness } from '../../../src/connect.js';
 import { integrationSuite } from '../support/harness.js';
-import {
-  diagnostics,
-  hasCode,
-  messagesOf,
-  ofType,
-  record,
-  terminatedOf,
-  turnRequests,
-} from './events.js';
+import { diagnostics, messagesOf, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
 
@@ -95,11 +87,11 @@ test('resuming an unknown session id rejects with SESSION_NOT_FOUND and leaves n
   const harness = await suite.testConnect();
   const unknown = randomUUID();
   const error = await rejection(harness.sessions.resume(unknown));
-  expect(hasCode(error, 'SESSION_NOT_FOUND')).toBe(true);
+  expect(isHudhudError(error, 'SESSION_NOT_FOUND')).toBe(true);
   expect(error).toMatchObject({ name: 'SessionNotFoundError', retryable: false });
   // The id is free again afterwards (the claim was released with the session).
   const again = await rejection(harness.sessions.resume(unknown));
-  expect(hasCode(again, 'SESSION_NOT_FOUND')).toBe(true);
+  expect(isHudhudError(again, 'SESSION_NOT_FOUND')).toBe(true);
   // No API request was made for it.
   expect((await suite.mock()).requests).toEqual([]);
 });
@@ -162,7 +154,7 @@ test('two live resumes of the same id in one Harness: the second is SESSION_ID_I
   const live = await harness.sessions.resume(id);
   expect(spawns).toBe(1);
   const second = await rejection(harness.sessions.resume(id));
-  expect(hasCode(second, 'SESSION_ID_IN_USE')).toBe(true);
+  expect(isHudhudError(second, 'SESSION_ID_IN_USE')).toBe(true);
   expect(second).toMatchObject({ name: 'SessionIdInUseError', retryable: true });
   expect(spawns).toBe(1);
 
@@ -188,6 +180,6 @@ test('resuming the id of a live created session is SESSION_ID_IN_USE', async () 
   const harness = await suite.testConnect();
   const created = await harness.sessions.create();
   const error = await rejection(harness.sessions.resume(created.id));
-  expect(hasCode(error, 'SESSION_ID_IN_USE')).toBe(true);
+  expect(isHudhudError(error, 'SESSION_ID_IN_USE')).toBe(true);
   await created.close();
 });
