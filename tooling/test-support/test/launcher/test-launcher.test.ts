@@ -195,13 +195,26 @@ function run(
 ): {
   exit: Promise<{ code: number | null; signal: NodeJS.Signals | null; ms: number }>;
   kill: (signal: NodeJS.Signals) => void;
+  /**
+   * Resolves at the fake CLI's first output: the launcher runs its
+   * `spawnSync`, so its own setup (the `SIGTERM` handler) is in place.
+   */
+  cliRan: Promise<void>;
 } {
   const started = Date.now();
   const child = spawn(launcher.path, [fake.script, ...args], {
     env: { FAKE_CLI_MODE: mode },
-    stdio: ['ignore', 'ignore', 'ignore'],
+    stdio: ['ignore', 'pipe', 'ignore'],
   });
+  const cliRan = new Promise<void>((resolve) => {
+    child.stdout.once('data', () => {
+      resolve();
+    });
+  });
+  // Drained, so the launcher never blocks on a full pipe.
+  child.stdout.resume();
   return {
+    cliRan,
     exit: new Promise((resolve, reject) => {
       child.once('error', reject);
       child.once('exit', (code, signal) => {
@@ -251,8 +264,9 @@ describe.runIf(POSIX)('a launcher in front of the fake CLI (POSIX)', () => {
     const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
     const first = run(plain, [], 'exit-now');
     const second = run(ignoring, [], 'exit-now');
-    // Both are lingering once the fake CLI exited (it exits at once).
-    await settle(1000);
+    // Each launcher reached its spawnSync (its SIGTERM handling is set up);
+    // the fake CLI exits at once, so each is running or lingering.
+    await Promise.all([first.cliRan, second.cliRan]);
     first.kill('SIGTERM');
     second.kill('SIGTERM');
     await expect(first.exit).resolves.toMatchObject({ signal: 'SIGTERM' });
