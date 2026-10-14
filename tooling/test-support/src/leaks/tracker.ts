@@ -12,7 +12,8 @@
  * - every process absent from the before snapshot whose parent is a known
  *   process and which started no earlier than that parent (`descendant`;
  *   catches children spawned after the last sample, and on Windows, where
- *   the parent pid of an orphan keeps naming its dead parent, orphans too);
+ *   the parent pid of an orphan keeps naming its dead parent, orphans too;
+ *   not a child of another process that now holds the known parent's pid);
  * - every process whose command line contains the marker, normally the
  *   sandbox root (`command-line`, the 07 §13 sweep).
  *
@@ -105,6 +106,27 @@ function key(identity: ProcessIdentity): string {
 
 function startedNoEarlier(child: ProcessIdentity, parent: ProcessIdentity): boolean {
   return BigInt(child.startTime) >= BigInt(parent.startTime);
+}
+
+/**
+ * Whether `row`'s parent pid now names another process than the known
+ * `parent`, one that may be `row`'s real parent: the table lists that pid
+ * with another start time (the known process exited and its pid was
+ * reused), and `row` started no earlier than the new holder. Measured on
+ * Windows (W6-Z): a spawned root exits, the harness's own process-table
+ * query (`powershell.exe`) receives its pid, and that query's
+ * `conhost.exe` would otherwise count as the root's descendant. A row that
+ * started before the new holder cannot be its child and stays a descendant
+ * of the known process (a Windows orphan keeps naming its dead parent).
+ */
+function reusedBy(
+  holder: ProcessRow | undefined,
+  parent: ProcessIdentity,
+  row: ProcessIdentity,
+): boolean {
+  return (
+    holder !== undefined && holder.startTime !== parent.startTime && startedNoEarlier(row, holder)
+  );
 }
 
 function defaultKill(pid: number): void {
@@ -308,6 +330,7 @@ export class LeakTracker {
 
   #absorb(rows: readonly ProcessRow[], eligible: (row: ProcessRow) => boolean): ProcessRow[] {
     const added: ProcessRow[] = [];
+    const listed = new Map(rows.map((row) => [row.pid, row]));
     let grew = true;
     while (grew) {
       grew = false;
@@ -320,6 +343,7 @@ export class LeakTracker {
         if (!eligible(row)) continue;
         const parent = byPid.get(row.ppid);
         if (parent === undefined || !startedNoEarlier(row, parent)) continue;
+        if (reusedBy(listed.get(row.ppid), parent, row)) continue;
         this.#known.set(key(row), row);
         added.push(row);
         grew = true;

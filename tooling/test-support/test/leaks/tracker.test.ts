@@ -81,6 +81,29 @@ describe('LeakTracker with a scripted table', () => {
     ]);
   });
 
+  it('does not count the child of a process that reused a known pid (W6-Z, Windows conhost)', async () => {
+    const table = new FakeTable();
+    table.rows = [row(SELF, 0, 1)];
+    const tracker = new LeakTracker({
+      table,
+      selfPid: SELF,
+      kill: () => undefined,
+      sleep: noSleep,
+    });
+    await tracker.begin();
+    tracker.recordIdentity({ pid: 400, startTime: '10' });
+    // Root 400 exited; pid 400 now names the host's own table query (started
+    // at 20) whose console host 401 started at 21. 402 started at 15, before
+    // the new holder: an orphan of the root, still its descendant.
+    table.rows = [row(SELF, 0, 1), row(400, SELF, 20), row(401, 400, 21), row(402, 400, 15)];
+    expect((await tracker.findLeaks()).map((leak) => [leak.pid, leak.reason])).toEqual([
+      [402, 'descendant'],
+    ]);
+    // Through sampling too: a reused pid's child is never absorbed.
+    expect(await tracker.sample()).toBe(1 + 1);
+    expect(tracker.tracked.map((r) => r.pid)).toEqual([402]);
+  });
+
   it('passes when nothing is left', async () => {
     const table = new FakeTable();
     table.rows = [row(200, SELF, 3)];
