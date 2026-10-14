@@ -272,6 +272,43 @@ describe('IntegrationSuite lifecycle', () => {
     expect(existsSync(suiteDir)).toBe(false);
   });
 
+  it('waits for the identity reads of the spawned roots (identified)', async () => {
+    const suite = suiteWith();
+    await suite.beginSuite();
+    suite.beginTest();
+    await expect(suite.identified()).resolves.toBeUndefined();
+    let settle: (read: IdentityRead) => void = () => undefined;
+    const slow = fakeProcess(730, identityOf(730, '10'));
+    const proc: FakeProcess = {
+      process: {
+        ...slow.process,
+        identity: new Promise<IdentityRead>((resolve) => {
+          settle = resolve;
+        }),
+      },
+      exit: (exit) => {
+        slow.exit(exit);
+      },
+    };
+    queue.push(proc);
+    toSpawn.push(proc);
+    const context = await suite.setup();
+    await suite.testConnect({ sessions: 1 });
+    let done = false;
+    const identified = suite.identified().then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    expect(context.tracker.roots).toEqual([]);
+    settle(identityOf(730, '10'));
+    await identified;
+    expect(context.tracker.roots).toEqual([{ pid: 730, startTime: '10' }]);
+    await suite.endTest();
+    await suite.endSuite();
+  });
+
   it('refuses a Harness of another binary or version and still disposes it', async () => {
     const suite = suiteWith();
     await suite.beginSuite();
