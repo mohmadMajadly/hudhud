@@ -88,16 +88,3 @@ export function turnRequests(mock: MockServer, needle: string): CapturedRequest[
     return scenario?.step === 0 && scenario.userText.includes(needle);
   });
 }
-
-/**
- * A spawn listener that hands the CLI to the product only once its identity
- * (pid and start time) was read. The harness fails a test whose spawned root
- * has no identity (its tree could not be checked for leaks, plan §4.7); on
- * Windows the read is one process-table query that takes hundreds of
- * milliseconds and more on a loaded machine, so a session ended quickly
- * (an abort right after the turn started) could otherwise be reaped before
- * the read finished. The CLI starts meanwhile; its output waits in the pipe.
- */
-export async function identityFirst(root: { readonly identity: Promise<unknown> }): Promise<void> {
-  await root.identity;
-}

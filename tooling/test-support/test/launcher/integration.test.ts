@@ -272,11 +272,10 @@ describe('IntegrationSuite lifecycle', () => {
     expect(existsSync(suiteDir)).toBe(false);
   });
 
-  it('waits for the identity reads of the spawned roots (identified)', async () => {
+  it('hands a spawned root to the product only once its identity read settled (identity first)', async () => {
     const suite = suiteWith();
     await suite.beginSuite();
     suite.beginTest();
-    await expect(suite.identified()).resolves.toBeUndefined();
     let settle: (read: IdentityRead) => void = () => undefined;
     const slow = fakeProcess(730, identityOf(730, '10'));
     const proc: FakeProcess = {
@@ -293,17 +292,18 @@ describe('IntegrationSuite lifecycle', () => {
     queue.push(proc);
     toSpawn.push(proc);
     const context = await suite.setup();
-    await suite.testConnect({ sessions: 1 });
-    let done = false;
-    const identified = suite.identified().then(() => {
-      done = true;
+    let connected = false;
+    const harness = suite.testConnect({ sessions: 1 }).then((value) => {
+      connected = true;
+      return value;
     });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(done).toBe(false);
+    for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+    // The spawn seam has not returned the root: the read is still running.
+    expect(connected).toBe(false);
     expect(context.tracker.roots).toEqual([]);
     settle(identityOf(730, '10'));
-    await identified;
+    expect((await harness).processes.map((one) => one.process.pid)).toEqual([730]);
+    expect(connected).toBe(true);
     expect(context.tracker.roots).toEqual([{ pid: 730, startTime: '10' }]);
     await suite.endTest();
     await suite.endSuite();

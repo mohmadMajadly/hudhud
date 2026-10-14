@@ -9,25 +9,12 @@
 import { performance } from 'node:perf_hooks';
 
 import type { Session } from '@hudhud/core';
-import { beforeEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
-import {
-  b64,
-  hasCode,
-  ofType,
-  record,
-  terminatedOf,
-  turnRequests,
-  identityFirst,
-} from './events.js';
+import { b64, hasCode, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
-
-// Every CLI reaches the product only once its identity was read (see identityFirst).
-beforeEach(() => {
-  suite.onSpawn(identityFirst);
-});
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   return promise.then(
@@ -250,8 +237,8 @@ test('session(): one call opens a session on the pinned CLI; it closes and nothi
 
 test('session(): an open aborted during the handshake rejects and leaves nothing running', async () => {
   const controller = new AbortController();
-  suite.onSpawn(async (root) => {
-    await root.identity;
+  // The harness hands the CLI over only once its identity was read.
+  suite.onSpawn(() => {
     controller.abort();
   });
   const error = await rejection(suite.testSessionFunction({ signal: controller.signal }));

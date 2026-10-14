@@ -9,7 +9,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import type { HudhudEvent, Session } from '@hudhud/core';
-import { beforeEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import type { ClaudeCodeHarness } from '../../../src/connect.js';
 import { integrationSuite } from '../support/harness.js';
@@ -21,15 +21,9 @@ import {
   record,
   terminatedOf,
   turnRequests,
-  identityFirst,
 } from './events.js';
 
 const suite = integrationSuite();
-
-// Every CLI reaches the product only once its identity was read (see identityFirst).
-beforeEach(() => {
-  suite.onSpawn(identityFirst);
-});
 
 /** A first session with one echo turn naming `word`, closed; its id. */
 async function seed(harness: ClaudeCodeHarness, word: string): Promise<string> {

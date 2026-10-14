@@ -4,18 +4,13 @@
 // and the capabilities; plan §1.8 "Connect"), and how a session repeats it.
 
 import type { SecurityPostureEntry } from '@hudhud/core';
-import { beforeEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import { CLAUDE_CODE_COMPAT } from '../../../src/index.js';
 import { integrationSuite } from '../support/harness.js';
-import { diagnostics, ofType, record, terminatedOf, identityFirst } from './events.js';
+import { diagnostics, ofType, record, terminatedOf } from './events.js';
 
 const suite = integrationSuite();
-
-// Every CLI reaches the product only once its identity was read (see identityFirst).
-beforeEach(() => {
-  suite.onSpawn(identityFirst);
-});
 
 function entry(entries: readonly SecurityPostureEntry[], setting: string): SecurityPostureEntry {
   const found = entries.find((candidate) => candidate.setting === setting);

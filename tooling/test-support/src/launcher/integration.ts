@@ -34,7 +34,9 @@
  * {@link IntegrationSuite.testConnect} re-checks the pinned binary and calls
  * the product with the binary path, the sandbox config directory and the
  * sandbox host seams; every session process it spawns is recorded by its
- * spawn identity (pid plus start time).
+ * spawn identity (pid plus start time) and reaches the product only once
+ * that identity read settled (identity first, W6-Z ruling 1), so even a
+ * session ended at once keeps a tracked tree.
  * {@link IntegrationSuite.testLaunch} runs another entry point of the
  * product (one whose Harness stays private, such as `session()`) with the
  * same request and tracking; {@link IntegrationSuite.onSpawn} lets a test
@@ -468,10 +470,10 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
 
   /**
    * Calls `listener` with every session process the product spawns in this
-   * test from now on, right after the harness recorded it for the leak
-   * checks; the product receives the process only once every listener
-   * settled (for example: await the process's identity, then abort the
-   * session, so the abort reaches the product before its handshake can).
+   * test from now on, once the harness recorded it for the leak checks
+   * (after its identity read settled); the product receives the process
+   * only once every listener settled (for example: abort the session, so
+   * the abort reaches the product before its handshake can).
    * Listeners run one after the other; one that throws or rejects fails the
    * test and the spawn goes on. A listener that never settles holds the
    * product's spawn until the test's hang guard.
@@ -504,6 +506,17 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
     };
   }
 
+  /**
+   * Records a spawned session process for the leak checks and hands it to
+   * the product only once its identity read settled (identity first, W6-Z
+   * ruling 1): on Windows without the job addon the read is one CIM query
+   * of 0.5 to 1.8 s, longer than a session a test ends right after its
+   * spawn (an abort after the first permission request lives about
+   * 650 ms), and a root reaped before its read finished has no identity, so
+   * its tree could not be checked. The CLI runs meanwhile; its output waits
+   * in the pipe. Only this sandbox host seam waits; the product's own
+   * timing is unchanged. Then the test's spawn listeners run.
+   */
   async #recordRoot(
     test: TestState<H>,
     tracker: LeakTracker,
@@ -515,26 +528,27 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
       root.exited = true;
     };
     child.exited.then(markExited, markExited);
-    test.pending.push(
-      child.identity.then((read) => {
-        if (read.identity === null) {
-          if (read.problem === 'exited' && test.rootsMayExitBeforeIdentity) return;
-          test.failures.push(
-            new Error(
-              `no identity could be read for spawned pid ${String(child.pid)} (${read.problem}): its process tree cannot be checked for leaks`,
-            ),
-          );
-        } else if (child.identitySource !== this.#leakHost.table.source) {
-          test.failures.push(
-            new Error(
-              `spawned pid ${String(child.pid)}: identity source ${child.identitySource} differs from the leak table's ${this.#leakHost.table.source}`,
-            ),
-          );
-        } else {
-          tracker.recordIdentity(read.identity);
-        }
-      }),
-    );
+    const judged = child.identity.then((read) => {
+      if (read.identity === null) {
+        if (read.problem === 'exited' && test.rootsMayExitBeforeIdentity) return;
+        test.failures.push(
+          new Error(
+            `no identity could be read for spawned pid ${String(child.pid)} (${read.problem}): its process tree cannot be checked for leaks`,
+          ),
+        );
+      } else if (child.identitySource !== this.#leakHost.table.source) {
+        test.failures.push(
+          new Error(
+            `spawned pid ${String(child.pid)}: identity source ${child.identitySource} differs from the leak table's ${this.#leakHost.table.source}`,
+          ),
+        );
+      } else {
+        tracker.recordIdentity(read.identity);
+      }
+    });
+    test.pending.push(judged);
+    // A judgement that throws fails the test in endTest (pending); the spawn goes on.
+    await judged.catch(() => undefined);
     for (const listener of [...test.spawnListeners]) {
       try {
         await listener(child);
@@ -544,19 +558,6 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
         );
       }
     }
-  }
-
-  /**
-   * Resolves once the identity (pid plus start time) of every session
-   * process the test spawned so far has been read, whatever the reads
-   * found (`endTest` judges them). A test that ends a session within
-   * moments of its spawn, for example an abort right after the first
-   * permission request, awaits it first: on Windows one read is a CIM query
-   * of several hundred milliseconds, and a root that exits before its read
-   * completes cannot be tracked for leaks, which fails the test.
-   */
-  async identified(): Promise<void> {
-    await Promise.allSettled(this.#current().pending);
   }
 
   /**

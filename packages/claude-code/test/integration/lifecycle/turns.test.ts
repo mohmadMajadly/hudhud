@@ -5,25 +5,12 @@
 // test that each Harness was disposed, the egress trap recorded nothing and
 // no process leaked.
 
-import { beforeEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
-import {
-  b64,
-  diagnostics,
-  ofType,
-  record,
-  terminatedOf,
-  turnRequests,
-  identityFirst,
-} from './events.js';
+import { b64, diagnostics, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
-
-// Every CLI reaches the product only once its identity was read (see identityFirst).
-beforeEach(() => {
-  suite.onSpawn(identityFirst);
-});
 
 // Conformance `text-turn` and `handshake` (05 §5: the initialize response,
 // `system/init` per turn; 05 §12: `session_state_changed` with the pinned
