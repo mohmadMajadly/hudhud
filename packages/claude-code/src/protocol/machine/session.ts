@@ -153,6 +153,33 @@ export interface ClaudeSessionConfig {
   readonly platform: 'win32' | 'posix';
   /** `{}` in v1 (ADR-0015 provenance ruling); nothing of it is written. */
   readonly initialize: InitializeBody;
+  /**
+   * The version the connect probe reported (K4). When the `initialize`
+   * response reports another one, the machine emits `binary.version-changed`
+   * and applies the drift policy ({@link ClaudeSessionConfig.knownBroken}).
+   * Absent: no drift check (recorded replays).
+   */
+  readonly probedVersion?: string;
+  /**
+   * The versions listed known-broken, each with its committed reason
+   * (ADR-0004 §4 amendment, W5 ruling 1). A drifted version listed here
+   * fails the handshake with `HARNESS_VERSION_KNOWN_BROKEN` unless
+   * {@link ClaudeSessionConfig.allowKnownBrokenVersion} is set.
+   */
+  readonly knownBroken?: readonly KnownBrokenListing[];
+  /** `claudeCode.dangerouslyAllowKnownBrokenVersion`. */
+  readonly allowKnownBrokenVersion?: boolean;
+}
+
+/**
+ * A harness version listed known-broken with the committed reason of its
+ * listing (never harness output). Plain JSON.
+ *
+ * @internal
+ */
+export interface KnownBrokenListing {
+  readonly version: string;
+  readonly reason: string;
 }
 
 /**
@@ -1022,12 +1049,13 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
     );
     return;
   }
+  const response = effect.response ?? {};
+  const version = ownString(response, 'claude_code_version') ?? 'unknown';
+  if (refusedDrift(d, version)) return;
   d.clearTimer(FIRST_FRAME_TIMER);
   d.s.handshake = 'ok';
-  const response = effect.response ?? {};
   const pid = d.s.pid;
   const cliPid = ownNumber(response, 'pid');
-  const version = ownString(response, 'claude_code_version') ?? 'unknown';
   const account = ownObject(response, 'account');
   const apiKeySource = account === undefined ? undefined : ownString(account, 'apiKeySource');
   const tokenSource = account === undefined ? undefined : ownString(account, 'tokenSource');
@@ -1071,6 +1099,36 @@ function onInitializeSettled(d: Draft, effect: Extract<ControlEffect, { type: 's
   const outbox = d.s.outbox;
   d.s.outbox = [];
   for (const line of outbox) d.write(line);
+}
+
+/**
+ * Version drift (K4, W5 ruling 1): the `initialize` response reports another
+ * version than the connect probe. Every drift emits `binary.version-changed`;
+ * an `untested` one is a warning only. A drifted version listed known-broken
+ * fails the handshake closed (`HARNESS_VERSION_KNOWN_BROKEN`, the ladder
+ * runs, no turn starts) unless the application allowed known-broken
+ * versions. Returns whether the handshake was refused.
+ */
+function refusedDrift(d: Draft, version: string): boolean {
+  const probed = d.config.probedVersion;
+  if (probed === undefined || probed === version) return false;
+  const listing = (d.config.knownBroken ?? []).find((entry) => entry.version === version);
+  d.diagnostic(
+    'binary.version-changed',
+    'The harness reports another version than the connect probe.',
+    { probedVersion: cap(probed), version: cap(version), knownBroken: listing !== undefined },
+  );
+  if (listing === undefined || d.config.allowKnownBrokenVersion === true) return false;
+  d.fatal(
+    makeErrorData(
+      'HARNESS_VERSION_KNOWN_BROKEN',
+      `The harness now reports version ${version}, which is listed as known broken: ${listing.reason}`,
+      { version, reason: listing.reason, probedVersion: probed },
+    ),
+    'handshake-failed',
+    true,
+  );
+  return true;
 }
 
 /** A `result` before the `initialize` response (J7, 07 §1 a11). */

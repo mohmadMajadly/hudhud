@@ -119,6 +119,9 @@ const permissionId = fc.uuid();
 const frames: fc.Arbitrary<JsonObject> = fc.oneof(
   fc.constant(initResponse()),
   fc.constant(initResponse({ account: { apiKeySource: 'none' } })),
+  // Version drift (W5 ruling 1): an untested and a listed known-broken version.
+  fc.constant(initResponse({ claude_code_version: '2.1.400' })),
+  fc.constant(initResponse({ claude_code_version: '2.1.297' })),
   fc.constant(controlError('hudhud_1', 'boom')),
   fc.constant(systemInit()),
   fc.constant(systemInit({ session_id: 'another-id' })),
@@ -214,8 +217,17 @@ const configs: fc.Arbitrary<ClaudeSessionConfig> = fc
     permissionHandler: fc.boolean(),
     allowBypassPermissions: fc.boolean(),
     platform: fc.constantFrom<ClaudeSessionConfig['platform']>('win32', 'posix'),
+    probedVersion: fc.constantFrom<string | undefined>(undefined, '2.1.296'),
+    allowKnownBrokenVersion: fc.boolean(),
   })
-  .map((overrides) => makeConfig(overrides));
+  .map(({ probedVersion, ...overrides }) =>
+    makeConfig({
+      ...overrides,
+      ...(probedVersion === undefined
+        ? {}
+        : { probedVersion, knownBroken: [{ version: '2.1.297', reason: 'test listing' }] }),
+    }),
+  );
 
 const finales: readonly (readonly KitInputBody[])[] = [
   [

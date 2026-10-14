@@ -12,7 +12,12 @@
  * @packageDocumentation
  */
 
-export type { ClaudeSessionConfig, ClaudeSessionPhase, ClaudeSessionState } from './session.js';
+export type {
+  ClaudeSessionConfig,
+  ClaudeSessionPhase,
+  ClaudeSessionState,
+  KnownBrokenListing,
+} from './session.js';
 export {
   ABORT_INTERRUPT_CORRELATION,
   ANSWER_FAILED_DENY_MESSAGE,
