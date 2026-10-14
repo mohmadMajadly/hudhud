@@ -7,7 +7,7 @@
 // Evidence: 05 §6 (runs 19-30, recorded again as the conformance suites
 // permission-allow, permission-deny, permission-deny-interrupt).
 
-import type { JsonObject, PermissionDecision, PermissionRequest } from '@hudhud/core';
+import type { JsonObject, PermissionDecision, PermissionRequest, Session } from '@hudhud/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
@@ -22,8 +22,9 @@ import {
   onlyAnswer,
   PERMISSION_CMD,
   PERMISSION_MARKER,
-  SessionTap,
+  type SessionTap,
   settingsFiles,
+  tappedSession,
   toolResultsSent,
 } from './support.js';
 
@@ -32,11 +33,8 @@ const suite = integrationSuite();
 /** Opens a session in `default` mode with `onPermission`, tapped from the start. */
 async function permissionSession(
   onPermission: (request: PermissionRequest) => Promise<PermissionDecision>,
-): Promise<{ session: Awaited<ReturnType<typeof suite.testSession>>; tap: SessionTap }> {
-  const session = await suite.testSession({
-    session: { permissionMode: 'default', onPermission },
-  });
-  return { session, tap: new SessionTap(session) };
+): Promise<{ session: Session; tap: SessionTap }> {
+  return tappedSession(suite, { permissionMode: 'default', onPermission });
 }
 
 test('allow: the tool runs in the sandbox and its output reaches the model (05 §6 run 19, permission-allow)', async () => {
@@ -302,8 +300,7 @@ test.each(FAILING_HANDLERS)(
 );
 
 test('no handler: hudhud does not pass the stdio prompt tool, so the CLI denies a mutating tool itself (05 §6 "Without --permission-prompt-tool")', async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
   const { work } = (await suite.sandbox()).dirs;
 
   const result = await session.ask(PERMISSION_MARKER);
@@ -322,8 +319,7 @@ test('no handler: hudhud does not pass the stdio prompt tool, so the CLI denies 
 });
 
 test('no handler, read-only tool: the CLI auto-allows echo in default mode and runs it in the sandbox (05 §6, §14, tool-bash)', async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
 
   const result = await session.ask(`[[mock:bash cmd=${b64('echo hi')}]] run it`);
   await session.close();
@@ -341,13 +337,10 @@ test('no handler, read-only tool: the CLI auto-allows echo in default mode and r
 });
 
 test('setPermissionMode: an allowed mode is sent and applies to the next turn; bypass and unknown modes are refused before anything is written (02 set_permission_mode, ADR-0012 §3)', async () => {
-  const session = await suite.testSession({
-    session: {
-      permissionMode: 'default',
-      onPermission: () => Promise.resolve<PermissionDecision>({ behavior: 'deny', message: 'no' }),
-    },
+  const { session, tap } = await tappedSession(suite, {
+    permissionMode: 'default',
+    onPermission: () => Promise.resolve<PermissionDecision>({ behavior: 'deny', message: 'no' }),
   });
-  const tap = new SessionTap(session);
   expect(await tap.event('session.started')).toMatchObject({ permissionMode: 'default' });
 
   await session.ask('[[mock:text]] one');

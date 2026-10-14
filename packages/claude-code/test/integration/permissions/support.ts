@@ -15,6 +15,7 @@ import path from 'node:path';
 import type { HudhudEvent, JsonObject, JsonValue, Session } from '@hudhud/core';
 import { isJsonObject } from '@hudhud/core/protocol';
 
+import type { SessionOptions } from '../../../src/options-types.js';
 import { raw, type RawWireFrame } from '../../../src/raw/index.js';
 import type { MockServer } from '../../../../../tooling/test-support/src/mock/server.js';
 import {
@@ -22,6 +23,25 @@ import {
   toolResultsOf,
   type ToolResultView,
 } from '../../../../../tooling/test-support/src/mock/scenario.js';
+import type { ClaudeIntegrationSuite } from '../support/harness.js';
+
+/**
+ * Opens a session in the test's sandbox, tapped from the start, and waits
+ * until the harness has read its process identity. Several scenarios end
+ * the session within a second of the spawn (an abort right after the first
+ * permission request lives about 650 ms on Windows), while one identity
+ * read there is a CIM query of 550-860 ms (measured, W6-T2); a root that
+ * exits first cannot be tracked for leaks and fails the test.
+ */
+export async function tappedSession(
+  suite: ClaudeIntegrationSuite,
+  session: SessionOptions,
+): Promise<{ session: Session; tap: SessionTap }> {
+  const opened = await suite.testSession({ session });
+  const tap = new SessionTap(opened);
+  await suite.identified();
+  return { session: opened, tap };
+}
 
 /** Base64 of UTF-8 text, for mock marker arguments. */
 export function b64(text: string): string {

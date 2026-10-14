@@ -4,11 +4,19 @@
 // interrupt-queued, interrupt-cancel-queued, interrupt-same-write) and 07 §7
 // W120 (bg-shell-turn-after-eof).
 
-import type { JsonValue } from '@hudhud/core';
+import type { JsonValue, Session } from '@hudhud/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
-import { b64, frameKind, isEvent, member, SessionTap, type EventOf } from './support.js';
+import {
+  b64,
+  frameKind,
+  isEvent,
+  member,
+  tappedSession,
+  type EventOf,
+  type SessionTap,
+} from './support.js';
 
 const suite = integrationSuite();
 
@@ -42,10 +50,10 @@ async function mockSaw(text: string): Promise<boolean> {
 }
 
 test('interrupt mid-stream: the CLI answers at once, keeps the partial text and ends the turn aborted_streaming (05 §7 run 31, interrupt-midstream)', async () => {
-  const session = await suite.testSession({
-    session: { permissionMode: 'default', claudeCode: { includePartialMessages: true } },
+  const { session, tap } = await tappedSession(suite, {
+    permissionMode: 'default',
+    claudeCode: { includePartialMessages: true },
   });
-  const tap = new SessionTap(session);
 
   const turn = session.send('[[mock:slow chunks=20 ms=100]] stream');
   await tap.event('message.delta', (event) => event.turnId === turn.id);
@@ -81,7 +89,7 @@ test('interrupt mid-stream: the CLI answers at once, keeps the partial text and 
 });
 
 /** Starts a slow first turn and queues a second one behind it. */
-async function queuedPair(tap: SessionTap, session: Awaited<ReturnType<typeof suite.testSession>>) {
+async function queuedPair(tap: SessionTap, session: Session) {
   const first = session.send('[[mock:slow chunks=10 ms=150]] first');
   await tap.event('turn.started', (event) => event.turnId === first.id);
   const second = session.send('[[mock:text]] queued');
@@ -97,8 +105,7 @@ async function queuedPair(tap: SessionTap, session: Awaited<ReturnType<typeof su
 }
 
 test('interrupt with a queued message: the running turn is cancelled, the queued one runs next (05 §7 run 32, interrupt-queued)', async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
 
   const { first, second } = await queuedPair(tap, session);
   await first.interrupt();
@@ -122,8 +129,7 @@ test('interrupt with a queued message: the running turn is cancelled, the queued
 });
 
 test('interrupt with cancelQueued: the running turn is cancelled and the queued one is dropped by the CLI (05 §7 run 33, interrupt-cancel-queued)', async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
 
   const { first, second } = await queuedPair(tap, session);
   await first.interrupt({ cancelQueued: true });
@@ -151,8 +157,7 @@ test('interrupt with cancelQueued: the running turn is cancelled and the queued 
 });
 
 test("interrupt right after send: hudhud holds it until the turn's system/init, so the CLI never gets the GH#98713 same-write trigger and the turn is cancelled (05 §7 runs 36 and 37, interrupt-same-write)", async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
 
   await session.ask('[[mock:text]] turn one');
   // Run 36 wrote turn 2's user message and the interrupt in one write: the
@@ -205,8 +210,7 @@ test("interrupt right after send: hudhud holds it until the turn's system/init, 
 });
 
 test('a background shell outliving its turn: after close() ends stdin the CLI runs a harness-originated turn, then exits (07 §7 W120, bg-shell-turn-after-eof)', async () => {
-  const session = await suite.testSession({ session: { permissionMode: 'default' } });
-  const tap = new SessionTap(session);
+  const { session, tap } = await tappedSession(suite, { permissionMode: 'default' });
   const input = { command: 'sleep 3', run_in_background: true, description: 'bg sleep' };
 
   const result = await session.ask(

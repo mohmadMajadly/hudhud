@@ -19,7 +19,8 @@ import {
   member,
   onlyAnswer,
   PERMISSION_MARKER,
-  SessionTap,
+  type SessionTap,
+  tappedSession,
   toolResultsSent,
 } from './support.js';
 
@@ -90,10 +91,10 @@ function lateAllow(): PendingHandler {
 async function openSession(
   handler: PendingHandler,
 ): Promise<{ session: Session; tap: SessionTap; work: string }> {
-  const session = await suite.testSession({
-    session: { permissionMode: 'default', onPermission: handler.handle },
+  const { session, tap } = await tappedSession(suite, {
+    permissionMode: 'default',
+    onPermission: handler.handle,
   });
-  const tap = new SessionTap(session);
   return { session, tap, work: (await suite.sandbox()).dirs.work };
 }
 
