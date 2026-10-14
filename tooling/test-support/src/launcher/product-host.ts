@@ -76,8 +76,11 @@ export interface ProductHostSeams {
 /** Inputs of {@link productHostSeams}. */
 export interface ProductHostOptions {
   readonly sandbox: Sandbox;
-  /** Called with every spawned session process, before the product sees it. */
-  readonly onRoot: (root: HarnessProcess) => void;
+  /**
+   * Called with every spawned session process, before the product sees it;
+   * the product receives the process once the returned promise settled.
+   */
+  readonly onRoot: (root: HarnessProcess) => Promise<void> | void;
   /** Called with the error of every refused launch (a {@link SandboxRefusedError}), before it is thrown. */
   readonly onRefused: (error: unknown) => void;
   /** The spawn after the check; default the core's `spawnHarnessProcess`. */
@@ -174,7 +177,7 @@ export function productHostSeams(options: ProductHostOptions): ProductHostSeams 
     async spawn(spec) {
       checked(spec, 'session');
       const root = await spawn(spec);
-      onRoot(root);
+      await onRoot(root);
       return root;
     },
     probe: {
