@@ -148,8 +148,9 @@ export async function killEach(rows: readonly ProcessRow[]): Promise<readonly Ki
  * whatever still runs when the test finished is killed by verified identity
  * and fails the test, because the harness's leak tracker cannot see an
  * MSYS2 command on Windows. The net is an `onTestFinished` hook: it runs
- * after every `afterEach` hook (the harness's leak checks), also when the
- * test or a hook failed, and never keeps them from running.
+ * after every `afterEach` hook and before the harness's leak checks (the
+ * harness registered its own when the test began), also when the test or a
+ * hook failed, and never keeps them from running.
  */
 export function workloadOfTest(seconds: number): string {
   const tag = workloadTag(seconds);

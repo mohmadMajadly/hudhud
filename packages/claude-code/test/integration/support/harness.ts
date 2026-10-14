@@ -30,7 +30,7 @@
 
 import path from 'node:path';
 
-import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
+import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
 import type { Session } from '@hudhud/core';
 
@@ -122,6 +122,6 @@ export function integrationSuite(): ClaudeIntegrationSuite {
     warmUp,
     repoRoot: REPO_ROOT,
   });
-  registerIntegrationHooks(suite, { beforeAll, afterAll, beforeEach, afterEach });
+  registerIntegrationHooks(suite, { beforeAll, afterAll, beforeEach, onTestFinished });
   return suite;
 }

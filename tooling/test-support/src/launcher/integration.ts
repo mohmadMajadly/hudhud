@@ -580,7 +580,8 @@ export class IntegrationSuite<O, H extends ConnectedHarness> {
 
   /**
    * Disposes everything the test opened and asserts zero leaks and zero
-   * egress violations (`afterEach`); see the module remarks.
+   * egress violations (the test's `onTestFinished` hook, after every
+   * `afterEach` hook); see the module remarks.
    *
    * @throws the one failure, or an `AggregateError` of every failure
    */
@@ -647,18 +648,33 @@ export interface SuiteHooks {
   beforeAll(fn: () => Promise<void>, timeout?: number): void;
   afterAll(fn: () => Promise<void>, timeout?: number): void;
   beforeEach(fn: () => void, timeout?: number): void;
-  afterEach(fn: () => Promise<void>, timeout?: number): void;
+  /** Vitest's `onTestFinished`, called from the `beforeEach` hook for the starting test. */
+  onTestFinished(fn: () => Promise<void>, timeout?: number): void;
 }
 
-/** Registers the suite's lifecycle on the test runner's hooks. */
-export function registerIntegrationHooks<O, H extends ConnectedHarness>(
-  suite: IntegrationSuite<O, H>,
-  hooks: SuiteHooks,
-): void {
+/** The lifecycle {@link registerIntegrationHooks} drives. */
+export type SuiteLifecycle = Pick<
+  IntegrationSuite<unknown, ConnectedHarness>,
+  'beginSuite' | 'beginTest' | 'endTest' | 'endSuite'
+>;
+
+/**
+ * Registers the suite's lifecycle on the test runner's hooks.
+ *
+ * @remarks
+ * The after-test checks ({@link IntegrationSuite.endTest}) run as the
+ * test's `onTestFinished` hook, registered when the test begins (W6-Z
+ * ruling 5): Vitest runs `afterEach` hooks in reverse order of
+ * registration and stops at the first that throws, so as an `afterEach`
+ * hook the checks were skipped whenever a test file's own `afterEach`
+ * (registered later, run earlier) failed. `onTestFinished` hooks run
+ * after every `afterEach` hook, each on its own, whatever failed before.
+ */
+export function registerIntegrationHooks(suite: SuiteLifecycle, hooks: SuiteHooks): void {
   hooks.beforeAll(() => suite.beginSuite(), SUITE_HOOK_TIMEOUT_MS);
   hooks.beforeEach(() => {
     suite.beginTest();
+    hooks.onTestFinished(() => suite.endTest(), END_TEST_TIMEOUT_MS);
   });
-  hooks.afterEach(() => suite.endTest(), END_TEST_TIMEOUT_MS);
   hooks.afterAll(() => suite.endSuite(), SUITE_HOOK_TIMEOUT_MS);
 }

@@ -693,21 +693,26 @@ describe('registerIntegrationHooks', () => {
       beforeAll: record('beforeAll'),
       afterAll: record('afterAll'),
       beforeEach: record('beforeEach'),
-      afterEach: record('afterEach'),
+      onTestFinished: record('onTestFinished'),
     };
     const suite = suiteWith();
     registerIntegrationHooks(suite, hooks);
     expect(registered.map((hook) => [hook.name, hook.timeout])).toEqual([
       ['beforeAll', SUITE_HOOK_TIMEOUT_MS],
       ['beforeEach', undefined],
-      ['afterEach', END_TEST_TIMEOUT_MS],
       ['afterAll', SUITE_HOOK_TIMEOUT_MS],
     ]);
     const run = (name: string): unknown => registered.find((hook) => hook.name === name)?.fn();
     await run('beforeAll');
     run('beforeEach');
+    // Each test's checks are registered as that test's onTestFinished hook.
+    expect(registered.at(-1)).toMatchObject({
+      name: 'onTestFinished',
+      timeout: END_TEST_TIMEOUT_MS,
+    });
     await expect(suite.setup()).resolves.toBeDefined();
-    await run('afterEach');
+    await run('onTestFinished');
+    await expect(suite.setup()).rejects.toThrow(/no test is running/);
     await run('afterAll');
     expect(() => suite.suiteDir).not.toThrow();
   });
