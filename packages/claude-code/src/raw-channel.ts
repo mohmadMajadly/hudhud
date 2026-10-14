@@ -10,7 +10,8 @@
  * - `frames()`: every JSON frame in both directions, in order, as
  *   {@link RawFrame}s, through the core's bounded fanout with the usual
  *   subscriber limits and overflow policies (`'block'` holds the stdout
- *   reader, as for events, ADR-0007). Frames are read-only copies.
+ *   reader, as for events, ADR-0007). Frames are read-only copies. A drop
+ *   under `'drop-oldest-with-gap-marker'` yields one {@link RawGap}.
  * - `controlRequest()` and `writeFrame()`: written to the CLI's stdin outside
  *   the session machine, so they carry the agent's full authority (ADR-0012
  *   §8). Both are refused (`INVALID_OPTIONS`) unless the Harness was
@@ -68,7 +69,8 @@ import {
  *
  * @public
  */
-export interface RawFrame {
+export interface RawWireFrame {
+  readonly kind: 'frame';
   readonly direction: 'in' | 'out';
   /** Gapless from 1 per session, across both directions. */
   readonly seq: number;
@@ -77,6 +79,27 @@ export interface RawFrame {
   readonly bytes: number;
   readonly frame: JsonValue;
 }
+
+/**
+ * Frames this subscriber lost under `'drop-oldest-with-gap-marker'` (lead
+ * review of W5-T1, Q8b), numbered like the `gap` event: `seq` is that of the
+ * first frame left out, `dropped` how many.
+ *
+ * @public
+ */
+export interface RawGap {
+  readonly kind: 'gap';
+  readonly seq: number;
+  readonly ts: string;
+  readonly dropped: number;
+}
+
+/**
+ * What `frames()` yields: a frame on the wire, or the gap of a drop.
+ *
+ * @public
+ */
+export type RawFrame = RawWireFrame | RawGap;
 
 const encoder = new TextEncoder();
 
@@ -88,12 +111,27 @@ function cap(text: string): string {
 }
 
 /** What travels through the fanout: frames, and the gap marker of a drop. */
-type RawItem = { readonly kind: 'frame'; readonly frame: RawFrame } | { readonly kind: 'gap' };
+type RawItem = RawWireFrame | { readonly kind: 'gap'; readonly dropped: number };
 
-async function* framesOf(items: AsyncIterator<RawItem>): AsyncGenerator<RawFrame, void> {
+/**
+ * One subscriber's frames: a gap marker gets its `seq` here, as the first
+ * frame left out (the last delivered `seq` plus one, from the subscription
+ * point when nothing was delivered yet).
+ */
+async function* framesOf(
+  items: AsyncIterator<RawItem>,
+  startSeq: number,
+  now: () => string,
+): AsyncGenerator<RawFrame, void> {
+  let lastSeq = startSeq;
   for await (const item of { [Symbol.asyncIterator]: () => items }) {
-    // A dropped stretch shows as a jump of `seq`; RawFrame has no gap form.
-    if (item.kind === 'frame') yield item.frame;
+    if (item.kind === 'frame') {
+      lastSeq = item.seq;
+      yield item;
+    } else {
+      yield { kind: 'gap', seq: lastSeq + 1, ts: now(), dropped: item.dropped };
+      lastSeq += item.dropped;
+    }
   }
 }
 
@@ -131,7 +169,7 @@ export class RawChannel {
     this.#policy = options.policy;
     this.#defaults = options.defaults;
     this.#fanout = new Fanout<RawItem>({
-      gapMarker: () => ({ kind: 'gap' }),
+      gapMarker: (dropped) => ({ kind: 'gap', dropped }),
       overflowError: (info) =>
         new SubscriberOverflowError('The raw frame subscriber queue overflowed.', {
           details: { ...info },
@@ -179,7 +217,8 @@ export class RawChannel {
     if (direction === 'in') this.#settle(frame);
     if (this.#fanout.subscriberCount === 0) return;
     const bytes = encoder.encode(line).byteLength - 1;
-    const raw: RawFrame = {
+    const raw: RawWireFrame = {
+      kind: 'frame',
       direction,
       seq: this.#seq,
       ts: this.#clock.nowIso(),
@@ -187,7 +226,7 @@ export class RawChannel {
       frame,
     };
     this.#seq += 1;
-    await this.#fanout.publish({ kind: 'frame', frame: raw }, bytes);
+    await this.#fanout.publish(raw, bytes);
   }
 
   #settle(frame: JsonObject): void {
@@ -222,7 +261,8 @@ export class RawChannel {
         cause: error,
       });
     }
-    const frames = framesOf(items);
+    // Frames published from now on start at the current seq.
+    const frames = framesOf(items, this.#seq - 1, () => this.#clock.nowIso());
     return { [Symbol.asyncIterator]: () => frames };
   }
 

@@ -36,7 +36,7 @@ import { resolveSessionOptions, type SessionOptions } from '../options.js';
 import type { RawFrame } from '../raw-channel.js';
 import { rawChannelOf } from '../session-factory.js';
 
-export type { RawFrame } from '../raw-channel.js';
+export type { RawFrame, RawGap, RawWireFrame } from '../raw-channel.js';
 
 /**
  * Spawn extras of {@link createSessionRaw} (plan §2.6).

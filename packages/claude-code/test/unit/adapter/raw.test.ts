@@ -48,7 +48,8 @@ describe('frames()', () => {
     const session = await harness.sessions.create();
     const frames = take(raw(session).frames(), 4);
     await session.ask('hi');
-    const seen = await frames;
+    const seen = (await frames).filter((frame) => frame.kind === 'frame');
+    expect(seen).toHaveLength(4);
     expect(seen.map((frame) => [frame.direction, (frame.frame as { type: string }).type])).toEqual([
       ['out', 'user'],
       ['in', 'system'],
@@ -78,16 +79,21 @@ describe('frames()', () => {
     await harness[Symbol.asyncDispose]();
   });
 
-  it('a dropped stretch shows as a jump of seq, never as a fake frame', async () => {
+  it('a dropped stretch yields one explicit gap numbered as the first frame left out (Q8b)', async () => {
     const fake = new FakeHost();
     const harness = await harnessWith(fake, false);
     const session = await harness.sessions.create();
-    const frames = raw(session).frames({ maxEvents: 1, overflow: 'drop-oldest-with-gap-marker' });
+    const frames = raw(session).frames({ maxEvents: 2, overflow: 'drop-oldest-with-gap-marker' });
     const iterator = frames[Symbol.asyncIterator]();
     await session.ask('hi');
-    const first = await iterator.next();
-    expect(first.done).toBe(false);
-    expect((first.value as RawFrame).seq).toBeGreaterThan(1);
+    const seen: RawFrame[] = [];
+    for (let index = 0; index < 2; index += 1) seen.push((await iterator.next()).value as RawFrame);
+    const [gap, last] = seen;
+    expect(gap).toMatchObject({ kind: 'gap', seq: 1 });
+    expect(gap?.kind === 'gap' ? gap.dropped : 0).toBeGreaterThan(0);
+    // The frame after the gap continues right after the dropped stretch.
+    expect(last?.seq).toBe((gap?.seq ?? 0) + (gap?.kind === 'gap' ? gap.dropped : 0));
+    expect(last).toMatchObject({ kind: 'frame' });
     await iterator.return?.();
     await session.close();
     await harness[Symbol.asyncDispose]();
@@ -215,6 +221,35 @@ describe('raw control (ADR-0012 §8)', () => {
     await expect(rawSession.writeFrame({ type: 'keep_alive' })).rejects.toBeInstanceOf(
       SessionClosedError,
     );
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it('every pending control request rejects with SESSION_CLOSED when the session ends (Q8a)', async () => {
+    const fake = new FakeHost({
+      script: {
+        // Raw requests are never answered.
+        onWrite: (frame) =>
+          frame['type'] === 'control_request' &&
+          String(frame['request_id']).startsWith('hudhud-raw-')
+            ? true
+            : undefined,
+      },
+    });
+    const harness = await harnessWith(fake, true);
+    for (const end of ['close', 'dispose'] as const) {
+      const session = await harness.sessions.create();
+      const rawSession = raw(session);
+      const pending = [
+        rawSession.controlRequest('one'),
+        rawSession.controlRequest('two', undefined, { signal: new AbortController().signal }),
+      ].map((promise) => promise.catch((error: unknown) => error));
+      await settle();
+      if (end === 'close') await session.close();
+      else await session[Symbol.asyncDispose]();
+      for (const error of await Promise.all(pending)) {
+        expect(error).toBeInstanceOf(SessionClosedError);
+      }
+    }
     await harness[Symbol.asyncDispose]();
   });
 
