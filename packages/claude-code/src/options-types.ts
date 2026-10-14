@@ -9,7 +9,7 @@
  * import cycle.
  */
 
-import type { JsonValue, SubscriberOptions } from '@hudhud/core';
+import type { JsonValue, PermissionHandler, SubscriberOptions } from '@hudhud/core';
 
 // ---- public option types (plan §2.3) ------------------------------------------
 
@@ -58,9 +58,10 @@ export type EnvOption =
 /**
  * The permission callback as far as option validation is concerned: a
  * function. Its full request and decision types are those of the core
- * `PermissionHandler`; any such handler is assignable to this type.
+ * `PermissionHandler`; any such handler is assignable to this type. The public
+ * option is typed `PermissionHandler` (plan §2.3); this type is internal.
  *
- * @public
+ * @internal
  */
 export type PermissionCallback = (
   request: never,
@@ -111,7 +112,7 @@ export interface SessionOptions {
   readonly cwd?: string;
   readonly permissionMode?: PermissionMode;
   readonly dangerouslyAllowBypassPermissions?: boolean;
-  readonly onPermission?: PermissionCallback;
+  readonly onPermission?: PermissionHandler;
   readonly workspaceTrust?: WorkspaceTrust;
   readonly projectCredentialEnv?: 'refuse' | 'allow';
   readonly env?: EnvOption;

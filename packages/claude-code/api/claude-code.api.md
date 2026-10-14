@@ -4,4 +4,165 @@
 
 ```ts
 
+import { BinaryInfo } from '@hudhud/core';
+import { CompatInfo } from '@hudhud/core';
+import { Harness } from '@hudhud/core';
+import type { PermissionHandler } from '@hudhud/core';
+import { Session } from '@hudhud/core';
+import type { SubscriberOptions } from '@hudhud/core';
+
+// @public
+export const CLAUDE_CODE_COMPAT: {
+    readonly minTested: string;
+    readonly maxTested: string;
+    readonly knownBroken: readonly string[];
+};
+
+// @public
+export interface ClaudeCodeConnectOptions {
+    // (undocumented)
+    readonly bare?: boolean;
+    readonly binaryDigests?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+    readonly configDir?: string;
+    readonly dangerouslyAllowKnownBrokenVersion?: boolean;
+    // (undocumented)
+    readonly dangerouslyAllowRawControl?: boolean;
+}
+
+// @public
+export interface ClaudeCodeHarness extends Harness {
+    readonly binary: BinaryInfo;
+    readonly compat: CompatInfo;
+    // (undocumented)
+    readonly sessions: {
+        create(opts?: SessionOptions): Promise<Session>;
+        resume(sessionId: string, opts?: ResumeOptions): Promise<Session>;
+    };
+}
+
+// @public
+export interface ClaudeCodeSessionOptions {
+    // (undocumented)
+    readonly additionalDirectories?: readonly string[];
+    // (undocumented)
+    readonly allowedTools?: readonly string[];
+    // (undocumented)
+    readonly appendSystemPrompt?: string;
+    // (undocumented)
+    readonly backgroundWaitCeilingMs?: number;
+    // (undocumented)
+    readonly disallowedTools?: readonly string[];
+    // (undocumented)
+    readonly includePartialMessages?: boolean;
+    // (undocumented)
+    readonly maxTurns?: number;
+    // (undocumented)
+    readonly model?: string;
+    // (undocumented)
+    readonly settingSources?: readonly SettingSource[];
+}
+
+// @public
+export function connect(opts?: ConnectOptions): Promise<ClaudeCodeHarness>;
+
+// @public
+export interface ConnectOptions {
+    // (undocumented)
+    readonly backend?: 'native';
+    // (undocumented)
+    readonly binaryPath?: string;
+    readonly binaryVerification?: 'advisory' | 'strict';
+    // (undocumented)
+    readonly claudeCode?: ClaudeCodeConnectOptions;
+    // (undocumented)
+    readonly signal?: AbortSignal;
+}
+
+// @public
+export type EnvOption = 'harness' | 'inherit' | Readonly<Record<string, string>> | {
+    readonly preset: 'harness' | 'inherit';
+    readonly add?: Readonly<Record<string, string>>;
+    readonly remove?: readonly string[];
+};
+
+// @public
+export const hudhud: {
+    readonly connect: typeof connect;
+    readonly session: typeof session;
+};
+
+// @public
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions';
+
+// @public
+export interface ResumeOptions extends SessionOptions {
+    // (undocumented)
+    readonly fork?: boolean;
+}
+
+// @public
+export function session(opts?: ConnectOptions & SessionOptions): Promise<Session>;
+
+// @public
+export interface SessionOptions {
+    // (undocumented)
+    readonly autoUpdate?: 'disabled' | 'harness-default';
+    // (undocumented)
+    readonly claudeCode?: ClaudeCodeSessionOptions;
+    // (undocumented)
+    readonly closeTimeoutMs?: number;
+    // (undocumented)
+    readonly cwd?: string;
+    // (undocumented)
+    readonly dangerouslyAllowBypassPermissions?: boolean;
+    // (undocumented)
+    readonly dangerouslyAllowConfigWrites?: boolean;
+    // (undocumented)
+    readonly env?: EnvOption;
+    // (undocumented)
+    readonly events?: SubscriberOptions;
+    // (undocumented)
+    readonly firstFrameTimeoutMs?: number;
+    // (undocumented)
+    readonly idleStallMs?: number;
+    // (undocumented)
+    readonly maxFrameBytes?: number;
+    // (undocumented)
+    readonly maxOutboundFrameBytes?: number;
+    // (undocumented)
+    readonly nonessentialTraffic?: 'disabled' | 'harness-default';
+    // (undocumented)
+    readonly onAuthFailure?: 'fail-fast' | 'harness-retry';
+    // (undocumented)
+    readonly onOversizedFrame?: 'fail' | 'skip';
+    // (undocumented)
+    readonly onPermission?: PermissionHandler;
+    // (undocumented)
+    readonly permissionMode?: PermissionMode;
+    // (undocumented)
+    readonly projectCredentialEnv?: 'refuse' | 'allow';
+    // (undocumented)
+    readonly signal?: AbortSignal;
+    // (undocumented)
+    readonly termination?: {
+        readonly interruptWaitMs?: number;
+        readonly eofGraceMs?: number;
+        readonly termGraceMs?: number;
+        readonly taskkillGraceMs?: number;
+    };
+    // (undocumented)
+    readonly trace?: {
+        readonly traceparent: string;
+        readonly tracestate?: string;
+    };
+    // (undocumented)
+    readonly workspaceTrust?: WorkspaceTrust;
+}
+
+// @public
+export type SettingSource = 'user' | 'project' | 'local';
+
+// @public
+export type WorkspaceTrust = 'none' | 'context' | 'full';
+
 ```

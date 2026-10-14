@@ -5,6 +5,7 @@
 ```ts
 
 
+export * from "@hudhud/claude-code";
 export * from "@hudhud/core";
 
 ```

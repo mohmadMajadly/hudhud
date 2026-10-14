@@ -9,10 +9,13 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url));
 const dependencies = ['@hudhud/core', '@hudhud/claude-code'];
 
 describe('hudhud (umbrella)', () => {
-  it('re-exports the core entry point', () => {
+  it('re-exports the core and the Claude Code entry points', () => {
     expect(umbrella.adapterApiVersion).toBe(1);
     expect(umbrella.wireSchemaVersion).toBe(1);
-    expect(Object.keys(umbrella)).toContain('HudhudError');
+    expect(Object.keys(umbrella)).toEqual(
+      expect.arrayContaining(['HudhudError', 'connect', 'session', 'hudhud', 'CLAUDE_CODE_COMPAT']),
+    );
+    expect(umbrella.hudhud.connect).toBe(umbrella.connect);
   });
 
   it('resolves from the built output with exactly the exports of its dependencies', () => {
@@ -30,6 +33,28 @@ describe('hudhud (umbrella)', () => {
       file: 'dist/index.js',
       exports: expected,
       names: [...names].sort(),
+    });
+  });
+
+  it('leaves out the unstable raw tier and the adapter-author entry points', () => {
+    const names = Object.keys(umbrella);
+    for (const absent of [
+      'raw',
+      'createSessionRaw',
+      'createSession',
+      'HarnessBase',
+      'openSession',
+      'Fanout',
+      'encodeJsonLine',
+      'spawnHarnessProcess',
+    ]) {
+      expect(names).not.toContain(absent);
+    }
+  });
+
+  it('does not expose files outside the exports map', () => {
+    expect(importBuilt(packageDir, ['hudhud/dist/index.js'])).toEqual({
+      'hudhud/dist/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
     });
   });
 });
