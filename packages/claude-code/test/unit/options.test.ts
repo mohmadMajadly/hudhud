@@ -127,12 +127,18 @@ describe('defaults (plan §2.4)', () => {
         bare: false,
         binaryDigests: {},
         dangerouslyAllowRawControl: false,
+        dangerouslyAllowKnownBrokenVersion: false,
         posture: [
           { setting: 'binaryVerification', value: 'advisory', defaultValue: 'advisory' },
           { setting: 'claudeCode.configDir', value: 'user', defaultValue: 'user' },
           { setting: 'claudeCode.bare', value: false, defaultValue: false },
           {
             setting: 'claudeCode.dangerouslyAllowRawControl',
+            value: false,
+            defaultValue: false,
+          },
+          {
+            setting: 'claudeCode.dangerouslyAllowKnownBrokenVersion',
             value: false,
             defaultValue: false,
           },
@@ -327,7 +333,12 @@ describe('securityPosture membership (plan §2.4)', () => {
   it('lists every security-relevant connect option', () => {
     const { effective } = resolveConnectOptions({
       binaryVerification: 'strict',
-      claudeCode: { configDir: '/tmp/cfg', bare: true, dangerouslyAllowRawControl: true },
+      claudeCode: {
+        configDir: '/tmp/cfg',
+        bare: true,
+        dangerouslyAllowRawControl: true,
+        dangerouslyAllowKnownBrokenVersion: true,
+      },
     });
     expect(effective.posture).toEqual([
       { setting: 'binaryVerification', value: 'strict', defaultValue: 'advisory' },
@@ -335,6 +346,11 @@ describe('securityPosture membership (plan §2.4)', () => {
       { setting: 'claudeCode.configDir', value: 'isolated', defaultValue: 'user' },
       { setting: 'claudeCode.bare', value: true, defaultValue: false },
       { setting: 'claudeCode.dangerouslyAllowRawControl', value: true, defaultValue: false },
+      {
+        setting: 'claudeCode.dangerouslyAllowKnownBrokenVersion',
+        value: true,
+        defaultValue: false,
+      },
     ]);
     expect(JSON.stringify(effective.posture)).not.toContain('/tmp/cfg');
   });
@@ -804,6 +820,7 @@ describe('resume and session() options', () => {
         bare: true,
         binaryDigests: {},
         dangerouslyAllowRawControl: true,
+        dangerouslyAllowKnownBrokenVersion: true,
         model: 'm',
         settingSources: ['user', 'local'],
       },
@@ -818,6 +835,7 @@ describe('resume and session() options', () => {
           bare: true,
           binaryDigests: {},
           dangerouslyAllowRawControl: true,
+          dangerouslyAllowKnownBrokenVersion: true,
         },
       }).effective,
     );

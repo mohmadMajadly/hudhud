@@ -141,6 +141,7 @@ const claudeCodeConnectProperties = {
   bare: Type.Optional(Type.Boolean()),
   binaryDigests: Type.Optional(BinaryDigests),
   dangerouslyAllowRawControl: Type.Optional(Type.Boolean()),
+  dangerouslyAllowKnownBrokenVersion: Type.Optional(Type.Boolean()),
 };
 
 export const ClaudeCodeConnectOptions = strict(claudeCodeConnectProperties);

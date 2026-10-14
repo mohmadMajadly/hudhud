@@ -223,7 +223,7 @@ function validate93(data, { instancePath = "", parentData, parentDataProperty, r
     if (data && typeof data == "object" && !Array.isArray(data)) {
       const _errs1 = errors;
       for (const key0 of Object.keys(data)) {
-        if (!(key0 === "configDir" || key0 === "bare" || key0 === "binaryDigests" || key0 === "dangerouslyAllowRawControl")) {
+        if (!(key0 === "configDir" || key0 === "bare" || key0 === "binaryDigests" || key0 === "dangerouslyAllowRawControl" || key0 === "dangerouslyAllowKnownBrokenVersion")) {
           validate93.errors = [{ instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 } }];
           return false;
           break;
@@ -280,6 +280,18 @@ function validate93(data, { instancePath = "", parentData, parentDataProperty, r
                 var valid0 = _errs7 === errors;
               } else {
                 var valid0 = true;
+              }
+              if (valid0) {
+                if (data.dangerouslyAllowKnownBrokenVersion !== void 0 && func0.call(data, "dangerouslyAllowKnownBrokenVersion")) {
+                  const _errs9 = errors;
+                  if (typeof data.dangerouslyAllowKnownBrokenVersion !== "boolean") {
+                    validate93.errors = [{ instancePath: instancePath + "/dangerouslyAllowKnownBrokenVersion", schemaPath: "#/properties/dangerouslyAllowKnownBrokenVersion/type", keyword: "type", params: { type: "boolean" } }];
+                    return false;
+                  }
+                  var valid0 = _errs9 === errors;
+                } else {
+                  var valid0 = true;
+                }
               }
             }
           }
@@ -1944,7 +1956,7 @@ function validate112(data, { instancePath = "", parentData, parentDataProperty, 
 }
 validate112.evaluated = { "props": true, "dynamicProps": false, "dynamicItems": false };
 var __ajv_3 = validate125;
-var schema20 = { "type": "object", "properties": { "backend": { "type": "string", "const": "native" }, "binaryPath": { "type": "string", "minLength": 1 }, "binaryVerification": { "enum": ["advisory", "strict"] }, "cwd": { "type": "string", "minLength": 1 }, "permissionMode": { "$ref": "#/$defs/PermissionMode" }, "dangerouslyAllowBypassPermissions": { "type": "boolean" }, "workspaceTrust": { "$ref": "#/$defs/WorkspaceTrust" }, "projectCredentialEnv": { "enum": ["refuse", "allow"] }, "env": { "$ref": "#/$defs/EnvOption" }, "autoUpdate": { "enum": ["disabled", "harness-default"] }, "nonessentialTraffic": { "enum": ["disabled", "harness-default"] }, "dangerouslyAllowConfigWrites": { "type": "boolean" }, "onAuthFailure": { "enum": ["fail-fast", "harness-retry"] }, "onOversizedFrame": { "enum": ["fail", "skip"] }, "maxFrameBytes": { "$ref": "#/$defs/FrameBytes" }, "maxOutboundFrameBytes": { "$ref": "#/$defs/FrameBytes" }, "firstFrameTimeoutMs": { "$ref": "#/$defs/TimeoutMs" }, "idleStallMs": { "$ref": "#/$defs/TimeoutMs" }, "closeTimeoutMs": { "$ref": "#/$defs/TimeoutMs" }, "termination": { "$ref": "#/$defs/Termination" }, "trace": { "$ref": "#/$defs/Trace" }, "events": { "$ref": "#/$defs/SubscriberOptionsData" }, "claudeCode": { "type": "object", "properties": { "configDir": { "type": "string", "minLength": 1 }, "bare": { "type": "boolean" }, "binaryDigests": { "$ref": "#/$defs/BinaryDigests" }, "dangerouslyAllowRawControl": { "type": "boolean" }, "settingSources": { "type": "array", "items": { "$ref": "#/$defs/SettingSource" }, "uniqueItems": true }, "model": { "type": "string", "minLength": 1 }, "allowedTools": { "type": "array", "items": { "type": "string" } }, "disallowedTools": { "type": "array", "items": { "type": "string" } }, "additionalDirectories": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "maxTurns": { "type": "integer", "minimum": 1, "maximum": 2147483647 }, "includePartialMessages": { "type": "boolean" }, "appendSystemPrompt": { "type": "string" }, "backgroundWaitCeilingMs": { "$ref": "#/$defs/TimeoutMs" } }, "additionalProperties": false } }, "additionalProperties": false };
+var schema20 = { "type": "object", "properties": { "backend": { "type": "string", "const": "native" }, "binaryPath": { "type": "string", "minLength": 1 }, "binaryVerification": { "enum": ["advisory", "strict"] }, "cwd": { "type": "string", "minLength": 1 }, "permissionMode": { "$ref": "#/$defs/PermissionMode" }, "dangerouslyAllowBypassPermissions": { "type": "boolean" }, "workspaceTrust": { "$ref": "#/$defs/WorkspaceTrust" }, "projectCredentialEnv": { "enum": ["refuse", "allow"] }, "env": { "$ref": "#/$defs/EnvOption" }, "autoUpdate": { "enum": ["disabled", "harness-default"] }, "nonessentialTraffic": { "enum": ["disabled", "harness-default"] }, "dangerouslyAllowConfigWrites": { "type": "boolean" }, "onAuthFailure": { "enum": ["fail-fast", "harness-retry"] }, "onOversizedFrame": { "enum": ["fail", "skip"] }, "maxFrameBytes": { "$ref": "#/$defs/FrameBytes" }, "maxOutboundFrameBytes": { "$ref": "#/$defs/FrameBytes" }, "firstFrameTimeoutMs": { "$ref": "#/$defs/TimeoutMs" }, "idleStallMs": { "$ref": "#/$defs/TimeoutMs" }, "closeTimeoutMs": { "$ref": "#/$defs/TimeoutMs" }, "termination": { "$ref": "#/$defs/Termination" }, "trace": { "$ref": "#/$defs/Trace" }, "events": { "$ref": "#/$defs/SubscriberOptionsData" }, "claudeCode": { "type": "object", "properties": { "configDir": { "type": "string", "minLength": 1 }, "bare": { "type": "boolean" }, "binaryDigests": { "$ref": "#/$defs/BinaryDigests" }, "dangerouslyAllowRawControl": { "type": "boolean" }, "dangerouslyAllowKnownBrokenVersion": { "type": "boolean" }, "settingSources": { "type": "array", "items": { "$ref": "#/$defs/SettingSource" }, "uniqueItems": true }, "model": { "type": "string", "minLength": 1 }, "allowedTools": { "type": "array", "items": { "type": "string" } }, "disallowedTools": { "type": "array", "items": { "type": "string" } }, "additionalDirectories": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "maxTurns": { "type": "integer", "minimum": 1, "maximum": 2147483647 }, "includePartialMessages": { "type": "boolean" }, "appendSystemPrompt": { "type": "string" }, "backgroundWaitCeilingMs": { "$ref": "#/$defs/TimeoutMs" } }, "additionalProperties": false } }, "additionalProperties": false };
 function validate125(data, { instancePath = "", parentData, parentDataProperty, rootData = data, dynamicAnchors = {} } = {}) {
   let vErrors = null;
   let errors = 0;
@@ -2301,89 +2313,72 @@ function validate125(data, { instancePath = "", parentData, parentDataProperty, 
                                                                     var valid1 = true;
                                                                   }
                                                                   if (valid1) {
-                                                                    if (data22.settingSources !== void 0 && func0.call(data22, "settingSources")) {
-                                                                      let data27 = data22.settingSources;
+                                                                    if (data22.dangerouslyAllowKnownBrokenVersion !== void 0 && func0.call(data22, "dangerouslyAllowKnownBrokenVersion")) {
                                                                       const _errs39 = errors;
-                                                                      if (errors === _errs39) {
-                                                                        if (Array.isArray(data27)) {
-                                                                          var valid2 = true;
-                                                                          const len0 = data27.length;
-                                                                          for (let i0 = 0; i0 < len0; i0++) {
-                                                                            const _errs41 = errors;
-                                                                            if (!validate88(data27[i0], { instancePath: instancePath + "/claudeCode/settingSources/" + i0, parentData: data27, parentDataProperty: i0, rootData, dynamicAnchors })) {
-                                                                              vErrors = vErrors === null ? validate88.errors : vErrors.concat(validate88.errors);
-                                                                              errors = vErrors.length;
-                                                                            }
-                                                                            var valid2 = _errs41 === errors;
-                                                                            if (!valid2) {
-                                                                              break;
-                                                                            }
-                                                                          }
-                                                                          if (valid2) {
-                                                                            let i1 = data27.length;
-                                                                            let j0;
-                                                                            if (i1 > 1) {
-                                                                              outer0:
-                                                                                for (; i1--; ) {
-                                                                                  for (j0 = i1; j0--; ) {
-                                                                                    if (func27(data27[i1], data27[j0])) {
-                                                                                      validate125.errors = [{ instancePath: instancePath + "/claudeCode/settingSources", schemaPath: "#/properties/claudeCode/properties/settingSources/uniqueItems", keyword: "uniqueItems", params: { i: i1, j: j0 } }];
-                                                                                      return false;
-                                                                                      break outer0;
-                                                                                    }
-                                                                                  }
-                                                                                }
-                                                                            }
-                                                                          }
-                                                                        } else {
-                                                                          validate125.errors = [{ instancePath: instancePath + "/claudeCode/settingSources", schemaPath: "#/properties/claudeCode/properties/settingSources/type", keyword: "type", params: { type: "array" } }];
-                                                                          return false;
-                                                                        }
+                                                                      if (typeof data22.dangerouslyAllowKnownBrokenVersion !== "boolean") {
+                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/dangerouslyAllowKnownBrokenVersion", schemaPath: "#/properties/claudeCode/properties/dangerouslyAllowKnownBrokenVersion/type", keyword: "type", params: { type: "boolean" } }];
+                                                                        return false;
                                                                       }
                                                                       var valid1 = _errs39 === errors;
                                                                     } else {
                                                                       var valid1 = true;
                                                                     }
                                                                     if (valid1) {
-                                                                      if (data22.model !== void 0 && func0.call(data22, "model")) {
-                                                                        let data29 = data22.model;
-                                                                        const _errs42 = errors;
-                                                                        if (errors === _errs42) {
-                                                                          if (typeof data29 === "string") {
-                                                                            if (func63(data29) < 1) {
-                                                                              validate125.errors = [{ instancePath: instancePath + "/claudeCode/model", schemaPath: "#/properties/claudeCode/properties/model/minLength", keyword: "minLength", params: { limit: 1 } }];
-                                                                              return false;
+                                                                      if (data22.settingSources !== void 0 && func0.call(data22, "settingSources")) {
+                                                                        let data28 = data22.settingSources;
+                                                                        const _errs41 = errors;
+                                                                        if (errors === _errs41) {
+                                                                          if (Array.isArray(data28)) {
+                                                                            var valid2 = true;
+                                                                            const len0 = data28.length;
+                                                                            for (let i0 = 0; i0 < len0; i0++) {
+                                                                              const _errs43 = errors;
+                                                                              if (!validate88(data28[i0], { instancePath: instancePath + "/claudeCode/settingSources/" + i0, parentData: data28, parentDataProperty: i0, rootData, dynamicAnchors })) {
+                                                                                vErrors = vErrors === null ? validate88.errors : vErrors.concat(validate88.errors);
+                                                                                errors = vErrors.length;
+                                                                              }
+                                                                              var valid2 = _errs43 === errors;
+                                                                              if (!valid2) {
+                                                                                break;
+                                                                              }
+                                                                            }
+                                                                            if (valid2) {
+                                                                              let i1 = data28.length;
+                                                                              let j0;
+                                                                              if (i1 > 1) {
+                                                                                outer0:
+                                                                                  for (; i1--; ) {
+                                                                                    for (j0 = i1; j0--; ) {
+                                                                                      if (func27(data28[i1], data28[j0])) {
+                                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/settingSources", schemaPath: "#/properties/claudeCode/properties/settingSources/uniqueItems", keyword: "uniqueItems", params: { i: i1, j: j0 } }];
+                                                                                        return false;
+                                                                                        break outer0;
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                              }
                                                                             }
                                                                           } else {
-                                                                            validate125.errors = [{ instancePath: instancePath + "/claudeCode/model", schemaPath: "#/properties/claudeCode/properties/model/type", keyword: "type", params: { type: "string" } }];
+                                                                            validate125.errors = [{ instancePath: instancePath + "/claudeCode/settingSources", schemaPath: "#/properties/claudeCode/properties/settingSources/type", keyword: "type", params: { type: "array" } }];
                                                                             return false;
                                                                           }
                                                                         }
-                                                                        var valid1 = _errs42 === errors;
+                                                                        var valid1 = _errs41 === errors;
                                                                       } else {
                                                                         var valid1 = true;
                                                                       }
                                                                       if (valid1) {
-                                                                        if (data22.allowedTools !== void 0 && func0.call(data22, "allowedTools")) {
-                                                                          let data30 = data22.allowedTools;
+                                                                        if (data22.model !== void 0 && func0.call(data22, "model")) {
+                                                                          let data30 = data22.model;
                                                                           const _errs44 = errors;
                                                                           if (errors === _errs44) {
-                                                                            if (Array.isArray(data30)) {
-                                                                              var valid4 = true;
-                                                                              const len1 = data30.length;
-                                                                              for (let i2 = 0; i2 < len1; i2++) {
-                                                                                const _errs46 = errors;
-                                                                                if (typeof data30[i2] !== "string") {
-                                                                                  validate125.errors = [{ instancePath: instancePath + "/claudeCode/allowedTools/" + i2, schemaPath: "#/properties/claudeCode/properties/allowedTools/items/type", keyword: "type", params: { type: "string" } }];
-                                                                                  return false;
-                                                                                }
-                                                                                var valid4 = _errs46 === errors;
-                                                                                if (!valid4) {
-                                                                                  break;
-                                                                                }
+                                                                            if (typeof data30 === "string") {
+                                                                              if (func63(data30) < 1) {
+                                                                                validate125.errors = [{ instancePath: instancePath + "/claudeCode/model", schemaPath: "#/properties/claudeCode/properties/model/minLength", keyword: "minLength", params: { limit: 1 } }];
+                                                                                return false;
                                                                               }
                                                                             } else {
-                                                                              validate125.errors = [{ instancePath: instancePath + "/claudeCode/allowedTools", schemaPath: "#/properties/claudeCode/properties/allowedTools/type", keyword: "type", params: { type: "array" } }];
+                                                                              validate125.errors = [{ instancePath: instancePath + "/claudeCode/model", schemaPath: "#/properties/claudeCode/properties/model/type", keyword: "type", params: { type: "string" } }];
                                                                               return false;
                                                                             }
                                                                           }
@@ -2392,110 +2387,127 @@ function validate125(data, { instancePath = "", parentData, parentDataProperty, 
                                                                           var valid1 = true;
                                                                         }
                                                                         if (valid1) {
-                                                                          if (data22.disallowedTools !== void 0 && func0.call(data22, "disallowedTools")) {
-                                                                            let data32 = data22.disallowedTools;
-                                                                            const _errs48 = errors;
-                                                                            if (errors === _errs48) {
-                                                                              if (Array.isArray(data32)) {
-                                                                                var valid5 = true;
-                                                                                const len2 = data32.length;
-                                                                                for (let i3 = 0; i3 < len2; i3++) {
-                                                                                  const _errs50 = errors;
-                                                                                  if (typeof data32[i3] !== "string") {
-                                                                                    validate125.errors = [{ instancePath: instancePath + "/claudeCode/disallowedTools/" + i3, schemaPath: "#/properties/claudeCode/properties/disallowedTools/items/type", keyword: "type", params: { type: "string" } }];
+                                                                          if (data22.allowedTools !== void 0 && func0.call(data22, "allowedTools")) {
+                                                                            let data31 = data22.allowedTools;
+                                                                            const _errs46 = errors;
+                                                                            if (errors === _errs46) {
+                                                                              if (Array.isArray(data31)) {
+                                                                                var valid4 = true;
+                                                                                const len1 = data31.length;
+                                                                                for (let i2 = 0; i2 < len1; i2++) {
+                                                                                  const _errs48 = errors;
+                                                                                  if (typeof data31[i2] !== "string") {
+                                                                                    validate125.errors = [{ instancePath: instancePath + "/claudeCode/allowedTools/" + i2, schemaPath: "#/properties/claudeCode/properties/allowedTools/items/type", keyword: "type", params: { type: "string" } }];
                                                                                     return false;
                                                                                   }
-                                                                                  var valid5 = _errs50 === errors;
-                                                                                  if (!valid5) {
+                                                                                  var valid4 = _errs48 === errors;
+                                                                                  if (!valid4) {
                                                                                     break;
                                                                                   }
                                                                                 }
                                                                               } else {
-                                                                                validate125.errors = [{ instancePath: instancePath + "/claudeCode/disallowedTools", schemaPath: "#/properties/claudeCode/properties/disallowedTools/type", keyword: "type", params: { type: "array" } }];
+                                                                                validate125.errors = [{ instancePath: instancePath + "/claudeCode/allowedTools", schemaPath: "#/properties/claudeCode/properties/allowedTools/type", keyword: "type", params: { type: "array" } }];
                                                                                 return false;
                                                                               }
                                                                             }
-                                                                            var valid1 = _errs48 === errors;
+                                                                            var valid1 = _errs46 === errors;
                                                                           } else {
                                                                             var valid1 = true;
                                                                           }
                                                                           if (valid1) {
-                                                                            if (data22.additionalDirectories !== void 0 && func0.call(data22, "additionalDirectories")) {
-                                                                              let data34 = data22.additionalDirectories;
-                                                                              const _errs52 = errors;
-                                                                              if (errors === _errs52) {
-                                                                                if (Array.isArray(data34)) {
-                                                                                  var valid6 = true;
-                                                                                  const len3 = data34.length;
-                                                                                  for (let i4 = 0; i4 < len3; i4++) {
-                                                                                    let data35 = data34[i4];
-                                                                                    const _errs54 = errors;
-                                                                                    if (errors === _errs54) {
-                                                                                      if (typeof data35 === "string") {
-                                                                                        if (func63(data35) < 1) {
-                                                                                          validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories/" + i4, schemaPath: "#/properties/claudeCode/properties/additionalDirectories/items/minLength", keyword: "minLength", params: { limit: 1 } }];
-                                                                                          return false;
-                                                                                        }
-                                                                                      } else {
-                                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories/" + i4, schemaPath: "#/properties/claudeCode/properties/additionalDirectories/items/type", keyword: "type", params: { type: "string" } }];
-                                                                                        return false;
-                                                                                      }
+                                                                            if (data22.disallowedTools !== void 0 && func0.call(data22, "disallowedTools")) {
+                                                                              let data33 = data22.disallowedTools;
+                                                                              const _errs50 = errors;
+                                                                              if (errors === _errs50) {
+                                                                                if (Array.isArray(data33)) {
+                                                                                  var valid5 = true;
+                                                                                  const len2 = data33.length;
+                                                                                  for (let i3 = 0; i3 < len2; i3++) {
+                                                                                    const _errs52 = errors;
+                                                                                    if (typeof data33[i3] !== "string") {
+                                                                                      validate125.errors = [{ instancePath: instancePath + "/claudeCode/disallowedTools/" + i3, schemaPath: "#/properties/claudeCode/properties/disallowedTools/items/type", keyword: "type", params: { type: "string" } }];
+                                                                                      return false;
                                                                                     }
-                                                                                    var valid6 = _errs54 === errors;
-                                                                                    if (!valid6) {
+                                                                                    var valid5 = _errs52 === errors;
+                                                                                    if (!valid5) {
                                                                                       break;
                                                                                     }
                                                                                   }
                                                                                 } else {
-                                                                                  validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories", schemaPath: "#/properties/claudeCode/properties/additionalDirectories/type", keyword: "type", params: { type: "array" } }];
+                                                                                  validate125.errors = [{ instancePath: instancePath + "/claudeCode/disallowedTools", schemaPath: "#/properties/claudeCode/properties/disallowedTools/type", keyword: "type", params: { type: "array" } }];
                                                                                   return false;
                                                                                 }
                                                                               }
-                                                                              var valid1 = _errs52 === errors;
+                                                                              var valid1 = _errs50 === errors;
                                                                             } else {
                                                                               var valid1 = true;
                                                                             }
                                                                             if (valid1) {
-                                                                              if (data22.maxTurns !== void 0 && func0.call(data22, "maxTurns")) {
-                                                                                let data36 = data22.maxTurns;
-                                                                                const _errs56 = errors;
-                                                                                if (!(typeof data36 == "number" && (!(data36 % 1) && !isNaN(data36)) && isFinite(data36))) {
-                                                                                  validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/type", keyword: "type", params: { type: "integer" } }];
-                                                                                  return false;
-                                                                                }
-                                                                                if (errors === _errs56) {
-                                                                                  if (typeof data36 == "number" && isFinite(data36)) {
-                                                                                    if (data36 > 2147483647 || isNaN(data36)) {
-                                                                                      validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/maximum", keyword: "maximum", params: { comparison: "<=", limit: 2147483647 } }];
-                                                                                      return false;
-                                                                                    } else {
-                                                                                      if (data36 < 1 || isNaN(data36)) {
-                                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 } }];
-                                                                                        return false;
+                                                                              if (data22.additionalDirectories !== void 0 && func0.call(data22, "additionalDirectories")) {
+                                                                                let data35 = data22.additionalDirectories;
+                                                                                const _errs54 = errors;
+                                                                                if (errors === _errs54) {
+                                                                                  if (Array.isArray(data35)) {
+                                                                                    var valid6 = true;
+                                                                                    const len3 = data35.length;
+                                                                                    for (let i4 = 0; i4 < len3; i4++) {
+                                                                                      let data36 = data35[i4];
+                                                                                      const _errs56 = errors;
+                                                                                      if (errors === _errs56) {
+                                                                                        if (typeof data36 === "string") {
+                                                                                          if (func63(data36) < 1) {
+                                                                                            validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories/" + i4, schemaPath: "#/properties/claudeCode/properties/additionalDirectories/items/minLength", keyword: "minLength", params: { limit: 1 } }];
+                                                                                            return false;
+                                                                                          }
+                                                                                        } else {
+                                                                                          validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories/" + i4, schemaPath: "#/properties/claudeCode/properties/additionalDirectories/items/type", keyword: "type", params: { type: "string" } }];
+                                                                                          return false;
+                                                                                        }
+                                                                                      }
+                                                                                      var valid6 = _errs56 === errors;
+                                                                                      if (!valid6) {
+                                                                                        break;
                                                                                       }
                                                                                     }
+                                                                                  } else {
+                                                                                    validate125.errors = [{ instancePath: instancePath + "/claudeCode/additionalDirectories", schemaPath: "#/properties/claudeCode/properties/additionalDirectories/type", keyword: "type", params: { type: "array" } }];
+                                                                                    return false;
                                                                                   }
                                                                                 }
-                                                                                var valid1 = _errs56 === errors;
+                                                                                var valid1 = _errs54 === errors;
                                                                               } else {
                                                                                 var valid1 = true;
                                                                               }
                                                                               if (valid1) {
-                                                                                if (data22.includePartialMessages !== void 0 && func0.call(data22, "includePartialMessages")) {
+                                                                                if (data22.maxTurns !== void 0 && func0.call(data22, "maxTurns")) {
+                                                                                  let data37 = data22.maxTurns;
                                                                                   const _errs58 = errors;
-                                                                                  if (typeof data22.includePartialMessages !== "boolean") {
-                                                                                    validate125.errors = [{ instancePath: instancePath + "/claudeCode/includePartialMessages", schemaPath: "#/properties/claudeCode/properties/includePartialMessages/type", keyword: "type", params: { type: "boolean" } }];
+                                                                                  if (!(typeof data37 == "number" && (!(data37 % 1) && !isNaN(data37)) && isFinite(data37))) {
+                                                                                    validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/type", keyword: "type", params: { type: "integer" } }];
                                                                                     return false;
+                                                                                  }
+                                                                                  if (errors === _errs58) {
+                                                                                    if (typeof data37 == "number" && isFinite(data37)) {
+                                                                                      if (data37 > 2147483647 || isNaN(data37)) {
+                                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/maximum", keyword: "maximum", params: { comparison: "<=", limit: 2147483647 } }];
+                                                                                        return false;
+                                                                                      } else {
+                                                                                        if (data37 < 1 || isNaN(data37)) {
+                                                                                          validate125.errors = [{ instancePath: instancePath + "/claudeCode/maxTurns", schemaPath: "#/properties/claudeCode/properties/maxTurns/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 } }];
+                                                                                          return false;
+                                                                                        }
+                                                                                      }
+                                                                                    }
                                                                                   }
                                                                                   var valid1 = _errs58 === errors;
                                                                                 } else {
                                                                                   var valid1 = true;
                                                                                 }
                                                                                 if (valid1) {
-                                                                                  if (data22.appendSystemPrompt !== void 0 && func0.call(data22, "appendSystemPrompt")) {
+                                                                                  if (data22.includePartialMessages !== void 0 && func0.call(data22, "includePartialMessages")) {
                                                                                     const _errs60 = errors;
-                                                                                    if (typeof data22.appendSystemPrompt !== "string") {
-                                                                                      validate125.errors = [{ instancePath: instancePath + "/claudeCode/appendSystemPrompt", schemaPath: "#/properties/claudeCode/properties/appendSystemPrompt/type", keyword: "type", params: { type: "string" } }];
+                                                                                    if (typeof data22.includePartialMessages !== "boolean") {
+                                                                                      validate125.errors = [{ instancePath: instancePath + "/claudeCode/includePartialMessages", schemaPath: "#/properties/claudeCode/properties/includePartialMessages/type", keyword: "type", params: { type: "boolean" } }];
                                                                                       return false;
                                                                                     }
                                                                                     var valid1 = _errs60 === errors;
@@ -2503,15 +2515,27 @@ function validate125(data, { instancePath = "", parentData, parentDataProperty, 
                                                                                     var valid1 = true;
                                                                                   }
                                                                                   if (valid1) {
-                                                                                    if (data22.backgroundWaitCeilingMs !== void 0 && func0.call(data22, "backgroundWaitCeilingMs")) {
+                                                                                    if (data22.appendSystemPrompt !== void 0 && func0.call(data22, "appendSystemPrompt")) {
                                                                                       const _errs62 = errors;
-                                                                                      if (!validate72(data22.backgroundWaitCeilingMs, { instancePath: instancePath + "/claudeCode/backgroundWaitCeilingMs", parentData: data22, parentDataProperty: "backgroundWaitCeilingMs", rootData, dynamicAnchors })) {
-                                                                                        vErrors = vErrors === null ? validate72.errors : vErrors.concat(validate72.errors);
-                                                                                        errors = vErrors.length;
+                                                                                      if (typeof data22.appendSystemPrompt !== "string") {
+                                                                                        validate125.errors = [{ instancePath: instancePath + "/claudeCode/appendSystemPrompt", schemaPath: "#/properties/claudeCode/properties/appendSystemPrompt/type", keyword: "type", params: { type: "string" } }];
+                                                                                        return false;
                                                                                       }
                                                                                       var valid1 = _errs62 === errors;
                                                                                     } else {
                                                                                       var valid1 = true;
+                                                                                    }
+                                                                                    if (valid1) {
+                                                                                      if (data22.backgroundWaitCeilingMs !== void 0 && func0.call(data22, "backgroundWaitCeilingMs")) {
+                                                                                        const _errs64 = errors;
+                                                                                        if (!validate72(data22.backgroundWaitCeilingMs, { instancePath: instancePath + "/claudeCode/backgroundWaitCeilingMs", parentData: data22, parentDataProperty: "backgroundWaitCeilingMs", rootData, dynamicAnchors })) {
+                                                                                          vErrors = vErrors === null ? validate72.errors : vErrors.concat(validate72.errors);
+                                                                                          errors = vErrors.length;
+                                                                                        }
+                                                                                        var valid1 = _errs64 === errors;
+                                                                                      } else {
+                                                                                        var valid1 = true;
+                                                                                      }
                                                                                     }
                                                                                   }
                                                                                 }

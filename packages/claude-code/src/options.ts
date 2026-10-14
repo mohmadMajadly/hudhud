@@ -523,6 +523,7 @@ function resolveConnect(data: ConnectOptionsData): EffectiveConnectOptions {
   const configDir = cc.configDir ?? null;
   const bare = cc.bare ?? false;
   const dangerouslyAllowRawControl = cc.dangerouslyAllowRawControl ?? false;
+  const dangerouslyAllowKnownBrokenVersion = cc.dangerouslyAllowKnownBrokenVersion ?? false;
   return {
     backend: 'native',
     binaryPath: data.binaryPath ?? null,
@@ -531,6 +532,7 @@ function resolveConnect(data: ConnectOptionsData): EffectiveConnectOptions {
     bare,
     binaryDigests: cc.binaryDigests ?? {},
     dangerouslyAllowRawControl,
+    dangerouslyAllowKnownBrokenVersion,
     posture: [
       { setting: 'binaryVerification', value: binaryVerification, defaultValue: 'advisory' },
       // The kind only, never the path (plan §2.4).
@@ -543,6 +545,11 @@ function resolveConnect(data: ConnectOptionsData): EffectiveConnectOptions {
       {
         setting: 'claudeCode.dangerouslyAllowRawControl',
         value: dangerouslyAllowRawControl,
+        defaultValue: false,
+      },
+      {
+        setting: 'claudeCode.dangerouslyAllowKnownBrokenVersion',
+        value: dangerouslyAllowKnownBrokenVersion,
         defaultValue: false,
       },
     ],
@@ -615,8 +622,14 @@ export function resolveConnectSessionOptions(input: unknown): {
   checkBackend(json);
   const data = checkSchema(json, validateConnectSessionOptions);
   const { backend, binaryPath, binaryVerification, claudeCode, ...sessionData } = data;
-  const { configDir, bare, binaryDigests, dangerouslyAllowRawControl, ...ccSession } =
-    claudeCode ?? {};
+  const {
+    configDir,
+    bare,
+    binaryDigests,
+    dangerouslyAllowRawControl,
+    dangerouslyAllowKnownBrokenVersion,
+    ...ccSession
+  } = claudeCode ?? {};
   const connectData: ConnectOptionsData = {
     ...(backend === undefined ? {} : { backend }),
     ...(binaryPath === undefined ? {} : { binaryPath }),
@@ -626,6 +639,9 @@ export function resolveConnectSessionOptions(input: unknown): {
       ...(bare === undefined ? {} : { bare }),
       ...(binaryDigests === undefined ? {} : { binaryDigests }),
       ...(dangerouslyAllowRawControl === undefined ? {} : { dangerouslyAllowRawControl }),
+      ...(dangerouslyAllowKnownBrokenVersion === undefined
+        ? {}
+        : { dangerouslyAllowKnownBrokenVersion }),
     },
   };
   return {

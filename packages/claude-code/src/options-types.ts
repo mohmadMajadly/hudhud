@@ -93,6 +93,13 @@ export interface ClaudeCodeConnectOptions {
   /** Extra sha256 digests by CLI version, then platform (K8). */
   readonly binaryDigests?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly dangerouslyAllowRawControl?: boolean;
+  /**
+   * Runs a probed version listed in `CLAUDE_CODE_COMPAT.knownBroken` instead
+   * of refusing it with `HARNESS_VERSION_KNOWN_BROKEN` (ADR-0004 §4
+   * amendment); the `compat` status stays `known-broken`. Listed in
+   * `securityPosture`.
+   */
+  readonly dangerouslyAllowKnownBrokenVersion?: boolean;
 }
 
 /**
@@ -211,6 +218,7 @@ export interface EffectiveConnectOptions {
   readonly bare: boolean;
   readonly binaryDigests: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly dangerouslyAllowRawControl: boolean;
+  readonly dangerouslyAllowKnownBrokenVersion: boolean;
   readonly posture: readonly PostureField[];
 }
 

@@ -242,6 +242,9 @@
         },
         "dangerouslyAllowRawControl": {
           "type": "boolean"
+        },
+        "dangerouslyAllowKnownBrokenVersion": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -540,6 +543,9 @@
               "$ref": "#/$defs/BinaryDigests"
             },
             "dangerouslyAllowRawControl": {
+              "type": "boolean"
+            },
+            "dangerouslyAllowKnownBrokenVersion": {
               "type": "boolean"
             },
             "settingSources": {

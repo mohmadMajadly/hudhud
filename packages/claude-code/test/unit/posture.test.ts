@@ -104,6 +104,9 @@ const MEMBERSHIP: Readonly<Record<string, readonly string[] | null>> = {
   'claudeCode.bare': ['claudeCode.bare'],
   'claudeCode.binaryDigests': null,
   'claudeCode.dangerouslyAllowRawControl': ['claudeCode.dangerouslyAllowRawControl'],
+  'claudeCode.dangerouslyAllowKnownBrokenVersion': [
+    'claudeCode.dangerouslyAllowKnownBrokenVersion',
+  ],
   cwd: null,
   permissionMode: ['permissionMode'],
   dangerouslyAllowBypassPermissions: ['dangerouslyAllowBypassPermissions'],
@@ -150,6 +153,7 @@ const CONNECT_SETTINGS = [
   'claudeCode.configDir',
   'claudeCode.bare',
   'claudeCode.dangerouslyAllowRawControl',
+  'claudeCode.dangerouslyAllowKnownBrokenVersion',
 ];
 
 interface SchemaDef {
@@ -260,6 +264,11 @@ describe('security-weakening opt-ins are flagged', () => {
       'dangerouslyAllowRawControl',
       { connect: { claudeCode: { dangerouslyAllowRawControl: true } } },
       ['claudeCode.dangerouslyAllowRawControl'],
+    ],
+    [
+      'dangerouslyAllowKnownBrokenVersion',
+      { connect: { claudeCode: { dangerouslyAllowKnownBrokenVersion: true } } },
+      ['claudeCode.dangerouslyAllowKnownBrokenVersion'],
     ],
     ['permissionMode auto', { session: { permissionMode: 'auto' } }, ['permissionMode']],
     [

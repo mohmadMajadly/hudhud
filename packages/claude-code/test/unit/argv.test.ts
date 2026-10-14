@@ -175,6 +175,10 @@ describe('argv per option row (plan §2.4, §2.5)', () => {
     ['binaryVerification', { binaryVerification: 'strict' }],
     ['configDir', { claudeCode: { configDir: '/cfg' } }],
     ['dangerouslyAllowRawControl', { claudeCode: { dangerouslyAllowRawControl: true } }],
+    [
+      'dangerouslyAllowKnownBrokenVersion',
+      { claudeCode: { dangerouslyAllowKnownBrokenVersion: true } },
+    ],
     ['binaryPath', { binaryPath: '/opt/claude' }],
   ])('connect option %s does not change argv', (_row, connect) => {
     expect(argvFor(undefined, connect)).toEqual(BASE);

@@ -9,10 +9,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CLAUDE_CODE_COMPAT,
+  CLAUDE_CODE_COMPAT_POLICY,
+  CLAUDE_CODE_KNOWN_BROKEN,
+  checkKnownBrokenListings,
   claudeCompatInfo,
   compareParsed,
   compatStatus,
+  knownBrokenListing,
+  listedVersions,
+  MAX_KNOWN_BROKEN_REASON_LENGTH,
   parseVersion,
+  windowOf,
+  type CompatPolicy,
   type CompatWindow,
 } from '../../src/compat.js';
 import { KNOWN_BINARIES } from '../../src/known-binaries.js';
@@ -202,5 +210,74 @@ describe('claudeCompatInfo', () => {
     expect(info.knownBroken).toEqual(['1.0.1']);
     expect(info.knownBroken).not.toBe(window.knownBroken);
     expect(claudeCompatInfo('1.0.1', window).status).toBe('known-broken');
+  });
+});
+
+describe('known-broken listings carry a committed reason (W5 ruling 1)', () => {
+  it('every listed version has a valid reason; the public list is derived from the listings', () => {
+    expect(() => {
+      checkKnownBrokenListings(CLAUDE_CODE_KNOWN_BROKEN);
+    }).not.toThrow();
+    expect(CLAUDE_CODE_COMPAT.knownBroken).toEqual(
+      CLAUDE_CODE_KNOWN_BROKEN.map((listing) => listing.version),
+    );
+    expect(Object.isFrozen(CLAUDE_CODE_KNOWN_BROKEN)).toBe(true);
+    expect(CLAUDE_CODE_COMPAT_POLICY).toEqual({
+      minTested: CLAUDE_CODE_COMPAT.minTested,
+      maxTested: CLAUDE_CODE_COMPAT.maxTested,
+      knownBroken: CLAUDE_CODE_KNOWN_BROKEN,
+    });
+    for (const listing of CLAUDE_CODE_KNOWN_BROKEN) {
+      expect(compatStatus(listing.version)).toBe('known-broken');
+    }
+  });
+
+  it.each([
+    [{ version: '2.1.297', reason: '' }, 'committed reason'],
+    [{ version: '2.1.297', reason: '   ' }, 'committed reason'],
+    [{ version: '2.1.297', reason: 'line\nbreak' }, 'committed reason'],
+    [
+      { version: '2.1.297', reason: 'x'.repeat(MAX_KNOWN_BROKEN_REASON_LENGTH + 1) },
+      'committed reason',
+    ],
+    [{ version: 'v2', reason: 'fine' }, 'does not parse'],
+  ])('refuses %j', (listing, message) => {
+    expect(() => {
+      checkKnownBrokenListings([{ version: '1.0.0', reason: 'ok' }, listing]);
+    }).toThrow(new RegExp(`listing 1: .*${message}`, 'u'));
+  });
+
+  it('refuses a version listed twice and accepts a reason at the length limit', () => {
+    const reason = 'x'.repeat(MAX_KNOWN_BROKEN_REASON_LENGTH);
+    expect(() => {
+      checkKnownBrokenListings([{ version: '1.0.0', reason }]);
+    }).not.toThrow();
+    expect(() => {
+      checkKnownBrokenListings([
+        { version: '1.0.0', reason },
+        { version: '1.0.0', reason },
+      ]);
+    }).toThrow(/listed twice/u);
+  });
+
+  it('finds the listing of a version and derives the window of a policy', () => {
+    const policy: CompatPolicy = {
+      minTested: '1.0.0',
+      maxTested: '1.0.2',
+      knownBroken: [{ version: '1.0.1', reason: 'test listing' }],
+    };
+    expect(knownBrokenListing('1.0.1', policy)).toEqual({
+      version: '1.0.1',
+      reason: 'test listing',
+    });
+    expect(knownBrokenListing('1.0.2', policy)).toBeUndefined();
+    expect(knownBrokenListing(CLAUDE_CODE_COMPAT.maxTested)).toBeUndefined();
+    expect(windowOf(policy)).toEqual({
+      minTested: '1.0.0',
+      maxTested: '1.0.2',
+      knownBroken: ['1.0.1'],
+    });
+    expect(compatStatus('1.0.1', windowOf(policy))).toBe('known-broken');
+    expect(listedVersions(policy.knownBroken)).toEqual(['1.0.1']);
   });
 });
