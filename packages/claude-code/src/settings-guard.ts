@@ -8,7 +8,10 @@
  * project settings files the CLI could apply and refuses with
  * `ProjectCredentialEnvError` when their `env` sets a credential or routing
  * variable ({@link isProjectCredentialEnvName}) or when they carry a
- * top-level `apiKeyHelper`. Read only; nothing is written.
+ * top-level `apiKeyHelper`. Read only; nothing is written. Under `'allow'`
+ * the adapter runs the same scan without the refusal
+ * ({@link scanProjectSettings}): its findings feed `managedPolicy` and a
+ * diagnostic, so allowing them is never silent (W3-Z ruling 3).
  *
  * Scan set (L1, research 08 §7, CLI 2.1.296): `.claude/settings.json` and
  * `.claude/settings.local.json` in
@@ -853,7 +856,72 @@ export async function checkProjectCredentialEnv(
     return { outcome: 'not-applicable', ...empty };
   }
   if (session.projectCredentialEnv === 'allow') return { outcome: 'allowed', ...empty };
+  const { scan, scope, scanned } = await scanSet(session, deps);
+  if (scan.findings.length === 0 && scan.problems.length === 0) {
+    return {
+      outcome: 'clean',
+      scope,
+      roots: scanned,
+      files: scan.files,
+      symlinks: scan.symlinks,
+      diagnostics: scan.diagnostics,
+      skipped: scan.skipped,
+    };
+  }
+  throw guardError(scan, scope);
+}
 
+/**
+ * What {@link scanProjectSettings} found: the report fields of a scan plus
+ * its findings, names and paths only.
+ */
+export interface ProjectSettingsScan {
+  readonly scope: 'git-roots' | 'ancestors';
+  readonly roots: readonly string[];
+  readonly files: readonly string[];
+  readonly symlinks: readonly SettingsSymlink[];
+  readonly diagnostics: readonly SettingsGuardDiagnostic[];
+  readonly skipped: readonly SettingsGuardSkip[];
+  /** Credential or routing variable names the scanned files set (sorted, unique). */
+  readonly variables: readonly string[];
+  /** A scanned file has a top-level `apiKeyHelper`. */
+  readonly apiKeyHelper: boolean;
+  /** Files that could not be evaluated (the guard would refuse them). */
+  readonly unparseable: readonly string[];
+}
+
+/**
+ * The scan of {@link checkProjectCredentialEnv}, read-only, without refusing:
+ * for a session that runs with `projectCredentialEnv: 'allow'`, whose
+ * findings still feed `managedPolicy` and a diagnostic (W3-Z ruling 3, W5
+ * ruling 3). The same scan set, caps and link handling; names, never values.
+ */
+export async function scanProjectSettings(
+  session: Pick<EffectiveSessionOptions, 'cwd'>,
+  deps: SettingsGuardDeps,
+): Promise<ProjectSettingsScan> {
+  const { scan, scope, scanned } = await scanSet(session, deps);
+  return {
+    scope,
+    roots: scanned,
+    files: scan.files,
+    symlinks: scan.symlinks,
+    diagnostics: scan.diagnostics,
+    skipped: scan.skipped,
+    variables: [...new Set(scan.findings.flatMap((f) => f.variables))].sort(),
+    apiKeyHelper: scan.findings.some((f) => f.apiKeyHelper),
+    unparseable: [...new Set(scan.problems.map((p) => p.file))],
+  };
+}
+
+async function scanSet(
+  session: Pick<EffectiveSessionOptions, 'cwd'>,
+  deps: SettingsGuardDeps,
+): Promise<{
+  readonly scan: Scan;
+  readonly scope: 'git-roots' | 'ancestors';
+  readonly scanned: string[];
+}> {
   const ctx: Context = {
     fs: deps.fs,
     platform: deps.platform,
@@ -886,19 +954,7 @@ export async function checkProjectCredentialEnv(
   const userConfigKey = fallback ? await userConfigKeyOf(deps.userConfigDir, ctx) : null;
   for (const root of scanned) await scanRoot(root, userConfigKey, scan, ctx);
 
-  const scope = fallback ? 'ancestors' : 'git-roots';
-  if (scan.findings.length === 0 && scan.problems.length === 0) {
-    return {
-      outcome: 'clean',
-      scope,
-      roots: scanned,
-      files: scan.files,
-      symlinks: scan.symlinks,
-      diagnostics: scan.diagnostics,
-      skipped: scan.skipped,
-    };
-  }
-  throw guardError(scan, scope);
+  return { scan, scope: fallback ? 'ancestors' : 'git-roots', scanned };
 }
 
 function guardError(scan: Scan, scope: 'git-roots' | 'ancestors'): ProjectCredentialEnvError {
