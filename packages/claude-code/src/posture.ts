@@ -47,11 +47,19 @@ import type {
  * - `'not-applicable-third-party-provider'`: a `CLAUDE_CODE_USE_*` switch is on.
  * - `'unknown-raw-settings'`: the `/raw` `extraArgs` pass `--settings`, whose
  *   content hudhud does not read, so a base URL in it cannot be ruled out.
+ * - `'unknown-project-settings-unreadable'`: under `projectCredentialEnv:
+ *   'allow'` a project or local settings file the CLI may apply could not be
+ *   read or parsed by the guard's scan, so a base URL in it cannot be ruled
+ *   out (lead review of W5-T1, Q6: fail safe, never `'fetched-if-eligible'`).
  * - `'unknown-user-settings-unreadable'`: the user settings file exists but
  *   could not be read or parsed, so a base URL in it cannot be ruled out.
  *
  * Precedence: a known custom base URL, then a known third-party provider
- * (both decide the fetch whatever else is configured), then the two unknowns.
+ * (both decide the fetch whatever else is configured), then the unknowns:
+ * raw `--settings` (a file the application handed the CLI past hudhud),
+ * then unreadable project settings (repository content, the redirection
+ * vector of C3, so the more security-relevant unknown), then the unreadable
+ * user settings file (the user's own configuration).
  * The user settings file is `<config dir>/settings.json` only: that is the
  * one user-scope file whose `env` the CLI applies (plan §1.9, 08).
  */
@@ -60,6 +68,7 @@ export type ManagedPolicy =
   | 'not-fetched-custom-base-url'
   | 'not-applicable-third-party-provider'
   | 'unknown-raw-settings'
+  | 'unknown-project-settings-unreadable'
   | 'unknown-user-settings-unreadable';
 
 /** Default of the `managedPolicy` entry. */
@@ -150,19 +159,26 @@ export interface ProjectSettingsEnvFlags {
   readonly customBaseUrl: boolean;
   /** A scanned project or local settings file names a `CLAUDE_CODE_USE_*` switch. */
   readonly thirdPartyProvider: boolean;
+  /** Every scanned file could be read and parsed (none is unparseable). */
+  readonly readable: boolean;
 }
 
 /**
  * The managed-policy flags of the variable names the guard found in project
  * and local settings. Names only (the guard never keeps values), compared
  * case-insensitively; a named provider switch counts as on (its value is not
- * known), which can only make the posture more cautious.
+ * known), which can only make the posture more cautious. `unreadable`: the
+ * scan found a file it could not evaluate.
  */
-export function projectSettingsFlagsOf(names: readonly string[]): ProjectSettingsEnvFlags {
+export function projectSettingsFlagsOf(
+  names: readonly string[],
+  unreadable = false,
+): ProjectSettingsEnvFlags {
   const upper = names.map((name) => name.toUpperCase());
   return Object.freeze({
     customBaseUrl: upper.includes(BASE_URL),
     thirdPartyProvider: upper.some((name) => name.startsWith(PROVIDER_PREFIX)),
+    readable: !unreadable,
   });
 }
 
@@ -182,8 +198,9 @@ export interface ManagedPolicyInput {
 
 /**
  * The managed-policy state (K23). A custom base URL from any source wins,
- * then a third-party provider, then raw `--settings`, then an unreadable
- * user settings file.
+ * then a third-party provider, then raw `--settings`, then unreadable
+ * project settings, then an unreadable user settings file (see
+ * {@link ManagedPolicy} for the order's reasons).
  */
 export function managedPolicyOf(input: ManagedPolicyInput): ManagedPolicy {
   const sources: EnvFlags[] = [
@@ -197,6 +214,7 @@ export function managedPolicyOf(input: ManagedPolicyInput): ManagedPolicy {
     return 'not-applicable-third-party-provider';
   }
   if (input.rawSettings === true) return 'unknown-raw-settings';
+  if (input.projectSettings?.readable === false) return 'unknown-project-settings-unreadable';
   if (!input.userSettings.readable) return 'unknown-user-settings-unreadable';
   return 'fetched-if-eligible';
 }

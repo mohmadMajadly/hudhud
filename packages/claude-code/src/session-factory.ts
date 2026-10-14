@@ -301,7 +301,7 @@ export async function prepareSession(
     // 'allow' runs the same read-only scan; what it allowed is reported.
     const scan = await scanProjectSettings(effective, deps);
     diagnostics.push(...scan.diagnostics);
-    projectSettings = projectSettingsFlagsOf(scan.variables);
+    projectSettings = projectSettingsFlagsOf(scan.variables, scan.unparseable.length > 0);
     if (scan.variables.length > 0 || scan.apiKeyHelper || scan.unparseable.length > 0) {
       diagnostics.push({
         code: 'settings-guard.allowed',

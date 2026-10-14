@@ -515,20 +515,27 @@ describe('managedPolicyOf', () => {
   });
 
   it('reports guard findings in project or local settings under allow (ruling 3)', () => {
-    expect(projectSettingsFlagsOf([])).toEqual({ customBaseUrl: false, thirdPartyProvider: false });
+    expect(projectSettingsFlagsOf([])).toEqual({
+      customBaseUrl: false,
+      thirdPartyProvider: false,
+      readable: true,
+    });
     expect(projectSettingsFlagsOf(['anthropic_base_url', 'ANTHROPIC_API_KEY'])).toEqual({
       customBaseUrl: true,
       thirdPartyProvider: false,
+      readable: true,
     });
     expect(projectSettingsFlagsOf(['Claude_Code_Use_Bedrock'])).toEqual({
       customBaseUrl: false,
       thirdPartyProvider: true,
+      readable: true,
     });
     // Other credential or routing names are refused by the guard but do not
     // decide the managed-policy fetch.
     expect(projectSettingsFlagsOf(['ANTHROPIC_BEDROCK_BASE_URL', 'HTTPS_PROXY'])).toEqual({
       customBaseUrl: false,
       thirdPartyProvider: false,
+      readable: true,
     });
     expect(
       managedPolicyOf({ ...base, projectSettings: projectSettingsFlagsOf(['ANTHROPIC_BASE_URL']) }),
@@ -547,6 +554,42 @@ describe('managedPolicyOf', () => {
     expect(valueOf(posture({ projectSettings: projectSettingsFlagsOf([]) }), 'managedPolicy')).toBe(
       'fetched-if-eligible',
     );
+  });
+
+  it('an unreadable project settings file under allow is never fetched-if-eligible (Q6)', () => {
+    const project = projectSettingsFlagsOf([], true);
+    expect(project).toEqual({ customBaseUrl: false, thirdPartyProvider: false, readable: false });
+    expect(managedPolicyOf({ ...base, projectSettings: project })).toBe(
+      'unknown-project-settings-unreadable',
+    );
+    // Precedence: base URL, provider, raw settings, project unreadable, user unreadable.
+    const userUnreadable = { ...CLEAN, present: true, readable: false };
+    expect(
+      managedPolicyOf({ ...base, projectSettings: project, userSettings: userUnreadable }),
+    ).toBe('unknown-project-settings-unreadable');
+    expect(managedPolicyOf({ ...base, projectSettings: project, rawSettings: true })).toBe(
+      'unknown-raw-settings',
+    );
+    expect(
+      managedPolicyOf({
+        ...base,
+        projectSettings: projectSettingsFlagsOf(['CLAUDE_CODE_USE_VERTEX'], true),
+      }),
+    ).toBe('not-applicable-third-party-provider');
+    expect(
+      managedPolicyOf({
+        ...base,
+        projectSettings: projectSettingsFlagsOf(['ANTHROPIC_BASE_URL'], true),
+      }),
+    ).toBe('not-fetched-custom-base-url');
+    const p = posture({
+      session: { workspaceTrust: 'full', projectCredentialEnv: 'allow' },
+      projectSettings: project,
+    });
+    expect(p.entries.find((entry) => entry.setting === 'managedPolicy')).toMatchObject({
+      value: 'unknown-project-settings-unreadable',
+      deviates: true,
+    });
   });
 
   it('reports raw --settings as unknown, after the known causes (ruling 3)', () => {

@@ -19,6 +19,7 @@ import {
   CLI_PID,
   CLI_START,
   controlOk,
+  diagnosticData,
   FakeHost,
   PROJECT,
   settle,
@@ -204,6 +205,32 @@ describe("the session's diagnostics", () => {
     );
     await harness[Symbol.asyncDispose]();
     await winHarness[Symbol.asyncDispose]();
+  });
+
+  it("'allow' with an unparseable project file reports managedPolicy as unknown (Q6)", async () => {
+    const fake = new FakeHost();
+    fake.guardFs.dir(`${PROJECT}/.git`).file(`${PROJECT}/.claude/settings.json`, '{oops');
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    const session = await harness.sessions.create({
+      cwd: PROJECT,
+      workspaceTrust: 'full',
+      projectCredentialEnv: 'allow',
+    });
+    const events = session.events();
+    await session.close();
+    const seen: HudhudEvent[] = [];
+    for await (const event of events) seen.push(event);
+    const entries = diagnosticData(seen, 'security.posture')['entries'] as {
+      setting: string;
+      value: unknown;
+    }[];
+    expect(entries.find((entry) => entry.setting === 'managedPolicy')?.value).toBe(
+      'unknown-project-settings-unreadable',
+    );
+    expect(diagnosticData(seen, 'settings-guard.allowed')).toMatchObject({
+      unparseable: [`${PROJECT}/.claude/settings.json`],
+    });
+    await harness[Symbol.asyncDispose]();
   });
 
   it("'allow' with nothing to allow adds no settings-guard.allowed diagnostic", async () => {
