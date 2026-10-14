@@ -120,12 +120,33 @@ describe('runPosixLadder: full path (K1 target behind a launcher)', () => {
     expect(report.steps.at(-1)?.name).toBe('sigterm');
   });
 
-  it('reports a process that never exits as exitedAfter null', async () => {
+  it('reports a process that never exits as exitedAfter null, after waiting termGraceMs', async () => {
     const world = FakeWorld.standard();
     world.onSignal = ({ call }) => (call.id === LAUNCHER.pid ? 'sent' : undefined);
     const report = await run(world);
     expect(report.exitedAfter).toBeNull();
     expect(report.sweep).not.toBeNull();
+    expect(world.clock.now()).toBe((report.steps.at(-1)?.atMs ?? -1) + TIMING.termGraceMs);
+  });
+
+  it('reports the exit the host observes only some time after the SIGKILL (W6-Z, Node 26)', async () => {
+    // The kernel ends the process at the SIGKILL; Node reaps it, and the
+    // host learns of the exit, 3 ms later on the clock.
+    for (const noIdentity of [false, true]) {
+      const world = FakeWorld.standard();
+      if (noIdentity) world.proc.identity = Promise.resolve(null);
+      world.onSignal = ({ world: w, call }) => {
+        if (call.signal !== 'SIGKILL' || call.id !== LAUNCHER.pid) return undefined;
+        w.records.delete(LAUNCHER.pid);
+        w.clock.schedule(3, () => {
+          w.proc.exit();
+        });
+        return 'sent';
+      };
+      const report = await run(world);
+      expect(report.exitedAfter).toBe(noIdentity ? 'sigkill' : 'sweep');
+      expect(world.clock.now()).toBe((report.steps.at(-1)?.atMs ?? -1) + 3);
+    }
   });
 });
 
@@ -441,10 +462,20 @@ describe('runPosixLadder: without a verified identity of the spawned process', (
       expect(signalLog(world)).toEqual(['200 SIGTERM', '200 SIGKILL']);
       expect(world.reads).toBe(0);
       expect(report).toMatchObject({ signalTarget: null, sweep: null, launcherDetected: true });
-      // The SIGKILL exit is observed only after the report (next microtask).
-      expect(report.exitedAfter).toBeNull();
+      // The SIGKILL exit is observed on the next microtask; the report waits for it.
+      expect(report.exitedAfter).toBe('sigkill');
     },
   );
+
+  it('reports a spawned process that survives the SIGKILL as never exited, after termGraceMs', async () => {
+    const world = FakeWorld.standard();
+    world.proc.identity = Promise.resolve(null);
+    world.onSignal = () => 'sent';
+    const report = await run(world);
+    expect(names(report).at(-1)).toBe('sweep@7000:skipped(no-identity)');
+    expect(report.exitedAfter).toBeNull();
+    expect(world.clock.now()).toBe(7000 + TIMING.termGraceMs);
+  });
 
   it('reports the exit observed right at SIGKILL, and stops after a SIGTERM that ends it', async () => {
     const killed = FakeWorld.standard();

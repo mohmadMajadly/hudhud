@@ -188,6 +188,17 @@ export async function runPosixLadder<Intent extends string>(
   /** True when the process exited within `ms` (or already had: `exited` is then settled). */
   const waitForExit = (ms: number): Promise<boolean> => race(ms, () => proc.hasExited(), true);
 
+  /**
+   * After the SIGKILL: whether the host observed the exit, waiting for it at
+   * most `termGraceMs`. The kernel ends the process at once, but the host
+   * learns of it only when Node reaps the child, later (measured on Linux,
+   * W6-Z: with Node 26 the exit was not yet observed in 22 of 40 such
+   * reports), so reading `hasExited()` right away reported a killed process
+   * as never exited.
+   */
+  const exitedAfterKill = async (): Promise<boolean> =>
+    proc.hasExited() || (await waitForExit(timing.termGraceMs));
+
   const signal = (name: LadderStepName, pid: number, sig: PosixSignal, label: string): void => {
     const atMs = clock.now();
     let outcome: SignalOutcome | 'error';
@@ -224,7 +235,7 @@ export async function runPosixLadder<Intent extends string>(
     record('snapshot-s2', clock.now(), 'skipped', 'no-identity');
     signal('sigkill', pid, 'SIGKILL', 'spawned');
     record('sweep', clock.now(), 'skipped', 'no-identity');
-    return report(proc.hasExited() ? 'sigkill' : null);
+    return report((await exitedAfterKill()) ? 'sigkill' : null);
   };
 
   // 1. Intent first, before anything that may signal (ADR-0008 E8).
@@ -317,5 +328,5 @@ export async function runPosixLadder<Intent extends string>(
       record('sweep', sweepAt, 'done');
     }
   }
-  return report(proc.hasExited() ? 'sweep' : null);
+  return report((await exitedAfterKill()) ? 'sweep' : null);
 }
