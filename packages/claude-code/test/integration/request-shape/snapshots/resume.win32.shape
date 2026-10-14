@@ -1,0 +1,1408 @@
+{
+  "format": 1,
+  "scenario": "resume",
+  "requests": [
+    {
+      "method": "POST",
+      "target": "/v1/messages?beta=true",
+      "headers": {
+        "accept": "application/json",
+        "anthropic-beta": {
+          "$set": [
+            "claude-code-20250219",
+            "context-management-2025-06-27",
+            "effort-2025-11-24",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-system-2026-04-07",
+            "mid-conversation-tool-changes-2026-07-01",
+            "per-turn-control-2026-07-01",
+            "prompt-caching-scope-2026-01-05",
+            "thinking-display-updates-2026-08-18",
+            "thinking-token-count-2026-05-13"
+          ]
+        },
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "user-agent": "claude-cli/<version> (external, sdk-cli)",
+        "x-api-key": "<redacted>",
+        "x-app": "cli",
+        "x-claude-code-session-id": "<uuid-1>",
+        "x-stainless-arch": "<string>",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "<string>",
+        "x-stainless-package-version": "<string>",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "<string>",
+        "x-stainless-timeout": "600"
+      },
+      "body": {
+        "context_management": {
+          "edits": [
+            {
+              "keep": "all",
+              "type": "clear_thinking_20251015"
+            }
+          ]
+        },
+        "max_tokens": 128000,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "<string>",
+                "type": "text"
+              },
+              {
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "output_config": {
+              "effort": "medium"
+            },
+            "role": "system"
+          }
+        ],
+        "metadata": {
+          "user_id": "<string>"
+        },
+        "model": "claude-opus-5-5",
+        "output_config": {
+          "effort": "medium"
+        },
+        "stream": true,
+        "system": [
+          {
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          }
+        ],
+        "thinking": {
+          "display": "updates",
+          "type": "adaptive"
+        },
+        "tools": {
+          "Agent": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "effort": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "high",
+                      "low",
+                      "max",
+                      "medium",
+                      "xhigh"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "isolation": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "remote",
+                      "worktree"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "model": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "fable",
+                      "haiku",
+                      "opus",
+                      "sonnet"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "run_in_background": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "subagent_type": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "description",
+                  "prompt"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Agent"
+          },
+          "AskUserQuestion": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "annotations": {
+                  "additionalProperties": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "notes": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "preview": {
+                        "description": "<string>",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": "<string>",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "answers": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "<string>",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "metadata": {
+                  "additionalProperties": false,
+                  "description": "<string>",
+                  "properties": {
+                    "source": {
+                      "description": "<string>",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "questions": {
+                  "description": "<string>",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "header": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "multiSelect": {
+                        "default": false,
+                        "description": "<string>",
+                        "type": "boolean"
+                      },
+                      "options": {
+                        "description": "<string>",
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "description": {
+                              "description": "<string>",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "<string>",
+                              "type": "string"
+                            },
+                            "preview": {
+                              "description": "<string>",
+                              "type": "string"
+                            }
+                          },
+                          "required": {
+                            "$set": [
+                              "description",
+                              "label"
+                            ]
+                          },
+                          "type": "object"
+                        },
+                        "maxItems": "<number>",
+                        "minItems": "<number>",
+                        "type": "array"
+                      },
+                      "question": {
+                        "description": "<string>",
+                        "type": "string"
+                      }
+                    },
+                    "required": {
+                      "$set": [
+                        "header",
+                        "multiSelect",
+                        "options",
+                        "question"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "maxItems": "<number>",
+                  "minItems": "<number>",
+                  "type": "array"
+                }
+              },
+              "required": {
+                "$set": [
+                  "questions"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "AskUserQuestion"
+          },
+          "Bash": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "command": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "dangerouslyDisableSandbox": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "description": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "run_in_background": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "timeout": {
+                  "description": "<string>",
+                  "type": "number"
+                }
+              },
+              "required": {
+                "$set": [
+                  "command"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Bash"
+          },
+          "CronCreate": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "cron": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "durable": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "prompt": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "recurring": {
+                  "description": "<string>",
+                  "type": "boolean"
+                }
+              },
+              "required": {
+                "$set": [
+                  "cron",
+                  "prompt"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "CronCreate"
+          },
+          "CronDelete": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "id"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "CronDelete"
+          },
+          "CronList": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "CronList"
+          },
+          "Edit": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "file_path": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "new_string": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "old_string": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "replace_all": {
+                  "default": false,
+                  "description": "<string>",
+                  "type": "boolean"
+                }
+              },
+              "required": {
+                "$set": [
+                  "file_path",
+                  "new_string",
+                  "old_string"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Edit"
+          },
+          "EnterPlanMode": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "EnterPlanMode"
+          },
+          "EnterWorktree": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "EnterWorktree"
+          },
+          "ExitPlanMode": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": {},
+              "properties": {
+                "allowedPrompts": {
+                  "description": "<string>",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "prompt": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "<string>",
+                        "enum": {
+                          "$set": [
+                            "Bash"
+                          ]
+                        },
+                        "type": "string"
+                      }
+                    },
+                    "required": {
+                      "$set": [
+                        "prompt",
+                        "tool"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "name": "ExitPlanMode"
+          },
+          "ExitWorktree": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "keep",
+                      "remove"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "discard_changes": {
+                  "description": "<string>",
+                  "type": "boolean"
+                }
+              },
+              "required": {
+                "$set": [
+                  "action"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "ExitWorktree"
+          },
+          "Glob": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "pattern": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "pattern"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Glob"
+          },
+          "Grep": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "-A": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "-B": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "-C": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "-i": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "-n": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "-o": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "context": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "glob": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "head_limit": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "multiline": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "offset": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "output_mode": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "content",
+                      "count",
+                      "files_with_matches"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "path": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "pattern": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "pattern"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Grep"
+          },
+          "ListAgents": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "channel": {
+                  "description": "<string>",
+                  "maxLength": "<number>",
+                  "type": "string"
+                },
+                "q": {
+                  "description": "<string>",
+                  "maxLength": "<number>",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "ListAgents"
+          },
+          "NotebookEdit": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "cell_id": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "cell_type": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "code",
+                      "markdown"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "edit_mode": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "delete",
+                      "insert",
+                      "replace"
+                    ]
+                  },
+                  "type": "string"
+                },
+                "new_source": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "notebook_path": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "new_source",
+                  "notebook_path"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "NotebookEdit"
+          },
+          "Read": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "allow_large": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "file_path": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "limit": {
+                  "description": "<string>",
+                  "exclusiveMinimum": "<number>",
+                  "maximum": "<number>",
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "<string>",
+                  "maximum": "<number>",
+                  "minimum": "<number>",
+                  "type": "integer"
+                },
+                "pages": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "file_path"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Read"
+          },
+          "ReportFindings": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "findings": {
+                  "description": "<string>",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "category": {
+                        "description": "<string>",
+                        "maxLength": "<number>",
+                        "type": "string"
+                      },
+                      "failure_scenario": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "file": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "line": {
+                        "description": "<string>",
+                        "maximum": "<number>",
+                        "minimum": "<number>",
+                        "type": "integer"
+                      },
+                      "outcome": {
+                        "description": "<string>",
+                        "enum": {
+                          "$set": [
+                            "fixed",
+                            "no_change_needed",
+                            "skipped"
+                          ]
+                        },
+                        "type": "string"
+                      },
+                      "short_summary": {
+                        "description": "<string>",
+                        "maxLength": "<number>",
+                        "type": "string"
+                      },
+                      "summary": {
+                        "description": "<string>",
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "description": "<string>",
+                        "enum": {
+                          "$set": [
+                            "CONFIRMED",
+                            "PLAUSIBLE"
+                          ]
+                        },
+                        "type": "string"
+                      }
+                    },
+                    "required": {
+                      "$set": [
+                        "failure_scenario",
+                        "file",
+                        "summary"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "maxItems": "<number>",
+                  "type": "array"
+                },
+                "level": {
+                  "description": "<string>",
+                  "enum": {
+                    "$set": [
+                      "high",
+                      "low",
+                      "max",
+                      "medium",
+                      "xhigh"
+                    ]
+                  },
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "findings"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "ReportFindings"
+          },
+          "ScheduleWakeup": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "delaySeconds": {
+                  "description": "<string>",
+                  "type": "number"
+                },
+                "noop": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "prompt": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "stop": {
+                  "description": "<string>",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "name": "ScheduleWakeup"
+          },
+          "SendMessage": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "message": {
+                  "default": "<string>",
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "notify_when_idle": {
+                  "description": "<string>",
+                  "type": "boolean"
+                },
+                "summary": {
+                  "description": "<string>",
+                  "maxLength": "<number>",
+                  "type": "string"
+                },
+                "to": {
+                  "allOf": [
+                    {
+                      "pattern": "<string>"
+                    },
+                    {
+                      "pattern": "<string>"
+                    }
+                  ],
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "message",
+                  "to"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "SendMessage"
+          },
+          "Skill": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "args": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "skill": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "skill"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Skill"
+          },
+          "TaskStop": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "shell_id": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "task_id": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "TaskStop"
+          },
+          "WebFetch": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "offset": {
+                  "description": "<string>",
+                  "maximum": "<number>",
+                  "minimum": "<number>",
+                  "type": "integer"
+                },
+                "prompt": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "<string>",
+                  "format": "uri",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "prompt",
+                  "url"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "WebFetch"
+          },
+          "WebSearch": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "allowed_domains": {
+                  "description": "<string>",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "blocked_domains": {
+                  "description": "<string>",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "query": {
+                  "description": "<string>",
+                  "minLength": "<number>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "query"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "WebSearch"
+          },
+          "Workflow": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "args": {
+                  "description": "<string>"
+                },
+                "description": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "resumeFromRunId": {
+                  "description": "<string>",
+                  "pattern": "<string>",
+                  "type": "string"
+                },
+                "script": {
+                  "description": "<string>",
+                  "maxLength": "<number>",
+                  "type": "string"
+                },
+                "scriptPath": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "Workflow"
+          },
+          "Write": {
+            "description": "<string>",
+            "input_schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "<string>",
+                  "type": "string"
+                },
+                "file_path": {
+                  "description": "<string>",
+                  "type": "string"
+                }
+              },
+              "required": {
+                "$set": [
+                  "content",
+                  "file_path"
+                ]
+              },
+              "type": "object"
+            },
+            "name": "Write"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "target": "/v1/messages?beta=true",
+      "headers": {
+        "accept": "application/json",
+        "anthropic-beta": {
+          "$set": [
+            "claude-code-20250219",
+            "context-management-2025-06-27",
+            "effort-2025-11-24",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-system-2026-04-07",
+            "mid-conversation-tool-changes-2026-07-01",
+            "per-turn-control-2026-07-01",
+            "prompt-caching-scope-2026-01-05",
+            "thinking-display-updates-2026-08-18",
+            "thinking-token-count-2026-05-13"
+          ]
+        },
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "user-agent": "claude-cli/<version> (external, sdk-cli)",
+        "x-api-key": "<redacted>",
+        "x-app": "cli",
+        "x-claude-code-session-id": "<uuid-1>",
+        "x-stainless-arch": "<string>",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "<string>",
+        "x-stainless-package-version": "<string>",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "<string>",
+        "x-stainless-timeout": "600"
+      },
+      "body": {
+        "context_management": {
+          "edits": [
+            {
+              "keep": "all",
+              "type": "clear_thinking_20251015"
+            }
+          ]
+        },
+        "max_tokens": 128000,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "<string>",
+                "type": "text"
+              },
+              {
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": "<string>",
+            "output_config": {
+              "effort": "medium"
+            },
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "citations": null,
+                "text": "<string>",
+                "type": "text"
+              },
+              {
+                "id": "<id-1>",
+                "input": {
+                  "command": "<string>",
+                  "description": "<string>"
+                },
+                "name": "Bash",
+                "type": "tool_use"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "<string>",
+                "is_error": false,
+                "tool_use_id": "<id-1>",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          }
+        ],
+        "metadata": {
+          "user_id": "<string>"
+        },
+        "model": "claude-opus-5-5",
+        "output_config": {
+          "effort": "medium"
+        },
+        "stream": true,
+        "system": [
+          {
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          }
+        ],
+        "thinking": {
+          "display": "updates",
+          "type": "adaptive"
+        },
+        "tools": "<same-as-request-1>"
+      }
+    },
+    {
+      "method": "POST",
+      "target": "/v1/messages?beta=true",
+      "headers": {
+        "accept": "application/json",
+        "anthropic-beta": {
+          "$set": [
+            "claude-code-20250219",
+            "context-management-2025-06-27",
+            "effort-2025-11-24",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-system-2026-04-07",
+            "mid-conversation-tool-changes-2026-07-01",
+            "per-turn-control-2026-07-01",
+            "prompt-caching-scope-2026-01-05",
+            "thinking-display-updates-2026-08-18",
+            "thinking-token-count-2026-05-13"
+          ]
+        },
+        "anthropic-dangerous-direct-browser-access": "true",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "user-agent": "claude-cli/<version> (external, sdk-cli)",
+        "x-api-key": "<redacted>",
+        "x-app": "cli",
+        "x-claude-code-session-id": "<uuid-1>",
+        "x-stainless-arch": "<string>",
+        "x-stainless-lang": "js",
+        "x-stainless-os": "<string>",
+        "x-stainless-package-version": "<string>",
+        "x-stainless-retry-count": "0",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "<string>",
+        "x-stainless-timeout": "600"
+      },
+      "body": {
+        "context_management": {
+          "edits": [
+            {
+              "keep": "all",
+              "type": "clear_thinking_20251015"
+            }
+          ]
+        },
+        "max_tokens": 128000,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "<string>",
+                "type": "text"
+              },
+              {
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": "<string>",
+            "output_config": {
+              "effort": "medium"
+            },
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "citations": null,
+                "text": "<string>",
+                "type": "text"
+              },
+              {
+                "id": "<id-1>",
+                "input": {
+                  "command": "<string>",
+                  "description": "<string>"
+                },
+                "name": "Bash",
+                "type": "tool_use"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "<string>",
+                "is_error": false,
+                "tool_use_id": "<id-1>",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": "<string>",
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "citations": null,
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": "<string>",
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "<string>",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          }
+        ],
+        "metadata": {
+          "user_id": "<string>"
+        },
+        "model": "claude-opus-5-5",
+        "output_config": {
+          "effort": "medium"
+        },
+        "stream": true,
+        "system": [
+          {
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          },
+          {
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "text": "<string>",
+            "type": "text"
+          }
+        ],
+        "thinking": {
+          "display": "updates",
+          "type": "adaptive"
+        },
+        "tools": "<same-as-request-1>"
+      }
+    }
+  ]
+}
