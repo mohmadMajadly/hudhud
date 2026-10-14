@@ -19,6 +19,8 @@
     "test": "vitest run --project unit --project conformance --project scripts",
     "test:coverage": "vitest run --coverage --project unit --project conformance --project scripts",
     "test:conformance": "vitest run --project conformance",
+    "test:integration": "pnpm build && vitest run --project integration",
+    "check:tarball": "node scripts/check-tarball.mjs",
     "api:check": "node scripts/api-report.mjs",
     "api:update": "node scripts/api-report.mjs --local",
     "privacy:staged": "node scripts/privacy-scan.mjs --staged",
@@ -32,7 +34,7 @@
     "cli:fetch": "tsc --build tooling/test-support && node tooling/test-support/bin/fetch-cli.mjs",
     "fixtures:record": "tsc --build && node packages/claude-code/test/record/record-fixtures.mjs",
     "check": "pnpm run format:check && pnpm run schema:check && pnpm run schema:diff && pnpm run build && pnpm run check:no-ajv && pnpm run lint && pnpm run lint:md && pnpm run depcruise && pnpm run test:coverage && pnpm run api:check && pnpm run privacy:tree",
-    "check:full": "pnpm run check && pnpm run cli:fetch"
+    "check:full": "pnpm run check && pnpm run cli:fetch && pnpm run test:integration"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
