@@ -150,6 +150,34 @@ describe('LeakTracker with a scripted table', () => {
     await again();
   });
 
+  it('records a root by its spawn identity, without a table read', async () => {
+    const table = new FakeTable();
+    table.rows = [row(500, SELF, 50)];
+    const tracker = new LeakTracker({ table, selfPid: SELF, kill: () => undefined });
+    await tracker.begin();
+    const reads = table.reads;
+    tracker.recordIdentity({ pid: 500, startTime: '50' });
+    expect(table.reads).toBe(reads);
+    expect(tracker.roots).toEqual([{ pid: 500, startTime: '50' }]);
+    expect(tracker.tracked).toEqual([]);
+    expect(() => {
+      tracker.recordIdentity({ pid: SELF, startTime: '1' });
+    }).toThrow(/host process/);
+    // Its descendants are sampled through it; the root itself is not a row.
+    table.rows.push(row(501, 500, 51), row(502, 501, 52));
+    expect(await tracker.sample()).toBe(3);
+    expect(tracker.tracked.map((r) => r.pid)).toEqual([501, 502]);
+    // A child born after the last sample is found through the root as well;
+    // a reused pid (another start time) is not the root.
+    table.rows = [row(500, SELF, 50), row(503, 500, 53), row(504, 999, 54)];
+    expect((await tracker.findLeaks()).map((leak) => [leak.pid, leak.reason])).toEqual([
+      [500, 'tracked'],
+      [503, 'descendant'],
+    ]);
+    table.rows = [row(500, SELF, 60)];
+    expect(await tracker.findLeaks()).toEqual([]);
+  });
+
   it('surfaces a sampling failure when stopped', async () => {
     const table = new FakeTable();
     const tracker = new LeakTracker({ table, selfPid: SELF });

@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { FAKE_API_KEY } from '../../src/launcher/env.js';
 import { SandboxRefusedError } from '../../src/launcher/errors.js';
 import {
+  assertKeepsIsolation,
   assertSocketRoom,
   checkTestRoot,
   createSandbox,
@@ -232,6 +233,30 @@ describe('exactLaunch', () => {
     expect(() =>
       exactLaunch(exact({ ...lowerHome, home: '/elsewhere' }), SANDBOX, 'win32'),
     ).toThrow(/changes HOME.*changed/u);
+  });
+});
+
+describe('assertKeepsIsolation', () => {
+  const SANDBOX = { HOME: '/s/home', ANTHROPIC_API_KEY: FAKE_API_KEY, LANG: 'C.UTF-8' };
+
+  it('lets a caller name further variables that may be left out, in any case', () => {
+    const noKey = without(SANDBOX, 'ANTHROPIC_API_KEY');
+    expect(() => {
+      assertKeepsIsolation(noKey, SANDBOX, 'linux');
+    }).toThrow(/changes ANTHROPIC_API_KEY.*dropped/u);
+    expect(() => {
+      assertKeepsIsolation(noKey, SANDBOX, 'linux', ['anthropic_api_key']);
+    }).not.toThrow();
+    // Only left out: a changed value is still refused.
+    expect(() => {
+      assertKeepsIsolation({ ...SANDBOX, ANTHROPIC_API_KEY: 'x' }, SANDBOX, 'win32', [
+        'ANTHROPIC_API_KEY',
+      ]);
+    }).toThrow(/changes ANTHROPIC_API_KEY.*changed/u);
+    // Unprotected variables may differ.
+    expect(() => {
+      assertKeepsIsolation(without(SANDBOX, 'LANG'), without(SANDBOX, 'LANG'), 'linux');
+    }).not.toThrow();
   });
 });
 

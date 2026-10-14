@@ -103,7 +103,7 @@ function key(identity: ProcessIdentity): string {
   return `${String(identity.pid)}@${identity.startTime}`;
 }
 
-function startedNoEarlier(child: ProcessRow, parent: ProcessRow): boolean {
+function startedNoEarlier(child: ProcessIdentity, parent: ProcessIdentity): boolean {
   return BigInt(child.startTime) >= BigInt(parent.startTime);
 }
 
@@ -240,6 +240,8 @@ export class LeakTracker {
   readonly #self: number;
   #before: ReadonlySet<string> = new Set();
   readonly #known = new Map<string, ProcessRow>();
+  /** Roots recorded by the identity their spawn read ({@link LeakTracker.recordIdentity}). */
+  readonly #roots = new Map<string, ProcessIdentity>();
   #sampling: SamplingState | undefined;
 
   constructor(options: LeakTrackerOptions) {
@@ -248,9 +250,18 @@ export class LeakTracker {
     this.#self = options.selfPid ?? process.pid;
   }
 
-  /** The processes tracked so far (roots and sampled descendants). */
+  /**
+   * The processes tracked so far as table rows (roots recorded by
+   * {@link LeakTracker.recordRoot} and sampled descendants); roots recorded
+   * by {@link LeakTracker.recordIdentity} are in {@link LeakTracker.roots}.
+   */
   get tracked(): readonly ProcessRow[] {
     return [...this.#known.values()];
+  }
+
+  /** The roots recorded by {@link LeakTracker.recordIdentity}. */
+  get roots(): readonly ProcessIdentity[] {
+    return [...this.#roots.values()];
   }
 
   /** Takes the before snapshot. Call before the test spawns anything. */
@@ -272,10 +283,27 @@ export class LeakTracker {
     return row;
   }
 
+  /**
+   * Records a spawned root by the identity its spawn read (the core's
+   * `HarnessProcess.identity`, plan §4.7: "Every spawned CLI is recorded
+   * (pid, start time)"), without a table read: the identity was read while
+   * the child was provably not yet reaped, so a root that exits at once is
+   * still recorded. Its start time must be in the unit of this tracker's
+   * table source (the caller compares the sources).
+   *
+   * @throws Error for the host process itself.
+   */
+  recordIdentity(identity: ProcessIdentity): void {
+    if (identity.pid === this.#self) {
+      throw new Error(`pid ${String(identity.pid)} is the host process, not a spawned root`);
+    }
+    this.#roots.set(key(identity), { pid: identity.pid, startTime: identity.startTime });
+  }
+
   /** Adds every current descendant of a known process. Returns how many are known. */
   async sample(): Promise<number> {
     this.#absorb(await this.#host.table.read(), () => true);
-    return this.#known.size;
+    return this.#known.size + this.#roots.size;
   }
 
   #absorb(rows: readonly ProcessRow[], eligible: (row: ProcessRow) => boolean): ProcessRow[] {
@@ -283,10 +311,13 @@ export class LeakTracker {
     let grew = true;
     while (grew) {
       grew = false;
-      const byPid = new Map<number, ProcessRow>();
+      const byPid = new Map<number, ProcessIdentity>();
+      for (const root of this.#roots.values()) byPid.set(root.pid, root);
       for (const known of this.#known.values()) byPid.set(known.pid, known);
       for (const row of rows) {
-        if (row.pid === this.#self || this.#known.has(key(row)) || !eligible(row)) continue;
+        const id = key(row);
+        if (row.pid === this.#self || this.#known.has(id) || this.#roots.has(id)) continue;
+        if (!eligible(row)) continue;
         const parent = byPid.get(row.ppid);
         if (parent === undefined || !startedNoEarlier(row, parent)) continue;
         this.#known.set(key(row), row);
@@ -336,7 +367,7 @@ export class LeakTracker {
   /** Current leaks per the module comment, without killing anything. */
   async findLeaks(): Promise<readonly LeakedProcess[]> {
     const rows = (await this.#host.table.read()).filter((row) => row.pid !== this.#self);
-    const tracked = new Set(this.#known.keys());
+    const tracked = new Set([...this.#known.keys(), ...this.#roots.keys()]);
     const descendants = new Set(this.#absorb(rows, (row) => !this.#before.has(key(row))).map(key));
     const leaks: LeakedProcess[] = [];
     for (const row of rows) {

@@ -347,9 +347,34 @@ export function exactLaunch(
   if (exact.argv.some((arg) => arg.includes('\0'))) {
     throw new SandboxRefusedError('unsafe-option', 'argument contains NUL');
   }
+  assertKeepsIsolation(exact.env, sandboxEnv, platform);
+  return {
+    argv: [...exact.argv],
+    env: childEnv(exact.env, platform === 'win32' ? 'win32' : 'posix'),
+  };
+}
+
+/**
+ * Checks that a product-built environment keeps every isolation variable
+ * of the sandbox: each name the sandbox pins or protects
+ * ({@link isProtectedEnvName}) has the sandbox's value, or is absent from
+ * both. Names compare as the OS compares them; on Windows a name that
+ * appears twice in different case is refused. A name may be left out only
+ * when the platform never reads it ({@link UNREAD_ENV_NAMES}) or when it is
+ * listed in `mayDrop` (the version probe, which the product runs without
+ * any credential).
+ *
+ * @throws SandboxRefusedError `unsafe-option` naming the variable, never its value.
+ */
+export function assertKeepsIsolation(
+  env: Readonly<Record<string, string>>,
+  sandboxEnv: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform,
+  mayDrop: readonly string[] = [],
+): void {
   if (platform === 'win32') {
     const seen = new Set<string>();
-    for (const name of Object.keys(exact.env)) {
+    for (const name of Object.keys(env)) {
       const upper = name.toUpperCase();
       if (seen.has(upper)) {
         throw new SandboxRefusedError(
@@ -360,12 +385,15 @@ export function exactLaunch(
       seen.add(upper);
     }
   }
-  const unread = UNREAD_ENV_NAMES[platform === 'win32' ? 'win32' : 'posix'];
-  const names = new Set([...Object.keys(sandboxEnv), ...Object.keys(exact.env)]);
+  const droppable = new Set([
+    ...UNREAD_ENV_NAMES[platform === 'win32' ? 'win32' : 'posix'],
+    ...mayDrop.map((name) => name.toUpperCase()),
+  ]);
+  const names = new Set([...Object.keys(sandboxEnv), ...Object.keys(env)]);
   for (const name of names) {
     if (!isProtectedEnvName(name)) continue;
-    const kept = envValue(exact.env, name, platform);
-    if (kept === undefined && unread.includes(name.toUpperCase())) continue;
+    const kept = envValue(env, name, platform);
+    if (kept === undefined && droppable.has(name.toUpperCase())) continue;
     if (kept !== envValue(sandboxEnv, name, platform)) {
       throw new SandboxRefusedError(
         'unsafe-option',
@@ -373,10 +401,6 @@ export function exactLaunch(
       );
     }
   }
-  return {
-    argv: [...exact.argv],
-    env: childEnv(exact.env, platform === 'win32' ? 'win32' : 'posix'),
-  };
 }
 
 /**
