@@ -8,8 +8,10 @@
 // sandbox seams of test-support's `product-host.ts` replaced: the parent
 // environment (the sandbox's explicit map, never `process.env`), the home
 // and working directories, the version probe's directory, and a check of
-// every launch before the core spawns it. Integration tests import from
-// here, never the package entry (ESLint, plan §4.4).
+// every launch before the core spawns it. `sessionWith` (the body of the
+// public `session()`) runs over the same seams through the harness's
+// `testLaunch` (W6-T1). Integration tests import from here, never the
+// package entry (ESLint, plan §4.4).
 //
 // A Wave 6 suite:
 //
@@ -33,12 +35,13 @@ import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
 import type { Session } from '@hudhud/core';
 
 import { nodeHost } from '../../../src/adapter.js';
-import { connectWith, type ClaudeCodeHarness } from '../../../src/connect.js';
+import { connectWith, sessionWith, type ClaudeCodeHarness } from '../../../src/connect.js';
 import type { ConnectOptions, SessionOptions } from '../../../src/options-types.js';
 import {
   IntegrationSuite,
   registerIntegrationHooks,
   type ProductConnect,
+  type ProductConnectRequest,
 } from '../../../../../tooling/test-support/src/launcher/integration.js';
 
 /** The repository root (the pin and the CLI cache). */
@@ -61,6 +64,28 @@ export const connectInSandbox: ProductConnect<SandboxConnectOptions, ClaudeCodeH
     () => ({ ...nodeHost(), ...request.host }),
   );
 
+/** `session()` options of a sandboxed test: the binary is always the pinned one. */
+export type SandboxSessionFunctionOptions = SandboxConnectOptions & SessionOptions;
+
+/**
+ * The product's `session()` in the sandbox: binary, config directory and
+ * host seams forced as in {@link connectInSandbox}; its Harness stays
+ * private, as in the product.
+ */
+export function sessionInSandbox(
+  options: SandboxSessionFunctionOptions | undefined,
+  request: ProductConnectRequest,
+): Promise<Session> {
+  return sessionWith(
+    {
+      ...options,
+      binaryPath: request.binaryPath,
+      claudeCode: { ...options?.claudeCode, configDir: request.configDir },
+    },
+    () => ({ ...nodeHost(), ...request.host }),
+  );
+}
+
 /** The warm-up session of J11: one text turn answered by the mock, then a graceful close. */
 export async function warmUp(harness: ClaudeCodeHarness): Promise<void> {
   const session = await harness.sessions.create();
@@ -79,6 +104,14 @@ export class ClaudeIntegrationSuite extends IntegrationSuite<
   ): Promise<Session> {
     const harness = await this.testConnect(options.connect);
     return harness.sessions.create(options.session);
+  }
+
+  /**
+   * The product's `session()` (connect and create in one call, the Harness
+   * private) in the test's sandbox; the session is disposed after the test.
+   */
+  async testSessionFunction(options?: SandboxSessionFunctionOptions): Promise<Session> {
+    return this.testLaunch((request) => sessionInSandbox(options, request));
   }
 }
 
