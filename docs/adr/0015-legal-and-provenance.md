@@ -24,6 +24,7 @@ The hudhud repository is private now and planned to become open source. Facts fr
 7. Binary provenance checking is advisory ([ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)).
 8. A legal review is a precondition of open-sourcing; the owner confirmed it (owner decision 4). This policy stays binding regardless.
 9. Third-party licenses of dependencies are tracked as part of the toolchain ([ADR-0017](0017-toolchain.md)); published packages carry provenance.
+10. License (owner decision, 2026-10-14): hudhud is licensed under the Apache License 2.0 (`LICENSE` at the root and in every package, `"license": "Apache-2.0"` in every `package.json`). Reasons: an explicit patent grant and patent-retaliation clause for a library other products build on, and a NOTICE file, which item 1 already requires. The owner may revisit MIT; relicensing future versions is possible while the owner is the sole copyright holder, so the choice must be settled before outside contributions are accepted. Published versions keep the license they were published under.
 
 ## Alternatives considered
 
