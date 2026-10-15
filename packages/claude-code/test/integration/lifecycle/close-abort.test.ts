@@ -12,7 +12,7 @@ import { isHudhudError, type Session } from '@hudhud/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
-import { b64, ofType, record, terminatedOf, turnRequests } from './events.js';
+import { b64, diagnostics, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
 
@@ -114,6 +114,17 @@ test('close while a turn streams: the turn completes, then the session closes', 
 // is held mid-turn by a mock that never answers (`hang`); the CLI answers an
 // interrupt during a request with no response bytes at once (05 §7 run 35),
 // so the ladder ends at its interrupt step.
+/**
+ * How far past `closeTimeoutMs` the close may resolve: 3x the slowest
+ * measured overrun (plan §4.4), per platform, from 20 runs of this test
+ * each (W6-Z, files one at a time). Windows 11 (no job addon): 1244 to
+ * 1392 ms; the ladder's steps were intent, interrupt `acknowledged`, then
+ * snapshot S1 (one CIM query), during which the CLI exited. Linux
+ * `node:22-bookworm` (`docker run --init`): 23 to 45 ms; intent, interrupt
+ * `acknowledged`, EOF, then the exit. 3 x 1392 ms and 3 x 45 ms.
+ */
+const CLOSE_OVERRUN_BOUND_MS = process.platform === 'win32' ? 3 * 1392 : 3 * 45;
+
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;
   const session = await suite.testSession({ session: { closeTimeoutMs } });
@@ -125,16 +136,30 @@ test('close with a deadline: a turn that never ends is cut at the deadline', asy
   const elapsed = performance.now() - started;
   const result = await turn.done;
   expect(result.outcome).toBe('cancelled');
-  expect(terminatedOf(await recording.done)).toMatchObject({
+  const events = await recording.done;
+  expect(terminatedOf(events)).toMatchObject({
     intent: 'close-timeout',
     outcome: 'aborted',
   });
+  // The ladder ended at its interrupt: the CLI acknowledged it and exited,
+  // nothing was forced (no taskkill, TerminateProcess, TERM or KILL).
+  const [ladder] = diagnostics(events, 'termination.ladder');
+  const steps = (ladder?.data?.['steps'] ?? []) as readonly {
+    readonly name: string;
+    readonly outcome: string;
+    readonly detail?: string;
+  }[];
+  expect(steps.find((step) => step.name === 'interrupt')).toMatchObject({
+    outcome: 'done',
+    detail: 'acknowledged',
+  });
+  const forced = ['taskkill', 'terminate-process', 'terminate-job', 'sigterm', 'sigkill'];
+  expect(steps.filter((step) => forced.includes(step.name))).toEqual([]);
   // Not before the deadline (1 ms for the timer's millisecond rounding)...
   expect(elapsed).toBeGreaterThanOrEqual(closeTimeoutMs - 1);
-  // ...and bounded by the deadline plus the full abort ladder of the
-  // product's defaults (interrupt 1 s, EOF grace 2 s, TERM grace 5 s,
-  // taskkill grace 2 x 2 s; plan §2.3), whichever ladder of the two OSes runs.
-  expect(elapsed).toBeLessThan(closeTimeoutMs + 1000 + 2000 + 5000 + 2 * 2000);
+  // ...and at most the measured overrun past it, with the 3x margin of
+  // plan §4.4.
+  expect(elapsed).toBeLessThan(closeTimeoutMs + CLOSE_OVERRUN_BOUND_MS);
 });
 
 // Abort before the spawn: an already aborted signal refuses at the first
