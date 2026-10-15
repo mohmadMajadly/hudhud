@@ -1354,6 +1354,17 @@ Build (CMake 3.28+, MSVC v143, C17): `/W4 /WX /sdl /guard:cf /Qspectre /analyze`
 
 A1 acceptance: `node native/win32-job/build.mjs --arch x64` builds with zero warnings and clean `/analyze`; a native smoke script runs create/assign/list/terminate against a `node -e` child.
 
+As built (A1, 2026-10-15; not yet accepted, see the last item):
+
+- Files as listed, plus `native/win32-job/smoke.mjs`. Toolchain used: VS Build Tools 2022 17.14 (MSVC 19.44.35229, v143), Windows SDK 10.0.26100.0, CMake 4.4.4, `node-api-headers` 1.9.0 (catalog pin, root devDependency; it ships `def/node_api.def`, so the tarball fallback is not needed). ABI `version` `0.1.0`. The build is outside `pnpm check` (A2/A3 wire it).
+- Errors: `WIN32_<n>` with the API name in the message, `ERR_JOB_CLOSED`, and the argument errors `ERR_INVALID_ARG_COUNT`, `ERR_INVALID_ARG_TYPE` and `ERR_INVALID_ARG_VALUE` (exact argument count; a pid is an integer in [1, 2^32 - 1], an exit code an integer in [0, 2^32 - 1]). Job externals are tagged with `napi_type_tag_object`. `listPids` uses a single buffer of 65536 entries; a larger job fails with `WIN32_234`.
+- Build deviations, each with the same or a stronger effect:
+  - `/PDBALTPATH:hudhud_win32_job.pdb` is written as the literal file name, because the Visual Studio generator double-escapes `%_PDB%` and the linker then writes `%%%<name>%%%`. The result equals what `%_PDB%` gives.
+  - Added: static runtime `/MT` (no VC++ redistributable needed), `kernel32.lib` as the only default library, `/MANIFEST:NO`, `/OPT:REF /OPT:ICF /INCREMENTAL:NO`, `/utf-8`, and MSBuild `/warnaserror` with CMake `-Werror=dev`.
+  - The Visual Studio generator is required: it maps `/Qspectre` to MSBuild's `SpectreMitigation`, which fails the build (MSB8040) when the Spectre-mitigated libraries are missing, instead of linking an unmitigated runtime.
+- Blocked: the Spectre-mitigated libraries are not installed on the local machine (component `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre`). `build.mjs --arch x64` therefore stops with that component id, and a direct CMake build fails with MSB8040. Until the component is installed there is no reproducible x64 sha256 of record.
+- ARM64: the MSVC ARM64 tools are not installed locally (`Microsoft.VisualStudio.Component.VC.Tools.ARM64`, plus `Microsoft.VisualStudio.Component.VC.Runtimes.ARM64.Spectre`), so ARM64 was not built (K17: A3 builds it in CI).
+
 ### 6.2 A2: platform packages and digest tooling
 
 `packages/win32-job-x64/package.json`: `os: ["win32"]`, `cpu: ["x64"]`, `files: ["hudhud_win32_job.node", "SHA256SUMS"]`, `exports` for the `.node` file and `package.json`, no scripts, no dependencies, `publishConfig.provenance: true` (effective at open-sourcing, K17). `packages/win32-job-arm64` mirrors it but is not an optional dependency of core and is not published as first-class in v1 (K17). The `.node` files are never committed.
