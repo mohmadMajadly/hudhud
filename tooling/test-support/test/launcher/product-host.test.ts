@@ -275,8 +275,11 @@ describe('productHostSeams', () => {
       handed = true;
       return root;
     });
-    // onRoot was called and holds the spawn: the product has nothing yet.
+    // onRoot was called and holds the spawn. A macrotask later every
+    // microtask has run, so a seam that did not await onRoot would have
+    // handed the root over by now: the product must still have nothing.
     await reported.promise;
+    await new Promise((resolve) => setImmediate(resolve));
     expect(handed).toBe(false);
     release.resolve(undefined);
     await expect(spawned).resolves.toBe(proc.process);
