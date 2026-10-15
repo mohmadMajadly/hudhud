@@ -90,7 +90,13 @@ test('close while a turn streams: the turn completes, then the session closes', 
   const session = await suite.testSession();
   const recording = record(session);
   const turn = session.send('[[mock:slow chunks=8 ms=150]] streaming');
+  let turnDone = false;
+  void turn.done.then(() => {
+    turnDone = true;
+  });
   await requestArrived('streaming');
+  // The close must come while the turn still streams (8 x 150 ms).
+  expect(turnDone).toBe(false);
   const closing = session.close();
   const result = await turn.done;
   expect(result).toMatchObject({
