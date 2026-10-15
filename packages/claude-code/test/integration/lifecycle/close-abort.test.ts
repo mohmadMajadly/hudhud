@@ -25,10 +25,30 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
-/** Resolves once the mock received the turn request naming `needle` (the CLI is mid-turn). */
+/**
+ * Hang guard of {@link requestArrived}, not a timing assertion: well under
+ * the 60 s test guard, so a request that never comes fails with its needle
+ * named. The CLI's request followed the user message within 14 to 261 ms
+ * (n=94, median 111 ms; W6-Z trace of the whole project on Windows, files
+ * one at a time).
+ */
+const REQUEST_GUARD_MS = 30_000;
+
+/**
+ * Resolves once the mock received the turn request naming `needle` (the
+ * CLI is mid-turn).
+ *
+ * @throws Error naming `needle` when no such request came within {@link REQUEST_GUARD_MS}
+ */
 async function requestArrived(needle: string): Promise<void> {
   const mock = await suite.mock();
+  const deadline = performance.now() + REQUEST_GUARD_MS;
   while (turnRequests(mock, needle).length === 0) {
+    if (performance.now() >= deadline) {
+      throw new Error(
+        `no turn request naming ${JSON.stringify(needle)} reached the mock within ${String(REQUEST_GUARD_MS)} ms`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
