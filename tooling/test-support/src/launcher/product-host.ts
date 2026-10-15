@@ -78,10 +78,15 @@ export interface ProductHostOptions {
   readonly sandbox: Sandbox;
   /**
    * Called with every spawned session process, before the product sees it;
-   * the product receives the process once the returned promise settled.
+   * the product receives the process once the returned promise resolved.
+   * When it rejects, the process is killed through its handle and awaited,
+   * the error goes to `onRefused`, and the spawn rejects with it.
    */
   readonly onRoot: (root: HarnessProcess) => Promise<void> | void;
-  /** Called with the error of every refused launch (a {@link SandboxRefusedError}), before it is thrown. */
+  /**
+   * Called with the error of every refused launch (a {@link SandboxRefusedError})
+   * and of every `onRoot` that rejected, before it is thrown.
+   */
   readonly onRefused: (error: unknown) => void;
   /** The spawn after the check; default the core's `spawnHarnessProcess`. */
   readonly spawn?: ((spec: SpawnSpec) => Promise<HarnessProcess>) | undefined;
@@ -177,7 +182,18 @@ export function productHostSeams(options: ProductHostOptions): ProductHostSeams 
     async spawn(spec) {
       checked(spec, 'session');
       const root = await spawn(spec);
-      await onRoot(root);
+      try {
+        await onRoot(root);
+      } catch (error) {
+        // The product never receives this root, so nothing else would end
+        // it: end it here and fail the test. The kill goes through the
+        // spawn's own handle, which names exactly this unreaped child (its
+        // pid cannot have been reused), never through a bare pid.
+        onRefused(error);
+        root.killViaHandle('SIGKILL');
+        await root.exited;
+        throw error;
+      }
       return root;
     },
     probe: {

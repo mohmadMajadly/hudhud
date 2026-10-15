@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { BoundedCommand, CommandOutcome, SpawnSpec } from '@hudhud/core/process';
+import type {
+  BoundedCommand,
+  CommandOutcome,
+  HarnessProcess,
+  SpawnSpec,
+} from '@hudhud/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { SandboxRefusedError } from '../../src/launcher/errors.js';
@@ -283,6 +288,36 @@ describe('productHostSeams', () => {
     expect(handed).toBe(false);
     release.resolve(undefined);
     await expect(spawned).resolves.toBe(proc.process);
+  });
+
+  it('ends a root whose onRoot rejected and fails the test with the error', async () => {
+    const proc = fakeProcess(4444, identityOf(4444, '7'));
+    const kills: string[] = [];
+    const root: HarnessProcess = {
+      ...proc.process,
+      killViaHandle: (signal) => {
+        kills.push(signal);
+        proc.exit({ code: null, signal });
+        return true;
+      },
+    };
+    const refused: unknown[] = [];
+    const failure = new Error('recording the root failed');
+    const seams = productHostSeams({
+      sandbox,
+      onRoot: () => Promise.reject(failure),
+      onRefused: (error) => refused.push(error),
+      spawn: () => Promise.resolve(root),
+    });
+    let exited = false;
+    void root.exited.then(() => {
+      exited = true;
+    });
+    await expect(seams.spawn(sessionSpec())).rejects.toBe(failure);
+    // Killed through its own handle and gone before the spawn rejected.
+    expect(kills).toEqual(['SIGKILL']);
+    expect(exited).toBe(true);
+    expect(refused).toEqual([failure]);
   });
 
   it('checks each probe run and makes the probe directory in the sandbox', async () => {
