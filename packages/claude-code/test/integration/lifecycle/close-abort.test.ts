@@ -86,7 +86,7 @@ test('close while a turn streams: the turn completes, then the session closes', 
 // drain; when it passes, the abort ladder runs and the session ends
 // `aborted` with intent `close-timeout`, the active turn `cancelled`. The CLI
 // is held mid-turn by a mock that never answers (`hang`); the CLI answers an
-// interrupt written after the turn's `system/init` at once (05 §7 run 37),
+// interrupt during a request with no response bytes at once (05 §7 run 35),
 // so the ladder ends at its interrupt step.
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;
@@ -134,7 +134,7 @@ test('abort before the handshake: an aborted signal spawns nothing', async () =>
 // Abort during the handshake (plan §3.2: "create/resume reject after the
 // ladder ran (no orphan)"): the signal aborts once the CLI was spawned and
 // its identity read, before the product receives the process, so the abort
-// always precedes the handshake (the initialize response takes 380 to 1050
+// always precedes the handshake (the initialize response takes 581 to 1053
 // ms after the spawn, 05 §5 and §14); `create` rejects with AbortError only
 // once the process is gone.
 test('abort during the handshake: create rejects with AbortError after the process ended', async () => {
