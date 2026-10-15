@@ -19,6 +19,10 @@ catalog:
   eslint: 10.12.0
   fast-check: 4.10.2
   markdownlint-cli2: 0.23.3
+  # Node-API headers and node_api.def of the Windows job addon build
+  # (plan §6.1): versioned and integrity-checked by pnpm, no nodejs.org
+  # download. Headers and data only; no install script, no dependencies.
+  node-api-headers: 1.9.0
   prettier: 3.9.9
   # TypeBox 1.x under its current package name (the major is pinned, ADR-0005).
   typebox: 1.3.34
