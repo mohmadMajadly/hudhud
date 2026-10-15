@@ -5,6 +5,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Native addon build trees and binaries (plan §6.1; never committed)
+native/*/build/
+*.node
+
 # Test and coverage output
 coverage/
 

@@ -19,7 +19,8 @@
     "packages/*/test/**/*.mjs",
     "packages/*/schema-src/**/*.ts",
     "tooling/*/test/**/*.ts",
-    "tooling/*/bin/**/*.mjs"
+    "tooling/*/bin/**/*.mjs",
+    "native/*/*.mjs"
   ],
   "references": [
     { "path": "packages/core" },
