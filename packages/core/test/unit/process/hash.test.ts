@@ -134,7 +134,9 @@ describe('sha256File', () => {
   // time, so the number of reads is not a property of sha256File; the
   // invariants are: every read goes into the one buffer of chunkBytes at
   // offset 0, nothing is allocated per read, the bytes read sum to the size,
-  // and the digest is right.
+  // and the digest is right. The default buffer is 4 MiB (W7-T5: fewer
+  // reads, each of which waits for the scheduler under CPU contention).
+  const DEFAULT_CHUNK = 4 * 1024 * 1024;
   it('streams a large file through one fixed buffer (bounded memory)', async () => {
     const content = new Uint8Array(8 * 1024 * 1024 + 17);
     for (let i = 0; i < content.length; i += 4093) content[i] = i % 251;
@@ -145,15 +147,17 @@ describe('sha256File', () => {
     expect(digest.size).toBe(content.length);
     expect(new Set(reads.calls.map((call) => call.buffer)).size).toBe(1);
     for (const call of reads.calls) {
-      expect(call.buffer.length).toBe(65536);
+      expect(call.buffer.length).toBe(DEFAULT_CHUNK);
       expect(call.offset).toBe(0);
-      expect(call.length).toBe(65536);
+      expect(call.length).toBe(DEFAULT_CHUNK);
       expect(call.position).toBeNull();
     }
     expect(reads.calls.reduce((sum, call) => sum + call.bytesRead, 0)).toBe(content.length);
     // At least one read per chunk plus the read that returns 0 bytes; short
     // reads may add more, never fewer.
-    expect(reads.calls.length).toBeGreaterThanOrEqual(Math.ceil(content.length / 65536) + 1);
+    expect(reads.calls.length).toBeGreaterThanOrEqual(
+      Math.ceil(content.length / DEFAULT_CHUNK) + 1,
+    );
     expect(reads.calls.at(-1)?.bytesRead).toBe(0);
   });
 
