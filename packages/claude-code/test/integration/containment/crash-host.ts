@@ -11,7 +11,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
-import type { ClaudeIntegrationSuite } from '../support/harness.js';
+import type { ClaudeIntegrationSuite, JobAddonMode } from '../support/harness.js';
 
 /** The repository root (the pin and the CLI cache). */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
@@ -66,11 +66,13 @@ function hostEnv(tmp: string, home: string): Record<string, string> {
 
 /**
  * Starts the host in the test's sandbox with `prompt` as the session's
- * first turn, and records it as a root of the test's leak tracker.
+ * first turn and the job addon of `jobAddon`, and records it as a root of
+ * the test's leak tracker.
  */
 export async function startCrashHost(
   suite: ClaudeIntegrationSuite,
   prompt: string,
+  jobAddon: JobAddonMode,
 ): Promise<CrashHost> {
   const { sandbox, tracker } = await suite.setup();
   const config = path.join(sandbox.dirs.tmp, 'crash-host.json');
@@ -88,6 +90,7 @@ export async function startCrashHost(
       },
       prompt,
       lifetimeMs: HOST_LIFETIME_MS,
+      jobAddon,
     }),
     { flag: 'wx', mode: 0o600 },
   );

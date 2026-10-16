@@ -59,13 +59,39 @@ Run the gate by hand with `pnpm privacy:staged` (index) or `pnpm privacy:tree` (
 
 `pnpm check:full` runs `pnpm check`, then `pnpm cli:fetch`, which fetches, verifies and caches the pinned Claude Code CLI for the integration tests under `.cache/claude-cli` (plan §4.6; it downloads from `registry.npmjs.org` and never runs the binary), then `pnpm test:integration` (`pnpm build`, then the Vitest project `integration`, one test file at a time). On Windows set `HUDHUD_TEST_ROOT` to a directory outside your user profile first (plan §1.11 describes the harness and how to write a suite). `pnpm check:tarball` (packs and installs every published package, plan §4.1) is not yet part of `check:full`: the packages have no LICENSE file and no README yet (a Wave 7 gate item).
 
-On Windows x64, `pnpm check` needs the job-object addon staged in `packages/win32-job-x64` first, so the core's loader checks the real addon against its committed digest table in every Windows test run (plan §6.2). Build it and stage it with `node native/win32-job/build.mjs --arch x64`, then `node scripts/addon/write-digests.mjs --arch x64 --check`. The build needs Visual Studio Build Tools and CMake ([native/win32-job/README.md](native/win32-job/README.md#build)); it is reproducible, so `--check` passes only when your build equals the committed digest, and it never edits the table. Without the staged addon the tests that load it fail and name these two commands. Linux and macOS need nothing.
-
 To check on Linux from Windows or macOS, use a throw-away container over a fresh clone, never your working tree: `git bundle create hudhud.bundle HEAD`, then `docker run --rm --init -u node -v <dir with the bundle>:/src:ro node:22-bookworm bash` and inside it clone `/src/hudhud.bundle`, install pnpm with `npm i -g --prefix /home/node/bin pnpm@11.24.0` (add `/home/node/bin/bin` to `PATH`; `node:26` images lack corepack), then `pnpm install --frozen-lockfile` and `pnpm check:full`. Always pass `--init`: it gives the container an init process that reaps orphaned processes, as a CI host does, so the integration suites' leak checks see what they would see on CI (plan §4.4).
 
-It must pass from a clean clone on Windows (with the addon staged, above) and Linux. To check Linux from Windows or macOS, run it in a throw-away `node:22` container on a copy of the repository, never on your working copy or host pnpm store.
+It must pass from a clean clone on Windows (after `pnpm addon:stage`, below) and Linux. To check Linux from Windows or macOS, run it in a throw-away `node:22` container on a copy of the repository, never on your working copy or host pnpm store.
 
 The design documents under `docs/` are covered by the link checker and the privacy scan but not yet by markdownlint or Prettier: they predate the tooling and have open lint findings. Bringing them in is a separate, owner-reviewed change.
+
+### The job-object addon on Windows
+
+On Windows x64, `pnpm check` and the integration suites need the job-object addon built and staged in `packages/win32-job-x64` first. Windows checks always exercise the real addon: the core's loader checks it against the committed digest table, and the suites run under `'job'` containment (plan §6.2). Linux and macOS need nothing.
+
+Prerequisites (Windows x64 only):
+
+- Visual Studio Build Tools 2022 (or Visual Studio 2022) with the components `Microsoft.VisualStudio.Component.VC.Tools.x86.x64` (MSVC v143 x64 tools), `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre` (the Spectre-mitigated libraries `/Qspectre` links against) and a Windows 10 or 11 SDK;
+- CMake 3.28 or newer, as `cmake.exe` in an absolute `PATH` entry (or its absolute path in `HUDHUD_CMAKE`).
+
+Then, after `pnpm install`, run once and again after every change of the addon or its digest table:
+
+```sh
+pnpm addon:stage
+```
+
+It runs `node native/win32-job/build.mjs --arch x64`, which builds the addon reproducibly, then `node scripts/addon/write-digests.mjs --arch x64 --check`. The second command passes only when your build equals the committed digest, and it never edits the table. It then stages the addon (gitignored). [native/win32-job/README.md](native/win32-job/README.md#build) describes both tools. A missing component makes the build fail and names it.
+
+Without a staged addon, `pnpm check` fails on Windows x64 with:
+
+```text
+FAIL  |scripts| scripts/test/addon-loader.test.ts > ... > is staged with its SHA256SUMS and matches the committed digest table
+Error: <checkout>\packages\win32-job-x64\hudhud_win32_job.node is missing; stage the addon with `pnpm addon:stage` (...)
+FAIL  |unit| packages/core/test/process/containment/win32-job.test.ts > the host loader > ...
+AssertionError: the job addon is not staged: run `pnpm addon:stage`: expected 'package-missing' to be 'loaded'
+```
+
+A stale addon (a build that differs from the table) fails the same test with `the staged addon is stale; stage the addon with pnpm addon:stage`.
 
 ## Public API changes
 

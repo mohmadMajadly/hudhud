@@ -8,6 +8,7 @@
 // check runs in every Windows test). A missing or stale addon fails here,
 // naming the two commands that stage it; it is never skipped.
 
+import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   mkdtempSync,
@@ -34,8 +35,14 @@ import { ADDON_FILE, renderSha256Sums, sha256Hex } from '../lib/addon-digests.mj
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const STAGED = path.join(REPO, 'packages', 'win32-job-x64', ADDON_FILE);
+/**
+ * Hang guard of the native suite: it took 2.3 s on the A2 host (eight
+ * cases, each with its own `node` children); 60 s, the repository's hang
+ * guard (vitest.config.ts), stops a hang only.
+ */
+const SMOKE_GUARD_MS = 60_000;
 const STAGE_HINT =
-  'stage the addon: node native/win32-job/build.mjs --arch x64, then node scripts/addon/write-digests.mjs --arch x64 --check';
+  'stage the addon with `pnpm addon:stage` (node native/win32-job/build.mjs --arch x64, then node scripts/addon/write-digests.mjs --arch x64 --check; prerequisites in CONTRIBUTING.md)';
 
 describe.runIf(process.platform === 'win32' && process.arch === 'x64')(
   'the real job addon through the real loader (Windows x64)',
@@ -81,6 +88,30 @@ describe.runIf(process.platform === 'win32' && process.arch === 'x64')(
       job.close();
       expect(job.closed).toBe(true);
       expect(addon.processTimes(process.pid).pid).toBe(process.pid);
+    });
+
+    it('passes the native suite of plan §6.5 as the shipped, staged file', () => {
+      // native/win32-job/smoke.mjs (A1) against the staged addon: the rows
+      // "create/assign/list/terminate with node child + grandchild", "handle
+      // not inherited", "host crash" and "idempotency", plus argument
+      // validation, ERR_SELF_ASSIGN, the finalizer and a host not named
+      // node.exe. It kills only processes it spawned (see its header).
+      const result = spawnSync(
+        process.execPath,
+        [path.join(REPO, 'native', 'win32-job', 'smoke.mjs'), '--addon', STAGED],
+        { encoding: 'utf8', timeout: SMOKE_GUARD_MS, windowsHide: true },
+      );
+      const output = `${result.stdout}${result.stderr}`;
+      expect(result.status, output).toBe(0);
+      expect(output).toContain(`version ${String(WIN32_JOB_DIGESTS.version)}`);
+      for (const row of [
+        'create/assign/list/terminate, idempotency, ERR_JOB_CLOSED',
+        'kill on close, handle not inherited',
+        'host crash ends the tree',
+      ]) {
+        expect(output).toContain(`ok   ${row}`);
+      }
+      expect(output).toContain('smoke: all cases passed');
     });
 
     it('refuses a tampered copy before dlopen and falls back to best-effort', () => {

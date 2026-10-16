@@ -504,8 +504,9 @@ describe('the host loader', () => {
     // names the commands when it is missing.
     const outcome = first.status === 'loaded' ? 'loaded' : first.reason;
     if (process.platform !== 'win32') expect(outcome).toBe('not-windows');
-    else if (process.arch === 'x64') expect(outcome).toBe('loaded');
-    else if (process.arch === 'arm64') expect(outcome).toBe('arm64-not-first-class');
+    else if (process.arch === 'x64') {
+      expect(outcome, 'the job addon is not staged: run `pnpm addon:stage`').toBe('loaded');
+    } else if (process.arch === 'arm64') expect(outcome).toBe('arm64-not-first-class');
     else expect(outcome).toBe('unsupported-arch');
   });
 

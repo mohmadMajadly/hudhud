@@ -33,8 +33,9 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
 import type { Session } from '@hudhudjs/core';
+import { hostJobAddonDeps, loadJobAddon } from '@hudhudjs/core/process';
 
-import { nodeHost } from '../../../src/adapter.js';
+import { nodeHost, type ClaudeHost } from '../../../src/adapter.js';
 import { connectWith, sessionWith, type ClaudeCodeHarness } from '../../../src/connect.js';
 import type { ConnectOptions, SessionOptions } from '../../../src/options-types.js';
 import {
@@ -47,22 +48,59 @@ import {
 /** The repository root (the pin and the CLI cache). */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
 
+/**
+ * Where a sandboxed connect gets the Windows job addon from (plan §6.4, K2):
+ *
+ * - `'host'` (the default): the product's own loader, as an application has
+ *   it. On Windows x64 that is the staged addon (`pnpm addon:stage`), so the
+ *   Harness reports `'job'`, the shipping default.
+ * - `'unavailable'`: the loader runs with the host's real deps except that
+ *   the addon package cannot be resolved, so it reports `package-missing`
+ *   and the Harness falls back to `'best-effort'`, exactly as for an
+ *   application installed without the optional platform package. This is a
+ *   test seam of this composition root only; the product has no switch.
+ *
+ * Off Windows both modes report `not-windows`.
+ */
+export type JobAddonMode = 'host' | 'unavailable';
+
 /** `connect` options of a sandboxed test: the binary is always the pinned one. */
-export type SandboxConnectOptions = Omit<ConnectOptions, 'binaryPath'>;
+export type SandboxConnectOptions = Omit<ConnectOptions, 'binaryPath'> & {
+  /** Where the job addon comes from; default `'host'`. Never passed to the product. */
+  readonly jobAddon?: JobAddonMode;
+};
+
+/** The host seam of a {@link JobAddonMode}: nothing for `'host'`. */
+export function jobAddonSeam(mode: JobAddonMode | undefined): Partial<ClaudeHost> {
+  if (mode !== 'unavailable') return {};
+  return {
+    loadJobAddon: () =>
+      loadJobAddon({
+        ...hostJobAddonDeps(),
+        requireResolve: (specifier) => {
+          throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
+            code: 'MODULE_NOT_FOUND',
+          });
+        },
+      }),
+  };
+}
 
 /** The product's `connect` in the sandbox: binary, config directory and host seams forced. */
 export const connectInSandbox: ProductConnect<SandboxConnectOptions, ClaudeCodeHarness> = (
   options,
   request,
-) =>
-  connectWith(
+) => {
+  const { jobAddon, ...product } = options ?? {};
+  return connectWith(
     {
-      ...options,
+      ...product,
       binaryPath: request.binaryPath,
-      claudeCode: { ...options?.claudeCode, configDir: request.configDir },
+      claudeCode: { ...product.claudeCode, configDir: request.configDir },
     },
-    () => ({ ...nodeHost(), ...request.host }),
+    () => ({ ...nodeHost(), ...jobAddonSeam(jobAddon), ...request.host }),
   );
+};
 
 /** `session()` options of a sandboxed test: the binary is always the pinned one. */
 export type SandboxSessionFunctionOptions = SandboxConnectOptions & SessionOptions;
@@ -76,13 +114,14 @@ export function sessionInSandbox(
   options: SandboxSessionFunctionOptions | undefined,
   request: ProductConnectRequest,
 ): Promise<Session> {
+  const { jobAddon, ...product } = options ?? {};
   return sessionWith(
     {
-      ...options,
+      ...product,
       binaryPath: request.binaryPath,
-      claudeCode: { ...options?.claudeCode, configDir: request.configDir },
+      claudeCode: { ...product.claudeCode, configDir: request.configDir },
     },
-    () => ({ ...nodeHost(), ...request.host }),
+    () => ({ ...nodeHost(), ...jobAddonSeam(jobAddon), ...request.host }),
   );
 }
 

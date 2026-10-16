@@ -55,8 +55,10 @@ test('connect: binary info, compat, capabilities and posture of the pinned CLI',
     workspaceTrust: { none: 'supported', context: 'unsupported', full: 'supported' },
   });
   expect(capabilities.reasons['workspaceTrust.context']).toMatch(/07 §10/);
-  // K2: the job only on Windows with the addon loaded; otherwise best effort, with the reason.
-  if (process.platform === 'win32' && capabilities.processContainment === 'job') {
+  // K2: the job on Windows x64, where every test run has the addon staged
+  // (plan §6.2); otherwise best effort, with the reason.
+  if (process.platform === 'win32' && process.arch === 'x64') {
+    expect(capabilities.processContainment).toBe('job');
     expect(capabilities.reasons['processContainment']).toBeUndefined();
   } else {
     expect(capabilities.processContainment).toBe('best-effort');
