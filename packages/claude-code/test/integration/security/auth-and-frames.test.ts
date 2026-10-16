@@ -24,6 +24,7 @@ import {
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
+import { recordTiming } from '../support/timing.js';
 import { collect, diagnostics, requestsWith } from './support.js';
 
 const suite = integrationSuite();
@@ -50,6 +51,7 @@ for (const credential of ['api-key', 'fake-auth-token'] as const) {
       (caught: unknown) => caught,
     );
     const elapsed = performance.now() - started;
+    recordTiming(`auth-fail-fast.${credential}`, elapsed);
     await session.closed;
     await collected.done;
 

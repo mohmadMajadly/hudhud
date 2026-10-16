@@ -25,6 +25,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
+import { recordTiming } from '../support/timing.js';
 import { startCrashHost } from './crash-host.js';
 import {
   bashTool,
@@ -64,6 +65,11 @@ const LINUX_CLI_EXIT_BOUND_MS = 3 * 15_300;
  * 1.3 s measured, `leaks/tracker.ts`). Bound: 3x the sum.
  */
 const WINDOWS_CLI_EXIT_BOUND_MS = 3 * (35 + 1300);
+/**
+ * Hang guard of the wait for the CLI's end, above both bounds and inside the
+ * test's 180 s timeout; the bounds are asserted on the measured time.
+ */
+const CLI_EXIT_GUARD_MS = 90_000;
 /** Image names of the documented Windows residual (07 §2 W94) plus the measured `sleep.exe`. */
 const WINDOWS_RESIDUAL = new Set(['bash.exe', 'conhost.exe', 'sleep.exe']);
 
@@ -98,13 +104,16 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     const exit = await host.crash();
     expect(exit.signal).toBe('SIGKILL');
 
-    // The CLI does not survive the host.
+    // The CLI does not survive the host. The wait is a hang guard; the bound
+    // is asserted on the measured time, so a slow end is measured and
+    // reported with its value (W7-T1, K15 timing samples).
     await readUntil(
       (current) => (isListed(current, cli) ? undefined : true),
-      WINDOWS ? WINDOWS_CLI_EXIT_BOUND_MS : LINUX_CLI_EXIT_BOUND_MS,
+      CLI_EXIT_GUARD_MS,
       'the end of the CLI',
     );
     const cliGoneMs = Date.now() - crashed;
+    recordTiming(`host-crash.cli-exit.${containment}`, cliGoneMs);
     expect(cliGoneMs).toBeLessThanOrEqual(
       WINDOWS ? WINDOWS_CLI_EXIT_BOUND_MS : LINUX_CLI_EXIT_BOUND_MS,
     );

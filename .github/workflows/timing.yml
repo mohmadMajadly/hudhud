@@ -1,0 +1,131 @@
+# Integration timing measurement (plan §4.4 flake policy, K15; W7-T1;
+# ADR-0014 amendment 7). Dispatch only. Runs the integration tests that
+# assert an upper time bound repeatedly on the CI runners, with the samples
+# each records (`HUDHUD_TIMING_LOG`, packages/claude-code/test/integration/
+# support/timing.ts), and summarizes them (`scripts/ci-timing.mjs`): n, min,
+# median, p95, max and 3x max per platform and quantity. Bounds are 3x the
+# maximum measured on the platform that runs them; the test comments cite the
+# run. Samples and per-run logs are kept as an artifact for 3 days. A failed
+# test run fails the job after the summary and the upload: a bound that CI
+# cannot meet is reported, never hidden.
+#
+# Cost: each run is the bounded tests only (close deadline, auth fail-fast x2,
+# host crash per containment mode, egress), about 1 min on Linux and 2.5 min
+# on Windows locally (W7-T1); 15 runs are about 15 + 2 x 40 Linux-equivalent
+# minutes (planning multipliers of 04 §1).
+name: Integration timing
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Runs of the bounded tests per platform (15 to 30)
+        type: number
+        default: 15
+
+permissions: {}
+
+concurrency:
+  group: timing-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  measure:
+    name: measure (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Provisional: 30 runs at about twice the local per-run time on Linux,
+    # setup and the addon build included; re-sized with ci.yml from the first
+    # measured runs.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Check the run count
+        env:
+          RUNS: ${{ inputs.runs }}
+        run: |
+          if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || (( RUNS < 15 || RUNS > 30 )); then
+            echo "::error::runs must be a whole number from 15 to 30, got ${RUNS}"
+            exit 1
+          fi
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain, the pinned CLI and the test root
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+          integration: 'true'
+
+      # As in ci.yml: the image's toolset, staged with the digest of its bytes.
+      - name: Build the job addon (x64) and stage it
+        if: runner.os == 'Windows'
+        run: pnpm run addon:stage
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run the bounded tests repeatedly
+        id: runs
+        env:
+          RUNS: ${{ inputs.runs }}
+        run: |
+          set -uo pipefail
+          out="$(if [[ "$RUNNER_OS" == Windows ]]; then cygpath -u "$RUNNER_TEMP"; else printf '%s' "$RUNNER_TEMP"; fi)/timing"
+          mkdir -p "$out"
+          log="${out}/samples.jsonl"
+          : > "$log"
+          export HUDHUD_TIMING_LOG="$(if [[ "$RUNNER_OS" == Windows ]]; then cygpath -w "$log"; else printf '%s' "$log"; fi)"
+          echo "dir=${out}" >> "$GITHUB_OUTPUT"
+          failed=0
+          for i in $(seq 1 "$RUNS"); do
+            start=$SECONDS
+            if pnpm exec vitest run --project integration \
+              packages/claude-code/test/integration/lifecycle/close-abort.test.ts \
+              packages/claude-code/test/integration/security/auth-and-frames.test.ts \
+              packages/claude-code/test/integration/security/egress.test.ts \
+              packages/claude-code/test/integration/containment/host-crash.test.ts \
+              -t 'close with a deadline|fail-fast poisons|nonessential traffic on|host crash during a Bash tool' \
+              > "${out}/run-${i}.log" 2>&1; then
+              echo "run ${i}: passed in $((SECONDS - start)) s"
+            else
+              failed=$((failed + 1))
+              echo "::error::run ${i} failed after $((SECONDS - start)) s (log in the artifact, run-${i}.log)"
+              tail -n 40 "${out}/run-${i}.log"
+            fi
+          done
+          echo "failed=${failed}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize the samples
+        if: always() && steps.runs.outputs.dir != ''
+        env:
+          DIR: ${{ steps.runs.outputs.dir }}
+        run: node scripts/ci-timing.mjs "${DIR}/samples.jsonl"
+
+      - name: Upload the samples and the run logs
+        if: always() && steps.runs.outputs.dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: timing-${{ runner.os }}
+          path: ${{ runner.temp }}/timing
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Fail when a run failed
+        if: steps.runs.outputs.failed != '0'
+        env:
+          FAILED: ${{ steps.runs.outputs.failed }}
+        run: |
+          echo "::error::${FAILED} of the runs failed; see the errors above and the artifact"
+          exit 1
