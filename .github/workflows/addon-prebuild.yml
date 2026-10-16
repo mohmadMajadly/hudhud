@@ -31,16 +31,17 @@
 # (exact ids from the record) and verifies them with vswhere afterwards.
 # Inputs reach scripts through the environment, never by interpolation.
 #
-# Timeouts (K15: measured p95 x 2). Provisional until the first run: no run
-# of this workflow has been measured yet; the run records every step's
-# duration (the installer step also prints its own) to re-size them from. Local measurements on the
-# A3 host (2026-10-16): build.mjs --toolset-of-record 5 s (x64) and 4 s
-# (arm64), pnpm build 21 s, the addon unit and record tests 4 s, cli:fetch
-# 5 s, the containment suites 83 s. Windows CI ran the repository's tests
-# 2.6x slower than a local host (ci.yml windows job). The installer step has
-# no measurement anywhere: 30 minutes is an estimate (a component install
-# on a hosted image usually takes 5 to 15 minutes), to be replaced by twice
-# the first measured value.
+# Timeouts (K15): measured duration x 2, rounded up, from the first phase 1
+# run (Addon prebuild run 38947897592, 2026-10-16):
+# - installer step: 335 s (x64) and 317 s (arm64), so 12 minutes;
+# - build job: 7 min 11 s (x64) and 6 min 58 s (arm64), so 15 minutes;
+# - build step: not measured on its own; under 1 min of the job (5 s and
+#   4 s locally), 5 minutes as a hang guard;
+# - test-x64: 4 min 13 s, so 10 minutes;
+# - manifest: under 1 min, 5 minutes.
+# release-verify has not run yet (it runs on tags only): estimated about
+# 4 min from the test-x64 setup and build steps plus three pnpm pack runs
+# (under 10 s locally), 10 minutes until its first run is measured.
 name: Addon prebuild
 
 on:
@@ -70,9 +71,8 @@ jobs:
   build:
     name: build (${{ matrix.arch }})
     runs-on: windows-2025
-    # Setup about 2 min (uncached install), installer up to 30 min
-    # (estimate, see the header), build under 1 min, upload under 1 min.
-    timeout-minutes: 45
+    # Measured 7 min 11 s (x64) and 6 min 58 s (arm64), run 38947897592; x 2.
+    timeout-minutes: 15
     permissions:
       contents: read
     strategy:
@@ -131,7 +131,8 @@ jobs:
       # Visual Studio instance. A failure names the installer's exit code,
       # its log tail and every id still missing.
       - name: Install the missing toolset-of-record components
-        timeout-minutes: 30
+        # Measured 335 s (x64) and 317 s (arm64), run 38947897592; x 2.
+        timeout-minutes: 12
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -206,10 +207,8 @@ jobs:
     name: test (x64)
     needs: build
     runs-on: windows-2025
-    # Setup about 2 min; pnpm build about 1 min (21 s local x 2.6); addon
-    # unit and record tests under 1 min; cli:fetch under 1 min; containment
-    # suites about 3.6 min (83 s local x 2.6). Job about 8 min, x 2.
-    timeout-minutes: 20
+    # Measured 4 min 13 s with every step run, run 38947897592; x 2, rounded.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -239,8 +238,10 @@ jobs:
 
       # The record check (scripts/test/addon-record.test.ts) runs only on the
       # toolchain of record and is skipped otherwise; here it must run. This
-      # is the same field-by-field comparison, so a skip fails the job and
-      # names every differing field with both values. The steps after it
+      # is the same comparison (every field that can change the bytes; a
+      # different generator is reported as information, run 38947897592),
+      # so a skip fails the job and names every differing field with both
+      # values. The steps after it
       # still run, so one run shows everything.
       - name: Require the toolchain of record (the record check must run)
         id: toolchain
@@ -285,7 +286,8 @@ jobs:
     name: manifest
     needs: build
     runs-on: ubuntu-24.04
-    # Under 1 min (no dependency install: the tool uses Node built-ins only).
+    # Under 1 min in run 38947897592 (no dependency install: the tool uses
+    # Node built-ins only); 5 minutes.
     timeout-minutes: 5
     permissions:
       contents: read
