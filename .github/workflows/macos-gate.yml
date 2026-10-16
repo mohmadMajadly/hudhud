@@ -128,14 +128,16 @@ jobs:
   # only: it changes no bound, no snapshot and no workflow. Three parts, each
   # summarized in the job summary and uploaded as `integration-evidence`:
   #
-  # 1. The integration project as CI would run it, except the request-shape
-  #    suite, whose darwin snapshots do not exist yet (they are what part 2
-  #    produces); a failure fails the job and is listed with its first line.
+  # 1. The integration project as CI would run it, request-shape included
+  #    (its darwin snapshots were committed from the first run of this job,
+  #    research 11); a failure fails the job and is listed with its first
+  #    line.
   # 2. The request-shape suite in update mode (HUDHUD_REQUEST_SHAPE_UPDATE=1):
   #    every test writes its darwin snapshot and then fails on purpose; the
-  #    step passes only when every test failed for exactly that reason and
-  #    one darwin snapshot exists per Linux scenario. The snapshots are
-  #    reviewed and committed by hand afterwards.
+  #    step passes only when every test failed for exactly that reason, one
+  #    darwin snapshot exists per Linux scenario, and the written snapshots
+  #    equal the committed ones byte for byte (the CLI's requests did not
+  #    change between runs). The snapshots are uploaded either way.
   # 3. 20 runs of the close-deadline test of lifecycle/close-abort.test.ts,
   #    one process each (as the Windows and Linux bounds were measured,
   #    W6-Z), recording the overrun past the deadline before any assertion
@@ -190,12 +192,11 @@ jobs:
           --platform=node --format=esm --target=node22
           --outfile="$RUNNER_TEMP/integration-evidence.mjs"
 
-      - name: 'Part 1: the integration project (without request-shape)'
+      - name: 'Part 1: the integration project'
         id: integration
         timeout-minutes: 25
         run: >-
           pnpm exec vitest run --project integration
-          --exclude 'packages/claude-code/test/integration/request-shape/**'
           --reporter=default --reporter=json
           --outputFile.json="$EVIDENCE/integration.json"
 
@@ -204,7 +205,7 @@ jobs:
         timeout-minutes: 2
         run: >-
           node "$RUNNER_TEMP/integration-evidence.mjs" report "$EVIDENCE/integration.json"
-          "$GITHUB_WORKSPACE" "Integration project (darwin-arm64, without request-shape)"
+          "$GITHUB_WORKSPACE" "Integration project (darwin-arm64)"
           | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: 'Part 2: request-shape in update mode (fails on purpose; checked next)'
@@ -220,7 +221,7 @@ jobs:
             --outputFile.json="$EVIDENCE/request-shape-update.json"
           echo "vitest exit code $? (non-zero by design in update mode)"
 
-      - name: 'Part 2: check the update run and keep the darwin snapshots'
+      - name: 'Part 2: check the update run against the committed snapshots'
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
         timeout-minutes: 2
         run: |
@@ -231,6 +232,16 @@ jobs:
           status=${PIPESTATUS[0]}
           cp packages/claude-code/test/integration/request-shape/snapshots/*.darwin.shape \
             "$EVIDENCE/request-shape/" || true
+          snapshots=packages/claude-code/test/integration/request-shape/snapshots
+          if ! git diff --exit-code --stat -- "$snapshots"; then
+            echo "The update run changed committed snapshots (diff above)." | tee -a "$GITHUB_STEP_SUMMARY"
+            status=1
+          fi
+          if [ -n "$(git status --porcelain -- "$snapshots")" ]; then
+            git status --porcelain -- "$snapshots"
+            echo "The update run wrote snapshots that are not committed." | tee -a "$GITHUB_STEP_SUMMARY"
+            status=1
+          fi
           exit "$status"
 
       - name: 'Part 3: 20 close-deadline runs, overrun samples'
