@@ -17,14 +17,17 @@
 # Its job summary says DRY RUN in every heading; it is never a canary result,
 # and the schedule never takes that path.
 #
-# Cost (plan 5.9 W7-T2 formula, Linux-equivalent minutes per month, with the
-# W6 durations of the integration suite, plan 4.4: D_linux = 163.9 s,
-# D_windows = 682.6 s, macOS off until its gate): suite only, 30 x 2.73 +
-# 4.3 x 2 x 11.38 = 82 + 98 = 180; whole jobs (setup and build about 3 min on
-# Linux, 6 min on Windows): 30 x 5.7 + 4.3 x 2 x 17.4 = 171 + 150 = 321, plus
-# about 17 min of should-run checks. At most 30 nightly runs a month (one per
-# night while a newer version exists). Recompute with the CI-measured
-# durations of the first runs (K15).
+# Cost (plan 5.9 W7-T2 formula: 30 x D_linux + 4.3 x 2 x D_windows + 4.3 x
+# 10 x D_macos Linux-equivalent minutes per month; macOS off until its gate).
+# Durations of the whole integration suite, local hosts: W6 (plan 4.4)
+# D_linux = 163.9 s, D_windows = 682.6 s (no job addon); W7-T2 canary runs
+# against CLI 2.1.301, D_linux = 165.7 s (Docker, n=1), D_windows = 360.5 and
+# 365.1 s (addon staged, as in the canary, n=2). Suite only: W6 30 x 2.73 +
+# 8.6 x 11.38 = 180; W7 30 x 2.76 + 8.6 x 6.08 = 135. Whole jobs (setup and
+# build about 3 min on Linux, 6 min on Windows), W7: 30 x 5.8 + 8.6 x 12.1 =
+# 278, plus about 17 min of should-run checks. At most 30 nightly runs a
+# month (one per night while a newer version exists). Recompute with the
+# CI-measured durations of the first runs (K15).
 name: Nightly canary
 
 on:

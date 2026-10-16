@@ -26,9 +26,10 @@
 # path against the PINNED version, labelled DRY RUN, never a canary result.
 #
 # Cost: see nightly.yml (plan 5.9 W7-T2 formula): at most about 4.3 runs per
-# OS per month; Windows 2x, macOS 10x Linux minutes. With D_windows = 682.6 s
-# (W6) a Windows run is about 17 min of job time, 35 Linux-equivalent
-# minutes; 4.3 runs a month are about 150. macOS: not running (switch off).
+# OS per month; Windows 2x, macOS 10x Linux minutes. With D_windows = 365 s
+# (W7-T2 local canary runs, addon staged) a Windows run is about 12 min of
+# job time, 24 Linux-equivalent minutes; 4.3 runs a month are about 104.
+# macOS: not running (switch off).
 name: Weekly canary
 
 on:
@@ -93,10 +94,11 @@ jobs:
     runs-on: windows-2025
     # Estimate, not yet a CI measurement (K15: p95 x 2): setup 1.5 min, addon
     # build and stage 1.5 min, build 2.5 min, CLI fetch 0.5 min, integration
-    # 682.6 s locally (W6, 16 cores, file by file) x 1.5 for a 4-core runner
-    # = 17 min; job about 23 min, x 2 = 46, rounded up to 50. Re-size from the
-    # first dispatched runs.
-    timeout-minutes: 50
+    # 365 s locally (W7-T2 canary runs with the addon staged, 16 cores, file
+    # by file; max of n=2) x 1.5 for a 4-core runner = 9.1 min; job about
+    # 15 min, x 2 = 30, rounded up to 35. Re-size from the first dispatched
+    # runs.
+    timeout-minutes: 35
     permissions:
       contents: read
     env:
