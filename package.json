@@ -48,6 +48,7 @@
     "esbuild": "catalog:",
     "eslint": "catalog:",
     "markdownlint-cli2": "catalog:",
+    "node-api-headers": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
