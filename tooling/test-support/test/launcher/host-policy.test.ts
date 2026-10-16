@@ -15,6 +15,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { SandboxRefusedError } from '../../src/launcher/errors.js';
 import {
   assertRealCliHostAllowed,
+  HOST_POLICY_VARIABLES,
+  hostPolicyEnv,
   LOCAL_MACOS_OPT_IN,
   realCliHostRefusal,
 } from '../../src/launcher/host-policy.js';
@@ -210,5 +212,42 @@ describe('the launcher refuses the real pinned CLI on a local Mac (keyed on what
     );
     // Whatever the darwin cache checks say on this host, it is not the host refusal.
     expect(error instanceof SandboxRefusedError && error.code === 'host').toBe(false);
+  });
+});
+
+describe('hostPolicyEnv (a helper process decides as its parent)', () => {
+  it('passes exactly the variables the policy reads', () => {
+    expect(HOST_POLICY_VARIABLES).toEqual(['CI', 'RUNNER_ENVIRONMENT', LOCAL_MACOS_OPT_IN]);
+    expect(
+      hostPolicyEnv({
+        CI: 'true',
+        RUNNER_ENVIRONMENT: 'github-hosted',
+        PATH: '/usr/bin',
+        ANTHROPIC_API_KEY: 'not-passed',
+      }),
+    ).toEqual({ CI: 'true', RUNNER_ENVIRONMENT: 'github-hosted' });
+    expect(hostPolicyEnv({ [LOCAL_MACOS_OPT_IN]: '1', HOME: '/h' })).toEqual({
+      [LOCAL_MACOS_OPT_IN]: '1',
+    });
+    expect(hostPolicyEnv({})).toEqual({});
+  });
+
+  it('keeps the macOS decision of every combination of markers', () => {
+    const values = [undefined, '', 'true', 'github-hosted', '1', 'self-hosted'];
+    for (const ci of values) {
+      for (const runner of values) {
+        for (const optIn of values) {
+          const env = {
+            CI: ci,
+            RUNNER_ENVIRONMENT: runner,
+            [LOCAL_MACOS_OPT_IN]: optIn,
+            OTHER: 'x',
+          };
+          expect(realCliHostRefusal('darwin', hostPolicyEnv(env))).toBe(
+            realCliHostRefusal('darwin', env),
+          );
+        }
+      }
+    }
   });
 });
