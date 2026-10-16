@@ -116,6 +116,25 @@ function findCmake() {
 }
 
 /**
+ * CMake's "project author warnings as errors" flag: `-Werror=author` from
+ * CMake 4.4 on (where `-Werror=dev` is deprecated and itself warns),
+ * `-Werror=dev` before. Refuses CMake older than 3.28.
+ *
+ * @param {string} cmake
+ * @returns {string}
+ */
+function authorWarningsAsErrors(cmake) {
+  const { status, stdout } = run(cmake, ['--version'], { capture: true });
+  const match = /^cmake version (\d+)\.(\d+)\./m.exec(stdout);
+  if (status !== 0 || match === null) throw new SetupError('cmake --version gave no version');
+  const version = [Number(match[1]), Number(match[2])];
+  const atLeast = (/** @type {number} */ major, /** @type {number} */ minor) =>
+    (version[0] ?? 0) > major || ((version[0] ?? 0) === major && (version[1] ?? 0) >= minor);
+  if (!atLeast(3, 28)) throw new SetupError(`CMake 3.28 or newer is required (${match[0]})`);
+  return atLeast(4, 4) ? '-Werror=author' : '-Werror=dev';
+}
+
+/**
  * The Visual Studio instance with the MSVC tools for the architecture.
  *
  * @param {{ component: string; spectre: string }} target
@@ -178,7 +197,7 @@ function main() {
     target.platform,
     `-DCMAKE_GENERATOR_INSTANCE=${install}`,
     `-DNODE_API_HEADERS_DIR=${nodeApiHeaders()}`,
-    '-Werror=dev',
+    authorWarningsAsErrors(cmake),
     '-Werror=deprecated',
   ]);
   if (configure.status !== 0) return 1;
