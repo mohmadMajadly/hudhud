@@ -1,9 +1,10 @@
 # 11 — macOS gate round 3: findings, pins and macOS integration (CLI 2.1.296)
 
-Date: 2026-10-17. Two runs make up round 3:
+Date: 2026-10-17. Three runs make up round 3:
 
 - Run 38440842419, commit `8feaec9` (2026-10-13 17:42), the round-3 run research 10 §8 asked for. Both jobs passed, but nobody documented it, and its artifacts were kept for 3 days and had expired when this report was written (the API lists no artifact). Only the job logs remain (§1).
 - Run 38967893191, branch `w7-t4-macos-gate` at `a3dd384` (main `f2236d2` plus the W7-T4 commits: the candidate darwin pins, the core Team ID requirement, the product checks in item 1 and the integration evidence job), dispatched by the lead on 2026-10-16. Jobs `gate (darwin-arm64)` on `macos-15` and `gate (darwin-x64)` on `macos-15-intel` passed; `integration evidence (darwin-arm64)` failed in part 1 with 4 of 87 tests (§5). Evidence: the artifacts `macos-gate-darwin-arm64`, `macos-gate-darwin-x64` and `integration-evidence` (kept until 2026-10-30) and the job logs.
+- Run 38977497768, branch `w7-t4-macos-gate` at `bb8c6b2` (the fixes of §5 and the darwin snapshots), dispatched by the lead on 2026-10-17: the confirming run. All three jobs passed; integration part 1 ran 92 tests, 92 passed (§9).
 
 Paths such as `/Users/runner/...`, `/var/folders/...` and `/private/tmp/...` below are public GitHub runner paths.
 
@@ -17,13 +18,13 @@ Paths such as `/Users/runner/...`, `/var/folders/...` and `/private/tmp/...` bel
 | 2 | Item 1: the pinned digests match on both runners, the product's Team ID check passes, its control is refused with exit 3, and `verifyBinary` reports `verified` in strict and advisory mode | **pins confirmed** (research 10 §7 D) | the candidate pins and the core Team ID requirement stay; they merge with this branch | the same |
 | 3 | Item 3: the Keychain canary's first verdict is `isolated` on both architectures | **fact** for ADR-0012 / ADR-0014 item 3 | none | the same |
 | 4 | Item 6: resumes pass; a re-sent `uuid` is dropped on macOS too; the write order does not matter; the `/tmp` alias resume injects no environment update | **confirmed** (research 10 §3) | none | the same |
-| 5 | `containment/host-crash`: the crash host refused the real CLI on a GitHub-hosted runner | **test harness defect**: the host process got no host-policy markers | `hostPolicyEnv` passes exactly the policy's variables | the test passes on macOS |
-| 6 | `containment/orphan`: the workload `sleep` never started | **test defect**: macOS has no `setsid(1)` | the workload detaches through perl's `POSIX::setsid` on macOS | the test passes on macOS |
-| 7 | `security/child-launch` (both tests): no argv file | **test defect**: the probe reads `/proc`, which macOS does not have | `ps -ww -o args=` and the Bash tool's environment on macOS | both tests pass on macOS |
-| 8 | Request-shape: the five darwin snapshots equal the Linux ones byte for byte | **fact** | `snapshots/*.darwin.shape` committed | request-shape passes on macOS |
-| 9 | Close deadline overrun on darwin-arm64: 20 samples, 14.6 to 39.2 ms | **measurement** (plan §4.4) | none here; the closer sizes the bound (§6) | — |
+| 5 | `containment/host-crash`: the crash host refused the real CLI on a GitHub-hosted runner | **test harness defect**: the host process got no host-policy markers | `hostPolicyEnv` passes exactly the policy's variables | passed in run 38977497768 (§9) |
+| 6 | `containment/orphan`: the workload `sleep` never started | **test defect**: macOS has no `setsid(1)` | the workload detaches through perl's `POSIX::setsid` on macOS | passed in run 38977497768 (§9) |
+| 7 | `security/child-launch` (both tests): no argv file | **test defect**: the probe reads `/proc`, which macOS does not have | `ps -ww -o args=` and the Bash tool's environment on macOS | passed in run 38977497768 (§9) |
+| 8 | Request-shape: the five darwin snapshots equal the Linux ones byte for byte | **fact** | `snapshots/*.darwin.shape` committed | passed, snapshots unchanged, run 38977497768 (§9) |
+| 9 | Close deadline overrun on darwin-arm64: 40 samples over two runs, 14.6 to 39.2 ms | **measurement** (plan §4.4) | none here; the closer sizes the bound (§6) | — |
 
-No product defect was found. The four integration failures are defects of the test code on its first macOS run (§5).
+No product defect was found. The four integration failures were defects of the test code on its first macOS run (§5); the confirming run 38977497768 ran the whole integration project green on darwin-arm64 (§9).
 
 ## 1. Run 38440842419 (commit `8feaec9`): what the logs still show
 
@@ -127,14 +128,25 @@ The whole job took 4 min 40 s. Part 1 is the first measurement of the integratio
 
 ## 6. Close deadline overrun on darwin-arm64 (plan §4.4)
 
-Twenty single-process runs of `close with a deadline: a turn that never ends is cut at the deadline` (`closeTimeoutMs` 2000), overrun past the deadline recorded before any assertion, in run order (ms):
+Run 38967893191: twenty single-process runs of `close with a deadline: a turn that never ends is cut at the deadline` (`closeTimeoutMs` 2000), overrun past the deadline recorded before any assertion, in run order (ms):
 
 ```text
 14.62, 27.741, 15.757, 17.15, 29.842, 20.972, 18.661, 16.574, 39.241, 19.523,
 19.386, 24.481, 18.168, 18.322, 17.887, 17.766, 18.098, 20.493, 19.449, 19.418
 ```
 
-Minimum 14.62 ms, median 19.02 ms, maximum 39.241 ms, Node v22.23.2, arm64. Plan §4.4: the bound is 3x the slowest measurement on the platform that runs it, `3 x 39.241 = 117.7 ms`. **Recommendation** (the closer applies it): a darwin entry `3 * 40` ms (120 ms, the maximum rounded up to a whole 10 ms) with this run cited; until then darwin uses the Linux value `3 * 45` (135 ms), which every sample met, as did the in-project run of part 1.
+Minimum 14.62 ms, median 19.02 ms, maximum 39.241 ms, Node v22.23.2, arm64.
+
+Run 38977497768 (the confirming run, same test and method), in run order (ms), every run exit 0:
+
+```text
+20.331, 16.273, 21.168, 37.666, 28.434, 15.358, 30.277, 19.65, 23.405, 17.897,
+18.668, 15.715, 27.319, 16.304, 33.251, 17.452, 17.033, 18.165, 20.639, 19.244
+```
+
+Minimum 15.358 ms, median 19.447 ms, maximum 37.666 ms.
+
+Both runs, 40 samples: minimum 14.62 ms, median 19.315 ms, 95th percentile 33.251 ms, maximum 39.241 ms (run 38967893191). Plan §4.4: the bound is 3x the slowest measurement on the platform that runs it, `3 x 39.241 = 117.7 ms`. **Recommendation** (the closer applies it): a darwin entry `3 * 40` ms (120 ms, the maximum rounded up to a whole 10 ms) citing both runs; until then darwin uses the Linux value `3 * 45` (135 ms), which all 40 samples met, as did the in-project runs of part 1 in both runs.
 
 ## 7. Request-shape on macOS
 
@@ -142,7 +154,7 @@ The five snapshots written in update mode (`partial-messages`, `resume`, `sessio
 
 ## 8. The `ci.yml` change for macOS integration (prepared, not applied)
 
-For the closer, after this branch, W7-T1's `ci.yml` and the darwin close-deadline bound have merged. The macOS job runs what the Linux and Windows jobs run (`check:full`); `timeout-minutes` from this run's measurements (K15: p95 x 2): the current job (`pnpm check`) estimate of 3 min plus `cli:fetch` and build (45 s measured in the evidence job, including setup) plus the integration project (142 s measured), about 6 min, times 2 = 12 min.
+For the closer, after this branch, W7-T1's `ci.yml` and the darwin close-deadline bound have merged. The macOS job runs what the Linux and Windows jobs run (`check:full`); `timeout-minutes` from this run's measurements (K15: p95 x 2): the current job (`pnpm check`) estimate of 3 min plus setup, build and `cli:fetch` (45 s and 40 s measured in the evidence jobs of runs 38967893191 and 38977497768) plus the integration project (142 s without request-shape and 140 s with it, same runs; the maxima are used), about 6 min, times 2 = 12 min. The confirming run changed none of these numbers.
 
 ```diff
    macos:
@@ -157,9 +169,9 @@ For the closer, after this branch, W7-T1's `ci.yml` and the darwin close-deadlin
 -    timeout-minutes: 6
 +    # K15: p95 x 2. `pnpm check` about 3 min (estimate kept from the
 +    # pre-gate job), plus setup, build and cli:fetch 45 s and the integration
-+    # project 142 s, both measured in the macOS gate's integration evidence
-+    # job (run 38967893191, research 11): about 6 min, times 2. Integration
-+    # on macOS since the gate passed (research 11, ADR-0014 amendment).
++    # project 142 s (maxima of the macOS gate's integration evidence job,
++    # runs 38967893191 and 38977497768, research 11): about 6 min, times 2.
++    # Integration on macOS since the gate passed (ADR-0014 amendment 6).
 +    timeout-minutes: 12
      permissions:
        contents: read
@@ -173,11 +185,15 @@ For the closer, after this branch, W7-T1's `ci.yml` and the darwin close-deadlin
 
 If W7-T1 adds a CLI cache step to the Linux and Windows jobs, the macOS job takes the same step keyed by the darwin-arm64 pin's integrity.
 
-## 9. What the next run must confirm
+## 9. The confirming run 38977497768
 
-One dispatch of `macos-gate.yml` on this branch after the fixes of §5:
+Branch `w7-t4-macos-gate` at `bb8c6b2`, dispatched by the lead on 2026-10-17 after the fixes of §5. Jobs: `gate (darwin-arm64)` 2 min 59 s, `gate (darwin-x64)` 3 min 53 s, `integration evidence (darwin-arm64)` 4 min 33 s, all green. The criteria this report set before the run, checked in the artifacts:
 
-1. `integration evidence (darwin-arm64)` part 1 green: the whole integration project, now including request-shape against the committed darwin snapshots (92 tests), 0 failed, including `containment/host-crash`, `containment/orphan` and both `security/child-launch` tests.
-2. Part 2 green, and its new check that the update run left the committed darwin snapshots byte for byte unchanged passes.
-3. Part 3: 20 samples, every run exit 0.
-4. Both gate jobs green again with the same digests, Team ID and canary verdict (this branch changes nothing in the gate).
+| Criterion | Result |
+|---|---|
+| Part 1 green, the whole integration project including request-shape | 92 tests, 92 passed, 0 failed, 0 skipped (`integration.json`), 140 s; `containment/host-crash`, `containment/orphan` and both `security/child-launch` tests passed |
+| Part 2: the update run leaves the committed darwin snapshots unchanged | the step's `git diff` and `git status` checks passed, and the five uploaded files are byte-identical to the committed ones (`cmp`) |
+| Part 3: 20 samples, every run exit 0 | 20 samples (§6); `close-abort-runs.txt` shows exit code 0 for all 20 runs |
+| Gate jobs: same digests, same Team ID, canary `isolated` | `digests.json` on both runners holds exactly the pinned integrity, sha256 and size of both platforms (§2); `TeamIdentifier=Q6L2SF6YDW` and `Developer ID Application: Anthropic PBC (Q6L2SF6YDW)` on both binaries; every product check of item 1 passed (pinned Team ID `valid`, control `codesign failed: exit 3`, `verifyBinary` strict and advisory `verified`); `keychainCanary.verdict` `isolated` with `deleted.gone: true` on both runners |
+
+Item 6 again: `duplicateUuidResume.dropped: true`, `eagerResume.ok: true`, `aliasResume.environmentUpdate: false` on both runners. Item durations (arm64 / x64, ms): 2057 / 11448, 9073 / 14496, 1480 / 3598, 136466 / 137446, 971 / 2050, 2485 / 4519, 441 / 1055. Round 3 is closed: the gate, the pins and macOS integration are confirmed; what remains belongs to the closer (the darwin bound of §6 and the `ci.yml` change of §8).
