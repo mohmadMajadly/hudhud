@@ -122,13 +122,14 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    # K15 (ADR-0014 amendment 7): PROVISIONAL until the first CI runs with
-    # integration are measured (W7-T1 round 1). Estimate: static checks and
-    # unit tests about 4 min (earlier runs), the integration project 163 s
-    # in Docker on the 16-core W6-Z host (plan §4.4) and up to 2.6x that on a
-    # CI runner (the unit-test ratio), about 7 min; job about 12 min. Then
-    # measured p95 x 2.
-    timeout-minutes: 30
+    # K15 (ADR-0014 amendment 7): measured p95 x 2. Run 38980330927 (W7-T1
+    # round A, first run with integration): node 22 8 min 31 s, node 24
+    # 9 min 23 s (integration ran to its end, one test failed), node 26
+    # 9 min 11 s; per job about 32-43 s setup with the CLI fetch, 4.1-4.3 min
+    # check, 38-44 s OS coverage, 3.2-3.7 min integration. With 3 samples
+    # p95 is the maximum, 9.4 min; x 2 = 18.8, rounded up to 19. Re-check
+    # once more runs exist.
+    timeout-minutes: 19
     permissions:
       contents: read
     strategy:

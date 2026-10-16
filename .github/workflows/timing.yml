@@ -46,9 +46,10 @@ jobs:
   measure:
     name: measure (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Provisional until the first dispatch is measured: the 30-run maximum at
-    # 2.6x the local 37 s (48 min) plus about 10 min of setup and addon
-    # build is 58 min; x 1.5 for an unmeasured runner, 90.
+    # Provisional until Windows is measured: the 30-run maximum at 2.6x the
+    # local 37 s (48 min) plus about 10 min of setup and addon build is
+    # 58 min; x 1.5 for an unmeasured runner, 90. Measured on Linux (run
+    # 38980331321): 10 min 11 s for 15 runs including setup.
     timeout-minutes: 90
     permissions:
       contents: read

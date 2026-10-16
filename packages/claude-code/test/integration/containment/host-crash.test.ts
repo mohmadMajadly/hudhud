@@ -55,9 +55,12 @@ const TOOL_START_GUARD_MS = 30_000;
 const TOOL_SECONDS = WINDOWS ? 60 : 15;
 /**
  * Linux: the CLI exits 15.3 s after the host died with `sleep 15` running
- * (07 §2 L72); bound with the 3x margin of the flake policy (plan §4.4).
+ * (07 §2 L72). Re-measured on CI (W7-T1, plan §5.9): GitHub ubuntu-24.04
+ * runner, timing run 38980331321, 15 samples, 16910 to 17767 ms (the
+ * W7-T1 host in `node:22-bookworm`: 16990 to 17693 ms). Bound: 3x the
+ * largest, with the margin of the flake policy (plan §4.4).
  */
-const LINUX_CLI_EXIT_BOUND_MS = 3 * 15_300;
+const LINUX_CLI_EXIT_BOUND_MS = 3 * 17_767;
 /**
  * Windows: the CLI is gone 32-35 ms after the host died (07 §2 W93-W96,
  * libuv's job; the addon's job closes with the host's handle table at the

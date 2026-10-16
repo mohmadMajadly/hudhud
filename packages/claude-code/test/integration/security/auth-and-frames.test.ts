@@ -29,7 +29,13 @@ import { collect, diagnostics, requestsWith } from './support.js';
 
 const suite = integrationSuite();
 
-/** 3 x the 0.6 s first retry delay of 05 §9 run 58. */
+/**
+ * 3 x the 0.6 s first retry delay of 05 §9 run 58: the failure must land
+ * before the CLI's second attempt could start. It also holds the flake
+ * margin: measured on CI (W7-T1, timing run 38980331321, GitHub
+ * ubuntu-24.04, 15 samples each) at most 179.9 ms (API key) and 155.8 ms
+ * (auth token), so 3x the largest measurement (540 ms) is below it.
+ */
 const FAIL_FAST_BOUND_MS = 1800;
 
 for (const credential of ['api-key', 'fake-auth-token'] as const) {

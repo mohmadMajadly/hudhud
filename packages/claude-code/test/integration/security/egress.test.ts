@@ -11,7 +11,11 @@
 // Timing: in the W6-T4 measurements the first attempts were recorded before
 // the first turn had finished (four within 0.2 s of it, seven after 15 s);
 // both tests watch the same window, the first turn plus OBSERVE_MS, more
-// than 3x the 0.2 s it took the first attempts to appear.
+// than 3x the 0.2 s it took the first attempts to appear. Re-measured
+// (W7-T1): the first attempt was recorded at most 3.9 ms after the turn
+// ended on CI (timing run 38980331321, GitHub ubuntu-24.04, 15 samples).
+// The window is not shortened to 3x that: for the "off" test it is how long
+// silence is observed, and longer is stronger.
 
 import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
