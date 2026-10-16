@@ -53,7 +53,7 @@ import { WIN32_JOB_DIGESTS, type JobAddonDigests } from './win32-job-digests.js'
  *
  * @public
  */
-export const WIN32_JOB_ADDON_SPECIFIER = '@hudhud/win32-job-x64/hudhud_win32_job.node';
+export const WIN32_JOB_ADDON_SPECIFIER = '@hudhudjs/win32-job-x64/hudhud_win32_job.node';
 
 const ADDON_FILE_NAME = 'hudhud_win32_job.node';
 

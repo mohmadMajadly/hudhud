@@ -2,7 +2,7 @@
 // `pnpm cli:fetch`: fetch, verify and cache the pinned Claude Code CLI for the
 // integration tests (plan 4.6). Thin host wrapper; the logic and its tests
 // live in src/cli/ (main.ts documents the options). Needs a prior build of
-// @hudhud/test-support (`tsc --build`), which `pnpm check` runs first.
+// @hudhudjs/test-support (`tsc --build`), which `pnpm check` runs first.
 //
 // The binary is fetched at test time only, never redistributed (ADR-0015),
 // and never executed by this command.

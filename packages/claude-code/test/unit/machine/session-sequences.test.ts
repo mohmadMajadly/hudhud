@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { JsonObject } from '@hudhud/core/protocol';
+import type { JsonObject } from '@hudhudjs/core/protocol';
 
 import { CLOSING_DENY_MESSAGE } from '../../../src/protocol/machine/permission.js';
 import { RESEARCH_FRAMES, type ResearchFrame } from '../protocol/research-frames.js';

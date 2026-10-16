@@ -1,6 +1,6 @@
 // Every Claude conformance variant through the loopback binding (plan §5.6
 // acceptance; ADR-0006 "JSON-only boundary"; W4-Z ruling 2): the generic
-// session driver of `@hudhud/core/binding`, the JSON round trip of every
+// session driver of `@hudhudjs/core/binding`, the JSON round trip of every
 // value, the public handles and the Claude user-input encoder give exactly
 // what the direct replay of the session machine gives (`loopback.ts`), and
 // the expect file of the recording.

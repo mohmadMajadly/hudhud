@@ -8,7 +8,7 @@ import type {
   CommandOutcome,
   HarnessProcess,
   SpawnSpec,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { SandboxRefusedError } from '../../src/launcher/errors.js';

@@ -116,7 +116,7 @@ describe('scanLine: allowed negatives', () => {
     ['CI and container accounts', '/home/runner/work C:\\Users\\runneradmin\\x /home/node/app'],
     ['shared Windows profiles', 'C:\\Users\\Public\\x C:\\Users\\Default\\x'],
     ['relative or URL paths', '<run>/home/AppData https://example.org/home/page ./home/x'],
-    ['package specifiers', '@hudhud/core@1.0.0 pnpm@11.24.0 actions/checkout@v7'],
+    ['package specifiers', '@hudhudjs/core@1.0.0 pnpm@11.24.0 actions/checkout@v7'],
     ['token prefixes in prose', 'keys look like sk-ant-... and ghp_...'],
     ['the test-support fake key', join('sk-ant-', 'fake-hudhud-', 'NotACredential0123456789')],
     ['an npmrc token from the environment', '//registry.npmjs.org/:_authToken=${NPM_TOKEN}'],

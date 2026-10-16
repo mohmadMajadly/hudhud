@@ -67,7 +67,7 @@ const SUPPORT: Record<string, string> = {
   // the undeclared-import case for tests of a package that declares every
   // real workspace package its tests use.
   'tooling/planted-undeclared/package.json':
-    '{ "name": "@hudhud/planted-undeclared", "version": "0.0.0", "private": true, "type": "module" }\n',
+    '{ "name": "@hudhudjs/planted-undeclared", "version": "0.0.0", "private": true, "type": "module" }\n',
   'tooling/planted-undeclared/src/index.ts': 'export {};\n',
   'packages/claude-code/dist/index.js': 'export {};\n',
   'packages/claude-code/dist/index.d.ts': 'export {};\n',
@@ -86,15 +86,15 @@ interface Extras {
 const MANIFEST_EXTRAS: Record<string, Extras> = {
   'packages/core': {
     dependencies: { 'third-party': '1.0.0' },
-    devDependencies: { '@hudhud/test-support': 'workspace:*' },
+    devDependencies: { '@hudhudjs/test-support': 'workspace:*' },
   },
   'packages/claude-code': { dependencies: { 'third-party': '1.0.0' } },
-  'tooling/test-support': { dependencies: { '@hudhud/core': 'workspace:*' } },
+  'tooling/test-support': { dependencies: { '@hudhudjs/core': 'workspace:*' } },
 };
 
-const CORE = { dir: 'packages/core', name: '@hudhud/core' };
-const CLAUDE_CODE = { dir: 'packages/claude-code', name: '@hudhud/claude-code' };
-const TEST_SUPPORT = { dir: 'tooling/test-support', name: '@hudhud/test-support' };
+const CORE = { dir: 'packages/core', name: '@hudhudjs/core' };
+const CLAUDE_CODE = { dir: 'packages/claude-code', name: '@hudhudjs/claude-code' };
+const TEST_SUPPORT = { dir: 'tooling/test-support', name: '@hudhudjs/test-support' };
 
 /**
  * Workspace links: [package directory, linked workspace package]. The last
@@ -124,15 +124,15 @@ const CASES: readonly Case[] = [
     rules: ['core-neutral', 'workspace-deps-declared'],
   },
   {
-    title: 'Claude protocol importing @hudhud/core/process',
+    title: 'Claude protocol importing @hudhudjs/core/process',
     file: 'packages/claude-code/src/protocol/planted-process.ts',
-    code: "import {} from '@hudhud/core/process';\n",
+    code: "import {} from '@hudhudjs/core/process';\n",
     rules: ['protocol-no-workspace-deps', 'protocol-not-to-binding', 'protocol-not-to-process'],
   },
   {
-    title: 'Claude protocol importing @hudhud/core/binding',
+    title: 'Claude protocol importing @hudhudjs/core/binding',
     file: 'packages/claude-code/src/protocol/planted-binding.ts',
-    code: "import {} from '@hudhud/core/binding';\n",
+    code: "import {} from '@hudhudjs/core/binding';\n",
     rules: ['protocol-no-workspace-deps', 'protocol-not-to-binding'],
   },
   {
@@ -142,15 +142,15 @@ const CASES: readonly Case[] = [
     rules: ['protocol-sans-io'],
   },
   {
-    title: 'Claude protocol importing @hudhud/core/protocol and its own modules (allowed)',
+    title: 'Claude protocol importing @hudhudjs/core/protocol and its own modules (allowed)',
     file: 'packages/claude-code/src/protocol/planted-allowed.ts',
-    code: "import {} from '@hudhud/core/protocol';\nimport type {} from './wire/types.js';\n",
+    code: "import {} from '@hudhudjs/core/protocol';\nimport type {} from './wire/types.js';\n",
     rules: [],
   },
   {
-    title: 'Claude protocol importing the @hudhud/core root entry',
+    title: 'Claude protocol importing the @hudhudjs/core root entry',
     file: 'packages/claude-code/src/protocol/planted-root.ts',
-    code: "import {} from '@hudhud/core';\n",
+    code: "import {} from '@hudhudjs/core';\n",
     rules: ['protocol-no-workspace-deps', 'protocol-not-to-binding'],
   },
   {
@@ -169,10 +169,10 @@ const CASES: readonly Case[] = [
     title: 'adapter importing the core public entries (allowed)',
     file: 'packages/claude-code/src/planted-public.ts',
     code: [
-      "import {} from '@hudhud/core';",
-      "import {} from '@hudhud/core/protocol';",
-      "import {} from '@hudhud/core/process';",
-      "import {} from '@hudhud/core/binding';",
+      "import {} from '@hudhudjs/core';",
+      "import {} from '@hudhudjs/core/protocol';",
+      "import {} from '@hudhudjs/core/process';",
+      "import {} from '@hudhudjs/core/binding';",
       "import {} from './options.js';",
       '',
     ].join('\n'),
@@ -219,19 +219,19 @@ const CASES: readonly Case[] = [
   {
     title: 'source importing a workspace package declared only as a devDependency',
     file: 'packages/core/src/planted-devdep.ts',
-    code: "import {} from '@hudhud/test-support';\n",
+    code: "import {} from '@hudhudjs/test-support';\n",
     rules: ['packages-not-to-tooling', 'workspace-deps-declared'],
   },
   {
     title: 'test importing a workspace package declared as a devDependency (allowed)',
     file: 'packages/core/test/planted-devdep.test.ts',
-    code: "import {} from '@hudhud/test-support';\n",
+    code: "import {} from '@hudhudjs/test-support';\n",
     rules: [],
   },
   {
     title: 'test importing a workspace package declared as a dependency (allowed)',
     file: 'packages/claude-code/test/planted-dep.test.ts',
-    code: "import {} from '@hudhud/core';\n",
+    code: "import {} from '@hudhudjs/core';\n",
     rules: [],
   },
   {
@@ -249,13 +249,13 @@ const CASES: readonly Case[] = [
   {
     title: 'test-support source importing a declared workspace package (allowed)',
     file: 'tooling/test-support/src/planted-dep.ts',
-    code: "import {} from '@hudhud/core';\n",
+    code: "import {} from '@hudhudjs/core';\n",
     rules: [],
   },
   {
     title: 'test-support source importing an undeclared workspace package through a link',
     file: 'tooling/test-support/src/planted-link.ts',
-    code: "import {} from '@hudhud/claude-code';\n",
+    code: "import {} from '@hudhudjs/claude-code';\n",
     rules: ['workspace-deps-declared'],
   },
   {
@@ -431,23 +431,23 @@ describe('ESLint layer rules', () => {
   it.each([
     ['a Node built-in', "import {} from 'node:fs';\n"],
     ['a bare Node built-in', "import {} from 'fs';\n"],
-    ['@hudhud/core/process', "import type {} from '@hudhud/core/process';\n"],
-    ['@hudhud/core/binding', "import {} from '@hudhud/core/binding';\n"],
-    ['the @hudhud/core root entry', "import {} from '@hudhud/core';\n"],
-    ['another core subpath', "import {} from '@hudhud/core/schemas/events.schema';\n"],
-    ['the adapter entry', "import {} from '@hudhud/claude-code';\n"],
-    ['the umbrella', "import {} from 'hudhud';\n"],
+    ['@hudhudjs/core/process', "import type {} from '@hudhudjs/core/process';\n"],
+    ['@hudhudjs/core/binding', "import {} from '@hudhudjs/core/binding';\n"],
+    ['the @hudhudjs/core root entry', "import {} from '@hudhudjs/core';\n"],
+    ['another core subpath', "import {} from '@hudhudjs/core/schemas/events.schema';\n"],
+    ['the adapter entry', "import {} from '@hudhudjs/claude-code';\n"],
+    ['the umbrella', "import {} from 'hudhudjs';\n"],
   ])('rejects %s in the Claude protocol', async (_name, code) => {
     const findings = await layerFindings(CLAUDE_PROTOCOL, code);
     expect(findings.length).toBeGreaterThan(0);
     expect(findings.every((f) => f === '1:no-restricted-imports')).toBe(true);
   });
 
-  it('allows @hudhud/core/protocol in the Claude protocol', async () => {
+  it('allows @hudhudjs/core/protocol in the Claude protocol', async () => {
     expect(
       await layerFindings(
         CLAUDE_PROTOCOL,
-        "import {} from '@hudhud/core/protocol';\nimport type {} from './wire/types.js';\n",
+        "import {} from '@hudhudjs/core/protocol';\nimport type {} from './wire/types.js';\n",
       ),
     ).toEqual([]);
   });
@@ -469,19 +469,19 @@ describe('ESLint layer rules', () => {
   });
 
   it('keeps the neutral protocol rules and adds the core root entry', async () => {
-    expect(await layerFindings(CORE_PROTOCOL, "import {} from '@hudhud/core';\n")).toEqual([
+    expect(await layerFindings(CORE_PROTOCOL, "import {} from '@hudhudjs/core';\n")).toEqual([
       '1:no-restricted-imports',
     ]);
     expect(await layerFindings(CORE_PROTOCOL, "import {} from 'node:fs';\n")).not.toEqual([]);
     expect(
-      await layerFindings(CORE_PROTOCOL, "import {} from '@hudhud/claude-code';\n"),
+      await layerFindings(CORE_PROTOCOL, "import {} from '@hudhudjs/claude-code';\n"),
     ).not.toEqual([]);
   });
 
   it('rejects connect and session from the package root in integration tests', async () => {
     const code = [
-      "import { connect } from '@hudhud/claude-code';",
-      "import { session } from 'hudhud';",
+      "import { connect } from '@hudhudjs/claude-code';",
+      "import { session } from 'hudhudjs';",
       "import * as root from '../../src/index.js';",
       'export const all = [connect, session, root];',
       '',
@@ -512,7 +512,7 @@ describe('ESLint layer rules', () => {
     expect(
       await layerFindings(
         root,
-        "import { connect } from '@hudhud/claude-code';\nexport { connect };\n",
+        "import { connect } from '@hudhudjs/claude-code';\nexport { connect };\n",
       ),
     ).toEqual(['1:no-restricted-imports']);
   });
@@ -521,7 +521,7 @@ describe('ESLint layer rules', () => {
     expect(
       await layerFindings(
         INTEGRATION,
-        "import { testConnect } from '@hudhud/test-support';\nexport const t = testConnect;\n",
+        "import { testConnect } from '@hudhudjs/test-support';\nexport const t = testConnect;\n",
       ),
     ).toEqual([]);
   });

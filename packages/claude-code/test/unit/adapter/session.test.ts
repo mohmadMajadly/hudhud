@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AuthenticationFailedError, type HudhudEvent } from '@hudhud/core';
+import { AuthenticationFailedError, type HudhudEvent } from '@hudhudjs/core';
 
 import { buildArgv } from '../../../src/argv.js';
 import { connectWith, sessionWith } from '../../../src/connect.js';

@@ -1,7 +1,7 @@
 // The product's launch builders, as the fixture recorder uses them (lead
 // ruling, W4-T2): the built adapter modules, nothing copied. The adapter's
 // test tree is the one place that may import both the adapter and
-// @hudhud/test-support (test-support may not depend on the adapter), so the
+// @hudhudjs/test-support (test-support may not depend on the adapter), so the
 // composition root of `pnpm fixtures:record` lives here.
 // `launch.test.ts` checks that this builder gives exactly the sources'
 // launch for every recorded case.

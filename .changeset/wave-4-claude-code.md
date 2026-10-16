@@ -1,5 +1,5 @@
 ---
-'@hudhud/claude-code': minor
+'@hudhudjs/claude-code': minor
 ---
 
 Wave 4 of the Claude Code adapter (not yet exported; the connect pipeline wires these modules in Wave 5).

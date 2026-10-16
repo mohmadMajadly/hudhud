@@ -6,22 +6,22 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-const ADAPTERS = String.raw`^(packages/(claude-code|hudhud)/|node_modules/(@hudhud/claude-code|hudhud)/)`;
+const ADAPTERS = String.raw`^(packages/(claude-code|hudhud)/|node_modules/(@hudhudjs/claude-code|hudhudjs)/)`;
 // The two sans-IO directories: the neutral core protocol and, since K3, the
 // Claude Code protocol machines.
 const CORE_PROTOCOL = '^packages/core/src/protocol/';
 const CLAUDE_PROTOCOL = '^packages/claude-code/src/protocol/';
 const SANS_IO = `(${CORE_PROTOCOL}|${CLAUDE_PROTOCOL})`;
-const PROCESS = String.raw`^(packages/core/(src|dist)/process/|node_modules/@hudhud/core/(src|dist)/process/)`;
+const PROCESS = String.raw`^(packages/core/(src|dist)/process/|node_modules/@hudhudjs/core/(src|dist)/process/)`;
 // The neutral protocol entry of the core, as the Claude protocol resolves it
 // through the workspace link or an installed package (K3).
-const CORE_PROTOCOL_ENTRY = String.raw`^(packages/core/(src|dist)/protocol/|node_modules/@hudhud/core/(src|dist)/protocol/)`;
+const CORE_PROTOCOL_ENTRY = String.raw`^(packages/core/(src|dist)/protocol/|node_modules/@hudhudjs/core/(src|dist)/protocol/)`;
 // Everything of the core outside the sans-IO protocol: the root entry (the
 // binding layer) and the binding, process, observability, security layers.
-const CORE_NON_PROTOCOL = String.raw`^(packages/core/(src|dist)/((binding|process|observability|security)/|index\.)|node_modules/@hudhud/core/(src|dist)/((binding|process|observability|security)/|index\.))`;
+const CORE_NON_PROTOCOL = String.raw`^(packages/core/(src|dist)/((binding|process|observability|security)/|index\.)|node_modules/@hudhudjs/core/(src|dist)/((binding|process|observability|security)/|index\.))`;
 // The public entry points of the core that an adapter may use (ADR-0004):
 // the root, /protocol, /process and the beta /binding entry (W4-Z).
-const CORE_PUBLIC_ENTRIES = String.raw`^(packages/core|node_modules/@hudhud/core)/dist/((protocol|process|binding)/)?index\.(d\.ts|js)$`;
+const CORE_PUBLIC_ENTRIES = String.raw`^(packages/core|node_modules/@hudhudjs/core)/dist/((protocol|process|binding)/)?index\.(d\.ts|js)$`;
 /** @type {import('dependency-cruiser').DependencyType[]} */
 const NPM = ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-no-pkg', 'npm-unknown'];
 
@@ -164,7 +164,7 @@ export default {
       name: 'protocol-no-npm-runtime-deps',
       severity: 'error',
       comment:
-        'The Claude sans-IO protocol has no third-party runtime dependencies; its single exception is the neutral @hudhud/core/protocol entry (ADR-0005, ADR-0006, K3).',
+        'The Claude sans-IO protocol has no third-party runtime dependencies; its single exception is the neutral @hudhudjs/core/protocol entry (ADR-0005, ADR-0006, K3).',
       from: { path: CLAUDE_PROTOCOL },
       to: { dependencyTypes: NPM, pathNot: CORE_PROTOCOL_ENTRY },
     },
@@ -182,7 +182,7 @@ export default {
       name: 'protocol-no-workspace-deps',
       severity: 'error',
       comment:
-        'The Claude sans-IO protocol depends on no other workspace package except the neutral @hudhud/core/protocol entry (K3).',
+        'The Claude sans-IO protocol depends on no other workspace package except the neutral @hudhudjs/core/protocol entry (K3).',
       from: { path: CLAUDE_PROTOCOL },
       to: { path: String.raw`^(packages/(?!claude-code/)|tooling/)`, pathNot: CORE_PROTOCOL_ENTRY },
     },
@@ -190,7 +190,7 @@ export default {
       name: 'protocol-not-to-binding',
       severity: 'error',
       comment:
-        'The sans-IO protocol layers must not depend on the binding, process, observability or security layers, nor on the @hudhud/core root entry (ADR-0006).',
+        'The sans-IO protocol layers must not depend on the binding, process, observability or security layers, nor on the @hudhudjs/core root entry (ADR-0006).',
       from: { path: SANS_IO },
       to: { path: CORE_NON_PROTOCOL },
     },
@@ -203,7 +203,7 @@ export default {
       to: {
         // Third-party packages installed under packages/claude-code/ are the
         // npm rule's concern, not this one's.
-        path: String.raw`^(packages/claude-code/(?!node_modules/)|node_modules/@hudhud/claude-code/)`,
+        path: String.raw`^(packages/claude-code/(?!node_modules/)|node_modules/@hudhudjs/claude-code/)`,
         pathNot: CLAUDE_PROTOCOL,
       },
     },
@@ -213,17 +213,17 @@ export default {
       comment: 'The process layer must not depend on the binding layer (ADR-0006).',
       from: { path: '^packages/core/src/process/' },
       to: {
-        path: String.raw`^(packages/core/(src|dist)/binding/|node_modules/@hudhud/core/(src|dist)/binding/)`,
+        path: String.raw`^(packages/core/(src|dist)/binding/|node_modules/@hudhudjs/core/(src|dist)/binding/)`,
       },
     },
     {
       name: 'adapter-public-entry-only',
       severity: 'error',
       comment:
-        'The adapter uses the core through its public entries only: @hudhud/core, @hudhud/core/protocol, @hudhud/core/process, @hudhud/core/binding (ADR-0004).',
+        'The adapter uses the core through its public entries only: @hudhudjs/core, @hudhudjs/core/protocol, @hudhudjs/core/process, @hudhudjs/core/binding (ADR-0004).',
       from: { path: '^packages/claude-code/src/' },
       to: {
-        path: String.raw`^(packages/core/|node_modules/@hudhud/core/)`,
+        path: String.raw`^(packages/core/|node_modules/@hudhudjs/core/)`,
         pathNot: CORE_PUBLIC_ENTRIES,
       },
     },
@@ -232,7 +232,7 @@ export default {
       severity: 'error',
       comment: 'Adapters must not depend on the umbrella package (ADR-0004).',
       from: { path: '^packages/claude-code/' },
-      to: { path: String.raw`^(packages/hudhud/|node_modules/hudhud/)` },
+      to: { path: String.raw`^(packages/hudhud/|node_modules/hudhudjs/)` },
     },
     {
       name: 'umbrella-re-exports-only',
@@ -240,7 +240,7 @@ export default {
       comment: 'The umbrella package may only re-export hudhud packages (ADR-0004, E4).',
       from: { path: '^packages/hudhud/src/' },
       to: {
-        pathNot: String.raw`^(packages/(core|claude-code)/|node_modules/@hudhud/(core|claude-code)/)`,
+        pathNot: String.raw`^(packages/(core|claude-code)/|node_modules/@hudhudjs/(core|claude-code)/)`,
       },
     },
     {
@@ -252,7 +252,7 @@ export default {
         'because the session factory wraps every transport with it (W5-T1).',
       from: { path: '^packages/claude-code/src/', pathNot: '^packages/claude-code/src/raw/' },
       to: {
-        path: String.raw`^(packages/claude-code/(src|dist)/raw/|node_modules/@hudhud/claude-code/(src|dist)/raw/)`,
+        path: String.raw`^(packages/claude-code/(src|dist)/raw/|node_modules/@hudhudjs/claude-code/(src|dist)/raw/)`,
       },
     },
     {
@@ -278,7 +278,7 @@ export default {
       severity: 'error',
       comment: 'Published sources must not depend on the private tooling workspace (ADR-0013).',
       from: { path: '^packages/[^/]+/src/' },
-      to: { path: String.raw`^(tooling/|node_modules/@hudhud/test-support/)` },
+      to: { path: String.raw`^(tooling/|node_modules/@hudhudjs/test-support/)` },
     },
     {
       name: 'src-not-to-dev-deps',

@@ -17,13 +17,13 @@ import {
   HarnessVersionKnownBrokenError,
   InvalidOptionsError,
   SpawnError,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import {
   CwdValidationError,
   ProcessSpawnError,
   SpawnSpecError,
   VersionProbeError,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import {
   mapBinaryError,

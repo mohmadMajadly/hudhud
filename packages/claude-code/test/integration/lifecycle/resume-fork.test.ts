@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { isHudhudError, type HudhudEvent, type Session } from '@hudhud/core';
+import { isHudhudError, type HudhudEvent, type Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import type { ClaudeCodeHarness } from '../../../src/connect.js';

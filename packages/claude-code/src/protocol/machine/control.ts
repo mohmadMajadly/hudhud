@@ -40,7 +40,7 @@ import {
   type ErrorData,
   type JsonObject,
   type KnownErrorData,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import { validateCanUseToolRequestFrame } from '../generated/validators.gen.js';
 import type { InboundClass } from '../wire/inbound.js';

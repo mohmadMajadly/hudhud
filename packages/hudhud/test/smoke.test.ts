@@ -6,9 +6,9 @@ import { importBuilt } from '../../../scripts/test/support/import-built.mjs';
 import * as umbrella from '../src/index.js';
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url));
-const dependencies = ['@hudhud/core', '@hudhud/claude-code'];
+const dependencies = ['@hudhudjs/core', '@hudhudjs/claude-code'];
 
-describe('hudhud (umbrella)', () => {
+describe('hudhudjs (umbrella)', () => {
   it('re-exports the core and the Claude Code entry points', () => {
     expect(umbrella.adapterApiVersion).toBe(1);
     expect(umbrella.wireSchemaVersion).toBe(1);
@@ -19,7 +19,7 @@ describe('hudhud (umbrella)', () => {
   });
 
   it('resolves from the built output with exactly the exports of its dependencies', () => {
-    const results = importBuilt(packageDir, ['hudhud', ...dependencies]);
+    const results = importBuilt(packageDir, ['hudhudjs', ...dependencies]);
     const expected = {};
     const names = new Set<string>();
     for (const dependency of dependencies) {
@@ -28,7 +28,7 @@ describe('hudhud (umbrella)', () => {
       Object.assign(expected, result.exports);
       for (const name of result.names) names.add(name);
     }
-    expect(results['hudhud']).toEqual({
+    expect(results['hudhudjs']).toEqual({
       ok: true,
       file: 'dist/index.js',
       exports: expected,
@@ -53,8 +53,8 @@ describe('hudhud (umbrella)', () => {
   });
 
   it('does not expose files outside the exports map', () => {
-    expect(importBuilt(packageDir, ['hudhud/dist/index.js'])).toEqual({
-      'hudhud/dist/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
+    expect(importBuilt(packageDir, ['hudhudjs/dist/index.js'])).toEqual({
+      'hudhudjs/dist/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
     });
   });
 });

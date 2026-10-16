@@ -1,5 +1,5 @@
 {
-  "name": "@hudhud/claude-code",
+  "name": "@hudhudjs/claude-code",
   "version": "0.0.0",
   "private": true,
   "description": "Claude Code adapter for hudhud.",
@@ -26,10 +26,10 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
-    "@hudhud/core": "workspace:*"
+    "@hudhudjs/core": "workspace:*"
   },
   "devDependencies": {
-    "@hudhud/test-support": "workspace:*",
+    "@hudhudjs/test-support": "workspace:*",
     "@types/node": "catalog:",
     "fast-check": "catalog:",
     "typebox": "catalog:",

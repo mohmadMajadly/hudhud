@@ -1,7 +1,7 @@
 // What the product reports about containment, and the process hooks it
 // installs (plan §2.2, §6.4, §5.8 W6-T3; K2, K22).
 //
-// Job-object tests (plan §6.5) need the `@hudhud/win32-job-x64` addon,
+// Job-object tests (plan §6.5) need the `@hudhudjs/win32-job-x64` addon,
 // which this repository does not build yet (A1-A2: MSVC and CMake are not
 // part of the toolchain here). There is no test-skip convention for the
 // addon, so no job test is written as a skip: the first test below asserts

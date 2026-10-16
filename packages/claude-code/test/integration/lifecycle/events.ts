@@ -1,6 +1,6 @@
 // Helpers of the lifecycle suites (W6-T1): event recording and mock lookups.
 
-import type { HudhudEvent, Session } from '@hudhud/core';
+import type { HudhudEvent, Session } from '@hudhudjs/core';
 
 import type {
   CapturedRequest,

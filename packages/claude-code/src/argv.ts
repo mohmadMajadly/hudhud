@@ -14,13 +14,13 @@
  * (W1 provenance ruling); nothing goes through `initialize`.
  */
 
-import { InvalidOptionsError } from '@hudhud/core';
+import { InvalidOptionsError } from '@hudhudjs/core';
 import {
   ArgvError,
   assertNoReservedFlags,
   formatFlag,
   type ProcessPlatform,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import {
   checkSessionId,

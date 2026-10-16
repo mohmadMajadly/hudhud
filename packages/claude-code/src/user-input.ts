@@ -20,7 +20,7 @@
  * The result is a fresh value; the input is never changed.
  */
 
-import type { UserInput } from '@hudhud/core';
+import type { UserInput } from '@hudhudjs/core';
 
 import type { UserContentWire } from './protocol/wire/types.js';
 

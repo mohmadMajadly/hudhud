@@ -25,7 +25,7 @@ import type {
   StopReason,
   TurnOutcome,
   UsageTotals,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 import {
   isJsonObject,
   ownArray,
@@ -33,7 +33,7 @@ import {
   ownNumber,
   ownObject,
   ownString,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import { claudeToolKind } from './tool-kind.js';
 

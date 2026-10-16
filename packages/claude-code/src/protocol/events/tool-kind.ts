@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 
-import type { ToolKind } from '@hudhud/core/protocol';
+import type { ToolKind } from '@hudhudjs/core/protocol';
 
 /**
  * The kind of every Claude tool the plan maps. Any other name is `other`.

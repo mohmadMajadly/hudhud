@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { JsonObject, JsonValue, MachineInput } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue, MachineInput } from '@hudhudjs/core/protocol';
 
 import type { KitMachine } from '../../../../tooling/test-support/src/machine-kit.js';
 import {

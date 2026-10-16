@@ -1,4 +1,4 @@
-// Schema entry of @hudhud/core: the neutral schemas (K3) and the validators
+// Schema entry of @hudhudjs/core: the neutral schemas (K3) and the validators
 // generated into src/protocol/generated/validators.gen.ts.
 
 import { capabilitiesDocument } from './capabilities.js';

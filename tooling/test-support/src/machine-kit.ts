@@ -23,7 +23,7 @@
  * fired before `session.end`; nothing is emitted after `session.end`; a
  * control correlation settles at most once.
  *
- * The input types are the contract's own (`@hudhud/core/protocol`). Effects
+ * The input types are the contract's own (`@hudhudjs/core/protocol`). Effects
  * are read loosely ({@link KitEffect}) and every field is checked at run
  * time, so the kit also reports a malformed machine instead of trusting its
  * types; every `HarnessMachine` is a {@link KitMachine}. The module also
@@ -41,7 +41,7 @@ import type {
   MachineInput,
   PermissionErrorReason,
   TransportInput,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 import fc from 'fast-check';
 
 // ---- contract -------------------------------------------------------------------

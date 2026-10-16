@@ -8,7 +8,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { makeErrorData } from '@hudhud/core/protocol';
+import { makeErrorData } from '@hudhudjs/core/protocol';
 
 import {
   CLI_PID,

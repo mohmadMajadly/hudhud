@@ -1,5 +1,5 @@
 /**
- * The binding layer for adapter authors: `@hudhud/core/binding` (plan §1.6,
+ * The binding layer for adapter authors: `@hudhudjs/core/binding` (plan §1.6,
  * §2.1; ADR-0004, ADR-0006, K3, K18).
  *
  * @remarks
@@ -7,7 +7,7 @@
  * transports (the process transport and the in-memory loopback), the clocks
  * and id sources, the host-exit hook, and the handle helpers an adapter
  * builds its public `Harness` and `Session` from. Applications use the root
- * entry `@hudhud/core`, the stable application tier; this entry may change
+ * entry `@hudhudjs/core`, the stable application tier; this entry may change
  * between minor versions until it is declared stable.
  *
  * The process and protocol types these APIs name are re-exported, so an

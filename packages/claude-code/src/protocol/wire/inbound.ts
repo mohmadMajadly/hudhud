@@ -24,7 +24,7 @@ import {
   ownString,
   type JsonObject,
   type JsonValue,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 /**
  * The routing class of one inbound frame.

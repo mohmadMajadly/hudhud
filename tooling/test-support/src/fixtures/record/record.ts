@@ -40,7 +40,8 @@ import type { LaunchBuilder } from './launch.js';
 import type { CaseSpec, SuiteContext, SuiteSpec } from './suites.js';
 
 /** The `recorder` field of every manifest entry. */
-export const RECORDER = '@hudhud/test-support fixtures/record (RecordingSession, normalizeRecords)';
+export const RECORDER =
+  '@hudhudjs/test-support fixtures/record (RecordingSession, normalizeRecords)';
 
 /** One manifest entry. */
 export interface ManifestEntry {
@@ -172,7 +173,7 @@ export function missingPrefixes(
 export function emptyManifest(): Manifest {
   return {
     $comment:
-      'Golden fixtures of plan §4.3, recorded from the pinned CLI by @hudhud/test-support fixtures/record (W3-T6, W3-Z). Lines: conformance.schema.json; paths, uuids, pids, versions, timestamps, durations and costs normalized; the fake credentials redacted.',
+      'Golden fixtures of plan §4.3, recorded from the pinned CLI by @hudhudjs/test-support fixtures/record (W3-T6, W3-Z). Lines: conformance.schema.json; paths, uuids, pids, versions, timestamps, durations and costs normalized; the fake credentials redacted.',
     format: 'jsonl: {"t","dir","v"} record lines; the first line is the launch config',
     entries: [],
   };

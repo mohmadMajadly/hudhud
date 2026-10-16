@@ -20,7 +20,7 @@
  *   (ADR-0004 §4).
  */
 
-import type { HarnessCapabilities, ProcessContainment } from '@hudhud/core';
+import type { HarnessCapabilities, ProcessContainment } from '@hudhudjs/core';
 
 export {
   featureFlags,

@@ -32,7 +32,7 @@ function sansIoImports(extra) {
       patterns: [
         { group: ['node:*'], message: BUILTIN_MESSAGE },
         {
-          group: ['**/process', '**/process/**', '@hudhud/core/process'],
+          group: ['**/process', '**/process/**', '@hudhudjs/core/process'],
           message: 'The protocol layer must not depend on the process layer (ADR-0006).',
         },
         ...extra.patterns,
@@ -43,13 +43,13 @@ function sansIoImports(extra) {
 
 /** @type {RestrictedPath} */
 const CORE_ROOT_ENTRY = {
-  name: '@hudhud/core',
+  name: '@hudhudjs/core',
   message:
-    'The sans-IO protocol layer must not depend on the binding layer behind the @hudhud/core root entry (ADR-0006).',
+    'The sans-IO protocol layer must not depend on the binding layer behind the @hudhudjs/core root entry (ADR-0006).',
 };
 
 const INTEGRATION_MESSAGE =
-  'Integration tests must use testConnect from @hudhud/test-support, never connect/session from the package root (ADR-0013).';
+  'Integration tests must use testConnect from @hudhudjs/test-support, never connect/session from the package root (ADR-0013).';
 
 /** The composition root of the integration harness (plan §1.11). */
 const INTEGRATION_SUPPORT = 'packages/*/test/integration/support/**/*.ts';
@@ -64,7 +64,7 @@ const INTEGRATION_SUPPORT = 'packages/*/test/integration/support/**/*.ts';
  */
 function integrationImports(internals) {
   return {
-    paths: ['@hudhud/claude-code', 'hudhud'].map((name) => ({
+    paths: ['@hudhudjs/claude-code', 'hudhudjs'].map((name) => ({
       name,
       importNames: ['connect', 'session'],
       message: INTEGRATION_MESSAGE,
@@ -95,7 +95,7 @@ function integrationImports(internals) {
 
 /** @type {RestrictedPattern} */
 const NOT_TO_ADAPTERS = {
-  group: ['@hudhud/claude-code', '@hudhud/claude-code/**', 'hudhud'],
+  group: ['@hudhudjs/claude-code', '@hudhudjs/claude-code/**', 'hudhudjs'],
   message: 'The core must not depend on adapters (ADR-0004).',
 };
 
@@ -225,7 +225,7 @@ export default defineConfig(
   },
   {
     // The Claude Code protocol machines are sans-IO too (K3). Of the core
-    // they may import the neutral `@hudhud/core/protocol` entry only.
+    // they may import the neutral `@hudhudjs/core/protocol` entry only.
     files: ['packages/claude-code/src/protocol/**/*.ts'],
     rules: {
       ...sansIoRules,
@@ -233,12 +233,12 @@ export default defineConfig(
         paths: [CORE_ROOT_ENTRY],
         patterns: [
           {
-            group: ['@hudhud/core/*', '!@hudhud/core/protocol'],
+            group: ['@hudhudjs/core/*', '!@hudhudjs/core/protocol'],
             message:
-              'The Claude protocol layer may import only @hudhud/core/protocol from the core (K3, ADR-0006).',
+              'The Claude protocol layer may import only @hudhudjs/core/protocol from the core (K3, ADR-0006).',
           },
           {
-            group: ['@hudhud/claude-code', '@hudhud/claude-code/**', 'hudhud'],
+            group: ['@hudhudjs/claude-code', '@hudhudjs/claude-code/**', 'hudhudjs'],
             message:
               'The Claude protocol layer stays closed: no adapter entry points, no umbrella (K3, ADR-0004).',
           },
@@ -248,7 +248,7 @@ export default defineConfig(
   },
   {
     // Integration tests reach the CLI only through `testConnect` from
-    // @hudhud/test-support: pinned, hash-verified binary, sandboxed config,
+    // @hudhudjs/test-support: pinned, hash-verified binary, sandboxed config,
     // explicit environment (ADR-0013, plan §1.2). Never the public entry.
     files: ['packages/*/test/integration/**/*.ts'],
     ignores: [INTEGRATION_SUPPORT],

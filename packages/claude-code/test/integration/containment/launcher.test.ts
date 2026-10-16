@@ -25,7 +25,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { Session } from '@hudhud/core';
+import type { Session } from '@hudhudjs/core';
 
 import { integrationSuite } from '../support/harness.js';
 import {
@@ -40,7 +40,7 @@ import {
   WINDOWS,
 } from './tree.js';
 import type { DiagnosticEvent } from './tree.js';
-import type { HudhudEvent } from '@hudhud/core';
+import type { HudhudEvent } from '@hudhudjs/core';
 
 const suite = integrationSuite();
 

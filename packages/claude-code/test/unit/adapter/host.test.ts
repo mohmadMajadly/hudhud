@@ -14,8 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BinaryProbeError, InvalidOptionsError } from '@hudhud/core';
-import { hostExit } from '@hudhud/core/binding';
+import { BinaryProbeError, InvalidOptionsError } from '@hudhudjs/core';
+import { hostExit } from '@hudhudjs/core/binding';
 
 import { CLAUDE_CODE_ADAPTER, nodeHost } from '../../../src/adapter.js';
 import { CLAUDE_CODE_COMPAT_POLICY } from '../../../src/compat.js';

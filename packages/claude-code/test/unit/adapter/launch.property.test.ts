@@ -7,7 +7,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { buildPosture, type HudhudEvent } from '@hudhud/core';
+import { buildPosture, type HudhudEvent } from '@hudhudjs/core';
 
 import { buildArgv } from '../../../src/argv.js';
 import { connectWith } from '../../../src/connect.js';

@@ -4,7 +4,7 @@
  * @remarks
  * `connect()` verifies the Claude Code binary and returns a Harness;
  * `session()` is the one-call form; `hudhud` bundles both. The unstable
- * wire-level tier is the separate `@hudhud/claude-code/raw` entry point
+ * wire-level tier is the separate `@hudhudjs/claude-code/raw` entry point
  * (ADR-0003, ADR-0004).
  *
  * @packageDocumentation

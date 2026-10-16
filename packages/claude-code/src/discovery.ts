@@ -35,7 +35,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-import { BinaryNotFoundError, BinaryRefusedError } from '@hudhud/core';
+import { BinaryNotFoundError, BinaryRefusedError } from '@hudhudjs/core';
 import {
   ExecutableResolutionError,
   hostPlatform,
@@ -44,7 +44,7 @@ import {
   safeSearchPathEntries,
   type ProcessPlatform,
   type ResolvedExecutable,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 /**
  * Where the binary came from (plan §2.2 `BinaryInfo.source`).

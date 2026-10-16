@@ -1,8 +1,8 @@
 // The child environment per OS and per form of the `env` option (K19,
 // ADR-0012 §4, plan §2.5).
 
-import { InvalidOptionsError } from '@hudhud/core';
-import { childEnv, WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhud/core/process';
+import { InvalidOptionsError } from '@hudhudjs/core';
+import { childEnv, WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhudjs/core/process';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 

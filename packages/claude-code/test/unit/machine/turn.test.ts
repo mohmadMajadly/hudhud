@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { JsonObject } from '@hudhud/core/protocol';
+import type { JsonObject } from '@hudhudjs/core/protocol';
 
 import {
   INTERRUPT_RETRY_DELAY_MS,

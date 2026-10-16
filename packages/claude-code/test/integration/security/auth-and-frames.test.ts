@@ -20,7 +20,7 @@ import {
   isHudhudError,
   OversizedFrameError,
   type TurnResult,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

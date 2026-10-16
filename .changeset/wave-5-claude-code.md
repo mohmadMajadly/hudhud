@@ -1,5 +1,5 @@
 ---
-'@hudhud/claude-code': minor
+'@hudhudjs/claude-code': minor
 ---
 
 The Claude Code adapter assembly (Wave 5), now the public API of the package root and of `/raw`.

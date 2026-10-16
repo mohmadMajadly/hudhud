@@ -4,7 +4,7 @@
 // interrupt-queued, interrupt-cancel-queued, interrupt-same-write) and 07 §7
 // W120 (bg-shell-turn-after-eof).
 
-import type { JsonValue, Session } from '@hudhud/core';
+import type { JsonValue, Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

@@ -26,7 +26,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { childEnv } from '@hudhud/core/process';
+import { childEnv } from '@hudhudjs/core/process';
 
 import { assertNoForbiddenAncestors, testRootInstructions } from './ancestors.js';
 import type { AncestorProbe } from './ancestors.js';
@@ -177,10 +177,10 @@ export interface SandboxOptions {
 }
 
 /**
- * A launch built by the product (`@hudhud/claude-code` `buildArgv` and
+ * A launch built by the product (`@hudhudjs/claude-code` `buildArgv` and
  * `buildChildEnv` with the sandbox environment as the parent; the fixture
  * recorder, W4-T2). The sandbox spawns it as the product's process layer
- * would (`childEnv` of `@hudhud/core/process`), after checking that it
+ * would (`childEnv` of `@hudhudjs/core/process`), after checking that it
  * keeps every isolation variable of the sandbox (see {@link exactLaunch}).
  */
 export interface ExactLaunch {
@@ -291,7 +291,7 @@ export function launchArgv(options: LaunchOptions): readonly string[] {
  * Sandbox variables a product-built launch may leave out, per platform:
  * the ones that platform never reads, so leaving them out cannot send the
  * CLI to a host location. hudhud's `'harness'` preset passes neither (its
- * allowlist is per platform, `@hudhud/claude-code` `env.ts`). POSIX: `TMP`
+ * allowlist is per platform, `@hudhudjs/claude-code` `env.ts`). POSIX: `TMP`
  * and `TEMP` are Windows names (the temp directory comes from `TMPDIR` and
  * `CLAUDE_CODE_TMPDIR`, both kept). Windows: the home comes from
  * `USERPROFILE` and the temp directory from `TEMP`/`TMP` (all kept), not

@@ -20,8 +20,8 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { isHudhudError, ProjectCredentialEnvError } from '@hudhud/core';
-import type { JsonObject } from '@hudhud/core';
+import { isHudhudError, ProjectCredentialEnvError } from '@hudhudjs/core';
+import type { JsonObject } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import type { ClaudeCodeHarness } from '../../../src/connect.js';

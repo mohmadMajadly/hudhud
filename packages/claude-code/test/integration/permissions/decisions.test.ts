@@ -7,7 +7,7 @@
 // Evidence: 05 §6 (runs 19-30, recorded again as the conformance suites
 // permission-allow, permission-deny, permission-deny-interrupt).
 
-import type { JsonObject, PermissionDecision, PermissionRequest, Session } from '@hudhud/core';
+import type { JsonObject, PermissionDecision, PermissionRequest, Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

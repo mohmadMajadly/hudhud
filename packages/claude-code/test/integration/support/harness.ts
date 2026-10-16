@@ -32,7 +32,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
-import type { Session } from '@hudhud/core';
+import type { Session } from '@hudhudjs/core';
 
 import { nodeHost } from '../../../src/adapter.js';
 import { connectWith, sessionWith, type ClaudeCodeHarness } from '../../../src/connect.js';

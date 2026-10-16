@@ -113,11 +113,11 @@ importers:
 
   packages/claude-code:
     dependencies:
-      '@hudhud/core':
+      '@hudhudjs/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
-      '@hudhud/test-support':
+      '@hudhudjs/test-support':
         specifier: workspace:*
         version: link:../../tooling/test-support
       '@types/node':
@@ -150,10 +150,10 @@ importers:
 
   packages/hudhud:
     dependencies:
-      '@hudhud/claude-code':
+      '@hudhudjs/claude-code':
         specifier: workspace:*
         version: link:../claude-code
-      '@hudhud/core':
+      '@hudhudjs/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -166,7 +166,7 @@ importers:
 
   tooling/test-support:
     dependencies:
-      '@hudhud/core':
+      '@hudhudjs/core':
         specifier: workspace:*
         version: link:../../packages/core
       fast-check:

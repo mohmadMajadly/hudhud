@@ -14,7 +14,7 @@
  * flag.
  */
 
-import type { JsonValue } from '@hudhud/core/protocol';
+import type { JsonValue } from '@hudhudjs/core/protocol';
 
 /**
  * The `system/init` capability that announces `command_lifecycle` frames

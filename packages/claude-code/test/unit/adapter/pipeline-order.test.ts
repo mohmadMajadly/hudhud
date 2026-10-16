@@ -6,7 +6,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { InvalidOptionsError, ProjectCredentialEnvError, SessionIdInUseError } from '@hudhud/core';
+import {
+  InvalidOptionsError,
+  ProjectCredentialEnvError,
+  SessionIdInUseError,
+} from '@hudhudjs/core';
 
 import { connectWith, sessionWith } from '../../../src/connect.js';
 import {

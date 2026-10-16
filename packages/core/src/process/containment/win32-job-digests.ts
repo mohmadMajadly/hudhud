@@ -22,7 +22,7 @@
 export interface JobAddonDigests {
   /** The addon's `version` constant the digests belong to. */
   readonly version?: string;
-  /** sha256 of `@hudhud/win32-job-x64/hudhud_win32_job.node`. */
+  /** sha256 of `@hudhudjs/win32-job-x64/hudhud_win32_job.node`. */
   readonly x64?: string;
 }
 

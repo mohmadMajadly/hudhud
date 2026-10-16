@@ -39,14 +39,14 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { runBoundedCommand, spawnHarnessProcess } from '@hudhud/core/process';
+import { runBoundedCommand, spawnHarnessProcess } from '@hudhudjs/core/process';
 import type {
   BoundedCommand,
   CommandOutcome,
   HarnessProcess,
   ProbeWorkDir,
   SpawnSpec,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import { SandboxRefusedError } from './errors.js';
 import { recheckPinnedCli } from './pinned-cli.js';

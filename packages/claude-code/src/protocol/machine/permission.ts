@@ -31,8 +31,8 @@
  * @packageDocumentation
  */
 
-import type { JsonObject, JsonValue } from '@hudhud/core/protocol';
-import { isJsonObject, ownArray, ownBoolean, ownObject, ownString } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue } from '@hudhudjs/core/protocol';
+import { isJsonObject, ownArray, ownBoolean, ownObject, ownString } from '@hudhudjs/core/protocol';
 
 import type {
   ControlErrorResponseFrame,

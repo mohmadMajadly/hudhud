@@ -2,8 +2,8 @@
 // decision on W4-T1's question 2): the mapping, and that the session
 // machine writes exactly the encoded content for every checked input.
 
-import type { UserContentBlock, UserInput } from '@hudhud/core';
-import { normalizeUserInput } from '@hudhud/core/binding';
+import type { UserContentBlock, UserInput } from '@hudhudjs/core';
+import { normalizeUserInput } from '@hudhudjs/core/binding';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 

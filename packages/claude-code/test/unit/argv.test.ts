@@ -1,7 +1,7 @@
 // The CLI argv per option row of plan §2.4 and §2.5 (ADR-0011 §3).
 
-import { InvalidOptionsError } from '@hudhud/core';
-import { parseFlag } from '@hudhud/core/process';
+import { InvalidOptionsError } from '@hudhudjs/core';
+import { parseFlag } from '@hudhudjs/core/process';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 

@@ -16,7 +16,7 @@
  * @packageDocumentation
  */
 
-import type { JsonObject, JsonValue } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue } from '@hudhudjs/core/protocol';
 
 // ---- outbound: hudhud to CLI (strict) ---------------------------------------
 

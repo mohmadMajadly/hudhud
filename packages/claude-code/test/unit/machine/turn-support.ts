@@ -4,7 +4,7 @@
 
 import process from 'node:process';
 
-import type { JsonObject } from '@hudhud/core/protocol';
+import type { JsonObject } from '@hudhudjs/core/protocol';
 
 import {
   initialTurnState,

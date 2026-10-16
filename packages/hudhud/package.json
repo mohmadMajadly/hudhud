@@ -1,5 +1,5 @@
 {
-  "name": "hudhud",
+  "name": "hudhudjs",
   "version": "0.0.0",
   "private": true,
   "description": "Umbrella package for hudhud: re-exports only, exact-version dependencies.",
@@ -19,8 +19,8 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
-    "@hudhud/claude-code": "workspace:*",
-    "@hudhud/core": "workspace:*"
+    "@hudhudjs/claude-code": "workspace:*",
+    "@hudhudjs/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

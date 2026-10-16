@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { MachineEffect } from '@hudhud/core/protocol';
+import type { MachineEffect } from '@hudhudjs/core/protocol';
 
 import {
   validateErrorData,

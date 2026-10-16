@@ -12,22 +12,22 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url));
 const ROOT_NAMES = ['CLAUDE_CODE_COMPAT', 'connect', 'hudhud', 'session'];
 const RAW_NAMES = ['createSessionRaw', 'raw'];
 
-describe('@hudhud/claude-code', () => {
+describe('@hudhudjs/claude-code', () => {
   it('exports exactly the planned run-time names from source', () => {
     expect(Object.keys(root).sort()).toEqual(ROOT_NAMES);
     expect(Object.keys(raw).sort()).toEqual(RAW_NAMES);
   });
 
   it('resolves every entry point of the exports map from the built output', () => {
-    const results = importBuilt(packageDir, ['@hudhud/claude-code', '@hudhud/claude-code/raw']);
+    const results = importBuilt(packageDir, ['@hudhudjs/claude-code', '@hudhudjs/claude-code/raw']);
     expect(results).toEqual({
-      '@hudhud/claude-code': {
+      '@hudhudjs/claude-code': {
         ok: true,
         file: 'dist/index.js',
         exports: { CLAUDE_CODE_COMPAT: root.CLAUDE_CODE_COMPAT, hudhud: {} },
         names: ROOT_NAMES,
       },
-      '@hudhud/claude-code/raw': {
+      '@hudhudjs/claude-code/raw': {
         ok: true,
         file: 'dist/raw/index.js',
         exports: {},
@@ -69,9 +69,12 @@ describe('@hudhud/claude-code', () => {
   });
 
   it('does not expose files outside the exports map', () => {
-    const results = importBuilt(packageDir, ['@hudhud/claude-code/dist/raw/index.js']);
+    const results = importBuilt(packageDir, ['@hudhudjs/claude-code/dist/raw/index.js']);
     expect(results).toEqual({
-      '@hudhud/claude-code/dist/raw/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
+      '@hudhudjs/claude-code/dist/raw/index.js': {
+        ok: false,
+        code: 'ERR_PACKAGE_PATH_NOT_EXPORTED',
+      },
     });
   });
 });

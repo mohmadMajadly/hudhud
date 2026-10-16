@@ -71,7 +71,7 @@ import {
   type JsonValue,
   type TurnResult,
   type UsageTotals,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import { LIFECYCLE_CAPABILITY, parseFeatures } from '../wire/features.js';
 import { classifyResult } from '../events/normalize.js';

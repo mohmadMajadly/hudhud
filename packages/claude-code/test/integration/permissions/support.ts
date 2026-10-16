@@ -12,8 +12,8 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { HudhudEvent, JsonObject, JsonValue, Session } from '@hudhud/core';
-import { isJsonObject } from '@hudhud/core/protocol';
+import type { HudhudEvent, JsonObject, JsonValue, Session } from '@hudhudjs/core';
+import { isJsonObject } from '@hudhudjs/core/protocol';
 
 import type { SessionOptions } from '../../../src/options-types.js';
 import { raw, type RawWireFrame } from '../../../src/raw/index.js';

@@ -34,7 +34,7 @@ import {
   type JsonObject,
   type JsonValue,
   type KnownErrorData,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import { validateOutboundFrame } from '../generated/validators.gen.js';
 import type {

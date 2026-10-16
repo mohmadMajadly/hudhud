@@ -6,7 +6,7 @@
  * {@link claudePostureEntries} lists every security-relevant setting of
  * plan §2.4: the `posture` fields of the effective connect and session
  * options (resolved in `options.ts`), `managedPolicy`, and the names of the
- * `/raw` spawn extras. The neutral `buildPosture` of `@hudhud/core` turns
+ * `/raw` spawn extras. The neutral `buildPosture` of `@hudhudjs/core` turns
  * them into the `SecurityPosture`, computing `deviates` by deep JSON
  * equality, so no weakened default is silent.
  *
@@ -26,9 +26,9 @@
 import { open } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { EnvMap } from '@hudhud/core';
-import type { ProcessPlatform } from '@hudhud/core/process';
-import { ownObject, parseJsonLine } from '@hudhud/core/protocol';
+import type { EnvMap } from '@hudhudjs/core';
+import type { ProcessPlatform } from '@hudhudjs/core/process';
+import { ownObject, parseJsonLine } from '@hudhudjs/core/protocol';
 
 import type {
   EffectiveConnectOptions,

@@ -5,7 +5,7 @@
  * @remarks
  * Pre-alpha: the harness-neutral handles (`Harness`, `Session`, `Turn`) and
  * adapter registration are here; adapters reach the session driver behind
- * them through the beta entry `@hudhud/core/binding`. The design is described in docs/architecture.md
+ * them through the beta entry `@hudhudjs/core/binding`. The design is described in docs/architecture.md
  * and the ADRs under docs/adr/.
  *
  * @packageDocumentation
@@ -32,7 +32,7 @@ export type { BinaryVerification, VerificationMode } from './process/verify/veri
 
 /**
  * Version of the neutral wire model (events, errors, capabilities, posture),
- * as in `@hudhud/core/schemas/version.json`; bumped only on a breaking change
+ * as in `@hudhudjs/core/schemas/version.json`; bumped only on a breaking change
  * (ADR-0005).
  *
  * @public

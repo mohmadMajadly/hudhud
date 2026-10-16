@@ -90,7 +90,7 @@ describe('loadJobAddon outcomes', () => {
       }),
     );
     expect(load.status).toBe('loaded');
-    expect(asked).toEqual(['@hudhud/win32-job-x64/hudhud_win32_job.node']);
+    expect(asked).toEqual(['@hudhudjs/win32-job-x64/hudhud_win32_job.node']);
     expect(WIN32_JOB_ADDON_SPECIFIER).toBe(asked[0]);
   });
 
@@ -120,8 +120,8 @@ describe('loadJobAddon outcomes', () => {
       'hudhud_win32_job.node',
       '.\\hudhud_win32_job.node',
       'C:hudhud_win32_job.node',
-      'C:\\repo\\node_modules\\@hudhud\\win32-job-x64\\other.node',
-      'C:\\repo\\node_modules\\@hudhud\\win32-job-x64\\hudhud_win32_job.node.js',
+      'C:\\repo\\node_modules\\@hudhudjs\\win32-job-x64\\other.node',
+      'C:\\repo\\node_modules\\@hudhudjs\\win32-job-x64\\hudhud_win32_job.node.js',
     ]) {
       const deps = fakeDeps(fake, { requireResolve: () => resolved });
       expect(loadJobAddon(deps)).toEqual({
@@ -136,7 +136,8 @@ describe('loadJobAddon outcomes', () => {
     ).toMatchObject({ reason: 'package-missing', detail: 'unexpected-resolution' });
     // Windows file names are case-insensitive.
     const upper = fakeDeps(fake, {
-      requireResolve: () => 'C:\\repo\\node_modules\\@hudhud\\win32-job-x64\\HUDHUD_WIN32_JOB.NODE',
+      requireResolve: () =>
+        'C:\\repo\\node_modules\\@hudhudjs\\win32-job-x64\\HUDHUD_WIN32_JOB.NODE',
     });
     expect(loadJobAddon(upper).status).toBe('loaded');
   });

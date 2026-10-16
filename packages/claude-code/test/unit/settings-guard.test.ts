@@ -2,7 +2,7 @@
 // ADR-0012 §2, plan §4.2): scan set, git root and main worktree root,
 // fallback, parsing, links, caps, and names-never-values.
 
-import { ProjectCredentialEnvError, type JsonObject } from '@hudhud/core';
+import { ProjectCredentialEnvError, type JsonObject } from '@hudhudjs/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 

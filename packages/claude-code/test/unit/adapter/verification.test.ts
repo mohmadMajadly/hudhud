@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { CommandOutcome } from '@hudhud/core/process';
+import type { CommandOutcome } from '@hudhudjs/core/process';
 
 import { connectWith } from '../../../src/connect.js';
 import { CLAUDE_CODE_PUBLISHER } from '../../../src/known-binaries.js';

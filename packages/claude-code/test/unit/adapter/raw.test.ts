@@ -12,8 +12,8 @@ import {
   InvalidOptionsError,
   OutboundFrameTooLargeError,
   SessionClosedError,
-} from '@hudhud/core';
-import { TransportWriteError, type HarnessTransport } from '@hudhud/core/binding';
+} from '@hudhudjs/core';
+import { TransportWriteError, type HarnessTransport } from '@hudhudjs/core/binding';
 
 import { connectWith } from '../../../src/connect.js';
 import { RawChannel, type RawFrame } from '../../../src/raw-channel.js';

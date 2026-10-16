@@ -9,7 +9,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-import type { SecurityPostureEntry } from '@hudhud/core';
+import type { SecurityPostureEntry } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

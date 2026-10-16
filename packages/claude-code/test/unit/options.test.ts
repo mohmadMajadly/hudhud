@@ -1,7 +1,7 @@
 // Option validation, cross-field rules, defaults and posture fields
 // (plan §2.3, §2.4; ADR-0012).
 
-import { CapabilityUnsupportedError, InvalidOptionsError, type JsonObject } from '@hudhud/core';
+import { CapabilityUnsupportedError, InvalidOptionsError, type JsonObject } from '@hudhudjs/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 

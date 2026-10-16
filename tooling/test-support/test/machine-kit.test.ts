@@ -1,7 +1,7 @@
 import process from 'node:process';
 
 import fc from 'fast-check';
-import type { JsonValue } from '@hudhud/core/protocol';
+import type { JsonValue } from '@hudhudjs/core/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {

@@ -11,7 +11,7 @@
  * therefore replays byte for byte from a recorded input sequence.
  *
  * Contract invariants, checked against every machine by the machine kit of
- * `@hudhud/test-support`:
+ * `@hudhudjs/test-support`:
  *
  * - every turn settles exactly once (`turn.settle` or `turn.fail`); a
  *   `send.rejected` settles no turn;

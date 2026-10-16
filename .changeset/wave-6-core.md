@@ -1,6 +1,6 @@
 ---
-'@hudhud/core': minor
-'hudhud': minor
+'@hudhudjs/core': minor
+'hudhudjs': minor
 ---
 
 Wave 6 (integration against the pinned CLI).

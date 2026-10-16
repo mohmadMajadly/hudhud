@@ -1,5 +1,5 @@
 // The neutral contract invariants of plan §1.4 checked against the Claude
-// session machine with the machine kit of @hudhud/test-support (plan §4.2,
+// session machine with the machine kit of @hudhudjs/test-support (plan §4.2,
 // W3-T1 acceptance): every turn settles exactly once, each permission ask
 // ends exactly once, no write after stdin.end, seq strictly +1 from 1,
 // timers cleared before session.end, nothing after session.end, a control
@@ -10,7 +10,7 @@
 // The harness lines are built from frames quoted in research 05 / 07 (see
 // session-support.ts for the provenance of each builder).
 //
-// Needs `@hudhud/test-support` among the devDependencies of this package
+// Needs `@hudhudjs/test-support` among the devDependencies of this package
 // (workspace-deps-declared); the kit is reached by relative path until the
 // test-support barrel exports it.
 
@@ -25,7 +25,7 @@ import type {
   MachineEffect,
   MachineInput,
   MachineStep,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import {
   assertMachineContract,

@@ -94,9 +94,9 @@ import { lstat, open, readlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { ProjectCredentialEnvError, type JsonObject } from '@hudhud/core';
-import { hostPlatform, type ProcessPlatform } from '@hudhud/core/process';
-import { isJsonObject, parseJsonLine } from '@hudhud/core/protocol';
+import { ProjectCredentialEnvError, type JsonObject } from '@hudhudjs/core';
+import { hostPlatform, type ProcessPlatform } from '@hudhudjs/core/process';
+import { isJsonObject, parseJsonLine } from '@hudhudjs/core/protocol';
 
 import type { EffectiveSessionOptions } from './options-types.js';
 

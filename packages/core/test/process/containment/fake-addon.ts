@@ -17,7 +17,7 @@ export const FAKE_VERSION = '1.0.0';
 export const FAKE_ADDON_BYTES = new TextEncoder().encode('fake hudhud_win32_job.node');
 export const FAKE_ADDON_SHA256 = createHash('sha256').update(FAKE_ADDON_BYTES).digest('hex');
 export const FAKE_ADDON_PATH =
-  'C:\\repo\\node_modules\\@hudhud\\win32-job-x64\\hudhud_win32_job.node';
+  'C:\\repo\\node_modules\\@hudhudjs\\win32-job-x64\\hudhud_win32_job.node';
 
 function win32Error(api: string, code: number): Error {
   return Object.assign(new Error(`${api} failed`), { code: `WIN32_${String(code)}` });

@@ -56,7 +56,7 @@ import {
   type EnvMap,
   type HudhudError,
   type JsonObject,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import {
   cryptoIds,
   hostExit,
@@ -64,7 +64,7 @@ import {
   type Clock,
   type HostExitHook,
   type IdSource,
-} from '@hudhud/core/binding';
+} from '@hudhudjs/core/binding';
 import {
   assertSpawnableOrReverify,
   BinaryChangedError,
@@ -92,7 +92,7 @@ import {
   type VerifiedBinary,
   type VerifyBinaryOptions,
   type VersionProbeOptions,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import {
   CLAUDE_CODE_COMPAT_POLICY,

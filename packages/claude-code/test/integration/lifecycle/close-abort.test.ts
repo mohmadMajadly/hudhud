@@ -8,7 +8,7 @@
 
 import { performance } from 'node:perf_hooks';
 
-import { isHudhudError, type Session } from '@hudhud/core';
+import { isHudhudError, type Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

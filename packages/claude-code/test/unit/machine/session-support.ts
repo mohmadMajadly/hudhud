@@ -12,7 +12,7 @@ import type {
   JsonValue,
   MachineEffect,
   TransportInput,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import {
   claudeSessionMachine,

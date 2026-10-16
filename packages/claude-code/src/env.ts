@@ -30,8 +30,8 @@
  * `spawnInjected`).
  */
 
-import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhud/core';
-import { WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhud/core/process';
+import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhudjs/core';
+import { WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhudjs/core/process';
 
 import type { EffectiveConnectOptions, EffectiveSessionOptions } from './options-types.js';
 
@@ -103,7 +103,7 @@ const POSIX_EXACT = new Set([
 ]);
 const POSIX_PREFIXES = [...COMMON_PREFIXES, 'LC_', 'XDG_'];
 
-// libuv adds each of WIN32_REQUIRED_ENV_NAMES (`@hudhud/core/process`) to a
+// libuv adds each of WIN32_REQUIRED_ENV_NAMES (`@hudhudjs/core/process`) to a
 // win32 child from the parent's own environment whenever the environment
 // passed to spawn lacks it. The `'harness'` preset passes all of them
 // explicitly (OS essentials the CLI and its tools need); when a form leaves
@@ -226,7 +226,7 @@ export interface ChildEnv {
   /**
    * win32 only: names of `WIN32_REQUIRED_ENV_NAMES` missing from `env`.
    * libuv would copy them from the parent; the spawn layer (`childEnv` of
-   * `@hudhud/core/process`) passes each as an empty string instead, so the
+   * `@hudhudjs/core/process`) passes each as an empty string instead, so the
    * child's environment is `env` plus these names blank, whatever the
    * parent holds. A missing `SYSTEMROOT` is refused by the spawn layer.
    */

@@ -66,7 +66,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { HarnessProcess } from '@hudhud/core/process';
+import type { HarnessProcess } from '@hudhudjs/core/process';
 
 import { hostProcessTable } from '../leaks/process-table.js';
 import { assertNoSurvivors, KILL_DEADLINE_MS, LeakTracker } from '../leaks/tracker.js';

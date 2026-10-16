@@ -4,7 +4,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import type { JsonValue } from '@hudhud/core/protocol';
+import type { JsonValue } from '@hudhudjs/core/protocol';
 
 import {
   claudeHarnessCapabilities,

@@ -4,7 +4,7 @@
 // harness asserts after the test that every Harness was disposed, the
 // egress trap recorded nothing and no process leaked.
 
-import type { HudhudEvent } from '@hudhud/core';
+import type { HudhudEvent } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

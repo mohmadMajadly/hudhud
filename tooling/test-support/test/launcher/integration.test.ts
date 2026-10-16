@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { HarnessProcess, IdentityRead, ProcessTableSource } from '@hudhud/core/process';
+import type { HarnessProcess, IdentityRead, ProcessTableSource } from '@hudhudjs/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { SandboxRefusedError } from '../../src/launcher/errors.js';

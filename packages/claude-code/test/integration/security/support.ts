@@ -11,7 +11,7 @@ import type {
   PermissionHandler,
   SecurityPostureEntry,
   Session,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 
 import type { MockServer } from '../../../../../tooling/test-support/src/mock/server.js';
 

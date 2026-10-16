@@ -6,13 +6,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-import { BinaryNotFoundError, BinaryRefusedError } from '@hudhud/core';
+import { BinaryNotFoundError, BinaryRefusedError } from '@hudhudjs/core';
 import {
   ExecutableResolutionError,
   hostPlatform,
   type ProcessPlatform,
   type ResolvedExecutable,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {

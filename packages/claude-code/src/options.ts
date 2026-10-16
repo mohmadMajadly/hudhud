@@ -32,7 +32,7 @@ import {
   InvalidOptionsError,
   type JsonObject,
   type JsonValue,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 
 import { envNameIsPinned, isCredentialOrRoutingEnvName } from './env.js';
 import {

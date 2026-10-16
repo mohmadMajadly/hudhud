@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { JsonValue, MachineEffect } from '@hudhud/core/protocol';
+import type { JsonValue, MachineEffect } from '@hudhudjs/core/protocol';
 
 import type { ExpectBlock, RecordLine } from './loader.js';
 import type { ReplayResult } from './replay.js';

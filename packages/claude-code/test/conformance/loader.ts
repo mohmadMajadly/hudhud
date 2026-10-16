@@ -40,7 +40,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
-import type { JsonObject, JsonValue } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue } from '@hudhudjs/core/protocol';
 
 import { validateConformanceLine } from '../../../core/src/protocol/generated/validators.gen.js';
 import type { SuiteDeclaration } from './catalogue.js';

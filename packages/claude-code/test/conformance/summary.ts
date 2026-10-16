@@ -2,7 +2,7 @@
 // (`declarations.ts` declares one per case). Derived from the effects only,
 // so it holds for any driver of the same machine (the loopback replay too).
 
-import type { JsonValue, MachineEffect } from '@hudhud/core/protocol';
+import type { JsonValue, MachineEffect } from '@hudhudjs/core/protocol';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 

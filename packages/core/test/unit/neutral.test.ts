@@ -1,6 +1,6 @@
 // The core is harness-neutral (K3): no Claude Code wire vocabulary in its
 // sources, schema sources or committed schemas. Everything that encodes the
-// stream-json and control protocol lives in @hudhud/claude-code.
+// stream-json and control protocol lives in @hudhudjs/claude-code.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';

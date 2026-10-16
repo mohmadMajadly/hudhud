@@ -29,7 +29,7 @@
  *   deterministically even if a session never released.
  */
 
-import { HarnessDisposedError, SessionIdInUseError } from '@hudhud/core';
+import { HarnessDisposedError, SessionIdInUseError } from '@hudhudjs/core';
 
 /**
  * Longest session id the registry accepts.

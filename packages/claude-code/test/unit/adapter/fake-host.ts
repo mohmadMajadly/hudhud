@@ -6,8 +6,8 @@
 // `claude`, no user config, no keychain, no network. The fake CLI answers
 // the frames hudhud writes the way the recorded CLI does (research 05 §5).
 
-import type { HudhudEvent } from '@hudhud/core';
-import { counterIds, ManualClock, type HostExitHook } from '@hudhud/core/binding';
+import type { HudhudEvent } from '@hudhudjs/core';
+import { counterIds, ManualClock, type HostExitHook } from '@hudhudjs/core/binding';
 import {
   ExecutableResolutionError,
   JobAddonError,
@@ -22,7 +22,7 @@ import {
   type ProcessExit,
   type ResolvedExecutable,
   type SpawnSpec,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import type { ClaudeHost } from '../../../src/adapter.js';
 import { CLAUDE_CODE_COMPAT_POLICY, type CompatPolicy } from '../../../src/compat.js';

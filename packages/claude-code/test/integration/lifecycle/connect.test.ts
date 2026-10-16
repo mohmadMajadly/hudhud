@@ -3,7 +3,7 @@
 // verification, the one `--version` probe, the version policy, the posture
 // and the capabilities; plan §1.8 "Connect"), and how a session repeats it.
 
-import type { SecurityPostureEntry } from '@hudhud/core';
+import type { SecurityPostureEntry } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { CLAUDE_CODE_COMPAT } from '../../../src/index.js';

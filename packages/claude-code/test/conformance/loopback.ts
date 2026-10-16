@@ -4,7 +4,7 @@
 //
 // The direct replay (`replay.ts`) feeds the session machine through the
 // machine kit. This one drives the same recording through the generic
-// session driver of `@hudhud/core/binding` over its in-memory transport
+// session driver of `@hudhudjs/core/binding` over its in-memory transport
 // (`createLoopbackDriver`): every config, state, input and step result
 // crosses JSON (`loopbackMachine`), the harness output goes through the
 // transport's reader, timers through the driver's ManualClock, application
@@ -48,7 +48,7 @@ import {
   type TurnResult,
   type UserContentBlock,
   type UserInput,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import {
   createLoopbackDriver,
   ManualClock,
@@ -56,8 +56,8 @@ import {
   type IdSource,
   type LoopbackSession,
   type SessionEnd,
-} from '@hudhud/core/binding';
-import type { JsonObject, JsonValue, MachineEffect, MachineInput } from '@hudhud/core/protocol';
+} from '@hudhudjs/core/binding';
+import type { JsonObject, JsonValue, MachineEffect, MachineInput } from '@hudhudjs/core/protocol';
 
 import {
   claudeSessionMachine,

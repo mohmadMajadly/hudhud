@@ -27,7 +27,7 @@
  * output never is.
  */
 
-import type { CompatInfo } from '@hudhud/core';
+import type { CompatInfo } from '@hudhudjs/core';
 
 import type { KnownBrokenListing } from './protocol/machine/index.js';
 

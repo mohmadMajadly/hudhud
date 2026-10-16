@@ -3,7 +3,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { HarnessDisposedError, isHudhudError, SessionIdInUseError } from '@hudhud/core';
+import { HarnessDisposedError, isHudhudError, SessionIdInUseError } from '@hudhudjs/core';
 
 import { MAX_SESSION_ID_LENGTH, SessionRegistry } from '../../src/registry.js';
 

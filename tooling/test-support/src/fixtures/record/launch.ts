@@ -2,10 +2,10 @@
  * The launch of a recorded case, built by the product (lead ruling, W4-T2):
  * the CLI's argv and environment come from the adapter's own builders
  * (`resolveConnectSessionOptions`, `buildArgv`, `buildChildEnv` of
- * `@hudhud/claude-code`, plan §2.3-§2.5), never from a copy kept here.
+ * `@hudhudjs/claude-code`, plan §2.3-§2.5), never from a copy kept here.
  *
  * @remarks
- * Layering: test-support may not depend on `@hudhud/claude-code` (the
+ * Layering: test-support may not depend on `@hudhudjs/claude-code` (the
  * adapter already dev-depends on test-support, and its builders are not
  * public). The builders are therefore injected: {@link productLaunchBuilder}
  * takes them as a {@link ProductLaunchApi} and the composition root that
@@ -22,7 +22,7 @@
  * config directory. Nothing is added to the product's output.
  */
 
-import { isJsonObject, type JsonObject } from '@hudhud/core/protocol';
+import { isJsonObject, type JsonObject } from '@hudhudjs/core/protocol';
 
 /** How a case starts its session (the product's `LaunchSpec`). */
 export type CaseStart =

@@ -57,7 +57,7 @@ import {
   type SessionInfoData,
   type SessionOutcome,
   type TerminationIntent,
-} from '@hudhud/core/protocol';
+} from '@hudhudjs/core/protocol';
 
 import { parseFeatures } from '../wire/features.js';
 import { classifyResult, normalizeFrame } from '../events/normalize.js';

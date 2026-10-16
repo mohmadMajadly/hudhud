@@ -51,7 +51,7 @@
 // the recording sent none). Unpaired writes on either side are reported as
 // labels; each suite declares them (`catalogue.ts`).
 
-import type { JsonObject, JsonValue, MachineEffect, MachineInput } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue, MachineEffect, MachineInput } from '@hudhudjs/core/protocol';
 import { isDeepStrictEqual } from 'node:util';
 
 import {

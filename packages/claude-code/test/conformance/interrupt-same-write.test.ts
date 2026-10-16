@@ -23,7 +23,7 @@
 // `system/init` settles with that turn (session unit test "does not wait for
 // an interrupt held for a turn that ended before its system/init").
 
-import type { JsonObject, JsonValue, MachineEffect } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue, MachineEffect } from '@hudhudjs/core/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { loadConformanceSuites, type ConformanceVariant, type RecordLine } from './loader.js';

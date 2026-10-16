@@ -15,7 +15,7 @@ import type { BigIntStats } from 'node:fs';
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
 
-import { sha256File } from '@hudhud/core/process';
+import { sha256File } from '@hudhudjs/core/process';
 
 import { CliFetchError } from '../cli/errors.js';
 import { hostPlatform, libcFromReport, loadPin } from '../cli/pin.js';

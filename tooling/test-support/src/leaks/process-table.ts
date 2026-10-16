@@ -3,7 +3,7 @@
  *
  * @remarks
  * Each row carries the identity used everywhere in hudhud (pid plus start
- * time, ADR-0011 J9), parsed by the core parsers of `@hudhud/core/process`
+ * time, ADR-0011 J9), parsed by the core parsers of `@hudhudjs/core/process`
  * so it compares with spawn identities, plus the command line, which the
  * core snapshots do not read: the suite-level sweep finds survivors by the
  * sandbox root in their command lines (07 §13). Sources: Linux
@@ -28,8 +28,8 @@ import {
   parseProcStat,
   parsePsOutput,
   parseWin32ProcessJson,
-} from '@hudhud/core/process';
-import type { OsCalls, ProcessRecord } from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
+import type { OsCalls, ProcessRecord } from '@hudhudjs/core/process';
 
 import { windowsSystemRoot } from '../launcher/env.js';
 
@@ -130,7 +130,7 @@ export function parseWin32Processes(text: string): readonly ProcessRow[] {
  * @returns the row, or `null` when the stat text is malformed.
  */
 export function parseLinuxProcess(stat: string, cmdline: string): ProcessRow | null {
-  // The core parser (`@hudhud/core/process`), as for every other snapshot.
+  // The core parser (`@hudhudjs/core/process`), as for every other snapshot.
   const record = parseProcStat(new TextEncoder().encode(stat));
   if (record === null || !isPid(record.pid)) return null;
   return {

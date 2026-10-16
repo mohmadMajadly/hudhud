@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 
-import { ProjectCredentialEnvError } from '@hudhud/core';
+import { ProjectCredentialEnvError } from '@hudhudjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {

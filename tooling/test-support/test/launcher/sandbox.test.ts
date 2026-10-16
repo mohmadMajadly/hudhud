@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { childEnv, DARWIN_CHILD_SET_ENV_NAMES } from '@hudhud/core/process';
+import { childEnv, DARWIN_CHILD_SET_ENV_NAMES } from '@hudhudjs/core/process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { FAKE_API_KEY } from '../../src/launcher/env.js';

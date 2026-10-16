@@ -47,15 +47,15 @@ import {
   type JsonObject,
   type JsonValue,
   type SubscriberOptions,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import {
   Fanout,
   TransportWriteError,
   type Clock,
   type HarnessTransport,
   type TransportOutput,
-} from '@hudhud/core/binding';
-import { encodeJsonLine, ownObject, ownString, parseJsonLine } from '@hudhud/core/protocol';
+} from '@hudhudjs/core/binding';
+import { encodeJsonLine, ownObject, ownString, parseJsonLine } from '@hudhudjs/core/protocol';
 
 import {
   rawControlRefusal,

@@ -68,7 +68,7 @@ import {
   type PermissionHandler,
   type Session,
   type SubscriberOptions,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 import {
   createProcessTransport,
   createSession,
@@ -76,7 +76,7 @@ import {
   type BindingDiagnostic,
   type HarnessMachine,
   type HarnessTransport,
-} from '@hudhud/core/binding';
+} from '@hudhudjs/core/binding';
 import {
   assertSpawnable,
   createSessionContainment,
@@ -85,7 +85,7 @@ import {
   type JobAddonLoad,
   type ProcessPlatform,
   type VerifiedBinary,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import {
   mapBinaryError,

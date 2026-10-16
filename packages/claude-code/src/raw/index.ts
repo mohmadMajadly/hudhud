@@ -13,7 +13,7 @@ export { createSessionRaw, raw } from './session.js';
 export type { RawFrame, RawGap, RawSession, RawSpawnOptions, RawWireFrame } from './session.js';
 
 // Type-only re-exports of the root types the signatures above name, so this
-// entry point's API report is self-contained (as `@hudhud/core/binding` does).
+// entry point's API report is self-contained (as `@hudhudjs/core/binding` does).
 export type { ClaudeCodeHarness } from '../connect.js';
 export type {
   ClaudeCodeSessionOptions,

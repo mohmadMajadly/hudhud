@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { HudhudEvent } from '@hudhud/core';
+import type { HudhudEvent } from '@hudhudjs/core';
 
 import { connectWith } from '../../../src/connect.js';
 import { BINARY, CLI_PID, FakeHost, LAUNCHER, PROJECT, settle, VERSION } from './fake-host.js';

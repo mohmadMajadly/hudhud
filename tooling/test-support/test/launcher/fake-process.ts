@@ -8,7 +8,7 @@ import type {
   IdentityRead,
   ProcessExit,
   ProcessTableSource,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 /** A fake process and the handles that settle it. */
 export interface FakeProcess {

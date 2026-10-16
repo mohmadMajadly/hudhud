@@ -5,7 +5,7 @@
 
 import path from 'node:path';
 
-import type { ProcessPlatform } from '@hudhud/core/process';
+import type { ProcessPlatform } from '@hudhudjs/core/process';
 
 import type {
   SettingsEntryKind,

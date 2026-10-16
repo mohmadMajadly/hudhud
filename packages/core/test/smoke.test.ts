@@ -10,7 +10,7 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url));
 
 /** Run-time export names of each entry point (types are checked by the API reports). */
 const ENTRY_NAMES = {
-  '@hudhud/core': [
+  '@hudhudjs/core': [
     'AbortError',
     'AdapterApiVersionError',
     'AuthenticationFailedError',
@@ -64,7 +64,7 @@ const ENTRY_NAMES = {
     'serializePosture',
     'wireSchemaVersion',
   ],
-  '@hudhud/core/protocol': [
+  '@hudhudjs/core/protocol': [
     'DEFAULT_MAX_JSON_DEPTH',
     'DEFAULT_MAX_OUTBOUND_FRAME_BYTES',
     'ERROR_RETRYABLE',
@@ -87,7 +87,7 @@ const ENTRY_NAMES = {
     'parseJsonLine',
     'sanitizeForDisplay',
   ],
-  '@hudhud/core/binding': [
+  '@hudhudjs/core/binding': [
     'DEFAULT_OUTPUT_DRAIN_MS',
     'Fanout',
     'HUDHUD_ERROR_CODES',
@@ -113,7 +113,7 @@ const ENTRY_NAMES = {
     'openSession',
     'systemClock',
   ],
-  '@hudhud/core/process': [
+  '@hudhudjs/core/process': [
     'ArgvError',
     'BinaryChangedError',
     'BinaryNotVerifiedError',
@@ -198,7 +198,7 @@ const ENTRY_NAMES = {
   ],
 } as const;
 
-describe('@hudhud/core', () => {
+describe('@hudhudjs/core', () => {
   it('exports the adapter API version as a positive integer', () => {
     expect(adapterApiVersion).toBe(1);
     expect(Number.isSafeInteger(adapterApiVersion)).toBe(true);
@@ -214,37 +214,37 @@ describe('@hudhud/core', () => {
   it('resolves every entry point of the exports map from the built output', () => {
     const results = importBuilt(packageDir, Object.keys(ENTRY_NAMES));
     expect(results).toEqual({
-      '@hudhud/core': expect.objectContaining({
+      '@hudhudjs/core': expect.objectContaining({
         ok: true,
         file: 'dist/index.js',
-        names: ENTRY_NAMES['@hudhud/core'],
+        names: ENTRY_NAMES['@hudhudjs/core'],
       }) as unknown,
-      '@hudhud/core/protocol': expect.objectContaining({
+      '@hudhudjs/core/protocol': expect.objectContaining({
         ok: true,
         file: 'dist/protocol/index.js',
-        names: ENTRY_NAMES['@hudhud/core/protocol'],
+        names: ENTRY_NAMES['@hudhudjs/core/protocol'],
       }) as unknown,
-      '@hudhud/core/binding': expect.objectContaining({
+      '@hudhudjs/core/binding': expect.objectContaining({
         ok: true,
         file: 'dist/binding/index.js',
-        names: ENTRY_NAMES['@hudhud/core/binding'],
+        names: ENTRY_NAMES['@hudhudjs/core/binding'],
       }) as unknown,
-      '@hudhud/core/process': expect.objectContaining({
+      '@hudhudjs/core/process': expect.objectContaining({
         ok: true,
         file: 'dist/process/index.js',
-        names: ENTRY_NAMES['@hudhud/core/process'],
+        names: ENTRY_NAMES['@hudhudjs/core/process'],
       }) as unknown,
     });
-    expect(results['@hudhud/core/binding']).toMatchObject({
+    expect(results['@hudhudjs/core/binding']).toMatchObject({
       exports: { DEFAULT_OUTPUT_DRAIN_MS: 2000, SYNTHESIZED_EVENT_BYTES: 256 },
     });
-    expect(results['@hudhud/core']).toMatchObject({
+    expect(results['@hudhudjs/core']).toMatchObject({
       exports: { adapterApiVersion: 1, wireSchemaVersion: 1, REDACTED: '<redacted>' },
     });
-    expect(results['@hudhud/core/protocol']).toMatchObject({
+    expect(results['@hudhudjs/core/protocol']).toMatchObject({
       exports: { DEFAULT_MAX_OUTBOUND_FRAME_BYTES: 33_554_432, DEFAULT_MAX_JSON_DEPTH: 512 },
     });
-    expect(results['@hudhud/core/process']).toMatchObject({
+    expect(results['@hudhudjs/core/process']).toMatchObject({
       exports: { DEFAULT_MAX_INBOUND_FRAME_BYTES: 67_108_864, WIN32_CWD_MAX_LENGTH: 258 },
     });
   });
@@ -277,12 +277,12 @@ describe('@hudhud/core', () => {
 
   it('does not expose files outside the exports map', () => {
     const results = importBuilt(packageDir, [
-      '@hudhud/core/dist/index.js',
-      '@hudhud/core/src/index.ts',
+      '@hudhudjs/core/dist/index.js',
+      '@hudhudjs/core/src/index.ts',
     ]);
     expect(results).toEqual({
-      '@hudhud/core/dist/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
-      '@hudhud/core/src/index.ts': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
+      '@hudhudjs/core/dist/index.js': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
+      '@hudhudjs/core/src/index.ts': { ok: false, code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' },
     });
   });
 });

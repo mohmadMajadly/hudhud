@@ -8,7 +8,7 @@
 // Evidence: 05 §6 runs 29 and 30 (recorded again as the conformance suites
 // permission-never-answered-interrupt and permission-eof).
 
-import type { PermissionDecision, PermissionRequest, Session } from '@hudhud/core';
+import type { PermissionDecision, PermissionRequest, Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import type { MachineEffect } from '@hudhud/core/protocol';
+import type { MachineEffect } from '@hudhudjs/core/protocol';
 
 import { planSuites, roundTrips, schemaIssues } from './checks.js';
 import {

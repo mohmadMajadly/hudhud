@@ -27,7 +27,7 @@ import {
   type JsonValue,
   type Session,
   type SubscriberOptions,
-} from '@hudhud/core';
+} from '@hudhudjs/core';
 
 import { checkExtraArgs } from '../argv.js';
 import { claudeHarnessOf, type ClaudeCodeHarness } from '../connect.js';
@@ -82,7 +82,11 @@ function invalid(path: string, rule: string, message: string): InvalidOptionsErr
 export function raw(session: Session): RawSession {
   const channel = rawChannelOf(session);
   if (channel === undefined) {
-    throw invalid('session', 'raw-session', 'raw() takes a session opened by @hudhud/claude-code.');
+    throw invalid(
+      'session',
+      'raw-session',
+      'raw() takes a session opened by @hudhudjs/claude-code.',
+    );
   }
   return Object.freeze({
     frames: (opts?: SubscriberOptions) => channel.frames(opts),

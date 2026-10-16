@@ -9,7 +9,7 @@
  * import cycle.
  */
 
-import type { JsonValue, PermissionHandler, SubscriberOptions } from '@hudhud/core';
+import type { JsonValue, PermissionHandler, SubscriberOptions } from '@hudhudjs/core';
 
 // ---- public option types (plan §2.3) ------------------------------------------
 

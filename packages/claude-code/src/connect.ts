@@ -42,14 +42,14 @@ import {
   type HarnessCapabilities,
   type SecurityPosture,
   type Session,
-} from '@hudhud/core';
-import { HarnessBase } from '@hudhud/core/binding';
+} from '@hudhudjs/core';
+import { HarnessBase } from '@hudhudjs/core/binding';
 import {
   jobContainmentCapability,
   VerificationCache,
   type JobAddonLoad,
   type ProcessPlatform,
-} from '@hudhud/core/process';
+} from '@hudhudjs/core/process';
 
 import {
   nodeHost,

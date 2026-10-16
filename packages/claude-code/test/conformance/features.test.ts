@@ -4,7 +4,7 @@
 // carries, and the session facts and turns carry the recorded names
 // unchanged.
 
-import type { JsonObject, JsonValue } from '@hudhud/core/protocol';
+import type { JsonObject, JsonValue } from '@hudhudjs/core/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {

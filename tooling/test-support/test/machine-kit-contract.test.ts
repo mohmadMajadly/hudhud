@@ -1,11 +1,11 @@
-// The machine kit against the neutral machine contract of @hudhud/core
+// The machine kit against the neutral machine contract of @hudhudjs/core
 // (plan §1.4, K3): every core HarnessMachine is a KitMachine, and the kit
 // drives a machine typed with the contract itself, whose exit handling is
 // classifyExit. (The kit imports the contract's input types, so the former
 // mirror-equality test is gone; W2-Z ruling B.)
 
-import type { HarnessMachine, MachineEffect, TerminationIntent } from '@hudhud/core/protocol';
-import { classifyExit } from '@hudhud/core/protocol';
+import type { HarnessMachine, MachineEffect, TerminationIntent } from '@hudhudjs/core/protocol';
+import { classifyExit } from '@hudhudjs/core/protocol';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { KitMachine } from '../src/machine-kit.js';

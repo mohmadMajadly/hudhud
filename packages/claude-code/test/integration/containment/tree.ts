@@ -3,7 +3,7 @@
 // product, or through test-support's `killVerified` (pid plus start time
 // confirmed in a fresh read first), never by a bare pid or an image name.
 
-import type { HudhudEvent } from '@hudhud/core';
+import type { HudhudEvent } from '@hudhudjs/core';
 
 import { hostProcessTable } from '../../../../../tooling/test-support/src/leaks/process-table.js';
 import type { ProcessRow } from '../../../../../tooling/test-support/src/leaks/process-table.js';

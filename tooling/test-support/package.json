@@ -1,5 +1,5 @@
 {
-  "name": "@hudhud/test-support",
+  "name": "@hudhudjs/test-support",
   "version": "0.0.0",
   "private": true,
   "description": "Test infrastructure of the hudhud repository (mock API, pinned CLI, sandboxed launcher). Never published.",
@@ -13,7 +13,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@hudhud/core": "workspace:*",
+    "@hudhudjs/core": "workspace:*",
     "fast-check": "catalog:"
   },
   "devDependencies": {
