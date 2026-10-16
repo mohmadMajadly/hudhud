@@ -1,6 +1,6 @@
 # ADR-0018: Scope, roadmap and pre-v1 gates
 
-- Status: Accepted. The G4 spikes are done (07, 06 §J); the macOS gate and the Windows addon implementation remain open.
+- Status: Accepted. The G4 spikes are done (07, 06 §J); the macOS gate passed on 2026-10-16 ([research 11](../research/11-macos-gate-run3.md)); the Windows addon is built (plan §6), its release phases remain.
 - Date: 2026-10-12
 - Negotiation log items: A19, F (A19: resume/fork gated), G3, G4, G5 (06 §A, §F, §G)
 - Related: all other ADRs
@@ -13,7 +13,7 @@ The owner requires quality and security above time (R1), and "first-class" is op
 
 ### v1
 
-Spawn and handshake; send and stream; permissions; interrupt; resume/fork (spike green on Windows and Linux, 07 §1; macOS pending its gate); shutdown (drain and abort); capabilities; errors; subscriptions; best-effort containment (`processContainment: 'job'` on Windows once the addon exists, otherwise `'best-effort'`; POSIX `'best-effort'`). The Windows addon is a criterion for 1.0 ([ADR-0009](0009-process-layer-windows.md)). The `native` backend only. Sans-IO core with loopback binding ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)).
+Spawn and handshake; send and stream; permissions; interrupt; resume/fork (spike green on Windows and Linux, 07 §1; macOS confirmed by the gate, research 11 §3); shutdown (drain and abort); capabilities; errors; subscriptions; best-effort containment (`processContainment: 'job'` on Windows once the addon exists, otherwise `'best-effort'`; POSIX `'best-effort'`). The Windows addon is a criterion for 1.0 ([ADR-0009](0009-process-layer-windows.md)). The `native` backend only. Sans-IO core with loopback binding ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)).
 
 ### v1.1
 
