@@ -140,24 +140,50 @@ runs:
         path: .cache/claude-cli
         key: ${{ steps.cli-key.outputs.key }}
 
-    # The test root must lie outside the real home (plan §4.4,
-    # `launcher/ancestors.ts`). `RUNNER_TEMP`, the harness's CI default, is
-    # /home/runner/work/_temp on Linux (under the home: refused), and the
-    # runner's own step scripts live directly in it, so the leak check that
-    # fails on any process naming the root would see them. A fresh,
-    # owner-only directory is used instead: /tmp on Linux, /private/tmp on
-    # macOS (no symlink in the path), the runner temp drive on Windows.
+    # The harness requires of the test root only that it is an absolute,
+    # existing directory with no real home and no `.claude`, `CLAUDE.md` or
+    # `.mcp.json` at or above it (`checkTestRoot`, `launcher/ancestors.ts`;
+    # plan §4.4); it sets no ACL requirement. The root is explicit on every
+    # OS: `RUNNER_TEMP` is /home/runner/work/_temp on Linux and
+    # /Users/runner/work/_temp on macOS, under the home (refused), so
+    # test-support uses it as a default on Windows only. A fresh directory,
+    # owner-only as defence in depth: mode 0700 on POSIX (/tmp on Linux,
+    # /private/tmp on macOS: no symlink in the path); on Windows, where file
+    # modes carry no access control and Git Bash's `mkdir -m` cannot chmod
+    # there (Permission denied, run 38980331321), an ACL with inheritance
+    # removed and full control for the runner's account only (next step).
     - name: Create the integration test root
       if: inputs.integration == 'true'
       shell: bash
       run: |
-        set -euo pipefail
-        case "$RUNNER_OS" in
-          Windows) root="$(cygpath -u "$RUNNER_TEMP")/hudhud-test-root" ;;
-          macOS) root=/private/tmp/hudhud-test-root ;;
-          *) root=/tmp/hudhud-test-root ;;
-        esac
-        mkdir -m 700 "$root"
-        if [[ "$RUNNER_OS" == Windows ]]; then root="$(cygpath -w "$root")"; fi
-        echo "HUDHUD_TEST_ROOT=${root}" >> "$GITHUB_ENV"
-        echo "integration test root: ${root}"
+        node -e '
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const os = process.env.RUNNER_OS;
+          const root =
+            os === "Windows" ? path.win32.join(process.env.RUNNER_TEMP, "hudhud-test-root")
+            : os === "macOS" ? "/private/tmp/hudhud-test-root"
+            : "/tmp/hudhud-test-root";
+          try {
+            fs.mkdirSync(root, { mode: 0o700 });
+            if (os !== "Windows") fs.chmodSync(root, 0o700);
+          } catch (error) {
+            console.log(`::error::cannot create the integration test root ${root}: ${error.message}`);
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `HUDHUD_TEST_ROOT=${root}\n`);
+          console.log(`integration test root: ${root}`);
+        '
+
+    - name: Make the integration test root owner-only (Windows)
+      if: inputs.integration == 'true' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $root = $env:HUDHUD_TEST_ROOT
+        $account = "$($env:USERDOMAIN)\$($env:USERNAME)"
+        icacls $root /inheritance:r /grant:r "${account}:(OI)(CI)F"
+        if ($LASTEXITCODE -ne 0) {
+          Write-Output "::error::icacls could not restrict the integration test root $root to $account (exit $LASTEXITCODE)"
+          exit 1
+        }
+        icacls $root
