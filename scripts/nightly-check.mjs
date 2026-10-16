@@ -1,53 +1,42 @@
 #!/usr/bin/env node
-// Cheap Linux pre-check of the nightly workflow (ADR-0014, G3, amendment 2).
-// Writes `run=true|false` to $GITHUB_OUTPUT: true only when a new Claude Code
-// CLI version was published in the window, or on manual dispatch. Reads only
-// the npm registry's public abbreviated document; no credentials. Exits 1 when
-// the registry cannot be read, so an outage is visible rather than silent.
+// The `should-run` job of the scheduled canaries (K16, ADR-0014 amendment 3,
+// plan 5.9 W7-T2): `node scripts/nightly-check.mjs nightly|weekly`.
+// Writes run, mode, version and macos to $GITHUB_OUTPUT and the decision to
+// the job summary. `CANARY_MODE=dry-run` (manual dispatch only) runs the
+// canary path against the pinned version, labelled as a dry run. Reads only
+// tooling/cli-pin.json and the npm registry's public document of the CLI; no
+// credentials, no dependencies (it runs before `pnpm install`). Exit codes:
+// 0 decided, 1 the registry or the pin could not be read, 2 usage error.
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 
-import { CLI_PACKAGE, decideNightly, parseTime } from './lib/nightly.mjs';
+import { decideWeekly } from './lib/canary-weekly.mjs';
+import { decideNightly, runScheduleCheck } from './lib/nightly.mjs';
 
-const REGISTRY = 'https://registry.npmjs.org/';
-const TIMEOUT_MS = 30_000;
-
-/** @returns {Promise<Date | null>} */
-async function registryModified() {
-  try {
-    const response = await fetch(new URL(CLI_PACKAGE.replace('/', '%2F'), REGISTRY), {
-      headers: { accept: 'application/vnd.npm.install-v1+json' },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    /** @type {unknown} */
-    const body = await response.json();
-    return typeof body === 'object' && body !== null
-      ? parseTime(Reflect.get(body, 'modified'))
-      : null;
-  } catch {
-    return null;
-  }
-}
+const DECIDE = { nightly: decideNightly, weekly: decideWeekly };
 
 async function main() {
-  const decision = decideNightly({
-    now: new Date(),
-    registryModified: await registryModified(),
-    forced: process.env['NIGHTLY_FORCED'] === 'true',
-  });
-  const output = process.env['GITHUB_OUTPUT'];
-  if (output !== undefined && output !== '') {
-    appendFileSync(output, `run=${String(decision.run)}\n`);
+  const schedule = process.argv[2] ?? '';
+  if (process.argv.length !== 3 || !Object.hasOwn(DECIDE, schedule)) {
+    process.stderr.write('usage: nightly-check.mjs nightly|weekly\n');
+    return 2;
   }
-  if (decision.error !== undefined) {
-    process.stderr.write(`nightly-check: ${decision.error}\n`);
-    return 1;
-  }
-  const reason = decision.reasons.length > 0 ? decision.reasons.join(', ') : 'no new CLI release';
-  process.stdout.write(`run=${String(decision.run)} (${reason})\n`);
-  return 0;
+  return runScheduleCheck(
+    {
+      env: process.env,
+      fetch: (url, init) => fetch(url, init),
+      readFile: (file) => readFileSync(file, 'utf8'),
+      appendFile: (file, text) => {
+        appendFileSync(file, text, 'utf8');
+      },
+      now: () => new Date(),
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text),
+    },
+    schedule,
+    DECIDE[/** @type {'nightly' | 'weekly'} */ (schedule)],
+  );
 }
 
 process.exitCode = await main();

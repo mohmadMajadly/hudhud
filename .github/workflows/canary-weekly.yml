@@ -1,0 +1,212 @@
+# Weekly canary (K16, ADR-0013 item 12, ADR-0014 amendment 3, plan 5.9
+# W7-T2): the integration suite on Windows, and on macOS once the macOS gate
+# has passed, against the newest published Claude Code CLI whenever a version
+# newer than the pinned one was published since the last weekly run, so every
+# OS sees a new CLI within a week; the nightly covers Linux every night. The
+# same path as nightly.yml: fetch through cli/newest.ts with the registry
+# integrity recorded for the run, the suite with HUDHUD_CLI_CHANNEL=newest
+# (including the settings lookup check), the verdict in the job summary, red
+# on any failure, `contents: read` only.
+#
+# "Since the last weekly run" is the window from the previous tick of this
+# schedule (7 days, plus a 2 h margin for a delayed start) to now: reading
+# this workflow's run history back would need `actions: read`, which a
+# scheduled job does not get. Each run's should-run summary states its window
+# and the publish times it compared, so the summary history shows the windows
+# are contiguous (scripts/lib/canary-weekly.mjs).
+#
+# macOS switch: MACOS_CANARY_ENABLED in scripts/lib/canary-weekly.mjs, off
+# until the macOS gate (M1, ADR-0014) has passed; even then macOS runs only
+# while no darwin entry of tooling/cli-pin.json is pending its gate. Before
+# switching it on: the darwin request-shape snapshots are recorded and
+# ci.yml runs the integration suite on macOS (W7-T4 / closer).
+#
+# Manual dispatch: `mode: canary` tests the newest version if it is newer
+# than the pin (the window does not apply); `mode: dry-run` runs the whole
+# path against the PINNED version, labelled DRY RUN, never a canary result.
+#
+# Cost: see nightly.yml (plan 5.9 W7-T2 formula): at most about 4.3 runs per
+# OS per month; Windows 2x, macOS 10x Linux minutes. With D_windows = 682.6 s
+# (W6) a Windows run is about 17 min of job time, 35 Linux-equivalent
+# minutes; 4.3 runs a month are about 150. macOS: not running (switch off).
+name: Weekly canary
+
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: >-
+          canary: test the newest CLI when it is newer than the pin. dry-run:
+          run the whole canary path against the PINNED version to validate the
+          workflow; labelled DRY RUN, never a canary result.
+        type: choice
+        options: [canary, dry-run]
+        default: canary
+
+permissions: {}
+
+concurrency:
+  group: canary-weekly
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: should-run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      mode: ${{ steps.check.outputs.mode }}
+      version: ${{ steps.check.outputs.version }}
+      macos: ${{ steps.check.outputs.macos }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Was a CLI newer than the pin published since the last weekly run?
+        id: check
+        env:
+          # Empty on the schedule; the dispatch input otherwise.
+          CANARY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || '' }}
+        run: node scripts/nightly-check.mjs weekly
+
+  windows:
+    name: canary (win32-x64)
+    needs: check
+    if: needs.check.outputs.run == 'true'
+    runs-on: windows-2025
+    # Estimate, not yet a CI measurement (K15: p95 x 2): setup 1.5 min, addon
+    # build and stage 1.5 min, build 2.5 min, CLI fetch 0.5 min, integration
+    # 682.6 s locally (W6, 16 cores, file by file) x 1.5 for a 4-core runner
+    # = 17 min; job about 23 min, x 2 = 46, rounded up to 50. Re-size from the
+    # first dispatched runs.
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    env:
+      CANARY_MODE: ${{ needs.check.outputs.mode }}
+      CANARY_VERSION: ${{ needs.check.outputs.version }}
+      HUDHUD_CLI_CHANNEL: newest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+
+      # The Windows suites run with the job addon staged, as in ci.yml
+      # (plan 6.2): containment is part of what the canary checks.
+      - name: Build the job addon (x64) and stage it
+        run: pnpm run addon:stage
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Fetch the CLI under test (registry integrity recorded for this run)
+        id: fetch
+        run: node tooling/test-support/bin/fetch-cli.mjs --channel newest --version "$CANARY_VERSION"
+
+      # The test root defaults to RUNNER_TEMP (D:\a\_temp), outside the
+      # runner's profile.
+      - name: Integration suite against it (includes the settings lookup check)
+        run: |
+          HUDHUD_CANARY_RESULTS="$RUNNER_TEMP/canary-results.json" pnpm exec vitest run \
+            --project integration \
+            --reporter=default \
+            --reporter=./tooling/test-support/src/canary/reporter.ts
+
+      - name: Verdict and job summary
+        if: always() && steps.fetch.outcome == 'success'
+        run: >-
+          node tooling/test-support/bin/canary-report.mjs
+          --results "$RUNNER_TEMP/canary-results.json"
+          --platform win32-x64 --mode "$CANARY_MODE" --schedule weekly
+
+      - name: Keep the results
+        if: always() && steps.fetch.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-results-win32-x64
+          path: ${{ runner.temp }}/canary-results.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  macos:
+    name: canary (darwin-arm64)
+    needs: check
+    # Off until the macOS gate has passed (MACOS_CANARY_ENABLED, see above).
+    if: needs.check.outputs.run == 'true' && needs.check.outputs.macos == 'true'
+    runs-on: macos-15
+    # No measurement exists before the macOS gate: size it (K15) from the
+    # gate's integration timings when the switch goes on.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CANARY_MODE: ${{ needs.check.outputs.mode }}
+      CANARY_VERSION: ${{ needs.check.outputs.version }}
+      HUDHUD_CLI_CHANNEL: newest
+      # The macOS test root (plan 1.11): /private/tmp, never RUNNER_TEMP
+      # (under the runner's home) or $TMPDIR (no room for the CLI socket).
+      HUDHUD_TEST_ROOT: /private/tmp/hudhud-canary
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Fetch the CLI under test (registry integrity recorded for this run)
+        id: fetch
+        run: node tooling/test-support/bin/fetch-cli.mjs --channel newest --version "$CANARY_VERSION"
+
+      - name: Integration suite against it (includes the settings lookup check)
+        run: |
+          mkdir -m 700 "$HUDHUD_TEST_ROOT"
+          HUDHUD_CANARY_RESULTS="$RUNNER_TEMP/canary-results.json" pnpm exec vitest run \
+            --project integration \
+            --reporter=default \
+            --reporter=./tooling/test-support/src/canary/reporter.ts
+
+      - name: Verdict and job summary
+        if: always() && steps.fetch.outcome == 'success'
+        run: >-
+          node tooling/test-support/bin/canary-report.mjs
+          --results "$RUNNER_TEMP/canary-results.json"
+          --platform darwin-arm64 --mode "$CANARY_MODE" --schedule weekly
+
+      - name: Keep the results
+        if: always() && steps.fetch.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-results-darwin-arm64
+          path: ${{ runner.temp }}/canary-results.json
+          if-no-files-found: warn
+          retention-days: 30
