@@ -191,9 +191,13 @@ describe('loadJobAddon outcomes', () => {
     }
   });
 
-  it('ships an empty digest table until an addon build exists, so nothing loads', () => {
-    expect(WIN32_JOB_DIGESTS).toEqual({});
+  it('ships a frozen digest table of the x64 build, which refuses any other file', () => {
+    // Written by scripts/addon/write-digests.mjs (plan §6.2); the scripts
+    // tests keep it equal to the generator's output and load the real build.
     expect(Object.isFrozen(WIN32_JOB_DIGESTS)).toBe(true);
+    expect(Object.keys(WIN32_JOB_DIGESTS).sort()).toEqual(['version', 'x64']);
+    expect(WIN32_JOB_DIGESTS.x64).toMatch(/^[0-9a-f]{64}$/);
+    expect(WIN32_JOB_DIGESTS.version).toMatch(/^\d+\.\d+\.\d+/);
     const deps = fakeDeps(new FakeJobAddon().exports(), { digests: WIN32_JOB_DIGESTS });
     expect(loadJobAddon(deps)).toMatchObject({ reason: 'digest-mismatch' });
   });
@@ -492,20 +496,17 @@ describe('jobContainmentCapability (K2)', () => {
 });
 
 describe('the host loader', () => {
-  it('loads once per process and never claims a job without a shipped digest', () => {
+  it('loads once per process: the staged addon on Windows x64, nothing elsewhere', () => {
     const first = loadHostJobAddon();
     expect(loadHostJobAddon()).toBe(first);
-    // No addon build is shipped yet: every host is best-effort.
-    expect(first.status).toBe('unavailable');
-    if (first.status === 'unavailable') {
-      expect([
-        'not-windows',
-        'arm64-not-first-class',
-        'unsupported-arch',
-        'package-missing',
-        'digest-mismatch',
-      ]).toContain(first.reason);
-    }
+    // Windows x64 test runs have the addon staged in @hudhudjs/win32-job-x64
+    // (plan §6.2, scripts/addon/write-digests.mjs); scripts/test/addon-loader
+    // names the commands when it is missing.
+    const outcome = first.status === 'loaded' ? 'loaded' : first.reason;
+    if (process.platform !== 'win32') expect(outcome).toBe('not-windows');
+    else if (process.arch === 'x64') expect(outcome).toBe('loaded');
+    else if (process.arch === 'arm64') expect(outcome).toBe('arm64-not-first-class');
+    else expect(outcome).toBe('unsupported-arch');
   });
 
   it('reads the host and resolves from this package', async () => {

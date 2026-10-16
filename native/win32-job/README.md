@@ -69,6 +69,20 @@ Linker flags:
 
 The import library for `node.exe` is generated from `node_api.def` with `lib /def`.
 
+## Digest table and staging
+
+The core loads the addon only when its sha256 and `version` equal the committed digest table, `packages/core/src/process/containment/win32-job-digests.ts`. `scripts/addon/write-digests.mjs` connects a build to that table and to the platform packages:
+
+```sh
+node scripts/addon/write-digests.mjs --arch x64 --check   # verify against the table, then stage
+node scripts/addon/write-digests.mjs --arch x64           # write the table from this build, then stage
+node scripts/addon/write-digests.mjs --arch arm64 --version 0.1.0
+```
+
+It reads `build/<arch>/Release/hudhud_win32_job.node`, or the file given with `--addon` (a CI artifact, for example). It refuses a file that is not a PE image of the requested architecture. It reads `version` by loading the addon when the host is Windows with the same architecture, and otherwise takes it from `--version`. If `--version` is given on such a host as well, the two must match. It then stages the exact bytes it hashed into `packages/win32-job-<arch>/`, next to a `SHA256SUMS` file. Both files are gitignored. ARM64 is not in the table (K17): its build is only checked against the table's `version` and staged.
+
+Windows x64 test runs need the staged x64 addon (see CONTRIBUTING). Only a change of the addon itself should rewrite the table, and that change is reviewed like any other.
+
 ## Security properties
 
 - **No handle inheritance.** The job handle is created without security attributes, so it is not inheritable. libuv creates children with handle inheritance on. An inheritable job handle would therefore let a child keep the job alive after the host closed or lost its own handle.

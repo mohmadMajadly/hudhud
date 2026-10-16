@@ -1,0 +1,28 @@
+{
+  "name": "@hudhudjs/win32-job-x64",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prebuilt Windows x64 job-object addon of hudhud, loaded only by @hudhudjs/core after its sha256 and version check.",
+  "license": "Apache-2.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "exports": {
+    "./hudhud_win32_job.node": "./hudhud_win32_job.node",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "hudhud_win32_job.node",
+    "SHA256SUMS"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

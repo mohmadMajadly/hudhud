@@ -1,0 +1,299 @@
+// Logic of the job addon digest tool (plan §6.2; scripts/addon/write-digests.mjs
+// supplies the I/O). Takes a built `hudhud_win32_job.node`, checks that it is
+// a PE image of the requested architecture, computes its sha256, reads its
+// ABI `version`, and then either writes the digest table the core's loader
+// checks (`packages/core/src/process/containment/win32-job-digests.ts`) or,
+// with `--check`, verifies the build against the committed table. Either way
+// it stages the exact bytes it hashed into the platform package, next to a
+// `SHA256SUMS` file. Every file access goes through the injected `io`.
+
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+/** The addon's file name, in the build tree and in the platform packages. */
+export const ADDON_FILE = 'hudhud_win32_job.node';
+
+/** The digest table module of the core, relative to the repository root. */
+export const DIGESTS_MODULE = 'packages/core/src/process/containment/win32-job-digests.ts';
+
+/**
+ * The architectures the addon is built for: the PE machine type of the
+ * image and the platform package that carries it. Only x64 is in the
+ * digest table: arm64 is not first-class in v1 (K17) and the loader never
+ * loads it.
+ *
+ * @type {Readonly<Record<string, { machine: number; packageDir: string; inTable: boolean }>>}
+ */
+export const ARCHES = Object.freeze({
+  x64: Object.freeze({ machine: 0x8664, packageDir: 'packages/win32-job-x64', inTable: true }),
+  arm64: Object.freeze({ machine: 0xaa64, packageDir: 'packages/win32-job-arm64', inTable: false }),
+});
+
+/** An addon `version` the table accepts: semver, optionally with a pre-release. */
+const VERSION =
+  /^(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})\.(?:0|[1-9][0-9]{0,8})(?:-[0-9A-Za-z.-]{1,32})?$/u;
+const SHA256 = /^[0-9a-f]{64}$/u;
+
+/** A usage error (exit code 2). */
+export class UsageError extends Error {}
+
+/**
+ * @typedef {object} Options
+ * @property {string} arch `x64` or `arm64`.
+ * @property {string | undefined} addon The built file (default: the build tree of the arch).
+ * @property {string | undefined} version The expected addon `version`.
+ * @property {boolean} check Verify against the committed table instead of writing it.
+ */
+
+/**
+ * @param {readonly string[]} argv
+ * @returns {Options}
+ * @throws {UsageError}
+ */
+export function parseArgs(argv) {
+  /** @type {Partial<Record<'--arch' | '--addon' | '--version', string>>} */
+  const values = {};
+  let check = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    const flag = argv[i];
+    if (flag === '--check') {
+      if (check) throw new UsageError('--check given twice');
+      check = true;
+      continue;
+    }
+    if (flag !== '--arch' && flag !== '--addon' && flag !== '--version') {
+      throw new UsageError(`unknown argument ${JSON.stringify(flag)}`);
+    }
+    const value = argv[i + 1];
+    if (value === undefined || value === '') throw new UsageError(`missing value for ${flag}`);
+    if (values[flag] !== undefined) throw new UsageError(`${flag} given twice`);
+    values[flag] = value;
+    i += 1;
+  }
+  const arch = values['--arch'];
+  if (arch === undefined || !Object.hasOwn(ARCHES, arch)) {
+    throw new UsageError(
+      'usage: write-digests.mjs --arch x64|arm64 [--addon <file>] [--version <v>] [--check]',
+    );
+  }
+  return { arch, addon: values['--addon'], version: values['--version'], check };
+}
+
+/**
+ * The PE machine type of an image, or null when the bytes are not a PE image
+ * (`MZ` header, `e_lfanew` inside the file, `PE\0\0` signature).
+ *
+ * @param {Uint8Array} bytes
+ * @returns {number | null}
+ */
+export function peMachine(bytes) {
+  if (bytes.length < 0x40 || bytes[0] !== 0x4d || bytes[1] !== 0x5a) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const offset = view.getUint32(0x3c, true);
+  if (offset + 6 > bytes.length) return null;
+  if (view.getUint32(offset, false) !== 0x50450000) return null;
+  return view.getUint16(offset + 4, true);
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string} lower-case hex sha256
+ */
+export function sha256Hex(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * The `SHA256SUMS` file of a platform package (`sha256sum` format).
+ *
+ * @param {string} sha256
+ * @returns {string}
+ */
+export function renderSha256Sums(sha256) {
+  return `${sha256}  ${ADDON_FILE}\n`;
+}
+
+/**
+ * @typedef {object} DigestTable
+ * @property {string} version
+ * @property {string} x64
+ */
+
+/**
+ * The digest table module of the core, exactly as committed (prettier-clean).
+ *
+ * @param {DigestTable} table
+ * @returns {string}
+ */
+export function renderDigestsModule(table) {
+  if (!VERSION.test(table.version)) throw new Error('invalid addon version');
+  if (!SHA256.test(table.x64)) throw new Error('invalid x64 sha256');
+  return `/**
+ * The shipped digest table of the Windows job addon (plan §6.2, §6.4 step 4).
+ *
+ * @remarks
+ * Generated by \`scripts/addon/write-digests.mjs\` from an addon build; never
+ * edited by hand (a test keeps this file equal to the generator's output).
+ * The loader refuses an addon file whose sha256 differs from the table, and
+ * a missing digest counts as a mismatch (\`digest-mismatch\`); the host then
+ * reports \`'best-effort'\`. The check is defence in depth only; the real
+ * guarantees are npm integrity and provenance (ADR-0009). x64 only: arm64 is
+ * not first-class in v1 (K17).
+ *
+ * @packageDocumentation
+ */
+
+/**
+ * sha256 digests (lower-case hex) of the shipped addon files per
+ * architecture, plus the addon \`version\` they were built as (the loader's
+ * ABI check).
+ *
+ * @public
+ */
+export interface JobAddonDigests {
+  /** The addon's \`version\` constant the digests belong to. */
+  readonly version?: string;
+  /** sha256 of \`@hudhudjs/win32-job-x64/hudhud_win32_job.node\`. */
+  readonly x64?: string;
+}
+
+/**
+ * The digest table shipped with this build of the core.
+ *
+ * @public
+ */
+export const WIN32_JOB_DIGESTS: JobAddonDigests = Object.freeze({
+  version: '${table.version}',
+  x64: '${table.x64}',
+});
+`;
+}
+
+/**
+ * Reads the committed digest table module. Only the generator's own output
+ * is accepted: anything else (a hand edit, an empty table) is null.
+ *
+ * @param {string} text
+ * @returns {DigestTable | null}
+ */
+export function parseDigestsModule(text) {
+  const version = /^ {2}version: '([^'\n]*)',$/mu.exec(text)?.[1];
+  const x64 = /^ {2}x64: '([^'\n]*)',$/mu.exec(text)?.[1];
+  if (version === undefined || x64 === undefined) return null;
+  const table = { version, x64 };
+  try {
+    return renderDigestsModule(table) === text ? table : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @typedef {object} Io
+ * @property {string} root The repository root.
+ * @property {string} platform `process.platform`
+ * @property {string} hostArch `process.arch`
+ * @property {(file: string) => Uint8Array} readFile Throws when the file cannot be read.
+ * @property {(file: string, data: Uint8Array | string) => void} writeFile
+ * @property {(file: string) => unknown} loadVersion Loads the addon (`process.dlopen`)
+ *   and returns its `version` export; only called on Windows for the host's own arch.
+ * @property {(line: string) => void} log Progress, to stdout.
+ * @property {(line: string) => void} error Why the build was refused, to stderr.
+ */
+
+/**
+ * Runs the tool. Nothing is written unless every check passed.
+ *
+ * @param {Options} options
+ * @param {Io} io
+ * @returns {number} 0 written or verified, 1 the build was refused
+ */
+export function writeDigests(options, io) {
+  const target = ARCHES[options.arch];
+  if (target === undefined) throw new UsageError(`unknown arch ${options.arch}`);
+  const addon = path.resolve(
+    io.root,
+    options.addon ?? path.join('native', 'win32-job', 'build', options.arch, 'Release', ADDON_FILE),
+  );
+  /** @param {string} message */
+  const refuse = (message) => {
+    io.error(`write-digests: ${message}`);
+    return 1;
+  };
+
+  /** @type {Uint8Array} */
+  let bytes;
+  try {
+    bytes = io.readFile(addon);
+  } catch (error) {
+    const code = /** @type {{ code?: unknown }} */ (error).code;
+    return refuse(
+      `cannot read ${addon} (${String(code ?? error)}); build it first: node native/win32-job/build.mjs --arch ${options.arch}`,
+    );
+  }
+  const machine = peMachine(bytes);
+  if (machine === null) return refuse(`${addon} is not a PE image`);
+  if (machine !== target.machine) {
+    return refuse(
+      `${addon} is built for machine 0x${machine.toString(16)}, not ${options.arch} (0x${target.machine.toString(16)})`,
+    );
+  }
+  const sha256 = sha256Hex(bytes);
+
+  /** @type {unknown} */
+  let version = options.version;
+  if (io.platform === 'win32' && io.hostArch === options.arch) {
+    /** @type {unknown} */
+    let loaded;
+    try {
+      loaded = io.loadVersion(addon);
+    } catch (error) {
+      return refuse(`cannot load ${addon}: ${String(error)}`);
+    }
+    if (options.version !== undefined && loaded !== options.version) {
+      return refuse(
+        `the addon reports version ${JSON.stringify(loaded)}, --version says ${JSON.stringify(options.version)}`,
+      );
+    }
+    version = loaded;
+  } else if (version === undefined) {
+    return refuse(
+      `the ${options.arch} addon cannot be loaded on ${io.platform}-${io.hostArch}: give its version with --version`,
+    );
+  }
+  if (typeof version !== 'string' || !VERSION.test(version)) {
+    return refuse(`the addon version ${JSON.stringify(version)} is not a semver version`);
+  }
+
+  const modulePath = path.join(io.root, DIGESTS_MODULE);
+  /** @type {DigestTable | null} */
+  let committed;
+  try {
+    committed = parseDigestsModule(new TextDecoder().decode(io.readFile(modulePath)));
+  } catch {
+    committed = null;
+  }
+  const built = { version, x64: sha256 };
+  if (options.check || !target.inTable) {
+    if (committed === null) return refuse(`${DIGESTS_MODULE} is not a generated digest table`);
+    if (committed.version !== version) {
+      return refuse(`the addon version ${version} differs from the table's ${committed.version}`);
+    }
+    if (target.inTable && committed.x64 !== sha256) {
+      return refuse(
+        `the build differs from the committed digest table: built ${sha256}, committed ${committed.x64}`,
+      );
+    }
+  } else if (committed?.version !== version || committed.x64 !== sha256) {
+    io.writeFile(modulePath, renderDigestsModule(built));
+    io.log(`wrote ${DIGESTS_MODULE} (x64 ${sha256}, version ${version})`);
+  }
+
+  const packageDir = path.join(io.root, target.packageDir);
+  io.writeFile(path.join(packageDir, ADDON_FILE), bytes);
+  io.writeFile(path.join(packageDir, 'SHA256SUMS'), renderSha256Sums(sha256));
+  io.log(
+    `staged ${options.arch} ${ADDON_FILE} (sha256 ${sha256}, version ${version}) in ${target.packageDir}`,
+  );
+  return 0;
+}

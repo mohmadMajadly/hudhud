@@ -1,0 +1,28 @@
+{
+  "name": "@hudhudjs/win32-job-arm64",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prebuilt Windows ARM64 job-object addon of hudhud. Not first-class in v1: no package depends on it and the core does not load it (K17).",
+  "license": "Apache-2.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "exports": {
+    "./hudhud_win32_job.node": "./hudhud_win32_job.node",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "hudhud_win32_job.node",
+    "SHA256SUMS"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
