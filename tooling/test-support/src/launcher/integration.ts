@@ -17,7 +17,7 @@
  * resolved once (`resolvePinnedCli`: sha256, size and stamp against the
  * pin; refused on a local macOS host by `host-policy.ts`), and a suite
  * directory is made under the test root (`HUDHUD_TEST_ROOT`, else
- * `RUNNER_TEMP` on CI, else the OS temp directory; macOS see
+ * `RUNNER_TEMP` on Windows CI, else the OS temp directory; see
  * `resolveTestRoot`) after the forbidden-ancestor check, which fails with
  * instructions and never skips. The suite directory is used by its real
  * path: hudhud runs the CLI in the real path of its cwd (`validateCwd`), so
