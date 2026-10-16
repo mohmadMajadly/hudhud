@@ -46,11 +46,16 @@ jobs:
       tier: ${{ steps.classify.outputs.tier }}
       linux-node: ${{ steps.classify.outputs.linux-node }}
     steps:
+      # A pull request is classified from the merge commit GitHub tests
+      # (`refs/pull/<n>/merge`) against its first parent, so depth 2 (the
+      # merge commit and both parents) is all the diff needs. The previous
+      # `&& 0 || 1` always gave 1 (0 is falsy in expressions): the PR diff
+      # failed and every pull request ran FULL (W7-T1).
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
 
       - name: Install Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -21,23 +21,32 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
 });
 
-function node(script: string, args: readonly string[], env: Record<string, string>) {
+function node(
+  script: string,
+  args: readonly string[],
+  env: Record<string, string>,
+  cwd: string = dir,
+) {
   const result = spawnSync(process.execPath, [path.join(scripts, script), ...args], {
-    cwd: dir,
+    cwd,
     encoding: 'utf8',
     env: { PATH: process.env['PATH'] ?? '', SYSTEMROOT: process.env['SYSTEMROOT'] ?? '', ...env },
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function git(...args: string[]): string {
+function gitIn(cwd: string, ...args: string[]): string {
   const result = spawnSync(
     'git',
     ['-c', 'user.name=Test', '-c', 'user.email=test@users.noreply.github.com', ...args],
-    { cwd: dir, encoding: 'utf8' },
+    { cwd, encoding: 'utf8' },
   );
   if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
+}
+
+function git(...args: string[]): string {
+  return gitIn(dir, ...args);
 }
 
 function commit(file: string): string {
@@ -59,49 +68,121 @@ function head(): string {
   return readFileSync(path.join(dir, '.git', ref.slice('ref: '.length)), 'utf8').trim();
 }
 
-function classify(event: string, payload: unknown, extra: Record<string, string> = {}) {
+function classify(
+  event: string,
+  payload: unknown,
+  extra: Record<string, string> = {},
+  cwd: string = dir,
+) {
   const eventPath = path.join(dir, 'event.json');
   const output = path.join(dir, 'output.txt');
   writeFileSync(eventPath, typeof payload === 'string' ? payload : JSON.stringify(payload));
   writeFileSync(output, '');
-  const result = node('ci-classify.mjs', [], {
-    GITHUB_EVENT_NAME: event,
-    GITHUB_EVENT_PATH: eventPath,
-    GITHUB_OUTPUT: output,
-    ...extra,
-  });
+  const result = node(
+    'ci-classify.mjs',
+    [],
+    { GITHUB_EVENT_NAME: event, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: output, ...extra },
+    cwd,
+  );
   expect(result.status).toBe(0);
   return { output: readFileSync(output, 'utf8'), stdout: result.stdout };
 }
 
+/**
+ * A pull request as GitHub tests it: `pull` merges `head` into the base
+ * branch, whose tip moved on after the branch point (a code change the pull
+ * request does not contain). Returns the merge commit and the base tip.
+ */
+function pullMerge(headFile: string): { merge: string; head: string; base: string } {
+  git('init', '--quiet');
+  const root = commit('README.md');
+  git('checkout', '--quiet', '-b', 'feature');
+  const headSha = commit(headFile);
+  git('checkout', '--quiet', '-b', 'pull', root);
+  const base = commit('packages/core/src/base-moved.ts');
+  git('merge', '--quiet', '--no-ff', '--no-edit', '--no-verify', 'feature');
+  return { merge: head(), head: headSha, base };
+}
+
+/**
+ * A shallow clone of the `pull` branch, as actions/checkout fetches
+ * `refs/pull/<n>/merge` with `fetch-depth`.
+ */
+function shallowClone(depth: number): string {
+  const clone = path.join(dir, `clone-${String(depth)}`);
+  gitIn(
+    dir,
+    'clone',
+    '--quiet',
+    `--depth=${String(depth)}`,
+    '--branch',
+    'pull',
+    pathToFileURL(dir).href,
+    clone,
+  );
+  return clone;
+}
+
 describe('ci-classify.mjs', () => {
-  it('classifies pull requests from the real diff between base and head', () => {
-    git('init', '--quiet');
-    const base = commit('README.md');
-    const docsHead = commit('docs/a.md');
-    const pr = (head: string, draft: boolean) => ({
-      pull_request: { base: { sha: base }, head: { sha: head }, draft, labels: [{ name: 'x' }] },
+  // W7-T1: with the depth-1 checkout the PR diff `base...head` failed with
+  // `fatal: Invalid symmetric difference expression` and every pull request
+  // ran FULL. The diff is now the merge commit against its first parent, and
+  // the checkout fetches depth 2: exactly the merge commit and its parents.
+  it('classifies a pull request from its merge commit in a depth-2 checkout', () => {
+    const docs = pullMerge('docs/a.md');
+    const clone = shallowClone(2);
+    const pr = (headSha: string, draft: boolean) => ({
+      pull_request: {
+        base: { sha: docs.base },
+        head: { sha: headSha },
+        draft,
+        labels: [{ name: 'x' }],
+      },
     });
+    const run = (headSha: string, draft: boolean) =>
+      classify('pull_request', pr(headSha, draft), { GITHUB_SHA: docs.merge }, clone);
 
-    expect(classify('pull_request', pr(docsHead, false)).output).toBe(
-      'tier=LIGHT\nlinux-node=[]\n',
-    );
+    // The base branch's own code change after the branch point is not part
+    // of the pull request: docs only, LIGHT.
+    const light = run(docs.head, false);
+    expect(light.output).toBe('tier=LIGHT\nlinux-node=[]\n');
+    expect(light.stdout).not.toContain('::warning::');
+    // A merge commit of another head (a stale run) is not trusted.
+    const stale = run(docs.base, false);
+    expect(stale.output).toBe('tier=FULL\nlinux-node=["22","24","26"]\n');
+    expect(stale.stdout).toContain(`::warning::changed files unknown: ${docs.merge} merges`);
+  }, 60_000);
 
-    const codeHead = commit('packages/core/src/x.ts');
-    expect(classify('pull_request', pr(codeHead, true)).output).toBe(
+  it('classifies a code pull request by draft state; a depth-1 checkout is FULL with its cause', () => {
+    const code = pullMerge('packages/core/src/x.ts');
+    const deep = shallowClone(2);
+    const pr = (draft: boolean) => ({
+      pull_request: { base: { sha: code.base }, head: { sha: code.head }, draft },
+    });
+    const sha = { GITHUB_SHA: code.merge };
+    expect(classify('pull_request', pr(true), sha, deep).output).toBe(
       'tier=STANDARD\nlinux-node=["22"]\n',
     );
-    expect(classify('pull_request', pr(codeHead, false)).output).toBe(
+    expect(classify('pull_request', pr(false), sha, deep).output).toBe(
       'tier=FULL\nlinux-node=["22","24","26"]\n',
     );
-  });
+    // The defect's checkout: the parents are missing; unknown diff, FULL
+    // for a ready pull request, the designed STANDARD for a draft.
+    const shallow = shallowClone(1);
+    const ready = classify('pull_request', pr(false), sha, shallow);
+    expect(ready.output).toBe('tier=FULL\nlinux-node=["22","24","26"]\n');
+    expect(ready.stdout).toContain('has 0 parents fetched, not the 2 of a merge commit');
+    expect(classify('pull_request', pr(true), sha, shallow).output).toBe(
+      'tier=STANDARD\nlinux-node=["22"]\n',
+    );
+  }, 60_000);
 
   it('falls back to FULL when the diff cannot be computed', () => {
     git('init', '--quiet');
     const payload = {
       pull_request: { base: { sha: 'deadbeef' }, head: { sha: 'cafebabe' }, draft: false },
     };
-    expect(classify('pull_request', payload).output).toBe(
+    expect(classify('pull_request', payload, { GITHUB_SHA: 'f'.repeat(40) }).output).toBe(
       'tier=FULL\nlinux-node=["22","24","26"]\n',
     );
   });
