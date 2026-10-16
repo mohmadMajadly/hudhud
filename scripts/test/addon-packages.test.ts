@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { WIN32_JOB_ADDON_SPECIFIER } from '../../packages/core/src/process/containment/win32-job.js';
+import { isPublishable } from '../lib/tarball.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -25,16 +26,19 @@ function manifest(dir: string): Record<string, unknown> {
 const core = manifest('packages/core');
 
 describe.each([
-  ['x64', 'packages/win32-job-x64'],
-  ['arm64', 'packages/win32-job-arm64'],
-])('the %s platform package', (cpu, dir) => {
+  // x64 is published: private until the release flow lifts the flag, like
+  // every published package here (they all declare publishConfig).
+  ['x64', 'packages/win32-job-x64', { publishConfig: { access: 'public', provenance: true } }],
+  // ARM64 stays private in v1 (K17, lead ruling on A2): no publishConfig, so
+  // neither the release flow nor the tarball check treats it as published.
+  ['arm64', 'packages/win32-job-arm64', {}],
+])('the %s platform package', (cpu, dir, publish) => {
   const pkg = manifest(dir);
 
   it('declares exactly the plan §6.2 manifest', () => {
     expect(pkg).toEqual({
       name: `@hudhudjs/win32-job-${cpu}`,
-      // Versioned with the other packages by changesets (ADR-0004); private
-      // until the release flow lifts the flag, like every package here.
+      // Versioned with the other packages by changesets (ADR-0004).
       version: core['version'],
       private: true,
       description: expect.any(String) as string,
@@ -47,8 +51,9 @@ describe.each([
       },
       files: ['hudhud_win32_job.node', 'SHA256SUMS'],
       engines: core['engines'],
-      publishConfig: { access: 'public', provenance: true },
+      ...publish,
     });
+    expect(isPublishable(pkg)).toBe(cpu === 'x64');
   });
 
   it('has no scripts and no dependencies of any kind', () => {

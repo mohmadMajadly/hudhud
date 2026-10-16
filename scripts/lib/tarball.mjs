@@ -217,6 +217,27 @@ export function supportsPlatform(manifest, platform, arch) {
   return allows(manifest.os, platform) && allows(manifest.cpu, arch);
 }
 
+/**
+ * Why a package is not checked on this host, or null when it must be: a
+ * native platform package (an `exports` target is a `.node` file) whose `os`
+ * list excludes the host cannot be built here (the Windows job addon is
+ * built on win32 only). On a platform its `os` allows, it is checked like
+ * any other package and a missing build is a problem.
+ *
+ * @param {PackageJson} manifest
+ * @param {string} platform `process.platform`
+ * @returns {string | null}
+ */
+export function nativeSkipReason(manifest, platform) {
+  const map = manifest.exports;
+  if (typeof map !== 'object' || map === null || Array.isArray(map)) return null;
+  const native = Object.values(map).some((node) => pick(node, 'default')?.endsWith('.node'));
+  const allowed = (manifest.os ?? []).filter((entry) => !entry.startsWith('!'));
+  const osOnly = manifest.os === undefined ? {} : { os: manifest.os };
+  if (!native || supportsPlatform(osOnly, platform, '')) return null;
+  return `native, built on ${allowed.length > 0 ? allowed.join(', ') : 'another platform'} only`;
+}
+
 /** Lifecycle scripts a consumer's install runs. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'];
 

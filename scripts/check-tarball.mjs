@@ -9,7 +9,10 @@
 // ESM resolver, parse every JSON entry point, and type-check an import of
 // every entry point with tsc against the installed packages (NodeNext,
 // strict, declarations checked). Needs a built tree (`pnpm build`) and pnpm
-// on PATH.
+// on PATH. A native platform package whose `os` excludes this host (the
+// Windows job addon on Linux and macOS) cannot be built here: it is reported
+// as `skipped (native, built on win32 only)` and not checked; on its own
+// platform it must be built and pass like any other package.
 //
 // Safety: nothing is published and no registry is written or authenticated
 // to: the install runs with empty npm configuration files, a clean
@@ -43,6 +46,7 @@ import {
   cleanEnv,
   IMPORT_CHILD,
   isPublishable,
+  nativeSkipReason,
   parseImportResults,
   renderTypeProject,
   rootProblem,
@@ -237,6 +241,14 @@ function main() {
         );
       }
       const file = path.join(tarballs, created[0]);
+      const skipped = nativeSkipReason(manifest, process.platform);
+      if (skipped !== null) {
+        // Not built on this host, so nothing in it can be checked here; the
+        // tarball only satisfies optional dependencies on it, offline.
+        packed.push({ manifest, file, entryPoints: [], installable: false });
+        process.stdout.write(`skipped ${name} (${skipped})\n`);
+        continue;
+      }
       const result = checkTarball(manifest, readFileSync(file), forbidden);
       problems.push(...result.problems.map((problem) => `${name}: ${problem}`));
       const installable = supportsPlatform(manifest, process.platform, process.arch);

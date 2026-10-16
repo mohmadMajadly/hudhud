@@ -17,6 +17,7 @@ import {
   listEntryPoints,
   looksLikeText,
   MAX_SCAN_BYTES,
+  nativeSkipReason,
   parseImportResults,
   readTarGz,
   renderTypeProject,
@@ -213,6 +214,38 @@ describe('isPublishable and supportsPlatform', () => {
     expect(supportsPlatform({ os: [] }, 'linux', 'x64')).toBe(true);
     expect(supportsPlatform({ os: ['!win32'] }, 'win32', 'x64')).toBe(false);
     expect(supportsPlatform({ os: ['!win32'] }, 'linux', 'x64')).toBe(true);
+  });
+});
+
+describe('nativeSkipReason', () => {
+  const addon: PackageJson = {
+    os: ['win32'],
+    cpu: ['x64'],
+    exports: {
+      './hudhud_win32_job.node': './hudhud_win32_job.node',
+      './package.json': './package.json',
+    },
+  };
+
+  it('skips a native platform package off its own platform, with the reason', () => {
+    expect(nativeSkipReason(addon, 'linux')).toBe('native, built on win32 only');
+    expect(nativeSkipReason(addon, 'darwin')).toBe('native, built on win32 only');
+    expect(
+      nativeSkipReason({ os: ['!linux'], exports: { './a': { default: './a.node' } } }, 'linux'),
+    ).toBe('native, built on another platform only');
+  });
+
+  it('checks it on its own platform, whatever the cpu (a missing build is then a problem)', () => {
+    expect(nativeSkipReason(addon, 'win32')).toBeNull();
+    expect(nativeSkipReason({ exports: addon.exports }, 'linux')).toBeNull();
+  });
+
+  it('never skips a package without a native entry point', () => {
+    const js: PackageJson = { os: ['win32'], exports: { '.': './index.js' } };
+    expect(nativeSkipReason(js, 'linux')).toBeNull();
+    expect(nativeSkipReason({ os: ['win32'] }, 'linux')).toBeNull();
+    expect(nativeSkipReason({ os: ['win32'], exports: './a.node' }, 'linux')).toBeNull();
+    expect(nativeSkipReason({ os: ['win32'], exports: ['./a.node'] }, 'linux')).toBeNull();
   });
 });
 
