@@ -122,7 +122,13 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # K15 (ADR-0014 amendment 7): PROVISIONAL until the first CI runs with
+    # integration are measured (W7-T1 round 1). Estimate: static checks and
+    # unit tests about 4 min (earlier runs), the integration project 163 s
+    # in Docker on the 16-core W6-Z host (plan §4.4) and up to 2.6x that on a
+    # CI runner (the unit-test ratio), about 7 min; job about 12 min. Then
+    # measured p95 x 2.
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -135,30 +141,35 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Set up the toolchain, the pinned CLI and the test root
         uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
+          integration: 'true'
 
+      # `pnpm check:full` is check, cli:fetch (in the setup action) and
+      # test:integration; split into steps so a failure names its phase.
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
+
+      - name: Integration tests against the pinned CLI
+        run: pnpm run test:integration
 
   windows:
     name: windows (node 22)
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: windows-2025
-    # K15 (ADR-0014 amendment 4): estimated p95 x 2, from measurements of
-    # 2026-10-13. Run 38378992857 reached `vitest` 3 min 20 s after the job
-    # started (setup 65 s, static checks with a clean build 136 s). The test
-    # step takes 28 s on a local Windows 11 host; Linux CI runs the suite
-    # 2.6x slower than that host, so about 75 s here, plus about 40 s for the
-    # API reports, the privacy scan and the post steps. Job about 5.5 min,
-    # p95 taken as 7 min. Estimate, not yet a measured CI p95: re-size from
-    # the first green runs. Provisional 20 until then (lead): the 27 s CIM
-    # query cause is inferred, and a cancelled run loses the test output that
-    # would show whether it was right.
-    timeout-minutes: 20
+    # K15 (ADR-0014 amendment 7): PROVISIONAL until the first CI runs with
+    # integration are measured (W7-T1 round 1). Estimate: about 7 min to the
+    # end of `pnpm check` (run 38378992857 and earlier sizing), the
+    # integration project 681 s on the 16-core W6-Z Windows 11 host (plan
+    # §4.4, no job addon) and up to 2.6x that on a CI runner, about 30 min;
+    # job up to about 40 min. Then measured p95 x 2.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -167,10 +178,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Set up the toolchain, the pinned CLI and the test root
         uses: ./.github/actions/setup
         with:
           node-version: '22'
+          integration: 'true'
 
       # Windows checks exercise the real job addon (plan §6.2, lead rulings on
       # A2): it is built here with the image's default toolset and staged; the
@@ -228,6 +240,12 @@ jobs:
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
 
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
+
+      - name: Integration tests against the pinned CLI
+        run: pnpm run test:integration
+
   macos:
     name: macos (darwin-arm64, node 22)
     needs: [classify, linux]
@@ -253,6 +271,9 @@ jobs:
 
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
 
   ci-gate:
     name: ci-gate
