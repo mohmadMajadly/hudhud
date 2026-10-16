@@ -2,12 +2,15 @@
  * The shipped digest table of the Windows job addon (plan §6.2, §6.4 step 4).
  *
  * @remarks
- * Written by the addon digest tooling (A2, `scripts/addon/write-digests.mjs`)
- * from a local or CI build. Until an addon build exists the table is empty:
- * the loader then refuses every addon file (`digest-mismatch`, missing digest
- * counts as a mismatch) and the host reports `'best-effort'`. The check is
- * defence in depth only; the real guarantees are npm integrity and
- * provenance (ADR-0009).
+ * Written only from the release record
+ * `native/win32-job/release/0.0.0-dev/manifest.json`
+ * by `scripts/addon/write-digests.mjs --from-manifest`; never by a build and
+ * never by hand (a test keeps this file equal to the generator's output for
+ * that manifest). The loader refuses an addon file whose sha256 differs from
+ * the table, and a missing digest counts as a mismatch (`digest-mismatch`);
+ * the host then reports `'best-effort'`. The check is defence in depth only;
+ * the real guarantees are npm integrity and provenance (ADR-0009). x64 only:
+ * arm64 is not first-class in v1 (K17).
  *
  * @packageDocumentation
  */
@@ -31,4 +34,7 @@ export interface JobAddonDigests {
  *
  * @public
  */
-export const WIN32_JOB_DIGESTS: JobAddonDigests = Object.freeze({});
+export const WIN32_JOB_DIGESTS: JobAddonDigests = Object.freeze({
+  version: '0.1.0',
+  x64: 'fbe7d9ad87241984758c2e708dae0a356323836027f6fdb97e72478f65d069b0',
+});

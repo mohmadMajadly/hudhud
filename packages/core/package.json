@@ -33,6 +33,9 @@
     "!schemas/.baseline",
     "!**/*.tsbuildinfo"
   ],
+  "optionalDependencies": {
+    "@hudhudjs/win32-job-x64": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "fast-check": "catalog:",

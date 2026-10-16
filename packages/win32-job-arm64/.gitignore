@@ -1,0 +1,4 @@
+# Staged by scripts/addon/write-digests.mjs --stage from a build; never committed (plan §6.2).
+hudhud_win32_job.node
+SHA256SUMS
+toolchain.json

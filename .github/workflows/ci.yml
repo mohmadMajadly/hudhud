@@ -167,6 +167,59 @@ jobs:
         with:
           node-version: '22'
 
+      # Windows checks exercise the real job addon (plan §6.2, lead rulings on
+      # A2): it is built here with the image's default toolset and staged; the
+      # suites load it with the digest of the staged bytes. The committed
+      # table holds the release record and is checked against the build only
+      # on the toolchain of record (scripts/test/addon-record.test.ts says
+      # which fields differ otherwise). The toolchain is recorded first, with
+      # whether the toolset of record (A3) is on the image. A missing
+      # component fails the job with its name: nothing is installed here and
+      # `/Qspectre` is never dropped.
+      - name: Record the job addon toolchain
+        run: |
+          set -euo pipefail
+          vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          tools=Microsoft.VisualStudio.Component.VC.Tools.x86.x64
+          spectre=Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre
+          cmake --version | head -n 1
+          install="$("$vswhere" -latest -products '*' -requires "$tools" -property installationPath)"
+          if [[ -z "$install" ]]; then
+            echo "::error::no Visual Studio instance on this image has ${tools} (the MSVC x64 tools)"
+            exit 1
+          fi
+          echo "Visual Studio $("$vswhere" -latest -products '*' -requires "$tools" -property catalog_productDisplayVersion) at ${install}"
+          if [[ -z "$("$vswhere" -latest -products '*' -requires "$tools" "$spectre" -property installationPath)" ]]; then
+            echo "::error::the runner image lacks ${spectre}, the Spectre-mitigated libraries the addon links with /Qspectre; it is never installed or dropped here"
+            exit 1
+          fi
+          root="$(cygpath -u "$install")"
+          msvc="$(tr -d '\r\n' < "${root}/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")"
+          echo "MSVC toolset ${msvc}"
+          # cl without arguments prints its banner (compiler version) and a usage line.
+          "${root}/VC/Tools/MSVC/${msvc}/bin/Hostx64/x64/cl.exe" 2>&1 | head -n 1 || true
+          # The toolset of record (native/win32-job/release/, MSVC 14.44.35207
+          # with Spectre libraries, Windows SDK 10.0.26100): reported, never
+          # installed (A3 relies on these lines).
+          echo "MSVC toolsets in that instance: $(ls "${root}/VC/Tools/MSVC" | tr '\n' ' ')"
+          for component in \
+            Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64 \
+            Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre \
+            Microsoft.VisualStudio.Component.Windows11SDK.26100; do
+            if [[ -n "$("$vswhere" -latest -products '*' -requires "$component" -property installationPath)" ]]; then
+              echo "toolset of record: ${component} installed"
+            else
+              echo "toolset of record: ${component} NOT installed"
+            fi
+          done
+
+      - name: Build the job addon (x64) with the image's toolset and stage it
+        run: |
+          set -euo pipefail
+          pnpm run addon:stage
+          echo 'staged toolchain.json:'
+          cat packages/win32-job-x64/toolchain.json
+
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
 

@@ -217,6 +217,27 @@ export function supportsPlatform(manifest, platform, arch) {
   return allows(manifest.os, platform) && allows(manifest.cpu, arch);
 }
 
+/**
+ * Why a package is not checked on this host, or null when it must be: a
+ * native platform package (an `exports` target is a `.node` file) whose `os`
+ * list excludes the host cannot be built here (the Windows job addon is
+ * built on win32 only). On a platform its `os` allows, it is checked like
+ * any other package and a missing build is a problem.
+ *
+ * @param {PackageJson} manifest
+ * @param {string} platform `process.platform`
+ * @returns {string | null}
+ */
+export function nativeSkipReason(manifest, platform) {
+  const map = manifest.exports;
+  if (typeof map !== 'object' || map === null || Array.isArray(map)) return null;
+  const native = Object.values(map).some((node) => pick(node, 'default')?.endsWith('.node'));
+  const allowed = (manifest.os ?? []).filter((entry) => !entry.startsWith('!'));
+  const osOnly = manifest.os === undefined ? {} : { os: manifest.os };
+  if (!native || supportsPlatform(osOnly, platform, '')) return null;
+  return `native, built on ${allowed.length > 0 ? allowed.join(', ') : 'another platform'} only`;
+}
+
 /** Lifecycle scripts a consumer's install runs. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'];
 
@@ -462,10 +483,20 @@ export function scanEntries(entries, forbidden) {
 /**
  * @typedef {object} EntryPoint
  * @property {string} specifier What a consumer imports.
- * @property {'js' | 'json'} kind
+ * @property {'js' | 'json' | 'native'} kind `native`: a Node-API addon (`.node`),
+ *   which is loaded with `process.dlopen`, never imported.
  * @property {string} [runtime] Package-relative file the runtime import resolves to.
  * @property {string} [types] Package-relative declaration file (the `types` condition).
  */
+
+/**
+ * @param {string} runtime
+ * @returns {EntryPoint['kind']}
+ */
+function entryKind(runtime) {
+  if (runtime.endsWith('.json')) return 'json';
+  return runtime.endsWith('.node') ? 'native' : 'js';
+}
 
 /** Conditions that only group others: looked through when the wanted one is absent. */
 const PASS_THROUGH_CONDITIONS = ['import', 'node', 'default'];
@@ -538,12 +569,12 @@ export function listEntryPoints(manifest, paths) {
         const star = path.slice(tHead.length, path.length - tTail.length);
         entries.push({
           specifier: `${name}/${subHead}${star}${subTail}`,
-          kind: runtime.endsWith('.json') ? 'json' : 'js',
+          kind: entryKind(runtime),
           runtime: path,
         });
       }
     } else {
-      const kind = runtime.endsWith('.json') ? 'json' : 'js';
+      const kind = entryKind(runtime);
       if (!paths.includes(target))
         problems.push(`exports ${subpath}: ${target} is not in the tarball`);
       /** @type {EntryPoint} */

@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { checkReports, entryPoints, isJsonSubpath } from '../api-report.mjs';
+import { checkReports, entryPoints, isJsonSubpath, isNativeSubpath } from '../api-report.mjs';
 
 let root: string;
 
@@ -47,6 +47,20 @@ describe('isJsonSubpath', () => {
   });
 });
 
+describe('isNativeSubpath', () => {
+  it.each([
+    ['./hudhud_win32_job.node', true],
+    [{ default: './a.node' }, true],
+    [{ default: './a.node', types: './a.d.ts' }, false],
+    ['./package.json', false],
+    [ENTRY, false],
+    [{}, false],
+    [null, false],
+  ])('%j -> %s', (target, expected) => {
+    expect(isNativeSubpath(target)).toBe(expected);
+  });
+});
+
 describe('entryPoints', () => {
   it('returns undefined for a package without an exports field', () => {
     manifest('native', { main: './index.node' });
@@ -64,6 +78,17 @@ describe('entryPoints', () => {
     expect(entryPoints(path.join(root, 'packages/lib'))).toEqual([
       path.join(root, 'packages/lib/dist/index.d.ts'),
     ]);
+  });
+
+  it('skips native addon subpaths (prebuilt platform packages)', () => {
+    manifest('platform', {
+      exports: {
+        './hudhud_win32_job.node': './hudhud_win32_job.node',
+        './package.json': './package.json',
+      },
+    });
+    expect(entryPoints(path.join(root, 'packages/platform'))).toEqual([]);
+    expect(checkReports(root, { localBuild: false })).toEqual({ problems: [], checked: 0 });
   });
 
   it('rejects a code subpath without a types condition', () => {

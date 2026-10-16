@@ -27,6 +27,8 @@
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 
+import { hostJobAddonDeps, loadJobAddon } from '@hudhudjs/core/process';
+
 import { nodeHost } from '../../../dist/adapter.js';
 import { connectWith } from '../../../dist/connect.js';
 import { resolvePinnedCli } from '../../../../../tooling/test-support/dist/launcher/pinned-cli.js';
@@ -34,6 +36,7 @@ import {
   productHostSeams,
   samePath,
 } from '../../../../../tooling/test-support/dist/launcher/product-host.js';
+import { stagedJobAddonDeps } from '../../../../../tooling/test-support/dist/launcher/staged-addon.js';
 
 /**
  * The test's request (`crash-host.ts`).
@@ -45,6 +48,10 @@ import {
  * @property {Pick<import('../../../../../tooling/test-support/src/launcher/sandbox.js').Sandbox, 'dirs' | 'env' | 'mockUrl' | 'platform'>} sandbox
  * @property {string} prompt the session's first turn
  * @property {number} lifetimeMs
+ * @property {'staged' | 'host' | 'unavailable'} jobAddon where the job addon
+ *   comes from (`JobAddonMode` of `harness.ts`): the staged addon's verified
+ *   digest, the product's own loader, or the loader with the addon package
+ *   unresolvable (`package-missing`)
  */
 
 const parsed = /** @type {unknown} */ (JSON.parse(readFileSync(process.argv[2] ?? '', 'utf8')));
@@ -115,9 +122,28 @@ try {
       report({ type: 'refused', message: String(error) });
     },
   });
+  // The seams of `jobAddonSeam` in `harness.ts` (this host runs the built modules).
+  /** @type {{ loadJobAddon?: () => import('@hudhudjs/core/process').JobAddonLoad }} */
+  let jobAddon = {};
+  if (config.jobAddon === 'unavailable') {
+    jobAddon = {
+      loadJobAddon: () =>
+        loadJobAddon({
+          ...hostJobAddonDeps(),
+          requireResolve: (/** @type {string} */ specifier) => {
+            throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
+              code: 'MODULE_NOT_FOUND',
+            });
+          },
+        }),
+    };
+  } else if (config.jobAddon === 'staged') {
+    const load = loadJobAddon(stagedJobAddonDeps(config.repoRoot, hostJobAddonDeps()));
+    jobAddon = { loadJobAddon: () => load };
+  }
   harness = await connectWith(
     { binaryPath: cli.binaryPath, claudeCode: { configDir: sandbox.dirs.cfg } },
-    () => ({ ...nodeHost(), ...seams }),
+    () => ({ ...nodeHost(), ...jobAddon, ...seams }),
   );
   if (
     !samePath(harness.binary.path, cli.binaryPath, sandbox.platform) ||

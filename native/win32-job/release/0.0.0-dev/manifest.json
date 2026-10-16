@@ -1,0 +1,32 @@
+{
+  "release": "0.0.0-dev",
+  "version": "0.1.0",
+  "arches": {
+    "arm64": {
+      "sha256": "a38a74a0691979992369cf5614be7de8d8cc38456427b098183dae4ba3424206",
+      "size": 146432,
+      "toolchain": {
+        "arch": "arm64",
+        "generator": "Visual Studio 17 2022",
+        "vcToolsVersion": "14.44.35207",
+        "clVersion": "19.44.35229",
+        "windowsSdkVersion": "10.0.26100.0",
+        "cmakeVersion": "4.4.4",
+        "nodeApiHeadersVersion": "1.9.0"
+      }
+    },
+    "x64": {
+      "sha256": "fbe7d9ad87241984758c2e708dae0a356323836027f6fdb97e72478f65d069b0",
+      "size": 146432,
+      "toolchain": {
+        "arch": "x64",
+        "generator": "Visual Studio 17 2022",
+        "vcToolsVersion": "14.44.35207",
+        "clVersion": "19.44.35229",
+        "windowsSdkVersion": "10.0.26100.0",
+        "cmakeVersion": "4.4.4",
+        "nodeApiHeadersVersion": "1.9.0"
+      }
+    }
+  }
+}

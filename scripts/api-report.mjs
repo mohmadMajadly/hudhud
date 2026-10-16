@@ -7,10 +7,11 @@
 //
 // Also fails when an `exports` subpath has no API Extractor config, or a
 // committed report has no config, so no entry point escapes review.
-// Packages without an `exports` field (prebuilt platform packages) have no
-// entry point and are skipped, unless they carry API Extractor configs or
-// reports, which then fail. JSON subpaths (committed schemas) are data, not
-// API, and are skipped. Requires a prior `pnpm build`.
+// Packages without an `exports` field have no entry point and are skipped,
+// unless they carry API Extractor configs or reports, which then fail. JSON
+// subpaths (committed schemas) are data, not API, and native addon subpaths
+// (`.node`, the prebuilt platform packages) have no TypeScript API; both are
+// skipped. Requires a prior `pnpm build`.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -48,6 +49,18 @@ export function isJsonSubpath(target) {
 }
 
 /**
+ * True for a subpath that exports a native addon only, such as
+ * `"./hudhud_win32_job.node": "./hudhud_win32_job.node"`.
+ *
+ * @param {unknown} target
+ * @returns {boolean}
+ */
+export function isNativeSubpath(target) {
+  const leaves = leafTargets(target);
+  return leaves.length > 0 && leaves.every((leaf) => leaf.endsWith('.node'));
+}
+
+/**
  * Maps an `exports` target such as `./dist/raw/index.js` to its declaration file.
  *
  * @param {unknown} target
@@ -80,7 +93,7 @@ export function entryPoints(packageDir) {
   /** @type {string[]} */
   const entries = [];
   for (const [subpath, target] of Object.entries(exportsField)) {
-    if (isJsonSubpath(target)) continue;
+    if (isJsonSubpath(target) || isNativeSubpath(target)) continue;
     const declaration = declarationOf(target);
     if (declaration === undefined) {
       throw new Error(`${path.basename(packageDir)}: export ${subpath} has no "types" condition`);
