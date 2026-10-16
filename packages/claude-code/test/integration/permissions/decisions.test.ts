@@ -160,6 +160,14 @@ test('settings destinations are stripped: only session updates reach the CLI, no
       destination,
     }),
   );
+  // Both snapshots are taken while no CLI runs: before the spawn and after
+  // the close (`closed`: the process tree was cleaned up). A live CLI keeps
+  // rewriting `cfg/.claude.json` through a `.claude.json.lock` directory
+  // for a few hundred milliseconds after the session opened (W7-T1: fs
+  // watch traces on Windows and Linux, none after the close), so a walk at
+  // that moment raced it (CI run 38980330927, ENOENT on the lock directory).
+  const sandbox = await suite.sandbox();
+  const before = await settingsFiles(sandbox.dirs.root);
   const asked: PermissionRequest[] = [];
   const { session, tap } = await permissionSession((request) => {
     asked.push(request);
@@ -169,8 +177,6 @@ test('settings destinations are stripped: only session updates reach the CLI, no
       updatedPermissions: [...configUpdates, sessionRule],
     });
   });
-  const sandbox = await suite.sandbox();
-  const before = await settingsFiles(sandbox.dirs.root);
 
   const first = await session.ask(PERMISSION_MARKER);
   // The session rule took effect in the CLI: the same command runs again without asking.
