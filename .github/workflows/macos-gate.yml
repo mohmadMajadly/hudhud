@@ -1,13 +1,16 @@
 # macOS gate (ADR-0014 "macOS gate list", plan §5.4 M1). One-off, dispatched
 # by the lead; never triggered by pushes, pull requests or schedules.
 #
-# Each job fetches the pinned darwin CLI binaries (npm integrity and the
-# Agent SDK manifest.json, digests recorded while the pin is `pendingGate`),
-# runs the seven gate items against the in-process mock in an isolated
-# sandbox with a fake key and the egress trap, kills every process it started
-# by verified identity, and uploads one JSON result per item plus the digests.
+# Two jobs. `gate` (both architectures) fetches the pinned darwin CLI
+# binaries (npm integrity and the Agent SDK manifest.json, checked against
+# the pin, or recorded while an entry is `pendingGate`), runs the seven gate
+# items against the in-process mock in an isolated sandbox with a fake key
+# and the egress trap, kills every process it started by verified identity,
+# and uploads one JSON result per item plus the digests.
 # The harness is tooling/macos-gate (bin/ is the thin host wrapper, src/ the
-# unit-tested procedures).
+# unit-tested procedures). `integration-evidence` (darwin-arm64) runs the
+# integration project and records the macOS evidence ci.yml needs before it
+# enables integration on macOS (see the job's comment).
 #
 # Evidence retention (research 11): the round-3 artifacts (run 38440842419,
 # kept 3 days) expired before anyone read them, and the job log holds only
@@ -23,7 +26,8 @@
 #
 # Least privilege: contents: read only, no secrets, no write token, no cache
 # writes (the setup action saves the pnpm store only on pushes to main), and
-# the CLI binaries are cached nowhere but the job's own temp directory.
+# the CLI binaries are cached nowhere but the job's own temp directory and
+# workspace.
 name: macOS gate
 
 on:
@@ -115,5 +119,142 @@ jobs:
         with:
           name: macos-gate-${{ matrix.platform }}
           path: ${{ runner.temp }}/macos-gate/results
+          retention-days: 14
+          if-no-files-found: error
+
+  # Integration evidence (lead ruling, W7-T4): the integration project on
+  # darwin-arm64 with the pinned CLI, before ci.yml enables it on macOS (K15;
+  # until the gate passes the macOS CI job runs `pnpm check` only). Evidence
+  # only: it changes no bound, no snapshot and no workflow. Three parts, each
+  # summarized in the job summary and uploaded as `integration-evidence`:
+  #
+  # 1. The integration project as CI would run it, except the request-shape
+  #    suite, whose darwin snapshots do not exist yet (they are what part 2
+  #    produces); a failure fails the job and is listed with its first line.
+  # 2. The request-shape suite in update mode (HUDHUD_REQUEST_SHAPE_UPDATE=1):
+  #    every test writes its darwin snapshot and then fails on purpose; the
+  #    step passes only when every test failed for exactly that reason and
+  #    one darwin snapshot exists per Linux scenario. The snapshots are
+  #    reviewed and committed by hand afterwards.
+  # 3. 20 runs of the close-deadline test of lifecycle/close-abort.test.ts,
+  #    one process each (as the Windows and Linux bounds were measured,
+  #    W6-Z), recording the overrun past the deadline before any assertion
+  #    (HUDHUD_IT_TIMING_SAMPLES); the step fails with fewer than 20
+  #    samples. A run that breaks the current (Linux-sized) bound still
+  #    yields its sample; part 1 reports the bound itself.
+  #
+  # Step limits: no macOS integration run has been measured yet, so they are
+  # hang guards, not budgets. Part 1 is sized from the slowest measured
+  # platform (plan §5.9 K15 samples, W6-Z: the whole project file by file,
+  # Windows 11 max 686.1 s, Linux max 165.0 s): 2 x 686.1 s = 22.9 min,
+  # rounded up to 25. Parts 2 (one file, 5 tests) and 3 (20 processes of one
+  # test with a 2 s deadline) are a fraction of part 1 and get 10 and 20
+  # minutes. This run's step times are the first macOS measurement
+  # (research 11) and replace these guards.
+  integration-evidence:
+    name: integration evidence (darwin-arm64)
+    runs-on: macos-15
+    # The sum of the step guards below plus the setup (about 1 min measured
+    # in gate run 3) and the upload.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+
+      - name: Build
+        timeout-minutes: 10
+        run: |
+          echo "EVIDENCE=$RUNNER_TEMP/integration-evidence" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/integration-evidence/request-shape"
+          pnpm build
+
+      - name: Fetch the pinned CLI (darwin-arm64)
+        id: fetch
+        timeout-minutes: 10
+        run: pnpm cli:fetch
+
+      - name: Bundle the evidence tool
+        id: bundle
+        timeout-minutes: 5
+        run: >-
+          pnpm exec esbuild tooling/macos-gate/bin/integration-evidence.mjs --bundle
+          --platform=node --format=esm --target=node22
+          --outfile="$RUNNER_TEMP/integration-evidence.mjs"
+
+      - name: 'Part 1: the integration project (without request-shape)'
+        id: integration
+        timeout-minutes: 25
+        run: >-
+          pnpm exec vitest run --project integration
+          --exclude 'packages/claude-code/test/integration/request-shape/**'
+          --reporter=default --reporter=json
+          --outputFile.json="$EVIDENCE/integration.json"
+
+      - name: 'Part 1: summary'
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        timeout-minutes: 2
+        run: >-
+          node "$RUNNER_TEMP/integration-evidence.mjs" report "$EVIDENCE/integration.json"
+          "$GITHUB_WORKSPACE" "Integration project (darwin-arm64, without request-shape)"
+          | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Part 2: request-shape in update mode (fails on purpose; checked next)'
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        timeout-minutes: 10
+        env:
+          HUDHUD_REQUEST_SHAPE_UPDATE: '1'
+        run: |
+          set +e
+          pnpm exec vitest run --project integration \
+            packages/claude-code/test/integration/request-shape \
+            --reporter=default --reporter=json \
+            --outputFile.json="$EVIDENCE/request-shape-update.json"
+          echo "vitest exit code $? (non-zero by design in update mode)"
+
+      - name: 'Part 2: check the update run and keep the darwin snapshots'
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          set +e
+          node "$RUNNER_TEMP/integration-evidence.mjs" shapes "$EVIDENCE/request-shape-update.json" \
+            packages/claude-code/test/integration/request-shape/snapshots "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          cp packages/claude-code/test/integration/request-shape/snapshots/*.darwin.shape \
+            "$EVIDENCE/request-shape/" || true
+          exit "$status"
+
+      - name: 'Part 3: 20 close-deadline runs, overrun samples'
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        timeout-minutes: 20
+        env:
+          HUDHUD_IT_TIMING_SAMPLES: ${{ runner.temp }}/integration-evidence/close-abort-samples.jsonl
+        run: |
+          set +e
+          for run in $(seq 1 20); do
+            pnpm exec vitest run --project integration \
+              packages/claude-code/test/integration/lifecycle/close-abort.test.ts \
+              -t 'close with a deadline' > "$EVIDENCE/close-abort-run-$run.log" 2>&1
+            echo "run $run: vitest exit code $?" | tee -a "$EVIDENCE/close-abort-runs.txt"
+          done
+          node "$RUNNER_TEMP/integration-evidence.mjs" samples "$HUDHUD_IT_TIMING_SAMPLES" \
+            close-abort/close-deadline-overrun 20 | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-evidence
+          path: ${{ runner.temp }}/integration-evidence
           retention-days: 14
           if-no-files-found: error
