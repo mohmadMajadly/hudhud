@@ -30,7 +30,7 @@ The core is harness-neutral; everything that encodes the Claude Code stream-json
 
 ```
 packages/
-  core/                         @hudhud/core (published, stable tier, harness-neutral)
+  core/                         @hudhudjs/core (published, stable tier, harness-neutral)
     schema-src/                 TypeBox sources for neutral schemas (build time only, not published)
     schemas/                    committed JSON Schema 2020-12: events, errors, capabilities, posture, conformance format
     src/
@@ -54,7 +54,7 @@ packages/
       binding/                  ordinary async: generic driver, handles, queues, clock, loopback
       observability/            redaction, stderr tail, usage estimation
       security/                 securityPosture model and builder
-  claude-code/                  @hudhud/claude-code (published)
+  claude-code/                  @hudhudjs/claude-code (published)
     schema-src/                 TypeBox sources: Claude wire schemas, option schemas
     schemas/                    committed JSON Schema: wire-inbound, wire-outbound, options
     conformance/                golden JSONL conformance suites for the Claude protocol machines
@@ -71,9 +71,9 @@ packages/
       posture.ts, capabilities.ts, compat.ts, registry.ts
       adapter.ts, connect.ts, session-factory.ts
       raw/index.ts              /raw entry: unstable tier
-  hudhud/                       umbrella (re-exports only, exact versions)
-  win32-job-x64/                @hudhud/win32-job-x64 (prebuilt .node only)
-  win32-job-arm64/              @hudhud/win32-job-arm64 (built, not shipped first-class in v1, K17)
+  hudhud/                       hudhudjs: umbrella (re-exports only, exact versions)
+  win32-job-x64/                @hudhudjs/win32-job-x64 (prebuilt .node only)
+  win32-job-arm64/              @hudhudjs/win32-job-arm64 (built, not shipped first-class in v1, K17)
 native/win32-job/               plain C addon source, CMake, delay-load hook, committed release manifests
 tooling/
   cli-pin.json                  pinned CLI version, per-platform sha512 + sha256 + size
@@ -96,6 +96,8 @@ scripts/
 
 Plan decision: test infrastructure lives in a private workspace package under `tooling/` (added to `pnpm-workspace.yaml`), not under `packages/`. Reason: `scripts/api-report.mjs` treats every `packages/*` entry as a published API, and depcruise already forbids `packages/*/src` from importing tooling.
 
+As built (package rename, 2026-10-16; owner decision, ADR-0004 amendment): the npm package names are `@hudhudjs/<name>` for every workspace package (`@hudhudjs/core`, `@hudhudjs/claude-code`, the private `@hudhudjs/test-support`, and the planned `@hudhudjs/win32-job-x64` and `@hudhudjs/win32-job-arm64`) and `hudhudjs` for the umbrella, replacing the working names `@hudhud/*` and `hudhud`: the scope `@hudhud` belongs to another npm account, and npm refused `hudhud` as too similar to `hud-hud`. This plan uses the new names throughout. The rename covers the manifests, workspace dependencies, every import and subpath specifier, the ESLint and dependency-cruiser rules, the smoke tests, `WIN32_JOB_ADDON_SPECIFIER` (`@hudhudjs/win32-job-x64/hudhud_win32_job.node`), the regenerated API reports (only the package names changed), the package keys of the pending changesets and the lockfile; one changeset per published package records it. Unchanged: the directory names (`packages/hudhud/` holds `hudhudjs`; its report stays `api/hudhud.api.md`), the project name, the exported `hudhud` binding, `HUDHUD_*` variables, error codes and the `urn:hudhud:` schema id prefix. The `recorder` field of `packages/claude-code/conformance/manifest.json` keeps `@hudhud/test-support`: it records the recorder that wrote the fixtures at their `recorderRevision`, and the next `pnpm fixtures:record` writes the new name (`RECORDER` in `tooling/test-support/src/fixtures/record/record.ts`).
+
 ### 1.2 Layering (dependency-cruiser and ESLint)
 
 Existing rules stay ([.dependency-cruiser.mjs](../../.dependency-cruiser.mjs), [eslint.config.js](../../eslint.config.js)). Two sans-IO directories exist after K3: `packages/core/src/protocol/` (neutral) and `packages/claude-code/src/protocol/` (Claude protocol). Additions and changes in task W0-T1:
@@ -103,18 +105,18 @@ Existing rules stay ([.dependency-cruiser.mjs](../../.dependency-cruiser.mjs), [
 | Rule | From | Forbidden to | ADR |
 |---|---|---|---|
 | `protocol-sans-io` (extended) | both sans-IO directories | Node built-ins | ADR-0006 |
-| `protocol-not-to-process` (extended) | both sans-IO directories | `@hudhud/core/process`, `packages/core/src/process/` | ADR-0006 |
-| `protocol-no-npm-runtime-deps` (extended) | both sans-IO directories | every npm dependency, with one exception: `packages/claude-code/src/protocol/` may import `@hudhud/core/protocol` (resolved to `packages/core/(src\|dist)/protocol/` or `node_modules/@hudhud/core/(src\|dist)/protocol/`) | ADR-0005, ADR-0006, K3 |
-| `protocol-not-to-binding` | both sans-IO directories | `packages/core/src/(binding\|process\|observability\|security)/`, `@hudhud/core` root entry | ADR-0006 |
+| `protocol-not-to-process` (extended) | both sans-IO directories | `@hudhudjs/core/process`, `packages/core/src/process/` | ADR-0006 |
+| `protocol-no-npm-runtime-deps` (extended) | both sans-IO directories | every npm dependency, with one exception: `packages/claude-code/src/protocol/` may import `@hudhudjs/core/protocol` (resolved to `packages/core/(src\|dist)/protocol/` or `node_modules/@hudhudjs/core/(src\|dist)/protocol/`) | ADR-0005, ADR-0006, K3 |
+| `protocol-not-to-binding` | both sans-IO directories | `packages/core/src/(binding\|process\|observability\|security)/`, `@hudhudjs/core` root entry | ADR-0006 |
 | `adapter-protocol-closed` | `packages/claude-code/src/protocol/` | `packages/claude-code/src/` outside `protocol/` | K3 (the Claude machines stay pure) |
 | `process-not-to-binding` | `packages/core/src/process/` | `packages/core/src/binding/` | ADR-0006 |
-| `adapter-public-entry-only` | `packages/claude-code/src/` | deep paths into `packages/core/src/`; only `@hudhud/core`, `@hudhud/core/protocol`, `@hudhud/core/process`, `@hudhud/core/binding` (beta, W4-Z) | ADR-0004 |
-| `core-neutral` (existing `core-not-to-adapters`) | `packages/core/` | `@hudhud/claude-code`, `hudhud` | ADR-0004, K3 |
+| `adapter-public-entry-only` | `packages/claude-code/src/` | deep paths into `packages/core/src/`; only `@hudhudjs/core`, `@hudhudjs/core/protocol`, `@hudhudjs/core/process`, `@hudhudjs/core/binding` (beta, W4-Z) | ADR-0004 |
+| `core-neutral` (existing `core-not-to-adapters`) | `packages/core/` | `@hudhudjs/claude-code`, `hudhudjs` | ADR-0004, K3 |
 | `packages-not-to-tooling` | `packages/*/src/` | `tooling/` | ADR-0013 |
 | `raw-only-from-raw` | `packages/claude-code/src/` except `src/raw/` | `packages/claude-code/src/raw/` | ADR-0003 |
 | `os-adapters-leaf` | `packages/core/src/process/os/` | anything except `node:*` built-ins and `process/os/types.ts` | coverage scoping (§4.8) |
 
-ESLint: the existing `sansIoRules` block is applied to `packages/claude-code/src/protocol/**` as well; its import patterns additionally forbid `@hudhud/core` (root) and `@hudhud/core/process` there, while `@hudhud/core/protocol` stays allowed. Generated directories are excluded from ESLint (generated) but stay under depcruise. Integration tests (`packages/*/test/integration/**`) get a `no-restricted-imports` rule that forbids importing `connect`/`session` from the package root: they must use `testConnect` from test-support, so no integration test can reach the user's real config or an unpinned binary (ADR-0013).
+ESLint: the existing `sansIoRules` block is applied to `packages/claude-code/src/protocol/**` as well; its import patterns additionally forbid `@hudhudjs/core` (root) and `@hudhudjs/core/process` there, while `@hudhudjs/core/protocol` stays allowed. Generated directories are excluded from ESLint (generated) but stay under depcruise. Integration tests (`packages/*/test/integration/**`) get a `no-restricted-imports` rule that forbids importing `connect`/`session` from the package root: they must use `testConnect` from test-support, so no integration test can reach the user's real config or an unpinned binary (ADR-0013).
 
 A neutrality test in `packages/core/test/unit/neutral.test.ts` greps `packages/core/src/**` and `packages/core/schemas/**` for Claude wire vocabulary (`control_request`, `can_use_tool`, `system/init`, `stream-json`, `--permission-mode`) and fails on any hit (K3).
 
@@ -150,7 +152,7 @@ Plan decisions:
 
 Schemas. Core (neutral): `events.schema.json` (open unions via `anyOf` with a `{type: string}` arm), `errors.schema.json`, `capabilities.schema.json`, `posture.schema.json`, `conformance.schema.json` (golden fixture line format), `version.json` (`{ "wireSchemaVersion": 1 }`). Claude Code: `wire-inbound.schema.json`, `wire-outbound.schema.json` (strict: `initialize`, `interrupt`, `set_permission_mode`, `user`, `control_response` for `can_use_tool`, `control_response` error), `options.schema.json` (strict, `additionalProperties: false`).
 
-### 1.4 Neutral sans-IO core: `@hudhud/core/protocol` (ADR-0006, K3)
+### 1.4 Neutral sans-IO core: `@hudhudjs/core/protocol` (ADR-0006, K3)
 
 No Node built-ins, no ambient time or randomness, JSON-only values crossing the boundary, errors as data. This entry point contains no harness protocol; "protocol" means the neutral event and framing vocabulary (K3).
 
@@ -243,15 +245,15 @@ Harness-neutral (intent plus OS exit facts). Table in [§3.3](#33-process-exit-m
 
 #### `protocol/events/` (public)
 
-Neutral event union in [§2.2](#22-harness-neutral-stable-tier-hudhudcore) and `sanitizeForDisplay(text)` (strips C0/C1 controls and ANSI CSI/OSC sequences, ADR-0012 §8). ACP-aligned vocabulary (ADR-0003, H12): tool kinds `read | edit | delete | move | search | execute | think | fetch | other`; tool status `pending | in_progress | completed | failed`; stop reasons `end_turn | max_tokens | max_turn_requests | refusal | cancelled`, all open.
+Neutral event union in [§2.2](#22-harness-neutral-stable-tier-hudhudjscore) and `sanitizeForDisplay(text)` (strips C0/C1 controls and ANSI CSI/OSC sequences, ADR-0012 §8). ACP-aligned vocabulary (ADR-0003, H12): tool kinds `read | edit | delete | move | search | execute | think | fetch | other`; tool status `pending | in_progress | completed | failed`; stop reasons `end_turn | max_tokens | max_turn_requests | refusal | cancelled`, all open.
 
 #### `protocol/errors.ts`, `protocol/capabilities.ts` (public)
 
 `ErrorData { code: HudhudErrorCode; message: string; retryable: boolean; details?: JsonObject }` and the code table of [§3](#3-error-taxonomy). Neutral `Capability`, `HarnessCapabilities`, `ProcessContainment` types.
 
-### 1.5 Claude Code protocol machines: `@hudhud/claude-code` `src/protocol/` (K3)
+### 1.5 Claude Code protocol machines: `@hudhudjs/claude-code` `src/protocol/` (K3)
 
-Same sans-IO rules as the core protocol directory; may import only `@hudhud/core/protocol` and files inside `src/protocol/`. Not a public entry point (internal to the adapter; the conformance suites drive it through a test-only import).
+Same sans-IO rules as the core protocol directory; may import only `@hudhudjs/core/protocol` and files inside `src/protocol/`. Not a public entry point (internal to the adapter; the conformance suites drive it through a test-only import).
 
 #### `protocol/wire/types.ts` (internal, schema-checked)
 
@@ -356,7 +358,7 @@ Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> termi
 
 As built (W2-T5): `normalizeFrame` emits no turn or permission events. `system/init` yields nothing and `result` yields only `usage.update`; the turn machine builds `turn.started` and `turn.completed`, the permission machine `permission.requested`. `classifyResult(frame): { outcome, isError, stopReason? }` is exported for the turn machine (ruling C).
 
-### 1.6 Binding layer: `@hudhud/core` root (ordinary async, harness-neutral)
+### 1.6 Binding layer: `@hudhudjs/core` root (ordinary async, harness-neutral)
 
 | Module | Responsibility | Key API | ADR |
 |---|---|---|---|
@@ -390,9 +392,9 @@ As built (W4-T1):
 - Pre-handshake replay (lead review of W5-T1, Q1, accepted as a defect of W4-T1): an application can subscribe only after `create` resolved, so the events published before the handshake settled (the adapter's `diagnostics`, `session.started`, every event up to the end of the step that settled the handshake, or up to the end of a session that never had one) were lost to it. The driver now keeps them in a bounded buffer (`PRE_HANDSHAKE_MAX_EVENTS` 256, `PRE_HANDSHAKE_MAX_BYTES` 1 MiB, counted as events count for queues; one slot and 256 bytes reserved): it keeps the earliest in order, drops the newest beyond the cap and closes with one diagnostic `events.pre-handshake-truncated` (`data.dropped`). Every `events()` subscriber gets `compat` and then this buffer as its replay, in `seq` order, before live events; turn iterators do not (pre-handshake events belong to no turn). The replay is put directly into the subscriber's own queue within its own limits: when it does not fit, the subscriber gets the prefix that fits and one `gap` marker numbered as the first event left out (`dropped` counts the rest); it never waits on a publish, so it stalls no one (after it, live events follow the subscriber's policy as before, `'block'` included). A subscriber made before the start receives each event once (the replay is a snapshot at subscription). The loopback conformance replay is unchanged (74 variants identical).
 - `host-exit.ts`: one `process.once('exit')` listener while at least one session is live, removed with the last; it ends every live session's input synchronously. No signal handlers (K22), asserted by a source test.
 - `loopback.ts`: `loopbackMachine` (JSON round trip of config, state, input and step result with deep equality; a violation is recorded and thrown, so the driver ends the session with `PROTOCOL_ERROR`), `LoopbackTransport` (scripted in-memory harness), `createLoopbackDriver` (manual clock, `counterIds`, no host-exit hook); `driver.command(input)` feeds raw commands for replays. Proven with a test machine and scripted sessions; the replay of the Claude conformance set is wired by W4-Z on W4-T2's loader. As built (W4-Z, ruling 2): `packages/claude-code/test/conformance/loopback.ts` drives every recorded variant (74) through `createLoopbackDriver` with the Claude session machine, scripted turn ids and the Claude user-input encoder: harness output through the transport's reader, timers through the `ManualClock`, application calls through the public handles (`session.send`, `turn.interrupt`, `session.close`, the permission handler; only a recorded control-error answer, which has no public call, is fed as the raw `cmd.permission-abort`), the exit and the ladder through the transport. Every value crosses the JSON boundary, and the result must equal the direct replay: per record the machine inputs (as a multiset) and the inputs with effects (in order), every written line, every published event with its `seq`, each `turn.done`, each control call, each permission request, the handshake and the session end, and the expect file. Two orders differ by design and only in steps without effects: the driver feeds `ladder.done` before the exit (it waits for the ladder first), and it feeds nothing after `session.end`.
-- Exports: the `@hudhud/core` root gains the public handle and permission types (`Session`, `Turn`, `Harness`, `SessionInfo`, `BinaryInfo`, `BinaryVerification`, `VerificationMode`, `UserInput`, `UserContentBlock`, `PermissionRequest`, `PermissionDecision`, `PermissionHandler`) and `defineAdapter`/`AdapterDefinition` (`@beta`); `adapterApiVersion` moved to `binding/adapter.ts`. The driver, transports, loopback and clocks are tagged `@beta` but not exported yet (K18; how W5 reaches them is a W4-Z decision). As built (W4-Z): they are exported by the new beta entry `@hudhud/core/binding` (§2.1) with its own API report (`core-binding.api.md`), package export, smoke test and dependency-cruiser entry (`adapter-public-entry-only` admits it; the sans-IO layers may not import it); the permission bridge and the decision copy stay internal.
+- Exports: the `@hudhudjs/core` root gains the public handle and permission types (`Session`, `Turn`, `Harness`, `SessionInfo`, `BinaryInfo`, `BinaryVerification`, `VerificationMode`, `UserInput`, `UserContentBlock`, `PermissionRequest`, `PermissionDecision`, `PermissionHandler`) and `defineAdapter`/`AdapterDefinition` (`@beta`); `adapterApiVersion` moved to `binding/adapter.ts`. The driver, transports, loopback and clocks are tagged `@beta` but not exported yet (K18; how W5 reaches them is a W4-Z decision). As built (W4-Z): they are exported by the new beta entry `@hudhudjs/core/binding` (§2.1) with its own API report (`core-binding.api.md`), package export, smoke test and dependency-cruiser entry (`adapter-public-entry-only` admits it; the sans-IO layers may not import it); the permission bridge and the decision copy stay internal.
 
-### 1.7 Process layer: `@hudhud/core/process` (ADR-0009, ADR-0010, ADR-0011)
+### 1.7 Process layer: `@hudhudjs/core/process` (ADR-0009, ADR-0010, ADR-0011)
 
 | Module | Public | Key API | Invariants |
 |---|---|---|---|
@@ -473,13 +475,13 @@ As built (W5-T1, lead rulings W5 1 to 10):
 - Session diagnostics, published through `DriverOptions.diagnostics` before `process.started`, in this order: `security.posture` (`{ entries }`, the session's full posture: connect and session options, `managedPolicy` from the child env and the user settings, the raw extras), `binary.version-changed` (re-verified), `binary.unverified` (the verdict when not `verified`), `env.dropped` (`{ names, spawnInjected }`), `env.added`, `env.removed` (`{ names }`, each only when non-empty), the guard's, `containment.fallback`. New diagnostic codes (open vocabulary): `security.posture`, `settings-guard.allowed`, `session.id-in-use`. They reach the application through the driver's pre-handshake replay (§1.6, lead review of W5-T1, Q1): every `events()` subscriber receives them after `compat`, also one made after `create` resolved (`test/unit/adapter/session.test.ts`).
 - Registry (ruling 6): the claim is taken right before the spawn (after the gate) and released when the driver ended; `SESSION_ID_IN_USE` spawns nothing. The machine is driven through a thin wrapper that, when the machine first records `observedSessionId`, rebinds the claim to it; an id another live session of the Harness holds adds the diagnostic `session.id-in-use` and aborts the session after the step (two live processes on one id diverge, J6); an id the registry cannot hold (over 128 characters, control characters) keeps the claim on the expected id (the machine's `session.id-mismatch` already reports it).
 - Close path (ruling 4): the process transport's `afterExit` runs `sweepAfterExit` after a graceful close; the driver publishes `termination.sweep-after-exit` (tested with a fake process table where a tool outlived the CLI). User input (ruling 5): `encodeClaudeUserInput` is the driver's `encodeUserInput`. The permission callback is passed to the driver behind a typed adapter; the bridge copies and checks every decision (a throwing handler is answered with the machine's deny).
-- Raw tier (§2.6): every session's transport goes through a `RawChannel`; it parses a line only while a raw subscriber or a raw control request waits. `frames()` uses the core fanout (exported from `@hudhud/core/binding` for it, beta: `Fanout`, `FanoutDeps`, `FanoutSubscriberOptions`, `Selection`, `SizedEvent`, `AbortSignalLike`, `OverflowInfo`; this reverses W4-Z's listing of `Fanout` as internal, accepted by the lead review of W5-T1, Q2: one bounded queue implementation beats two; `BoundedQueue` stays internal) with the session's subscriber defaults; a dropped stretch under `'drop-oldest-with-gap-marker'` yields one explicit `RawGap` (`{ kind: 'gap', seq, ts, dropped }`, `seq` that of the first frame left out; lead review Q8b), so `RawFrame` is `RawWireFrame | RawGap` with `kind: 'frame'` on wire frames (§2.6). Every pending `controlRequest` rejects with `SESSION_CLOSED` when the session ends, by close or by dispose (Q8a). `controlRequest` uses ids `hudhud-raw-<n>` (the machine reports the answer as `control.unknown-response`), has no default timeout (`timeoutMs` optional, a positive safe integer), and settles with the answer, `CONTROL_REQUEST_FAILED` (error answer or timeout), `ABORTED` or `SESSION_CLOSED`. Both writing calls keep the outbound policies (`rawControlRefusal`, `rawFrameRefusal`) and the outbound cap. `createSessionRaw` checks the extras (`checkExtraArgs`, `checkExtraEnv`, shapes) before anything runs; `extraArgs` follow hudhud's argv, `extraEnv` overrides the child env (names without case on win32).
+- Raw tier (§2.6): every session's transport goes through a `RawChannel`; it parses a line only while a raw subscriber or a raw control request waits. `frames()` uses the core fanout (exported from `@hudhudjs/core/binding` for it, beta: `Fanout`, `FanoutDeps`, `FanoutSubscriberOptions`, `Selection`, `SizedEvent`, `AbortSignalLike`, `OverflowInfo`; this reverses W4-Z's listing of `Fanout` as internal, accepted by the lead review of W5-T1, Q2: one bounded queue implementation beats two; `BoundedQueue` stays internal) with the session's subscriber defaults; a dropped stretch under `'drop-oldest-with-gap-marker'` yields one explicit `RawGap` (`{ kind: 'gap', seq, ts, dropped }`, `seq` that of the first frame left out; lead review Q8b), so `RawFrame` is `RawWireFrame | RawGap` with `kind: 'frame'` on wire frames (§2.6). Every pending `controlRequest` rejects with `SESSION_CLOSED` when the session ends, by close or by dispose (Q8a). `controlRequest` uses ids `hudhud-raw-<n>` (the machine reports the answer as `control.unknown-response`), has no default timeout (`timeoutMs` optional, a positive safe integer), and settles with the answer, `CONTROL_REQUEST_FAILED` (error answer or timeout), `ABORTED` or `SESSION_CLOSED`. Both writing calls keep the outbound policies (`rawControlRefusal`, `rawFrameRefusal`) and the outbound cap. `createSessionRaw` checks the extras (`checkExtraArgs`, `checkExtraEnv`, shapes) before anything runs; `extraArgs` follow hudhud's argv, `extraEnv` overrides the child env (names without case on win32).
 
 ### 1.9 Security defaults and posture (ADR-0012)
 
 `core/src/security/posture.ts` (neutral model and builder): `buildPosture(entries: PostureEntryInput[]): SecurityPosture`, each entry `{ setting, value, defaultValue, deviates }`, `deviates` by deep JSON equality. `claude-code/src/posture.ts` produces the Claude entries. Membership is fixed in [§2.4](#24-options-defaults-and-securityposture-membership); a test enumerates the option schema and fails if a security-relevant option lacks an entry (ADR-0012 §7).
 
-`managedPolicy` (K23): `'not-fetched-custom-base-url'` when `ANTHROPIC_BASE_URL` is set in the child env or in the `env` of the user settings file (`<config dir>/settings.json`, where the config dir is `claudeCode.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`); `'not-applicable-third-party-provider'` when a `CLAUDE_CODE_USE_*` switch is set there; otherwise `'fetched-if-eligible'`. The user settings file is parsed read-only for these keys only; values are never logged or stored (only booleans leave the parser); the file is never written (R6). As built (W3-T4, W3-Z ruling 3): two more values, `'unknown-raw-settings'` (the `/raw` `extraArgs` pass `--settings`) and `'unknown-user-settings-unreadable'`; precedence base URL, provider, raw settings, unreadable. The user settings file is `<config dir>/settings.json` only. `ClaudePostureInput.projectSettings` (from `projectSettingsFlagsOf` over the guard's findings when the session runs with `projectCredentialEnv: 'allow'`) feeds the same decision; the adapter assembly (W5) runs the scan under `'allow'` and wires it. As built (lead review of W5-T1, Q6): `'unknown-project-settings-unreadable'` when that scan found a file it could not read or parse (`ProjectSettingsEnvFlags.readable`); precedence base URL, provider, raw settings, project unreadable, user unreadable (reasons in ADR-0012 §5). No schema or API report lists the values yet: `posture.ts` is internal until W5-Z exports it. The neutral builder (`buildPosture`, `parsePosture`, `serializePosture`, `postureDeviations`, `postureEntry`) is exported from the `@hudhud/core` root.
+`managedPolicy` (K23): `'not-fetched-custom-base-url'` when `ANTHROPIC_BASE_URL` is set in the child env or in the `env` of the user settings file (`<config dir>/settings.json`, where the config dir is `claudeCode.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`); `'not-applicable-third-party-provider'` when a `CLAUDE_CODE_USE_*` switch is set there; otherwise `'fetched-if-eligible'`. The user settings file is parsed read-only for these keys only; values are never logged or stored (only booleans leave the parser); the file is never written (R6). As built (W3-T4, W3-Z ruling 3): two more values, `'unknown-raw-settings'` (the `/raw` `extraArgs` pass `--settings`) and `'unknown-user-settings-unreadable'`; precedence base URL, provider, raw settings, unreadable. The user settings file is `<config dir>/settings.json` only. `ClaudePostureInput.projectSettings` (from `projectSettingsFlagsOf` over the guard's findings when the session runs with `projectCredentialEnv: 'allow'`) feeds the same decision; the adapter assembly (W5) runs the scan under `'allow'` and wires it. As built (lead review of W5-T1, Q6): `'unknown-project-settings-unreadable'` when that scan found a file it could not read or parse (`ProjectSettingsEnvFlags.readable`); precedence base URL, provider, raw settings, project unreadable, user unreadable (reasons in ADR-0012 §5). No schema or API report lists the values yet: `posture.ts` is internal until W5-Z exports it. The neutral builder (`buildPosture`, `parsePosture`, `serializePosture`, `postureDeviations`, `postureEntry`) is exported from the `@hudhudjs/core` root.
 
 ### 1.10 Errors, capabilities, observability
 
@@ -560,17 +562,17 @@ Stability tags follow ADR-0003: §2.2-§2.5 are the stable tier (`@public`); `cl
 
 | Specifier | Contents |
 |---|---|
-| `@hudhud/core` | neutral public types (`Harness`, `Session`, `Turn`, events, results, capabilities, posture, errors), error classes, `adapterApiVersion`, `wireSchemaVersion`, `defineAdapter` (`@beta`) |
-| `@hudhud/core/protocol` | neutral sans-IO API: `HarnessMachine` contract, input/effect types, `classifyExit`, `encodeJsonLine`, `parseJsonLine`, `sanitizeForDisplay`, `ErrorData` |
-| `@hudhud/core/process` | process layer API used by adapters (§1.7) |
-| `@hudhud/core/binding` | `@beta`, for adapter authors (W4-Z, lead decision on W4-T1's question 1): the session driver (`SessionDriver`, `openSession`), the transports (`createProcessTransport`, `HarnessTransport`; the loopback `createLoopbackDriver`, `LoopbackTransport`, `loopbackMachine`), the clocks and id sources, the host-exit hook, `createSession`, `HarnessBase`, `normalizeUserInput`, the bounded fanout (`Fanout` and its option types; added by W5-T1 for the raw tier's frames), and type-only re-exports of the process and protocol types they name. Not part of the application API: the root stays the stable application tier, and no custom spawner is public (K18) |
-| `@hudhud/core/schemas/*.json` | neutral JSON Schema files (exports `"./schemas/*": "./schemas/*"`) |
-| `@hudhud/claude-code` | `connect`, `session`, `hudhud`, Claude Code option and request types, `CLAUDE_CODE_COMPAT` |
-| `@hudhud/claude-code/schemas/*.json` | Claude wire and option schemas |
-| `@hudhud/claude-code/raw` | unstable tier |
-| `hudhud` | re-exports of `@hudhud/core` and `@hudhud/claude-code` (no logic) |
+| `@hudhudjs/core` | neutral public types (`Harness`, `Session`, `Turn`, events, results, capabilities, posture, errors), error classes, `adapterApiVersion`, `wireSchemaVersion`, `defineAdapter` (`@beta`) |
+| `@hudhudjs/core/protocol` | neutral sans-IO API: `HarnessMachine` contract, input/effect types, `classifyExit`, `encodeJsonLine`, `parseJsonLine`, `sanitizeForDisplay`, `ErrorData` |
+| `@hudhudjs/core/process` | process layer API used by adapters (§1.7) |
+| `@hudhudjs/core/binding` | `@beta`, for adapter authors (W4-Z, lead decision on W4-T1's question 1): the session driver (`SessionDriver`, `openSession`), the transports (`createProcessTransport`, `HarnessTransport`; the loopback `createLoopbackDriver`, `LoopbackTransport`, `loopbackMachine`), the clocks and id sources, the host-exit hook, `createSession`, `HarnessBase`, `normalizeUserInput`, the bounded fanout (`Fanout` and its option types; added by W5-T1 for the raw tier's frames), and type-only re-exports of the process and protocol types they name. Not part of the application API: the root stays the stable application tier, and no custom spawner is public (K18) |
+| `@hudhudjs/core/schemas/*.json` | neutral JSON Schema files (exports `"./schemas/*": "./schemas/*"`) |
+| `@hudhudjs/claude-code` | `connect`, `session`, `hudhud`, Claude Code option and request types, `CLAUDE_CODE_COMPAT` |
+| `@hudhudjs/claude-code/schemas/*.json` | Claude wire and option schemas |
+| `@hudhudjs/claude-code/raw` | unstable tier |
+| `hudhudjs` | re-exports of `@hudhudjs/core` and `@hudhudjs/claude-code` (no logic) |
 
-### 2.2 Harness-neutral stable tier (`@hudhud/core`)
+### 2.2 Harness-neutral stable tier (`@hudhudjs/core`)
 
 ```ts
 export declare const adapterApiVersion: 1;
@@ -771,10 +773,10 @@ Semantics:
 - `setPermissionMode('bypassPermissions')` is refused unless the session was created with `dangerouslyAllowBypassPermissions`.
 - hudhud installs no signal handlers; a terminal Ctrl+C that reaches a non-detached CLI ends as outcome `unknown` with `PROCESS_EXITED` (K22). This is documented.
 
-### 2.3 Claude Code adapter (`@hudhud/claude-code`)
+### 2.3 Claude Code adapter (`@hudhudjs/claude-code`)
 
 ```ts
-import type { Harness, Session, PermissionHandler, SubscriberOptions } from '@hudhud/core';
+import type { Harness, Session, PermissionHandler, SubscriberOptions } from '@hudhudjs/core';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions';   // K11; 'manual' not offered in v1
 export type WorkspaceTrust = 'none' | 'context' | 'full';
@@ -917,7 +919,7 @@ Flag names are kebab case, as the product passes them (`argv.ts`); W6-T4 proved 
 
 Environment (K19): the base comes from the form of `env` — `'harness'` (allowlist by rule, H4; removes `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_AGENT_SDK_*`; dropped names reported), `'inherit'` (everything), an explicit map (exactly those variables), or `{ preset, add, remove }` (the preset, then `remove` names deleted, then `add` entries set; added and removed names reported as `env.added`/`env.removed`). Then pinned keys override in every form: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`, `DISABLE_AUTOUPDATER=1` (unless `harness-default`), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless `harness-default`), `CLAUDE_CONFIG_DIR` (only with `configDir`); always removed: `CLAUDE_CODE_SDK_READS_SESSION_STATE` (D11), `TRACEPARENT`/`TRACESTATE` (unless `trace`). hudhud never sets `CLAUDE_CODE_ENTRYPOINT` (ADR-0001 §4).
 
-### 2.6 Unstable tier (`@hudhud/claude-code/raw`)
+### 2.6 Unstable tier (`@hudhudjs/claude-code/raw`)
 
 ```ts
 export interface RawWireFrame { readonly kind: 'frame'; readonly direction: 'in' | 'out'; readonly seq: number; readonly ts: string; readonly bytes: number; readonly frame: JsonValue }
@@ -1135,8 +1137,8 @@ Canary variant (K16): `cli/newest.ts` resolves the newest published version from
 
 **W0-T1 Repository prelude** — Opus, M.
 Owns: `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `vitest.config.ts`, `vitest.os.config.ts`, `eslint.config.js`, `.dependency-cruiser.mjs`, `tsconfig.json`, `.gitignore`, `.prettierignore`, `scripts/api-report.mjs`, `scripts/test/api-report*.test.ts`, `scripts/test/depcruise-rules.test.ts`, `packages/core/package.json`, `packages/claude-code/package.json`, `packages/core/tsconfig.json`, `packages/claude-code/tsconfig.json`, `tooling/test-support/{package.json,tsconfig.json,src/index.ts}`, `CONTRIBUTING.md`.
-Work: catalog pins (older than 7 days) for TypeBox (major pinned), `ajv`, `esbuild`, `fast-check`, `@anthropic-ai/sdk` (test-support only); `allowBuilds: { esbuild: false }` with its written reason (K14); workspace `tooling/*`; vitest projects `unit`, `conformance`, `integration`, `scripts` (`passWithNoTests` scoped to empty projects); coverage exclusions of §4.8; the ESLint and depcruise rules of §1.2 including the extension of the sans-IO rules to `packages/claude-code/src/protocol/` with the `@hudhud/core/protocol` exception (K3); no new `package.json` scripts (closers add each script when its implementation lands); `api-report.mjs` skips packages without an `exports` field and `.json` subpaths; `exports` gains `"./schemas/*"` in both packages.
-Acceptance: `pnpm install --frozen-lockfile && pnpm check` green on Windows and Linux; a scratch build that runs esbuild on both OSes proves it works from its optional platform package without the postinstall (K14; if not, stop and report); depcruise rule tests fail on planted forbidden imports (core to Claude wire vocabulary path, Claude protocol to `@hudhud/core/process`, Claude protocol to a Node built-in) and pass on `@hudhud/core/protocol`; lockfile diff reviewed.
+Work: catalog pins (older than 7 days) for TypeBox (major pinned), `ajv`, `esbuild`, `fast-check`, `@anthropic-ai/sdk` (test-support only); `allowBuilds: { esbuild: false }` with its written reason (K14); workspace `tooling/*`; vitest projects `unit`, `conformance`, `integration`, `scripts` (`passWithNoTests` scoped to empty projects); coverage exclusions of §4.8; the ESLint and depcruise rules of §1.2 including the extension of the sans-IO rules to `packages/claude-code/src/protocol/` with the `@hudhudjs/core/protocol` exception (K3); no new `package.json` scripts (closers add each script when its implementation lands); `api-report.mjs` skips packages without an `exports` field and `.json` subpaths; `exports` gains `"./schemas/*"` in both packages.
+Acceptance: `pnpm install --frozen-lockfile && pnpm check` green on Windows and Linux; a scratch build that runs esbuild on both OSes proves it works from its optional platform package without the postinstall (K14; if not, stop and report); depcruise rule tests fail on planted forbidden imports (core to Claude wire vocabulary path, Claude protocol to `@hudhudjs/core/process`, Claude protocol to a Node built-in) and pass on `@hudhudjs/core/protocol`; lockfile diff reviewed.
 Security: supply chain, no weakening of existing rules, privacy gate on.
 
 **W0-T2 Settings lookup spike (K5)** — Opus, M. **Done 2026-10-12: [08](../research/08-settings-lookup-spike.md); rulings L1-L4 in 06 §L.**
@@ -1219,7 +1221,7 @@ Acceptance highlights:
 | W3-T5 | Job addon loader and containment (K2, K17) | `packages/core/src/process/containment/**`, tests | A2, W2-T8 | Opus | M |
 | W3-T6 | Golden fixture recording | `packages/claude-code/conformance/**` | W2-T10 | Sonnet | M |
 | A3 | Addon prebuild workflow (K17) | `.github/workflows/addon-prebuild.yml`, `scripts/addon/manifest*.mjs` (new files), `native/win32-job/release/**` | A2 | Opus | M |
-| W3-Z | Closer | barrels, API reports, changesets, `package.json` files (including `@hudhud/win32-job-x64` as an optional dependency of core; arm64 not listed, K17) | all W3 | Sonnet | S |
+| W3-Z | Closer | barrels, API reports, changesets, `package.json` files (including `@hudhudjs/win32-job-x64` as an optional dependency of core; arm64 not listed, K17) | all W3 | Sonnet | S |
 
 Acceptance highlights:
 
@@ -1233,8 +1235,8 @@ Acceptance highlights:
 
 As built (W3-Z, 2026-10-13; merged in this order: macOS gate round 2, W3-T5, W3-T2, W3-T3, W3-T4, W3-T1, W3-T6):
 
-- `@hudhud/win32-job-x64` is NOT yet an optional dependency of core: the platform package does not exist until A2 lands; the loader resolves it and reports `package-missing` until then. Ruling 1: A1's `processTimes(pid)` must return `{ creationTime: string }` (decimal FILETIME, as `assignProcess`) and `version` must be a string; the loader checks both (§6.1).
-- Exports: `@hudhud/core/process` gains verification, the version probe, the job addon loader and containment, and `snapshotAtEof`/`sweepAfterExit`; the `@hudhud/core` root the posture builder; `@hudhud/core/protocol` the `send.rejected` effect and the diagnostic codes `stdin.error` and `permission.duplicate-request-id`. The Claude Code modules of W3 (session machine, discovery, provenance, settings guard, posture) stay internal until W5.
+- `@hudhudjs/win32-job-x64` is NOT yet an optional dependency of core: the platform package does not exist until A2 lands; the loader resolves it and reports `package-missing` until then. Ruling 1: A1's `processTimes(pid)` must return `{ creationTime: string }` (decimal FILETIME, as `assignProcess`) and `version` must be a string; the loader checks both (§6.1).
+- Exports: `@hudhudjs/core/process` gains verification, the version probe, the job addon loader and containment, and `snapshotAtEof`/`sweepAfterExit`; the `@hudhudjs/core` root the posture builder; `@hudhudjs/core/protocol` the `send.rejected` effect and the diagnostic codes `stdin.error` and `permission.duplicate-request-id`. The Claude Code modules of W3 (session machine, discovery, provenance, settings guard, posture) stay internal until W5.
 - After the macOS gate round 2 review (research 10): `TURN_DROPPED` and `turn.dropped` for a user message the harness drops (`protocol/machine/turn.ts`, §3.1); the recorder suite `resume-duplicate-uuid`; the `initialize`-first hold kept with its rationale updated; the decisive Keychain canary of gate item 3 (GitHub-hosted runners only, research 10 §2.5).
 - Rulings applied: guard variables widened to proxy and TLS-trust names and the user config dir skipped in the ancestor fallback (2); posture inputs and values (3); timeouts as hang guards (4); the graceful close sweep, the `RecordingSession` spawn-time attach, the fake auth-token credential and the K10 fixture, the recorder moved into test-support, the Linux re-recording (5); the session machine rulings (7, 10); the `sha256File` read invariants with injected short reads (8); verification (9); the local-macOS refusal (10).
 
@@ -1255,7 +1257,7 @@ As built (W4-Z, 2026-10-14; merged in this order: W4-T3, W4-T1, W4-T2; every fir
 
 - Conformance after the merges: the full set (74 variants of 33 suites) replays green over W4-T3's bounded feature parser, and `test/conformance/features.test.ts` asserts that every recorded feature array (`system/init` and the `initialize` response) passes it unchanged and reaches the session facts and every started turn (ruling 3).
 - Loopback (ruling 2, the acceptance above): every variant through `createLoopbackDriver`, the public handles and the JSON boundary gives the direct replay's results and its expect file (§1.6, W4-T1 note).
-- `@hudhud/core/binding` (ruling 6, question 1): the beta entry for adapter authors (§2.1). The Claude user-input encoder (question 2): `encodeClaudeUserInput` (§1.8). `cmd.permission-error` (question 3): §1.4 and §1.6; the driver no longer answers with a deny of its own, and the machine kit checks the fail-closed answer.
+- `@hudhudjs/core/binding` (ruling 6, question 1): the beta entry for adapter authors (§2.1). The Claude user-input encoder (question 2): `encodeClaudeUserInput` (§1.8). `cmd.permission-error` (question 3): §1.4 and §1.6; the driver no longer answers with a deny of its own, and the machine kit checks the fail-closed answer.
 - Version policy (ruling 1): `HARNESS_VERSION_KNOWN_BROKEN` (§3.1) and `claudeCode.dangerouslyAllowKnownBrokenVersion` (§2.3, §2.4) are registered and specified (§1.8, ADR-0004 §4 amendment); W5 wires the refusal and the option into `connect`. `untested` stays a warning.
 - `session.terminated` (ruling 4): W4-T1 documented `intent` and `outcome` as deterministic and `exitCode`/`signal` as raw observations (event type, ADR-0008, §1.6); the closer adds the same descriptions to `events.schema.json` for other languages.
 - Authenticode timing (ruling 5): the CI evidence (run 38464474863: node.exe 1152 and 1504 ms, an unsigned file 398 ms, after `New-Object` was dropped; 19 to 50 s before it) is in the remarks of `os-signature.ts` and in ADR-0011; the 120 s hang bound stays.
@@ -1274,7 +1276,7 @@ Acceptance: pipeline order tests (validation before filesystem access; guard bef
 
 As built (W5-T1, 2026-10-14; details in §1.8): the assembly is tested over an in-memory host (`packages/claude-code/test/unit/adapter/fake-host.ts`: fake discovery, hashing, identity reads, probe runner, cwd and guard file systems, user settings reader, job addon, process table, signals and a scripted CLI that answers like the recordings; one ordered log of everything): `pipeline-order.test.ts` (each ordering of ruling 8), `errors.test.ts` (§3.1 mapping, abort and dispose at every step), `session.test.ts` (launch, diagnostics, encoder, permission isolation, K10, drift, re-verification, registry rebind, the sweep after the exit), `verification.test.ts` (strict publisher pin, transient verdicts never cached through connect and through a Harness), `raw.test.ts`, `host.test.ts` (the real `nodeHost` with the running Node.js binary as a non-Claude `binaryPath`: discovery, verification and the probe run for real and refuse at the probe; no signal handlers, by run and by source scan), `launch.property.test.ts` (random options: the spawned argv and environment are exactly `buildArgv`/`buildChildEnv`, and the published posture is the computed one), plus `machine/session-drift.test.ts`. No test runs the user's CLI or reads the user's config.
 
-As built (W5-Z, 2026-10-14): the public barrels. `@hudhud/claude-code` exports `connect`, `session`, `hudhud`, `CLAUDE_CODE_COMPAT` and the types `ClaudeCodeHarness`, `ConnectOptions`, `ClaudeCodeConnectOptions`, `SessionOptions`, `ClaudeCodeSessionOptions`, `ResumeOptions`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `EnvOption`; `@hudhud/claude-code/raw` exports `raw`, `createSessionRaw` and the types `RawSession`, `RawSpawnOptions`, `RawFrame`, `RawWireFrame`, `RawGap`, plus type-only re-exports of the root types those signatures name (`ClaudeCodeHarness`, `SessionOptions`, `ResumeOptions`, `ClaudeCodeSessionOptions`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `EnvOption`), so the `/raw` API report is self-contained like `@hudhud/core/binding`'s; `hudhud` is `export *` of `@hudhud/core` and `@hudhud/claude-code` (no raw tier, no adapter-author entry points). Deviation resolved toward the plan: `SessionOptions.onPermission` was typed with the internal `PermissionCallback`; the public option is now the core `PermissionHandler` as in §2.3, and `PermissionCallback` is `@internal`, no longer public. As built beyond §2.3: `ClaudeCodeHarness` also redeclares `binary` and `compat` (inherited from `Harness`, documented as facts from connect). Smoke tests assert each entry point's exact export list from the built output (`packages/claude-code/test/smoke.test.ts`, `packages/hudhud/test/smoke.test.ts`); the three API reports match §2.3, §2.6 and the umbrella row of §2.1. Changesets of the wave: `wave-5-core`, `wave-5-claude-code`, `wave-5-hudhud`.
+As built (W5-Z, 2026-10-14): the public barrels. `@hudhudjs/claude-code` exports `connect`, `session`, `hudhud`, `CLAUDE_CODE_COMPAT` and the types `ClaudeCodeHarness`, `ConnectOptions`, `ClaudeCodeConnectOptions`, `SessionOptions`, `ClaudeCodeSessionOptions`, `ResumeOptions`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `EnvOption`; `@hudhudjs/claude-code/raw` exports `raw`, `createSessionRaw` and the types `RawSession`, `RawSpawnOptions`, `RawFrame`, `RawWireFrame`, `RawGap`, plus type-only re-exports of the root types those signatures name (`ClaudeCodeHarness`, `SessionOptions`, `ResumeOptions`, `ClaudeCodeSessionOptions`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `EnvOption`), so the `/raw` API report is self-contained like `@hudhudjs/core/binding`'s; `hudhudjs` is `export *` of `@hudhudjs/core` and `@hudhudjs/claude-code` (no raw tier, no adapter-author entry points). Deviation resolved toward the plan: `SessionOptions.onPermission` was typed with the internal `PermissionCallback`; the public option is now the core `PermissionHandler` as in §2.3, and `PermissionCallback` is `@internal`, no longer public. As built beyond §2.3: `ClaudeCodeHarness` also redeclares `binary` and `compat` (inherited from `Harness`, documented as facts from connect). Smoke tests assert each entry point's exact export list from the built output (`packages/claude-code/test/smoke.test.ts`, `packages/hudhud/test/smoke.test.ts`); the three API reports match §2.3, §2.6 and the umbrella row of §2.1. Changesets of the wave: `wave-5-core`, `wave-5-claude-code`, `wave-5-hudhud`.
 
 ### 5.8 Wave 6 — integration against the pinned CLI
 
@@ -1391,7 +1393,7 @@ No arm64 test job while the repository is private: no real arm64 runner is assum
 
 1. Not win32: `unavailable`, `not-windows`.
 2. `arch === 'arm64'`: `unavailable`, `arm64-not-first-class` (K17); other non-x64: `unsupported-arch`.
-3. Resolve `@hudhud/win32-job-x64/hudhud_win32_job.node` via `createRequire(import.meta.url)`; missing: `package-missing`.
+3. Resolve `@hudhudjs/win32-job-x64/hudhud_win32_job.node` via `createRequire(import.meta.url)`; missing: `package-missing`.
 4. sha256 against the shipped digest; mismatch or none: `digest-mismatch` (defence in depth only).
 5. `process.dlopen` into a fresh module object; failure: `dlopen-failed`.
 6. `version` check; mismatch: `abi-mismatch`.
@@ -1441,7 +1443,7 @@ Rulings of 2026-10-12 on the open points of the first draft (recorded in 06 §K)
 |---|---|---|
 | K1 | POSIX SIGTERM goes to `initialize.pid` only when it is in snapshot S1 as a descendant of the spawned pid with a matching start time, otherwise to the spawned pid; containment and sweep are rooted at the spawned pid. | §1.7, W2-T7, W6-T3; ADR-0010 |
 | K2 | `HarnessCapabilities.processContainment` is what the Harness can provide; `Session.info.containment` is what the session got; assignment failure falls back to `'best-effort'` with a diagnostic. No new enum value (no custom spawner in v1). | §2.2, §6.4 |
-| K3 | Claude Code wire types, Claude schemas and the Claude protocol machines live in `@hudhud/claude-code` (`src/protocol/`), under the sans-IO lint and depcruise rules. `@hudhud/core` keeps only neutral pieces: event vocabulary and public types, generic NDJSON framer and encoder, bounded queues, error taxonomy, schema pipeline tooling, generic machine contract and handle machinery, process layer, securityPosture model. Core `/protocol` means the neutral protocol. | §1.1-§1.6, §2.1, waves 1-4; ADR-0004, ADR-0005, ADR-0006, architecture |
+| K3 | Claude Code wire types, Claude schemas and the Claude protocol machines live in `@hudhudjs/claude-code` (`src/protocol/`), under the sans-IO lint and depcruise rules. `@hudhudjs/core` keeps only neutral pieces: event vocabulary and public types, generic NDJSON framer and encoder, bounded queues, error taxonomy, schema pipeline tooling, generic machine contract and handle machinery, process layer, securityPosture model. Core `/protocol` means the neutral protocol. | §1.1-§1.6, §2.1, waves 1-4; ADR-0004, ADR-0005, ADR-0006, architecture |
 | K4 | One `claude --version` probe at connect (no network, 05 §1); per-session drift report. | §1.8, W5-T1 |
 | K5 | The credential guard applies whenever effective sources include project or local (also via `claudeCode.settingSources`); lookup is cwd and every ancestor up to the filesystem root plus every `--add-dir` directory; superset, fail closed. Narrowed by L1 (spike W0-T2, 08) to cwd, nearest git root and main worktree root; the superset stays the fallback when the git root cannot be resolved. | §1.8, W0-T2, W3-T3, W6-T4; ADR-0012 |
 | K6 | `continue` is not in v1. | §2.3 |

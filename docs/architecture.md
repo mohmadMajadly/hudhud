@@ -52,9 +52,9 @@ Foundation: hudhud implements the stream-json + control protocol itself against 
     |
     v
 +---------------------------------------------------------------------+
-| hudhud (umbrella: zero-code re-export, exact-version deps)          |
+| hudhudjs (umbrella: zero-code re-export, exact-version deps)        |
 +---------------------------------------------------------------------+
-| @hudhud/claude-code            Claude Code adapter                  |
+| @hudhudjs/claude-code          Claude Code adapter                  |
 |   backends: native | agent-sdk (optional peer, never redistributed) |
 |   src/protocol/  sans-IO Claude machines: wire types, control,      |
 |                  permission, turn/interrupt gating, session         |
@@ -62,7 +62,7 @@ Foundation: hudhud implements the stream-json + control protocol itself against 
 |   schemas/       Claude wire and option JSON Schema                 |
 |   /raw  (unstable tier)                                             |
 +---------------------------------------------------------------------+
-| @hudhud/core   (harness-neutral)                                    |
+| @hudhudjs/core (harness-neutral)                                    |
 |   /protocol   neutral sans-IO pieces: event vocabulary, machine     |
 |               contract (state, input) -> (state, effects[]),        |
 |               exit-outcome classifier, NDJSON encoding; injected    |
@@ -73,7 +73,7 @@ Foundation: hudhud implements the stream-json + control protocol itself against 
 |   binding layer: generic driver, closures, timers, AbortSignal,     |
 |               subscribers; securityPosture model                    |
 +---------------------------------------------------------------------+
-| @hudhud/win32-job-x64 | @hudhud/win32-job-arm64                     |
+| @hudhudjs/win32-job-x64 | @hudhudjs/win32-job-arm64                 |
 |   optional, prebuilt plain-C N-API addon (Windows job objects)      |
 +---------------------------------------------------------------------+
     |  duplex byte stream (stdin / stdout NDJSON; stderr separately)
@@ -179,7 +179,7 @@ declare function connect(opts?: ConnectOptions): Promise<Harness>;
 declare const hudhud: { session(opts?: ConnectOptions & SessionOptions): Promise<Session> };
 ```
 
-Tiers: stable (`hudhud`, `@hudhud/core`, `@hudhud/claude-code`), harness-namespaced options, unstable `@hudhud/claude-code/raw` (exempt from compatibility promises). `Symbol.asyncDispose` and `AbortSignal` are supported everywhere.
+Tiers: stable (`hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code`), harness-namespaced options, unstable `@hudhudjs/claude-code/raw` (exempt from compatibility promises). `Symbol.asyncDispose` and `AbortSignal` are supported everywhere.
 
 ## Protocol and wire model
 
@@ -208,7 +208,7 @@ hudhud's core vocabulary mirrors ACP where it is sound (tool kind and status, pe
 
 ## Sans-IO core
 
-The protocol, turn and permission state machines are pure: `(state, input) -> (state, effects[])`, with injected clock and ids, no I/O imports (enforced by lint and dependency-cruiser). The core defines the neutral machine contract and the binding drives any machine that implements it; the Claude Code machines live in `@hudhud/claude-code` `src/protocol/` (K3). Application callbacks are id-correlated request/response messages with optional deadline and cancel; TS closures live in the binding layer. The core boundary is JSON-only: ISO timestamps plus `seq`, string ids, no `bigint`/`Date`/class instances, base64 binary, optional means absent, errors as data. A loopback binding in v1 proves the boundary. Golden fixtures are language-neutral JSONL conformance suites. The process layer and binding layer are ordinary async code (sans-IO is not forced onto them). Later multi-language support is a daemon with generated clients, not native ports. Decision: [ADR-0006](adr/0006-sans-io-core-and-daemon-readiness.md).
+The protocol, turn and permission state machines are pure: `(state, input) -> (state, effects[])`, with injected clock and ids, no I/O imports (enforced by lint and dependency-cruiser). The core defines the neutral machine contract and the binding drives any machine that implements it; the Claude Code machines live in `@hudhudjs/claude-code` `src/protocol/` (K3). Application callbacks are id-correlated request/response messages with optional deadline and cancel; TS closures live in the binding layer. The core boundary is JSON-only: ISO timestamps plus `seq`, string ids, no `bigint`/`Date`/class instances, base64 binary, optional means absent, errors as data. A loopback binding in v1 proves the boundary. Golden fixtures are language-neutral JSONL conformance suites. The process layer and binding layer are ordinary async code (sans-IO is not forced onto them). Later multi-language support is a daemon with generated clients, not native ports. Decision: [ADR-0006](adr/0006-sans-io-core-and-daemon-readiness.md).
 
 ## Process layer per OS
 
@@ -218,7 +218,7 @@ General: `shell: false`, `windowsHide: true`, stdio pipes, explicit environment,
 
 Evidence: `TerminateProcess(claude.exe)` orphans the Git-Bash tool tree (4 of 4); EOF leaves none; a second `KILL_ON_JOB_CLOSE` job nested under libuv's job works and grandchildren inherit it (05 §10). Host crash under a Node host: libuv's job kills the CLI about 33 ms after host death without graceful shutdown and the Git-Bash tool tree is orphaned, so the addon job is required for crash cleanup too (07 §2). The cwd must be shorter than 259 characters; hudhud fails with a named error before spawn, never auto-prefixing `\\?\` (07 §6, [ADR-0011](adr/0011-spawn-hygiene-and-binary-provenance.md)). Process identity is the pid hudhud spawned; `initialize.pid` differs behind a launcher and is informational (07 §4).
 
-Containment: spawn (not detached), assign to a host-owned job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before the first stdin write. The addon is `@hudhud/win32-job-{x64,arm64}`: plain C on `node_api.h`, CMake/MSVC, prebuilt-only, provenance; a pre-`dlopen` sha256 check is defence in depth only. Capability `processContainment: 'job'` (addon is a 1.0 criterion; job nesting, inheritance and job-close kill are already proven by 05 §10; remaining work: addon implementation and the arm64 prebuild pipeline), otherwise `'best-effort'`. While the repository is private, only x64 is first-class; arm64 is cross-compiled but Windows arm64 reports `'best-effort'` until the addon has run on a real arm64 runner (K17).
+Containment: spawn (not detached), assign to a host-owned job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before the first stdin write. The addon is `@hudhudjs/win32-job-{x64,arm64}`: plain C on `node_api.h`, CMake/MSVC, prebuilt-only, provenance; a pre-`dlopen` sha256 check is defence in depth only. Capability `processContainment: 'job'` (addon is a 1.0 criterion; job nesting, inheritance and job-close kill are already proven by 05 §10; remaining work: addon implementation and the arm64 prebuild pipeline), otherwise `'best-effort'`. While the repository is private, only x64 is first-class; arm64 is cross-compiled but Windows arm64 reports `'best-effort'` until the addon has run on a real arm64 runner (K17).
 
 Ladder with job:
 
@@ -425,5 +425,5 @@ Decided by the owner on 2026-10-12.
 
 1. **Workspace trust: both ways are first-class.** The application (and through it the user who installed it) is responsible for what it runs, so loading project configuration is a supported, documented choice, not a discouraged one: `workspaceTrust: 'full'` loads project and local settings, hooks, MCP servers and env; `'none'` loads none of them. The library default stays `'none'` under rule R2 (the default is the safest way); `'full'` is one option away and is reported in `securityPosture` like every other non-default security setting. ([ADR-0012](adr/0012-security-defaults-and-trust.md))
 2. **Live test credential: none for now.** No test calls the real API; the opt-in live suite is deferred until the owner provides a dedicated low-limit credential. ([ADR-0013](adr/0013-testing-strategy.md))
-3. **npm names: the owner reserves `@hudhud` and `hudhud` later**, before the first publish. Until then the names are working names; nothing is published. Risk accepted: a third party could take a name in the meantime; the package names are confined to `package.json` files and the docs, so a rename is mechanical. ([ADR-0004](adr/0004-packages-and-versioning.md))
+3. **npm names: the scope `@hudhudjs` and the umbrella `hudhudjs`** (owner, 2026-10-16). The original working names `@hudhud/*` and `hudhud` were not available: the scope `@hudhud` belongs to another npm account, and npm refused the unscoped `hudhud` as too similar to the existing `hud-hud`. The owner holds the npm org `hudhudjs` and the unscoped `hudhudjs`; nothing of hudhud is published yet. The project keeps the name hudhud; only the package names changed, as a mechanical rename. ([ADR-0004](adr/0004-packages-and-versioning.md))
 4. **Legal review: done.** The owner confirmed the legal review; the engineering policy in ADR-0015 stays binding. ([ADR-0015](adr/0015-legal-and-provenance.md))

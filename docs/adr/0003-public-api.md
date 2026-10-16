@@ -41,9 +41,9 @@ hudhud's core vocabulary mirrors ACP where ACP is sound: tool call kind and stat
 
 | Tier | Where | Stability promise |
 |---|---|---|
-| Stable | `hudhud`, `@hudhud/core`, `@hudhud/claude-code` | semver; additive-only schema |
+| Stable | `hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` | semver; additive-only schema |
 | Harness-namespaced options | e.g. `claudeCode: { settingSources, ... }` options on the Claude Code adapter; `settingSources` lives here because it is a Claude-Code-specific mechanism, while the harness-neutral `workspaceTrust` maps to it | semver per adapter; tracked by the adapter's compatibility window |
-| Unstable | `@hudhud/claude-code/raw` | exempt from compatibility promises ([ADR-0004](0004-packages-and-versioning.md)) |
+| Unstable | `@hudhudjs/claude-code/raw` | exempt from compatibility promises ([ADR-0004](0004-packages-and-versioning.md)) |
 
 Experimental fields and types use the `x-` prefix and are exempt from compatibility promises ([ADR-0005](0005-schema-and-validation.md)).
 

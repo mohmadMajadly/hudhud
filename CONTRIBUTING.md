@@ -18,7 +18,7 @@ pnpm check
 
 `pnpm install` never runs dependency install scripts: `allowBuilds` allows none and `strictDepBuilds` makes any dependency that wants one fail the install. Its single entry, `esbuild: false`, is an explicit deny (K14): esbuild takes its binary from its optional platform package (`@esbuild/<platform>-<arch>`), so its postinstall is never needed. This was verified on Windows and Linux.
 
-The workspace has the published packages under `packages/` and private repository tooling under `tooling/` (for example `@hudhud/test-support`). Published sources never import `tooling/`. A workspace package imports another one only when its own `package.json` declares it (`dependencies` for `src/`, also `devDependencies` for tests); dependency-cruiser enforces this (`workspace-deps-declared`).
+The workspace has the published packages under `packages/` and private repository tooling under `tooling/` (for example `@hudhudjs/test-support`). Published sources never import `tooling/`. A workspace package imports another one only when its own `package.json` declares it (`dependencies` for `src/`, also `devDependencies` for tests); dependency-cruiser enforces this (`workspace-deps-declared`).
 
 ## Git hooks and the privacy gate
 

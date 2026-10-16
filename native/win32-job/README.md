@@ -2,7 +2,7 @@
 
 `hudhud_win32_job.node` is a Node-API addon in plain C. It puts a spawned harness process and all of its descendants into a Windows job object owned by the host process. Closing or terminating the job ends the whole tree, and the tree also ends when the host dies ([ADR-0009](../../docs/adr/0009-process-layer-windows.md), [plan §6.1](../../docs/plan/v1-implementation.md#61-a1-c-source-scope)).
 
-The addon is never loaded directly. `@hudhud/core` loads it through `loadJobAddon` (`packages/core/src/process/containment/win32-job.ts`), which first checks its sha256 and `version` and validates every result. When the addon is missing or refused, the core falls back to `'best-effort'` containment.
+The addon is never loaded directly. `@hudhudjs/core` loads it through `loadJobAddon` (`packages/core/src/process/containment/win32-job.ts`), which first checks its sha256 and `version` and validates every result. When the addon is missing or refused, the core falls back to `'best-effort'` containment.
 
 ## API
 

@@ -27,7 +27,7 @@ Node has no built-in API for job objects, so native code is required for contain
 ### Containment
 
 1. After spawn, assign the child to a new job object created with `KILL_ON_JOB_CLOSE`, owned by the host process. The assignment happens before the first stdin write (closing the race window of D7).
-2. The addon is `@hudhud/win32-job-x64` / `@hudhud/win32-job-arm64`, optional platform packages ([ADR-0004](0004-packages-and-versioning.md)).
+2. The addon is `@hudhudjs/win32-job-x64` / `@hudhudjs/win32-job-arm64`, optional platform packages ([ADR-0004](0004-packages-and-versioning.md)).
 3. Capability `processContainment` is `'job'` when the addon is present and assignment succeeded, otherwise `'best-effort'`. This capability exists from v1. The Harness capability reports what the Harness can provide; each session reports what it got, and a failed assignment falls back to `'best-effort'` with a diagnostic (K2, 06 §K).
 4. The job is required for host-crash cleanup as well as for abort (J8, 07 §2): libuv's job kills the CLI but lets the tool tree break away, so only hudhud's own nested `KILL_ON_JOB_CLOSE` job, which grandchildren inherit, makes host death kill the whole tree. This reinforces the addon as the 1.0 criterion. Not verified: a Windows host that is not Node/libuv (Python, Bun, .NET).
 
@@ -40,7 +40,7 @@ A sha256 check of the addon binary before `dlopen` is documented as defence in d
 While the repository is private (K17, 06 §K):
 
 - x64 is built and tested on the `windows-2025` hosted runner.
-- arm64 is cross-compiled with the MSVC ARM64 tools if the runner image has them (if not, the work stops and is reported), but `@hudhud/win32-job-arm64` is not shipped as first-class until it has run on a real arm64 runner (after open-sourcing, or on a paid runner if the owner chooses). Until then Windows arm64 reports `processContainment: 'best-effort'`.
+- arm64 is cross-compiled with the MSVC ARM64 tools if the runner image has them (if not, the work stops and is reported), but `@hudhudjs/win32-job-arm64` is not shipped as first-class until it has run on a real arm64 runner (after open-sourcing, or on a paid runner if the owner chooses). Until then Windows arm64 reports `processContainment: 'best-effort'`.
 - Provenance now means a committed sha256 manifest and toolchain manifest for each addon build; build attestations and npm provenance are added at open-sourcing ([ADR-0017](0017-toolchain.md)).
 
 ### Termination ladder (abort path)

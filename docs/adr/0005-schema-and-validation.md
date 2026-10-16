@@ -13,7 +13,7 @@ The Ajv standalone code generator can emit `require("ajv/dist/runtime/...")` for
 
 ## Decision
 
-1. The contract is a committed JSON Schema, draft 2020-12. Harness-neutral schemas (events, errors, capabilities, posture, conformance format) live under `@hudhud/core/schemas/`; each adapter owns the schemas of its harness's wire and options under its own `schemas/` (for Claude Code: `@hudhud/claude-code/schemas/`). The pipeline tooling below is shared (amended by K3, 06 §K).
+1. The contract is a committed JSON Schema, draft 2020-12. Harness-neutral schemas (events, errors, capabilities, posture, conformance format) live under `@hudhudjs/core/schemas/`; each adapter owns the schemas of its harness's wire and options under its own `schemas/` (for Claude Code: `@hudhudjs/claude-code/schemas/`). The pipeline tooling below is shared (amended by K3, 06 §K).
 2. Authoring uses TypeBox, build-time only, with the major version pinned. A documented fallback exists: `json-schema-to-typescript` generating types from hand-maintained JSON Schema. TypeBox is not a runtime dependency of any published package.
 3. Validators are precompiled from the committed schema with Ajv standalone code generation. No runtime `eval`/`new Function`; zero runtime schema dependency.
 4. Ajv runtime helpers that the generated code would `require` are bundled into the generated module at build time (esbuild). Two checks guard this:
