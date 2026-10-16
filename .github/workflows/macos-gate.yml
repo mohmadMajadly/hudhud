@@ -5,9 +5,15 @@
 # Agent SDK manifest.json, digests recorded while the pin is `pendingGate`),
 # runs the seven gate items against the in-process mock in an isolated
 # sandbox with a fake key and the egress trap, kills every process it started
-# by verified identity, and uploads one JSON result per item plus the digests
-# (artifacts kept 3 days). The harness is tooling/macos-gate (bin/ is the thin
-# host wrapper, src/ the unit-tested procedures).
+# by verified identity, and uploads one JSON result per item plus the digests.
+# The harness is tooling/macos-gate (bin/ is the thin host wrapper, src/ the
+# unit-tested procedures).
+#
+# Evidence retention (research 11): the round-3 artifacts (run 38440842419,
+# kept 3 days) expired before anyone read them, and the job log holds only
+# the per-item verdicts. Artifacts are now kept 14 days, and every result
+# file is also printed into the job log (kept for the repository's log
+# retention), so the evidence of a run outlives its artifact.
 #
 # Runners (standard GitHub-hosted labels, verified 2026-10-12 against
 # docs.github.com "Standard GitHub-hosted runners for private repositories"
@@ -91,11 +97,23 @@ jobs:
           --expect-arch "$EXPECT_ARCH"
           --sdk-version "$SDK_VERSION"
 
+      - name: Print the results into the log
+        if: always()
+        timeout-minutes: 2
+        run: |
+          for file in "$RUNNER_TEMP"/macos-gate/results/*; do
+            [ -f "$file" ] || continue
+            echo "::group::${file##*/}"
+            cat "$file"
+            echo
+            echo "::endgroup::"
+          done
+
       - name: Upload the results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-gate-${{ matrix.platform }}
           path: ${{ runner.temp }}/macos-gate/results
-          retention-days: 3
+          retention-days: 14
           if-no-files-found: error

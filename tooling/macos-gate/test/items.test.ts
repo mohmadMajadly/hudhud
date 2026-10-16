@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { GateDigest } from '../src/digests.js';
+import type { ProductSeams } from '../src/host.js';
 import { keychainItem, keychainPaths, searchListIsolation } from '../src/items/keychain.js';
 import { pathIdentityItem, turnMessages } from '../src/items/path-identity.js';
 import { processTreeItem } from '../src/items/process-tree.js';
@@ -152,6 +153,11 @@ describe('item 1: provenance', () => {
     const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
     expect(outcome.failed).toEqual([
       'codesign --verify --strict accepts the binary',
+      // exit 1 for every codesign verify: no valid signature, so the product
+      // check fails, and the control fails for the wrong reason (not exit 3).
+      'product: the codesign requirement with the pinned Team ID Q6L2SF6YDW passes',
+      'product: the same requirement with Team ID AAAAAAAAAA is evaluated and refused (codesign exit 3)',
+      'product: verifyBinary (strict) reports verified 2.1.296',
       'the binary runs in the sandbox and reports the pinned version',
       'the signature of the test copy was removed',
       'quarantine attribute set on signed copy',
@@ -192,6 +198,109 @@ describe('item 1: provenance', () => {
     );
     const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
     expect(outcome.failed).toEqual([]);
+  });
+
+  it("runs the product's verification with the committed pins (research 11)", async () => {
+    const { sim } = world();
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.evidence['productSignature']).toEqual({
+      kind: 'valid',
+      detail: 'codesign valid, pinned Team ID Q6L2SF6YDW',
+    });
+    expect(outcome.evidence['productSignatureControl']).toEqual({
+      kind: 'invalid',
+      detail: 'codesign failed: exit 3',
+    });
+    expect(outcome.evidence['productVerification']).toMatchObject({
+      strict: {
+        matchedVersion: '2.1.296',
+        verification: {
+          status: 'verified',
+          mode: 'strict',
+          detail: 'codesign valid, pinned Team ID Q6L2SF6YDW; sha256 matches 2.1.296',
+        },
+      },
+      advisory: {
+        matchedVersion: '2.1.296',
+        verification: { status: 'verified', mode: 'advisory', detail: 'sha256 matches 2.1.296' },
+      },
+    });
+    expect(outcome.evidence['designatedRequirement']).toMatchObject({ code: 0 });
+    // The product passed codesign the requirement text, the binary path last.
+    const product = sim.runs.filter((run) => run.args.includes('-R'));
+    expect(product.map((run) => run.args.at(-1))).toEqual([BINARY, BINARY, BINARY]);
+    expect(product[0]?.args.slice(0, 3)).toEqual(['--verify', '--strict', '-R']);
+    expect(product[0]?.args[3]).toMatch(/^=anchor apple generic and .* = "Q6L2SF6YDW"$/);
+  });
+
+  it('uses the darwin-x64 entry of the table on an Intel runner', async () => {
+    const { sim } = world({}, { arch: 'x64' });
+    sim.productDigest = {
+      sha256: 'a6bf4f30be241053a923f3820ad23c5991d2f5ac2935b3a8dd64da218d9cc603',
+      size: 249194752,
+    };
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([]);
+  });
+
+  it('fails when the binary is not the pinned one (another digest)', async () => {
+    const { sim } = world();
+    sim.productDigest = { sha256: 'b'.repeat(64), size: 240664432 };
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([
+      'product: verifyBinary (strict) reports verified 2.1.296',
+      'product: verifyBinary (advisory) reports verified 2.1.296',
+    ]);
+    expect(detail(outcome, 'product: verifyBinary (strict)')).toBe(
+      'unverified: codesign valid, pinned Team ID Q6L2SF6YDW; no known digest matches',
+    );
+  });
+
+  it("fails each verifyBinary check, naming the error, when the product's resolve throws", async () => {
+    const { sim } = world();
+    // Without the simulated filesystem the product resolves the binary on the
+    // real one, where the simulated path does not exist.
+    const seams: ProductSeams = { signature: sim.product.signature };
+    Object.defineProperty(sim, 'product', { value: seams });
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([
+      'product: verifyBinary (strict) reports verified 2.1.296',
+      'product: verifyBinary (advisory) reports verified 2.1.296',
+    ]);
+    expect(outcome.evidence['productVerification']).toMatchObject({
+      strict: { error: expect.any(String) as unknown },
+      advisory: { error: expect.any(String) as unknown },
+    });
+  });
+
+  it('fails when codesign ignores the requirement: the control must be refused with exit 3', async () => {
+    const { sim } = world(
+      {},
+      {
+        run: (file, args) =>
+          file === '/usr/bin/codesign' && args.includes('-R') ? result('') : undefined,
+      },
+    );
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([
+      'product: the same requirement with Team ID AAAAAAAAAA is evaluated and refused (codesign exit 3)',
+    ]);
+  });
+
+  it('fails when the Team ID requirement is not satisfied by the real signer', async () => {
+    const { sim } = world(
+      {},
+      {
+        run: (file, args) =>
+          file === '/usr/bin/codesign' && args.includes('-R') ? result('', { code: 3 }) : undefined,
+      },
+    );
+    const outcome = await item(1, (r) => provenanceItem(sim, prepared, '2.1.296', r));
+    expect(outcome.failed).toEqual([
+      'product: the codesign requirement with the pinned Team ID Q6L2SF6YDW passes',
+      'product: verifyBinary (strict) reports verified 2.1.296',
+    ]);
   });
 
   it('extracts signer lines and builds the quarantine value', () => {

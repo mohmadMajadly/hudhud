@@ -12,6 +12,7 @@ import type {
   EntryKind,
   GateFs,
   GateHost,
+  ProductSeams,
   RunOptions,
   RunResult,
 } from '../src/host.js';
@@ -468,6 +469,70 @@ export class SimHost implements GateHost {
     return value;
   }
 
+  /**
+   * What the product's hash of any binary returns (item 1): the pinned
+   * darwin-arm64 2.1.296 binary unless a test changes it.
+   */
+  productDigest = {
+    sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
+    size: 240664432,
+  };
+
+  /**
+   * The product's verification seams, routed through {@link SimHost.run} so
+   * the codesign calls are recorded and answered by `defaultRun`.
+   */
+  readonly product: ProductSeams = {
+    signature: {
+      fs: {
+        realpath: (value) => Promise.resolve(value),
+        lstat: () => Promise.resolve({ isFile: () => true, isSymbolicLink: () => false }),
+      },
+      run: async (command) => {
+        const ran = await this.run(command.file, command.args, {
+          env: command.env,
+          timeoutMs: command.timeoutMs,
+        });
+        return {
+          kind: 'exited',
+          exitCode: ran.code,
+          signal: ran.signal as NodeJS.Signals | null,
+          stdout: new TextDecoder().decode(ran.stdout),
+        };
+      },
+    },
+    executableFs: {
+      realpath: (value) => Promise.resolve(value),
+      stat: () => Promise.resolve(this.productIdentity()),
+      canExecute: () => Promise.resolve(),
+    },
+    verify: {
+      fs: {
+        realpath: (value) => Promise.resolve(value),
+        stat: () => Promise.resolve(this.productIdentity()),
+      },
+      hash: () => Promise.resolve({ ...this.productDigest, mtimeMs: 1000, fileId: '1:2' }),
+    },
+  };
+
+  private productIdentity(): {
+    isFile(): boolean;
+    isDirectory(): boolean;
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeMs: bigint;
+  } {
+    return {
+      isFile: () => true,
+      isDirectory: () => false,
+      dev: 1n,
+      ino: 2n,
+      size: BigInt(this.productDigest.size),
+      mtimeMs: 1000n,
+    };
+  }
+
   readonly cwdFs = {
     realpath: (value: string): Promise<string> => {
       const resolved = this.resolve(value);
@@ -555,6 +620,21 @@ function defaultRun(
           stderr:
             'Identifier=com.anthropic.claude-code\nAuthority=Developer ID Application\nTeamIdentifier=Q6L2SF6YDW\nOther=1\n',
         });
+      if (args[0] === '-d' && args[1] === '-r-') {
+        return result(
+          'designated => identifier "com.anthropic.claude-code" and anchor apple generic and certificate leaf[subject.OU] = Q6L2SF6YDW\n',
+        );
+      }
+      // The product's check: a Developer ID requirement that names the team.
+      if (args[0] === '--verify' && args.includes('-R')) {
+        const requirement = String(args[args.indexOf('-R') + 1]);
+        return requirement.endsWith('certificate leaf[subject.OU] = "Q6L2SF6YDW"')
+          ? result('')
+          : result('', {
+              code: 3,
+              stderr: 'test-requirement: code failed to satisfy specified code requirement(s)',
+            });
+      }
       if (
         args[0] === '--verify' &&
         String(args.at(-1)).includes('/unsigned/') &&
