@@ -80,6 +80,7 @@ describe('advisory verification', () => {
       mode: 'strict',
       digests: [{ version: '1.0.0', sha256: sha }],
       platform: 'darwin',
+      publisher: { darwinTeamId: 'ABCDE12345' },
       deps: {
         signature: {
           // Pretend /usr/bin/codesign is in place; the runner is the default one.

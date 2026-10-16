@@ -65,6 +65,10 @@ describe('the committed digest table (known-binaries.ts, the single source)', ()
     );
   });
 
+  it('pins the Developer ID Team ID of the darwin binaries (macOS gate, research 10 §5)', () => {
+    expect(CLAUDE_CODE_PUBLISHER.darwinTeamId).toBe('Q6L2SF6YDW');
+  });
+
   it('is frozen and well formed', () => {
     expect(Object.isFrozen(KNOWN_BINARIES)).toBe(true);
     for (const [version, platforms] of Object.entries(KNOWN_BINARIES)) {

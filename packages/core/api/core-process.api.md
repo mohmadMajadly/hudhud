@@ -813,6 +813,7 @@ export type PsDialect = 'bsd' | 'procps';
 
 // @public
 export interface PublisherPin {
+    readonly darwinTeamId?: string;
     readonly windowsSubject?: string;
 }
 

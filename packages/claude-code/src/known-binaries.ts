@@ -24,8 +24,14 @@
  *   SHA384 2021 CA1, O="DigiCert, Inc.", C=US` (thumbprint
  *   `7B0F360B775F76C94A12CA48445AA2D2A875701C`), root `DigiCert Trusted Root
  *   G4` (thumbprint `DDFB16CD4931C973A2037D3FC83A4D7D775D05E4`), timestamped
- *   by `DigiCert SHA256 RSA4096 Timestamp Responder 2026 1`. macOS: the Team
- *   ID is pinned after the macOS gate has recorded it (pending).
+ *   by `DigiCert SHA256 RSA4096 Timestamp Responder 2026 1`. macOS: strict
+ *   mode requires the Team ID below in a Developer ID signature (the core's
+ *   `codesignRequirement`). Recorded by `codesign -dv` on both darwin
+ *   binaries of 2.1.296 in macOS gate run 2 (research 10 §5):
+ *   `Authority=Developer ID Application: Anthropic PBC (Q6L2SF6YDW)`,
+ *   `Developer ID Certification Authority`, `Apple Root CA`,
+ *   `TeamIdentifier=Q6L2SF6YDW`, `Identifier=com.anthropic.claude-code`.
+ *   Gate item 1 runs the product's check with this pin on every gate run.
  *
  * Nothing here is fetched at run time.
  *
@@ -69,10 +75,13 @@ export const KNOWN_BINARIES: Readonly<Record<string, Readonly<Record<string, Kno
  *
  * @internal
  */
-export const CLAUDE_CODE_PUBLISHER: { readonly windowsSubject: string } = Object.freeze({
+export const CLAUDE_CODE_PUBLISHER: {
+  readonly windowsSubject: string;
+  readonly darwinTeamId: string;
+} = Object.freeze({
   windowsSubject:
     'CN="Anthropic, PBC", O="Anthropic, PBC", L=San Francisco, S=California, C=US, ' +
     'SERIALNUMBER=4860621, OID.2.5.4.15=Private Organization, ' +
     'OID.1.3.6.1.4.1.311.60.2.1.2=Delaware, OID.1.3.6.1.4.1.311.60.2.1.3=US',
-  // darwinTeamId: pending the macOS gate (ADR-0014).
+  darwinTeamId: 'Q6L2SF6YDW',
 });
