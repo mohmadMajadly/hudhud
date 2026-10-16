@@ -106,6 +106,8 @@ Every entry point in a package's `exports` map has an API Extractor config and a
 
 Changes to a package's behaviour or API need a changeset (`pnpm changeset`). All packages are `private` while the repository is private; nothing is published.
 
+A release that ships the Windows job addon follows the two-phase procedure in [native/win32-job/README.md](native/win32-job/README.md#releasing): a CI record from `.github/workflows/addon-prebuild.yml`, compared with an independent local build before it is committed, and a tag run that requires every rebuild and every packed tarball to reproduce that record.
+
 ## Dependencies
 
 - Every third-party version lives once, as an exact pin, in the `catalog` of [pnpm-workspace.yaml](pnpm-workspace.yaml); manifests use `catalog:` (`catalogMode: strict`).

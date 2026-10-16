@@ -16,6 +16,7 @@ import {
   ARCHES,
   checkToolchain,
   DIGESTS_MODULE,
+  isAddonVersion,
   parseArgs,
   parseDigestsModule,
   parseManifest,
@@ -204,6 +205,16 @@ describe('parseArgs', () => {
     for (const [argv, message] of cases) {
       expect(() => parseArgs(argv)).toThrow(UsageError);
       expect(() => parseArgs(argv)).toThrow(message);
+    }
+  });
+});
+
+describe('isAddonVersion', () => {
+  it('accepts semver with an optional pre-release only', () => {
+    for (const value of ['0.1.0', '10.20.30', '1.0.0-rc.1'])
+      expect(isAddonVersion(value)).toBe(true);
+    for (const value of ['0.1', '01.0.0', '1.0.0+build', ' 0.1.0', '0.1.0\n', 1, undefined]) {
+      expect(isAddonVersion(value)).toBe(false);
     }
   });
 });

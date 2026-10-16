@@ -64,6 +64,16 @@ const TOOLCHAIN_VALUE = /^[0-9A-Za-z][0-9A-Za-z .+_-]{0,63}$/u;
 export class UsageError extends Error {}
 
 /**
+ * Whether a value is an addon `version` the table accepts.
+ *
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+export function isAddonVersion(value) {
+  return typeof value === 'string' && VERSION.test(value);
+}
+
+/**
  * @typedef {object} StageOptions
  * @property {'stage'} mode
  * @property {string} arch `x64` or `arm64`.
@@ -586,7 +596,7 @@ function stage(options, io, refuse, read) {
       `the ${options.arch} addon cannot be loaded on ${io.platform}-${io.hostArch}: give its version with --version`,
     );
   }
-  if (typeof version !== 'string' || !VERSION.test(version)) {
+  if (!isAddonVersion(version)) {
     return refuse(`the addon version ${JSON.stringify(version)} is not a semver version`);
   }
 

@@ -20,7 +20,11 @@
 //   record the core's digest table was written from are pinned
 //   (`-T v143,version=<VCToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<SDK>`); a
 //   missing toolset, Spectre library or SDK fails the build and names the
-//   Visual Studio component ids to install. Nothing is ever installed here.
+//   Visual Studio component ids to install (scripts/lib/addon-manifest.mjs
+//   derives them from the record). The instance's default toolset is then
+//   not required. Nothing is ever installed here; the release workflow
+//   (.github/workflows/addon-prebuild.yml) installs missing components on
+//   its runner before it builds.
 // - toolchain.json records what changes the bytes: arch, generator,
 //   VCToolsVersion, cl version, Windows SDK, CMake and node-api-headers
 //   versions.
@@ -47,6 +51,7 @@ import {
   parseManifest,
   renderToolchain,
 } from '../../scripts/lib/addon-digests.mjs';
+import { toolsetOfRecord } from '../../scripts/lib/addon-manifest.mjs';
 
 const HERE = import.meta.dirname;
 const REPO = path.resolve(HERE, '..', '..');
@@ -61,7 +66,6 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * @property {string} clDir Target directory of `cl.exe` under `bin/Host<host>/`.
  * @property {string} component The instance's MSVC tools.
  * @property {string} spectre Their Spectre-mitigated libraries.
- * @property {string} versioned Suffix of the side-by-side toolset component ids.
  */
 
 /** @type {Readonly<Record<string, Target>>} */
@@ -71,14 +75,12 @@ const ARCHES = Object.freeze({
     clDir: 'x64',
     component: 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
     spectre: 'Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre',
-    versioned: 'x86.x64',
   },
   arm64: {
     platform: 'ARM64',
     clDir: 'arm64',
     component: 'Microsoft.VisualStudio.Component.VC.Tools.ARM64',
     spectre: 'Microsoft.VisualStudio.Component.VC.Runtimes.ARM64.Spectre',
-    versioned: 'ARM64',
   },
 });
 
@@ -200,13 +202,20 @@ function programFilesX86() {
 }
 
 /**
- * The Visual Studio instance with the MSVC tools and the Spectre-mitigated
- * libraries of the architecture, and its CMake generator.
+ * The Visual Studio instance and its CMake generator. Without the pin it
+ * must have the default MSVC tools and Spectre-mitigated libraries of the
+ * architecture. With `--toolset-of-record` the default toolset is not used,
+ * so it is not required: the pinned toolset, its Spectre libraries and the
+ * SDK are checked on disk instead, because their component ids differ by
+ * instance (Build Tools 17.14 ships MSVC 14.44 as its default
+ * `VC.Tools.x86.x64`, Visual Studio 2026 as the side-by-side
+ * `VC.14.44.17.14.x86.x64`), while the files do not.
  *
  * @param {Target} target
+ * @param {boolean} ofRecord
  * @returns {{ install: string; generator: string }}
  */
-function findVisualStudio(target) {
+function findVisualStudio(target, ofRecord) {
   const vswhere = path.win32.join(
     programFilesX86(),
     'Microsoft Visual Studio',
@@ -214,12 +223,19 @@ function findVisualStudio(target) {
     'vswhere.exe',
   );
   if (!existsSync(vswhere)) throw new SetupError('vswhere.exe not found (install Visual Studio)');
-  const args = ['-latest', '-products', '*', '-requires', target.component, target.spectre];
+  const args = [
+    '-latest',
+    '-products',
+    '*',
+    ...(ofRecord ? [] : ['-requires', target.component, target.spectre]),
+  ];
   const install = run(vswhere, [...args, '-property', 'installationPath'], { capture: true });
   const version = run(vswhere, [...args, '-property', 'installationVersion'], { capture: true });
   if (install.status !== 0 || install.stdout.trim() === '') {
     throw new SetupError(
-      `no Visual Studio instance has both ${target.component} and ${target.spectre} (the Spectre-mitigated libraries /Qspectre links against)`,
+      ofRecord
+        ? 'no Visual Studio instance found'
+        : `no Visual Studio instance has both ${target.component} and ${target.spectre} (the Spectre-mitigated libraries /Qspectre links against)`,
     );
   }
   const major = /^(\d+)\./.exec(version.stdout.trim())?.[1];
@@ -254,23 +270,6 @@ function recordToolchain(arch) {
   const entry = manifest.arches[arch];
   if (entry === undefined) throw new SetupError(`${table.manifest} records no ${arch} build`);
   return { toolchain: entry.toolchain, manifest: table.manifest };
-}
-
-/**
- * The platform toolset of an MSVC toolset version and the component ids of
- * that version as a side-by-side toolset (14.3x and 14.4x are v143, the
- * toolsets of Visual Studio 17.0 to 17.14).
- *
- * @param {string} vcTools
- * @param {Target} target
- * @returns {{ platformToolset: string; tools: string; spectre: string }}
- */
-function toolsetOfRecord(vcTools, target) {
-  const match = /^14\.([34]\d)\.\d+$/.exec(vcTools);
-  if (match === null) throw new SetupError(`no platform toolset is known for MSVC ${vcTools}`);
-  const minor = Number(match[1]);
-  const id = `Microsoft.VisualStudio.Component.VC.14.${String(minor)}.17.${String(minor - 30)}.${target.versioned}`;
-  return { platformToolset: 'v143', tools: id, spectre: `${id}.Spectre` };
 }
 
 /**
@@ -316,7 +315,7 @@ function main() {
   if (target === undefined) throw new SetupError(`unknown arch ${arch}`);
   const cmake = findCmake();
   const cmakeInfo = cmakeVersion(cmake);
-  const { install, generator } = findVisualStudio(target);
+  const { install, generator } = findVisualStudio(target, ofRecord);
   const headers = nodeApiHeaders();
   /** @type {unknown} */
   const headersManifest = JSON.parse(readFileSync(path.join(headers, 'package.json'), 'utf8'));
@@ -332,9 +331,9 @@ function main() {
     const record = recordToolchain(arch);
     const vcRecord = String(record.toolchain['vcToolsVersion']);
     const sdkRecord = String(record.toolchain['windowsSdkVersion']);
-    const toolset = toolsetOfRecord(vcRecord, target);
+    const toolset = toolsetOfRecord(record.toolchain);
+    if (typeof toolset === 'string') throw new SetupError(`${record.manifest}: ${toolset}`);
     const msvc = path.join(install, 'VC', 'Tools', 'MSVC', vcRecord);
-    const sdkBuild = /^10\.0\.(\d+)\.\d+$/.exec(sdkRecord)?.[1] ?? sdkRecord;
     const kits = path.win32.join(programFilesX86(), 'Windows Kits', '10');
     /** @type {string[]} */
     const missing = [];
@@ -345,9 +344,7 @@ function main() {
       missing.push(`${toolset.spectre} (its Spectre-mitigated libraries)`);
     }
     if (!existsSync(path.win32.join(kits, 'Lib', sdkRecord, 'ucrt', target.clDir))) {
-      missing.push(
-        `Microsoft.VisualStudio.Component.Windows11SDK.${sdkBuild} (Windows SDK ${sdkRecord})`,
-      );
+      missing.push(`${toolset.sdk} (Windows SDK ${sdkRecord})`);
     }
     if (missing.length > 0) {
       throw new SetupError(

@@ -1,0 +1,398 @@
+# Windows job addon: prebuild and release verification (plan §6.3, K17; lead
+# ruling on A2). The invariant: the bytes a release publishes equal its
+# release record, native/win32-job/release/<release>/manifest.json, and
+# every rebuild must reproduce that record. The procedure end to end is in
+# native/win32-job/README.md ("Releasing").
+#
+# Phase 1, record (`workflow_dispatch`, input `release`): `build` compiles
+# x64 and arm64 with the toolset of record (build.mjs --toolset-of-record),
+# `test-x64` runs the addon tests on the x64 build with the record check
+# required to run, and `manifest` writes the candidate record (manifest.json,
+# SHA256SUMS, toolchain.json) as the artifact `addon-record`. The lead then
+# builds locally with the same pin, compares (scripts/addon/manifest.mjs
+# compare), and only on a match commits the record and the table.
+#
+# Phase 2, verify (tag `v*`): the same builds must reproduce the committed
+# record of the tag's release, and `release-verify` packs the core and both
+# platform packages and hashes the packed bytes again
+# (scripts/check-tarball.mjs --release-record). Publishing is not part of
+# this workflow (it comes at open-sourcing, with npm trusted publishing and
+# provenance, ADR-0009): the platform package is published first and the
+# core second, so the core's exact optional dependency always resolves.
+#
+# Security (ADR-0014): triggered only by a dispatch or a tag push, never by
+# pull_request_target; every job holds `contents: read` only, no secret is
+# referenced, so the tag jobs hold no write token; actions are pinned by
+# full commit SHA; checkout does not persist credentials; dependencies are
+# installed from the frozen lockfile without scripts; no cache is read or
+# written; artifacts are kept 3 days and downloads verify their digest.
+# The only install on a runner is the Visual Studio installer step in
+# `build`, which adds the toolset-of-record components the image lacks
+# (exact ids from the record) and verifies them with vswhere afterwards.
+# Inputs reach scripts through the environment, never by interpolation.
+#
+# Timeouts (K15: measured p95 x 2). Provisional until the first run: no run
+# of this workflow has been measured yet; the run records every step's
+# duration (the installer step also prints its own) to re-size them from. Local measurements on the
+# A3 host (2026-10-16): build.mjs --toolset-of-record 5 s (x64) and 4 s
+# (arm64), pnpm build 21 s, the addon unit and record tests 4 s, cli:fetch
+# 5 s, the containment suites 83 s. Windows CI ran the repository's tests
+# 2.6x slower than a local host (ci.yml windows job). The installer step has
+# no measurement anywhere: 30 minutes is an estimate (a component install
+# on a hosted image usually takes 5 to 15 minutes), to be replaced by twice
+# the first measured value.
+name: Addon prebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: >-
+          Release the record is written for: the version the tag will carry,
+          without the `v` (for example 0.1.0). It names the record directory
+          native/win32-job/release/<release>/.
+        type: string
+        required: true
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: addon-prebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: windows-2025
+    # Setup about 2 min (uncached install), installer up to 30 min
+    # (estimate, see the header), build under 1 min, upload under 1 min.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm (version from package.json "packageManager")
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies (frozen lockfile, no scripts, no cache)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Record the toolchain on the image
+        run: |
+          set -euo pipefail
+          vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          cmake --version | head -n 1
+          install="$("$vswhere" -latest -products '*' -property installationPath)"
+          if [[ -z "$install" ]]; then
+            echo "::error::no Visual Studio instance on this image"
+            exit 1
+          fi
+          echo "Visual Studio $("$vswhere" -latest -products '*' -property catalog_productDisplayVersion) at ${install}"
+          root="$(cygpath -u "$install")"
+          echo "default MSVC toolset $(tr -d '\r\n' < "${root}/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")"
+          echo "MSVC toolsets: $(find "${root}/VC/Tools/MSVC" -mindepth 1 -maxdepth 1 -printf '%f ')"
+          echo "Windows SDKs: $(find '/c/Program Files (x86)/Windows Kits/10/Lib' -mindepth 1 -maxdepth 1 -printf '%f ')"
+          # The record's components for this arch, and the image's default
+          # tools for it (K17: reported, the pinned build does not use them).
+          default_tools=Microsoft.VisualStudio.Component.VC.Tools.x86.x64
+          [[ "$ARCH" == arm64 ]] && default_tools=Microsoft.VisualStudio.Component.VC.Tools.ARM64
+          for component in $(node scripts/addon/manifest.mjs components --arch "$ARCH") "$default_tools"; do
+            if [[ -n "$("$vswhere" -latest -products '*' -requires "$component" -property installationPath)" ]]; then
+              echo "component ${component}: installed"
+            else
+              echo "component ${component}: NOT installed"
+            fi
+          done
+
+      # The only install of this workflow, and only here: the components of
+      # the toolset of record the image lacks, by exact id, into the image's
+      # Visual Studio instance. A failure names the installer's exit code,
+      # its log tail and every id still missing.
+      - name: Install the missing toolset-of-record components
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $dir 'vswhere.exe'
+          $installer = Join-Path $dir 'setup.exe'
+          $install = & $vswhere -latest -products '*' -property installationPath
+          $ids = @(node scripts/addon/manifest.mjs components --arch $env:ARCH)
+          if ($LASTEXITCODE -ne 0 -or $ids.Count -eq 0) { Write-Output '::error::the components of the toolset of record could not be read'; exit 1 }
+          function Get-Missing {
+            @($ids | Where-Object { @(& $vswhere -all -products '*' -requires $_ -property installationPath) -notcontains $install })
+          }
+          $missing = Get-Missing
+          if ($missing.Count -eq 0) { Write-Output "all components of the toolset of record are installed in $install"; exit 0 }
+          Write-Output "installing into ${install}: $($missing -join ', ')"
+          $arguments = @('modify', '--installPath', "`"$install`"", '--passive', '--norestart') + @($missing | ForEach-Object { '--add', $_ })
+          $started = Get-Date
+          $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+          # Wait for any installer process that outlived its parent.
+          $deadline = (Get-Date).AddMinutes(10)
+          while (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dir\*" }).Count -gt 0) {
+            if ((Get-Date) -gt $deadline) { Write-Output '::error::Visual Studio installer processes still running 10 minutes after the installer returned'; exit 1 }
+            Start-Sleep -Seconds 5
+          }
+          $seconds = [int]((Get-Date) - $started).TotalSeconds
+          Write-Output "installer exit code $($process.ExitCode) after $seconds s"
+          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+            Get-ChildItem $env:TEMP -Filter 'dd_*.log' | Sort-Object LastWriteTime | Select-Object -Last 2 | ForEach-Object {
+              Write-Output "== $($_.Name) (tail)"
+              Get-Content $_.FullName -Tail 40
+            }
+            Write-Output "::error::the Visual Studio installer failed with exit code $($process.ExitCode) adding $($missing -join ', ')"
+            exit 1
+          }
+          if ($process.ExitCode -eq 3010) { Write-Output '::notice::the installer reports that a restart is required (3010); the components are verified next' }
+          $still = Get-Missing
+          if ($still.Count -gt 0) { Write-Output "::error::still not installed in ${install} after the installer: $($still -join ', ')"; exit 1 }
+          Write-Output "installed and verified with vswhere: $($missing -join ', ')"
+
+      - name: Build with the toolset of record
+        timeout-minutes: 5
+        run: node native/win32-job/build.mjs --toolset-of-record --arch "$ARCH"
+
+      - name: Collect the build
+        run: node scripts/addon/manifest.mjs collect --arch "$ARCH" --out "$RUNNER_TEMP/addon/$ARCH"
+
+      # Phase 1 records whatever the pinned toolchain produces, so a
+      # difference from the committed record is reported, not fatal here:
+      # test-x64 (record check) and the lead's local compare decide.
+      - name: Compare with the record the digest table names (phase 1)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ! node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"; then
+            echo "::warning::the ${ARCH} build does not reproduce the committed record (reason above)"
+          fi
+
+      - name: Require the rebuild to reproduce the tag's release record (phase 2)
+        if: github.event_name == 'push'
+        run: >-
+          node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
+          --record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+
+      - name: Upload the build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: addon-${{ matrix.arch }}
+          path: ${{ runner.temp }}/addon/${{ matrix.arch }}
+          retention-days: 3
+          if-no-files-found: error
+
+  test-x64:
+    name: test (x64)
+    needs: build
+    runs-on: windows-2025
+    # Setup about 2 min; pnpm build about 1 min (21 s local x 2.6); addon
+    # unit and record tests under 1 min; cli:fetch under 1 min; containment
+    # suites about 3.6 min (83 s local x 2.6). Job about 8 min, x 2.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm (version from package.json "packageManager")
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies (frozen lockfile, no scripts, no cache)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download the x64 build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: addon-x64
+          path: ${{ runner.temp }}/addon/x64
+          digest-mismatch: error
+
+      # The record check (scripts/test/addon-record.test.ts) runs only on the
+      # toolchain of record and is skipped otherwise; here it must run. This
+      # is the same field-by-field comparison, so a skip fails the job and
+      # names every differing field with both values. The steps after it
+      # still run, so one run shows everything.
+      - name: Require the toolchain of record (the record check must run)
+        id: toolchain
+        run: node scripts/addon/manifest.mjs check-toolchain --toolchain "$RUNNER_TEMP/addon/x64/toolchain.json"
+
+      - name: Stage the build into its platform package
+        id: stage
+        if: ${{ !cancelled() }}
+        run: >-
+          node scripts/addon/write-digests.mjs --stage --arch x64
+          --addon "$RUNNER_TEMP/addon/x64/hudhud_win32_job.node"
+          --toolchain "$RUNNER_TEMP/addon/x64/toolchain.json"
+
+      - name: Build
+        id: build
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        run: pnpm run build
+
+      # Plan §6.5: loader unit tests, the staged addon through the real
+      # loader with A1's native suite (create/assign/list/terminate, handle
+      # not inherited, host crash, idempotency, digest mismatch), the record
+      # check through the product path ('host'), and the package shapes.
+      - name: Addon loader, native and record tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          pnpm exec vitest run --project scripts --project unit
+          scripts/test/addon- packages/core/test/process/containment
+          tooling/test-support/test/launcher/staged-addon
+
+      - name: Fetch the pinned CLI (registry integrity checked)
+        id: cli
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: pnpm run cli:fetch
+
+      # Plan §6.5 "CLI Bash tree" and "host crash": the pinned CLI under
+      # 'job', zero survivors.
+      - name: Containment suites under 'job' (pinned CLI)
+        if: ${{ !cancelled() && steps.cli.outcome == 'success' }}
+        run: pnpm exec vitest run --project integration packages/claude-code/test/integration/containment
+
+  manifest:
+    name: manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    # Under 1 min (no dependency install: the tool uses Node built-ins only).
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Download the x64 build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: addon-x64
+          path: ${{ runner.temp }}/addon/x64
+          digest-mismatch: error
+
+      - name: Download the arm64 build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: addon-arm64
+          path: ${{ runner.temp }}/addon/arm64
+          digest-mismatch: error
+
+      - name: Write the release record
+        env:
+          RELEASE_INPUT: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then release="${GITHUB_REF_NAME#v}"; else release="$RELEASE_INPUT"; fi
+          node scripts/addon/manifest.mjs write --release "$release" --dir "$RUNNER_TEMP/addon" --out "$RUNNER_TEMP/record"
+          for file in manifest.json SHA256SUMS toolchain.json; do
+            echo "== ${file}"
+            cat "$RUNNER_TEMP/record/${file}"
+          done
+
+      - name: Upload the release record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: addon-record
+          path: ${{ runner.temp }}/record
+          retention-days: 3
+          if-no-files-found: error
+
+  release-verify:
+    name: release verify (packed bytes)
+    if: github.event_name == 'push'
+    needs: [build, test-x64]
+    runs-on: windows-2025
+    # Setup about 2 min, pnpm build about 1 min, three pnpm pack runs under
+    # 1 min (the full local check took under 10 s). About 4 min, x 2.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm (version from package.json "packageManager")
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies (frozen lockfile, no scripts, no cache)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download the x64 build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: addon-x64
+          path: ${{ runner.temp }}/addon/x64
+          digest-mismatch: error
+
+      - name: Download the arm64 build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: addon-arm64
+          path: ${{ runner.temp }}/addon/arm64
+          digest-mismatch: error
+
+      # arm64 cannot be loaded on this x64 host; its version is the one the
+      # x64 build reported (same source), which staging checks is semver.
+      - name: Stage both builds into their platform packages
+        run: |
+          set -euo pipefail
+          addon="$RUNNER_TEMP/addon"
+          node scripts/addon/write-digests.mjs --stage --arch x64 \
+            --addon "$addon/x64/hudhud_win32_job.node" --toolchain "$addon/x64/toolchain.json"
+          node scripts/addon/write-digests.mjs --stage --arch arm64 \
+            --addon "$addon/arm64/hudhud_win32_job.node" --toolchain "$addon/arm64/toolchain.json" \
+            --version "$(cat "$addon/x64/version")"
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Pack and hash the bytes a release would publish
+        env:
+          HUDHUD_TEST_ROOT: ${{ runner.temp }}
+        run: node scripts/check-tarball.mjs --release-record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
