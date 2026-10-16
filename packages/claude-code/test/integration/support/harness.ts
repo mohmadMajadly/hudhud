@@ -28,11 +28,12 @@
 // leaked processes, no refused launch; after the suite: no process naming
 // the suite directory.
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
-import type { Session } from '@hudhudjs/core';
+import type { BinaryInfo, Session } from '@hudhudjs/core';
 import { hostJobAddonDeps, loadJobAddon, type JobAddonLoad } from '@hudhudjs/core/process';
 
 import { nodeHost, type ClaudeHost } from '../../../src/adapter.js';
@@ -172,7 +173,53 @@ export class ClaudeIntegrationSuite extends IntegrationSuite<
   async testSessionFunction(options?: SandboxSessionFunctionOptions): Promise<Session> {
     return this.testLaunch((request) => sessionInSandbox(options, request));
   }
+
+  /**
+   * Whether the CLI under test is the pinned one (tooling/cli-pin.json).
+   * The canary (K16, plan §5.9 W7-T2) runs these suites against a newer
+   * published CLI (`HUDHUD_CLI_CHANNEL=newest`).
+   */
+  get pinnedCli(): boolean {
+    return this.cli.version === PINNED_VERSION;
+  }
+
+  /**
+   * The `compat` status connect must report for the CLI under test: the
+   * tested window is the pin (the bump moves both, K16), so a canary's newer
+   * CLI is `'untested'` (reported, never refused; ADR-0004 §4).
+   */
+  get expectedCompatStatus(): 'tested' | 'untested' {
+    return this.pinnedCli ? 'tested' : 'untested';
+  }
+
+  /**
+   * The advisory verification connect must report for the CLI under test:
+   * the committed digest table holds the pinned binary, so a canary's newer
+   * binary matches no known digest (K8, K9; `unverified`, not refused).
+   */
+  get expectedVerification(): BinaryInfo['verification'] {
+    return this.pinnedCli
+      ? {
+          status: 'verified',
+          method: 'sha256-manifest',
+          mode: 'advisory',
+          detail: `sha256 matches ${this.cli.version}`,
+        }
+      : {
+          status: 'unverified',
+          method: 'sha256-manifest',
+          mode: 'advisory',
+          detail: 'no known digest matches',
+        };
+  }
 }
+
+/** The pinned version (tooling/cli-pin.json). */
+const PINNED_VERSION: string = (
+  JSON.parse(readFileSync(path.join(REPO_ROOT, 'tooling', 'cli-pin.json'), 'utf8')) as {
+    readonly version: string;
+  }
+).version;
 
 /** Creates the suite of the calling test file and registers its Vitest hooks. */
 export function integrationSuite(): ClaudeIntegrationSuite {

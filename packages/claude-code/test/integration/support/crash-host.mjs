@@ -44,6 +44,8 @@ import { stagedJobAddonDeps } from '../../../../../tooling/test-support/dist/lau
  * @typedef {object} HostConfig
  * @property {string} repoRoot
  * @property {string} cacheRoot
+ * @property {'pinned' | 'newest'} cliChannel the test's `HUDHUD_CLI_CHANNEL`
+ *   (the canary runs on `newest`, K16)
  * @property {string} binaryPath the verified pinned binary the test resolved
  * @property {Pick<import('../../../../../tooling/test-support/src/launcher/sandbox.js').Sandbox, 'dirs' | 'env' | 'mockUrl' | 'platform'>} sandbox
  * @property {string} prompt the session's first turn
@@ -96,7 +98,8 @@ try {
   const cli = await resolvePinnedCli({
     repoRoot: config.repoRoot,
     cacheRoot: config.cacheRoot,
-    env: {},
+    // The same pin as the test's: the canary's run pin on the newest channel.
+    env: { HUDHUD_CLI_CHANNEL: config.cliChannel },
   });
   if (!samePath(cli.binaryPath, config.binaryPath, config.sandbox.platform)) {
     throw new Error(`verified ${cli.binaryPath}, the test expects ${config.binaryPath}`);
