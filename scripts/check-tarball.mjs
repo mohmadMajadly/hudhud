@@ -247,7 +247,8 @@ function main() {
     }
 
     const toInstall = packed.filter((entry) => entry.installable);
-    if (toInstall.length > 0) installAndImport(root, toInstall, problems);
+    const otherPlatform = packed.filter((entry) => !entry.installable);
+    if (toInstall.length > 0) installAndImport(root, toInstall, otherPlatform, problems);
 
     if (problems.length > 0) {
       report(problems, `tarball check FAILED (${String(problems.length)} problem(s)):`);
@@ -266,23 +267,35 @@ function main() {
  *
  * @param {string} root
  * @param {{ manifest: PackageJson, file: string, entryPoints: import('./lib/tarball.mjs').EntryPoint[] }[]} installed
+ * @param {{ manifest: PackageJson, file: string }[]} otherPlatform Tarballs
+ *   of packages for other platforms (the Windows addon packages elsewhere).
+ *   They are listed as optional dependencies of the project, so a package's
+ *   optional dependency on one of them is satisfied by its tarball and npm
+ *   skips it for the platform instead of asking the registry for it.
  * @param {string[]} problems Appended to.
  * @returns {void}
  */
-function installAndImport(root, installed, problems) {
+function installAndImport(root, installed, otherPlatform, problems) {
   const project = path.join(root, 'project');
   mkdirSync(project);
   writeFileSync(path.join(root, 'user.npmrc'), '');
   writeFileSync(path.join(root, 'global.npmrc'), '');
-  /** @type {Record<string, string>} */
-  const dependencies = {};
-  for (const { manifest, file } of installed) {
-    dependencies[String(manifest.name)] = `file:${file.replaceAll('\\', '/')}`;
-  }
-  writeFileSync(
-    path.join(project, 'package.json'),
-    `${JSON.stringify({ name: 'hudhud-tarball-check', private: true, type: 'module', dependencies }, null, 2)}\n`,
-  );
+  /** @param {{ manifest: PackageJson, file: string }[]} tarballs */
+  const sources = (tarballs) =>
+    Object.fromEntries(
+      tarballs.map(({ manifest, file }) => [
+        String(manifest.name),
+        `file:${file.replaceAll('\\', '/')}`,
+      ]),
+    );
+  const consumer = {
+    name: 'hudhud-tarball-check',
+    private: true,
+    type: 'module',
+    dependencies: sources(installed),
+    optionalDependencies: sources(otherPlatform),
+  };
+  writeFileSync(path.join(project, 'package.json'), `${JSON.stringify(consumer, null, 2)}\n`);
   const env = cleanEnv({ ...process.env }, root.replaceAll('\\', '/'), process.platform);
   run(
     process.execPath,
@@ -310,6 +323,13 @@ function installAndImport(root, installed, problems) {
         );
       } catch {
         problems.push(`${entry.specifier}: the installed JSON file is missing or invalid`);
+      }
+    }
+    // A native addon is loaded by its consumer with `process.dlopen`, never
+    // imported; the installed package must carry the file the subpath names.
+    for (const entry of entryPoints.filter((candidate) => candidate.kind === 'native')) {
+      if (!existsSync(path.join(modules, String(manifest.name), entry.runtime ?? ''))) {
+        problems.push(`${entry.specifier}: the installed addon file is missing`);
       }
     }
   }

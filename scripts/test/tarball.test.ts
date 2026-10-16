@@ -542,6 +542,28 @@ describe('listEntryPoints', () => {
     ]);
     expect(result.problems).toEqual(['exports ./c has no default target']);
   });
+
+  it('lists a native addon subpath as native, never as JS to import', () => {
+    const platform: PackageJson = {
+      name: '@s/addon-x64',
+      exports: {
+        './a.node': './a.node',
+        './bin/*': './bin/*.node',
+        './package.json': './package.json',
+      },
+    };
+    expect(listEntryPoints(platform, ['package.json', 'a.node', 'bin/b.node'])).toEqual({
+      problems: [],
+      entries: [
+        { specifier: '@s/addon-x64/a.node', kind: 'native', runtime: 'a.node' },
+        { specifier: '@s/addon-x64/bin/b', kind: 'native', runtime: 'bin/b.node' },
+        { specifier: '@s/addon-x64/package.json', kind: 'json', runtime: 'package.json' },
+      ],
+    });
+    expect(listEntryPoints(platform, ['package.json', 'bin/b.node']).problems).toEqual([
+      'exports ./a.node: a.node is not in the tarball',
+    ]);
+  });
 });
 
 // ---- one tarball --------------------------------------------------------------
