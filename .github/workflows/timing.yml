@@ -1,5 +1,5 @@
 # Integration timing measurement (plan §4.4 flake policy, K15; W7-T1;
-# ADR-0014 amendment 7). Dispatch only. Runs the integration tests that
+# ADR-0014 amendment 7). Runs the integration tests that
 # assert an upper time bound repeatedly on the CI runners, with the samples
 # each records (`HUDHUD_TIMING_LOG`, packages/claude-code/test/integration/
 # support/timing.ts), and summarizes them (`scripts/ci-timing.mjs`): n, min,
@@ -18,6 +18,10 @@
 # multipliers of 04 §1).
 name: Integration timing
 
+# Triggers: a dispatch (once this file is on the default branch, which
+# GitHub requires for workflow_dispatch), or a push to a `ci-timing/**`
+# branch, which measures that branch with the default 15 runs (so a branch
+# can be measured before it reaches main). Nothing else runs it.
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +29,8 @@ on:
         description: Runs of the bounded tests per platform (15 to 30)
         type: number
         default: 15
+  push:
+    branches: ['ci-timing/**']
 
 permissions: {}
 
@@ -53,7 +59,7 @@ jobs:
     steps:
       - name: Check the run count
         env:
-          RUNS: ${{ inputs.runs }}
+          RUNS: ${{ inputs.runs || 15 }}
         run: |
           if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || (( RUNS < 15 || RUNS > 30 )); then
             echo "::error::runs must be a whole number from 15 to 30, got ${RUNS}"
@@ -82,7 +88,7 @@ jobs:
       - name: Run the bounded tests repeatedly
         id: runs
         env:
-          RUNS: ${{ inputs.runs }}
+          RUNS: ${{ inputs.runs || 15 }}
         run: |
           set -uo pipefail
           out="$(if [[ "$RUNNER_OS" == Windows ]]; then cygpath -u "$RUNNER_TEMP"; else printf '%s' "$RUNNER_TEMP"; fi)/timing"
