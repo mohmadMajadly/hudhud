@@ -8,10 +8,11 @@
 // - On Windows x64, the record check: the staged addon must equal the
 //   committed table, and load through the exact product path ('host' mode,
 //   the committed WIN32_JOB_DIGESTS), ONLY when it was built with the
-//   toolchain of record (the staged toolchain.json equals the record's,
-//   field by field). On any other toolchain the bytes legitimately differ,
-//   and the test is skipped with a reason naming the differing fields;
-//   never silently.
+//   toolchain of record (the staged toolchain.json equals the record's in
+//   every field that can change the bytes; the generator is reported only,
+//   lead ruling on A3). On any other toolchain the bytes legitimately
+//   differ, and the test is skipped with a reason naming the differing
+//   fields; never silently.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -37,6 +38,7 @@ import {
   renderDigestsModule,
   renderReleaseSums,
   renderReleaseToolchains,
+  informationalDifferences,
   toolchainDifferences,
   type Manifest,
   type ReleaseArch,
@@ -95,6 +97,13 @@ describe.runIf(process.platform === 'win32' && process.arch === 'x64')(
       const toolchain = checkToolchain(JSON.parse(read('packages/win32-job-x64/toolchain.json')));
       if (typeof toolchain === 'string') {
         throw new Error(`packages/win32-job-x64/toolchain.json: ${toolchain}`);
+      }
+      // Informational fields (the generator, shown not to change the bytes:
+      // Addon prebuild run 38947897592) are reported, never a reason to skip.
+      for (const field of informationalDifferences(recordX64.toolchain, toolchain)) {
+        process.stderr.write(
+          `record check: ${field} ${String(toolchain[field])} (record ${String(recordX64.toolchain[field])}), information only: it does not change the bytes\n`,
+        );
       }
       const differs = toolchainDifferences(recordX64.toolchain, toolchain);
       if (differs.length > 0) {

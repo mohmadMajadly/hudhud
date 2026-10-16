@@ -512,8 +512,29 @@ describe('check-toolchain (the record check must run)', () => {
     );
     expect(result.code).toBe(1);
     expect(result.err).toBe(
-      `manifest: ${file} is not the toolchain of record (${RECORD}), so the record check would be skipped; differing fields: generator Visual Studio 17 2022 (record Visual Studio 18 2026), clVersion 19.44.35230 (record 19.44.35229)`,
+      `manifest: ${file} is not the toolchain of record (${RECORD}), so the record check would be skipped; differing fields: clVersion 19.44.35230 (record 19.44.35229)`,
     );
+    expect(result.out).toBe(
+      'toolchain differs from the record: generator Visual Studio 17 2022 (record Visual Studio 18 2026), information only: it does not change the bytes',
+    );
+  });
+
+  it('passes a different generator, reporting it as information (run 38947897592)', () => {
+    const result = run(
+      { command: 'check-toolchain', toolchain: file },
+      {
+        files: {
+          ...recordFiles(),
+          [file]: renderToolchain(toolchainOf('x64', { generator: 'Visual Studio 17 2022' })),
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(result.fs.out).toEqual([
+      'toolchain differs from the record: generator Visual Studio 17 2022 (record Visual Studio 18 2026), information only: it does not change the bytes',
+      `${file} is the toolchain of record (${RECORD})`,
+    ]);
+    expect(result.err).toBe('');
   });
 
   it('refuses what it cannot compare', () => {
@@ -540,7 +561,7 @@ describe('check-toolchain (the record check must run)', () => {
 describe('verify (release phase 2: the rebuild reproduces the committed record)', () => {
   const dir = 'D:/a/_temp/addon/x64';
 
-  it('passes a rebuild equal to the record, noting toolchain differences', () => {
+  it('passes a rebuild equal to the record, noting a different generator', () => {
     const result = run(
       { command: 'verify', dir, record: RECORD },
       {
@@ -548,16 +569,34 @@ describe('verify (release phase 2: the rebuild reproduces the committed record)'
           ...recordFiles(),
           ...artifact(dir, X64, 'x64', {
             version: VERSION,
-            toolchain: toolchainOf('x64', { clVersion: '19.44.35230' }),
+            toolchain: toolchainOf('x64', { generator: 'Visual Studio 17 2022' }),
           }),
         },
       },
     );
     expect(result.code).toBe(0);
     expect(result.fs.out).toEqual([
-      'x64: toolchain differs from the record: clVersion 19.44.35230 (record 19.44.35229)',
+      'x64: toolchain differs from the record: generator Visual Studio 17 2022 (record Visual Studio 18 2026), information only: it does not change the bytes',
       `x64: reproduces ${RECORD} (sha256 ${X64_SHA}, size ${String(X64.length)}, version ${VERSION})`,
     ]);
+  });
+
+  it('refuses equal bytes from a different toolchain of record', () => {
+    const result = run(
+      { command: 'verify', dir, record: RECORD },
+      {
+        files: {
+          ...recordFiles(),
+          ...artifact(dir, X64, 'x64', {
+            toolchain: toolchainOf('x64', { clVersion: '19.44.35230' }),
+          }),
+        },
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.err).toBe(
+      `manifest: x64: the rebuild was not built with the toolchain of record (${RECORD}); differing fields: clVersion 19.44.35230 (record 19.44.35229)`,
+    );
   });
 
   it('accepts a backslash path and an artifact without a version (arm64)', () => {
@@ -779,10 +818,32 @@ describe('compare (the lead checks CI against an independent local build)', () =
       `comparing the local builds with ${ci} (release 0.1.0, version ${VERSION})`,
       `arm64: MATCH sha256 ${ARM64_SHA} size ${String(ARM64.length)}`,
       `x64: MATCH sha256 ${X64_SHA} size ${String(X64.length)}`,
-      'x64: toolchain differs: generator local Visual Studio 17 2022 (CI Visual Studio 18 2026)',
+      'x64: toolchain differs: generator local Visual Studio 17 2022 (CI Visual Studio 18 2026), information only: it does not change the bytes',
       `all 2 architectures match ${ci}`,
     ]);
     expect(result.err).toBe('');
+  });
+
+  it('fails equal bytes from a different toolchain of record, counting each arch once', () => {
+    const other = fakePe(0x8664, 'local x64');
+    const result = run(
+      { command: 'compare', manifest: ci },
+      {
+        files: {
+          ...ciFiles,
+          ...buildTree('x64', other, toolchainOf('x64', { cmakeVersion: '4.4.5' })),
+          ...buildTree('arm64', ARM64, toolchainOf('arm64', { cmakeVersion: '4.4.5' })),
+        },
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.fs.out.slice(1)).toEqual([
+      'arm64: TOOLCHAIN MISMATCH (not the same toolchain of record): cmakeVersion local 4.4.5 (CI 4.4.4)',
+      `arm64: MATCH sha256 ${ARM64_SHA} size ${String(ARM64.length)}`,
+      'x64: TOOLCHAIN MISMATCH (not the same toolchain of record): cmakeVersion local 4.4.5 (CI 4.4.4)',
+      `x64: MISMATCH local sha256 ${sha256Hex(other)} size ${String(other.length)}, CI sha256 ${X64_SHA} size ${String(X64.length)}`,
+    ]);
+    expect(result.err).toBe(`manifest: 2 of 2 architectures do not match ${ci}`);
   });
 
   it('prints MISMATCH with both values, or the build command for a missing build, and exits 1', () => {

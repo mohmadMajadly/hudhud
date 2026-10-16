@@ -14,11 +14,13 @@
 //   an artifact directory with a `SHA256SUMS` for its bytes and, where the
 //   host can load it, its ABI `version`.
 // - `check-toolchain --toolchain <file>`: requires a build's toolchain to
-//   equal the record's, field by field (the condition under which the record
+//   equal the record's in every field that can change the bytes; the
+//   generator is reported only (the condition under which the record
 //   check of scripts/test/addon-record.test.ts runs instead of skipping).
 // - `verify --dir <artifact> --record <manifest>`: requires a rebuild to
-//   reproduce the committed record (sha256 and size), and the core's table
-//   to be written from that record (release phase 2).
+//   reproduce the committed record (sha256 and size, with the toolchain of
+//   record), and the core's table to be written from that record (release
+//   phase 2).
 // - `write --release <name> --dir <artifacts> --out <dir>`: writes
 //   `manifest.json`, `SHA256SUMS` and `toolchain.json` of a release record,
 //   in exactly the committed format, from the x64 and arm64 artifacts.
@@ -46,6 +48,7 @@ import {
   renderToolchain,
   sha256Hex,
   TOOLCHAIN_FIELDS,
+  informationalDifferences,
   toolchainDifferences,
   UsageError,
 } from './addon-digests.mjs';
@@ -392,18 +395,27 @@ class Context {
 
 /**
  * The toolchain fields in which a build differs from a reference, as
- * `<field> <own label><value> (<label> <value>)`.
+ * `<field> <own label><value> (<label> <value>)`: those that can change the
+ * bytes, and the informational ones (`generator`, shown not to change them;
+ * scripts/lib/addon-digests.mjs `INFORMATIONAL_FIELDS`), which are only
+ * ever reported.
  *
  * @param {Toolchain} reference
  * @param {Toolchain} toolchain
  * @param {string} label The reference's label (`record`, `CI`).
  * @param {string} [own] The build's label with a trailing space (`local `), or nothing.
- * @returns {string[]}
+ * @returns {{ bytes: string[], info: string[] }}
  */
 function describeDifferences(reference, toolchain, label, own = '') {
-  return toolchainDifferences(reference, toolchain).map(
-    (field) => `${field} ${own}${String(toolchain[field])} (${label} ${String(reference[field])})`,
-  );
+  /** @param {string} field */
+  const line = (field) =>
+    `${field} ${own}${String(toolchain[field])} (${label} ${String(reference[field])})`;
+  return {
+    bytes: toolchainDifferences(reference, toolchain).map(line),
+    info: informationalDifferences(reference, toolchain).map(
+      (field) => `${line(field)}, information only: it does not change the bytes`,
+    ),
+  };
 }
 
 /**
@@ -512,9 +524,10 @@ function checkRecordToolchain(file, context) {
     return context.refuse(`${record.path} records no ${String(toolchain['arch'])} build`);
   }
   const differs = describeDifferences(entry.toolchain, toolchain, 'record');
-  if (differs.length > 0) {
+  for (const line of differs.info) context.io.log(`toolchain differs from the record: ${line}`);
+  if (differs.bytes.length > 0) {
     return context.refuse(
-      `${file} is not the toolchain of record (${record.path}), so the record check would be skipped; differing fields: ${differs.join(', ')}`,
+      `${file} is not the toolchain of record (${record.path}), so the record check would be skipped; differing fields: ${differs.bytes.join(', ')}`,
     );
   }
   context.io.log(`${file} is the toolchain of record (${record.path})`);
@@ -564,11 +577,17 @@ function verify(dir, recordPath, context) {
   if (typeof build === 'string') return context.refuse(build);
   const entry = record.arches[build.arch];
   if (entry === undefined) return context.refuse(`${wanted} records no ${build.arch} build`);
-  for (const line of describeDifferences(entry.toolchain, build.toolchain, 'record')) {
+  const differs = describeDifferences(entry.toolchain, build.toolchain, 'record');
+  for (const line of differs.info) {
     context.io.log(`${build.arch}: toolchain differs from the record: ${line}`);
   }
   /** @type {string[]} */
   const problems = [];
+  if (differs.bytes.length > 0) {
+    problems.push(
+      `${build.arch}: the rebuild was not built with the toolchain of record (${wanted}); differing fields: ${differs.bytes.join(', ')}`,
+    );
+  }
   if (build.sha256 !== entry.sha256 || build.size !== entry.size) {
     problems.push(
       `${build.arch}: the rebuild does not reproduce ${wanted}: sha256 ${build.sha256} (record ${entry.sha256}), size ${String(build.size)} (record ${String(entry.size)})`,
@@ -660,17 +679,22 @@ function compare(file, context) {
       );
       continue;
     }
-    if (local.sha256 === entry.sha256 && local.size === entry.size) {
+    const differs = describeDifferences(entry.toolchain, local.toolchain, 'CI', 'local ');
+    const sameBytes = local.sha256 === entry.sha256 && local.size === entry.size;
+    if (differs.bytes.length > 0 || !sameBytes) failed += 1;
+    if (differs.bytes.length > 0) {
+      context.io.log(
+        `${arch}: TOOLCHAIN MISMATCH (not the same toolchain of record): ${differs.bytes.join(', ')}`,
+      );
+    }
+    if (sameBytes) {
       context.io.log(`${arch}: MATCH sha256 ${entry.sha256} size ${String(entry.size)}`);
     } else {
-      failed += 1;
       context.io.log(
         `${arch}: MISMATCH local sha256 ${local.sha256} size ${String(local.size)}, CI sha256 ${entry.sha256} size ${String(entry.size)}`,
       );
     }
-    for (const line of describeDifferences(entry.toolchain, local.toolchain, 'CI', 'local ')) {
-      context.io.log(`${arch}: toolchain differs: ${line}`);
-    }
+    for (const line of differs.info) context.io.log(`${arch}: toolchain differs: ${line}`);
   }
   if (failed > 0) {
     return context.refuse(

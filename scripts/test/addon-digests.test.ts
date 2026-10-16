@@ -16,6 +16,9 @@ import {
   ARCHES,
   checkToolchain,
   DIGESTS_MODULE,
+  BYTE_FIELDS,
+  informationalDifferences,
+  INFORMATIONAL_FIELDS,
   isAddonVersion,
   parseArgs,
   parseDigestsModule,
@@ -283,18 +286,31 @@ describe('toolchains', () => {
     );
   });
 
-  it('names the fields in which two toolchains differ, in field order', () => {
+  it('names the byte-changing fields in which two toolchains differ, in field order', () => {
     expect(toolchainDifferences(toolchainOf('x64'), toolchainOf('x64'))).toEqual([]);
-    expect(
-      toolchainDifferences(
-        toolchainOf('x64'),
-        toolchainOf('x64', {
-          windowsSdkVersion: '10.0.26200.0',
-          generator: 'Visual Studio 18 2026',
-          vcToolsVersion: '14.51.36231',
-        }),
-      ),
-    ).toEqual(['generator', 'vcToolsVersion', 'windowsSdkVersion']);
+    const other = toolchainOf('x64', {
+      windowsSdkVersion: '10.0.26200.0',
+      generator: 'Visual Studio 18 2026',
+      vcToolsVersion: '14.51.36231',
+    });
+    expect(toolchainDifferences(toolchainOf('x64'), other)).toEqual([
+      'vcToolsVersion',
+      'windowsSdkVersion',
+    ]);
+    expect(informationalDifferences(toolchainOf('x64'), other)).toEqual(['generator']);
+    expect(informationalDifferences(toolchainOf('x64'), toolchainOf('x64'))).toEqual([]);
+  });
+
+  it('compares every field but the generator exactly (lead ruling on A3, run 38947897592)', () => {
+    expect(INFORMATIONAL_FIELDS).toEqual(['generator']);
+    expect(BYTE_FIELDS).toEqual([
+      'arch',
+      'vcToolsVersion',
+      'clVersion',
+      'windowsSdkVersion',
+      'cmakeVersion',
+      'nodeApiHeadersVersion',
+    ]);
   });
 
   it('renders the fields in their order', () => {

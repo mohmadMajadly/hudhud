@@ -37,8 +37,9 @@ export const ARCHES = Object.freeze({
 
 /**
  * The fields of a `toolchain.json`: everything that changes the bytes of a
- * build (lead ruling on A2). `native/win32-job/build.mjs` writes one for
- * every build.
+ * build (lead ruling on A2), plus the generator, which is recorded but
+ * shown not to (see {@link INFORMATIONAL_FIELDS}).
+ * `native/win32-job/build.mjs` writes one for every build.
  */
 export const TOOLCHAIN_FIELDS = Object.freeze([
   'arch',
@@ -219,14 +220,48 @@ export function checkToolchain(value) {
 }
 
 /**
- * The fields in which two toolchains differ, in {@link TOOLCHAIN_FIELDS} order.
+ * Toolchain fields that are recorded but do not change the bytes, so they
+ * never decide a comparison and a difference in them is reported as
+ * information only (lead ruling on A3). `generator`: the CMake Visual
+ * Studio generator only selects the MSBuild front end; with the toolset
+ * and SDK pinned, `Visual Studio 17 2022` (the local build of record) and
+ * `Visual Studio 18 2026` (windows-2025 CI, Addon prebuild run 38947897592)
+ * produced byte-identical x64 and ARM64 addons.
+ */
+export const INFORMATIONAL_FIELDS = Object.freeze(['generator']);
+
+/**
+ * The toolchain fields that can change the bytes and must match exactly in
+ * every comparison: arch, MSVC toolset, `cl` version, Windows SDK, CMake
+ * and node-api-headers.
+ */
+export const BYTE_FIELDS = Object.freeze(
+  TOOLCHAIN_FIELDS.filter((field) => !INFORMATIONAL_FIELDS.includes(field)),
+);
+
+/**
+ * The fields that can change the bytes in which two toolchains differ, in
+ * {@link TOOLCHAIN_FIELDS} order. A difference here means the builds are
+ * not comparable as builds of record.
  *
  * @param {Toolchain} a
  * @param {Toolchain} b
  * @returns {string[]}
  */
 export function toolchainDifferences(a, b) {
-  return TOOLCHAIN_FIELDS.filter((field) => a[field] !== b[field]);
+  return BYTE_FIELDS.filter((field) => a[field] !== b[field]);
+}
+
+/**
+ * The {@link INFORMATIONAL_FIELDS} in which two toolchains differ: reported,
+ * never a reason to skip or fail.
+ *
+ * @param {Toolchain} a
+ * @param {Toolchain} b
+ * @returns {string[]}
+ */
+export function informationalDifferences(a, b) {
+  return INFORMATIONAL_FIELDS.filter((field) => a[field] !== b[field]);
 }
 
 /**

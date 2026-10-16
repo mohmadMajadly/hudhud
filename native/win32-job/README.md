@@ -94,7 +94,7 @@ node scripts/addon/write-digests.mjs --stage --arch x64 --addon <file> --toolcha
 
 It reads `build/<arch>/Release/hudhud_win32_job.node` and the `toolchain.json` next to it, or the files given with `--addon` and `--toolchain` (a CI artifact, for example). It refuses a file that is not a PE image of the requested architecture. It reads `version` by loading the addon when the host is Windows with the same architecture, and otherwise takes it from `--version`. If `--version` is given on such a host as well, the two must match. It then writes the exact bytes it read, a `SHA256SUMS` for them and the `toolchain.json` into `packages/win32-job-<arch>/`, all gitignored.
 
-The Windows test suites load the staged addon with the digest from its `SHA256SUMS`, after checking that it names the staged bytes. The committed table must equal the staged addon only when the staged `toolchain.json` equals the record's; on any other toolchain that check is skipped and the differing fields are named (see CONTRIBUTING).
+The Windows test suites load the staged addon with the digest from its `SHA256SUMS`, after checking that it names the staged bytes. The committed table must equal the staged addon only when the staged `toolchain.json` equals the record's in every field that can change the bytes; on any other toolchain that check is skipped and the differing fields are named (see CONTRIBUTING). The `generator` field is recorded but never compared, only reported: Visual Studio 17 2022 (the local build of record) and Visual Studio 18 2026 (windows-2025 CI, Addon prebuild run 38947897592) gave byte-identical x64 and ARM64 builds.
 
 ## Releasing
 
@@ -114,7 +114,7 @@ The invariant: the bytes a release publishes equal its release record, `release/
    node scripts/addon/manifest.mjs compare --manifest <download>/manifest.json
    ```
 
-   It prints `MATCH` or `MISMATCH` per architecture, with the local and CI sha256 and size, and the toolchain fields that differ. It exits 0 only when every architecture matches. On a mismatch, stop: nothing is committed.
+   It prints `MATCH` or `MISMATCH` per architecture, with the local and CI sha256 and size. A difference in a toolchain field that can change the bytes is a `TOOLCHAIN MISMATCH`; a different `generator` is reported as information only. It exits 0 only when every architecture matches in bytes and toolchain. On a mismatch, stop: nothing is committed.
 
 4. **Commit the record and the table.** Copy the three files into `native/win32-job/release/<release>/`, then regenerate the table from them and commit both:
 
