@@ -50,7 +50,7 @@ node native/win32-job/build.mjs --arch x64 --toolset-of-record
 
 `toolchain.json` records what changes the bytes: `arch`, `generator`, `vcToolsVersion` (the MSVC toolset), `clVersion`, `windowsSdkVersion` (the static `/MT` runtime takes the UCRT from the SDK), `cmakeVersion` and `nodeApiHeadersVersion`.
 
-Without `--toolset-of-record` the build uses the instance's default MSVC toolset and the newest Windows SDK, so its bytes depend on the machine. With it, the build pins the MSVC toolset and Windows SDK of the release record that the committed digest table was written from (`-T v143,version=<vcToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<windowsSdkVersion>`). If that toolset, its Spectre libraries or that SDK is not installed, the build fails and names the Visual Studio component ids to install, for example `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64` and `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre`. Releases use it (plan §6.3).
+Without `--toolset-of-record` the build uses the instance's default MSVC toolset and the newest Windows SDK, so its bytes depend on the machine. With it, the build pins the MSVC toolset and Windows SDK of the release record that the committed digest table was written from (`-T v143,version=<vcToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<windowsSdkVersion>`). If that toolset, its Spectre libraries or that SDK is not installed, the build fails and names the Visual Studio component ids to install, for example `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64` and `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre`. It checks the files, not the component ids, because the ids differ by instance: Build Tools 17.14 ships MSVC 14.44 as its default `VC.Tools.x86.x64`, Visual Studio 2026 as the side-by-side `VC.14.44.17.14.x86.x64`. The instance's default toolset is not required with the pin. Releases use it (see [Releasing](#releasing)).
 
 Tool lookup:
 
@@ -82,7 +82,7 @@ The core loads the addon only when its sha256 and `version` equal the committed 
 node scripts/addon/write-digests.mjs --from-manifest native/win32-job/release/0.0.0-dev/manifest.json
 ```
 
-`release/0.0.0-dev/` is the local build of record until the first release (plan §6.1: x64 `fbe7d9ad…69b0`, ARM64 `a38a74a0…4206`, Build Tools 17.14 with MSVC 14.44.35207, SDK 10.0.26100.0, CMake 4.4.4). Plan §6.3 describes how a release record is made.
+`release/0.0.0-dev/` is the local build of record until the first release (plan §6.1: x64 `fbe7d9ad…69b0`, ARM64 `a38a74a0…4206`, Build Tools 17.14 with MSVC 14.44.35207, SDK 10.0.26100.0, CMake 4.4.4). [Releasing](#releasing) describes how a release record is made.
 
 Staging copies a build into its platform package for the tests, and never touches the table:
 
@@ -95,6 +95,39 @@ node scripts/addon/write-digests.mjs --stage --arch x64 --addon <file> --toolcha
 It reads `build/<arch>/Release/hudhud_win32_job.node` and the `toolchain.json` next to it, or the files given with `--addon` and `--toolchain` (a CI artifact, for example). It refuses a file that is not a PE image of the requested architecture. It reads `version` by loading the addon when the host is Windows with the same architecture, and otherwise takes it from `--version`. If `--version` is given on such a host as well, the two must match. It then writes the exact bytes it read, a `SHA256SUMS` for them and the `toolchain.json` into `packages/win32-job-<arch>/`, all gitignored.
 
 The Windows test suites load the staged addon with the digest from its `SHA256SUMS`, after checking that it names the staged bytes. The committed table must equal the staged addon only when the staged `toolchain.json` equals the record's; on any other toolchain that check is skipped and the differing fields are named (see CONTRIBUTING).
+
+## Releasing
+
+The invariant: the bytes a release publishes equal its release record, `release/<release>/manifest.json`, and every rebuild must reproduce that record (plan §6.3). `<release>` is the version of the tag without the `v`, for example `0.1.0` for `v0.1.0`. The workflow is [`.github/workflows/addon-prebuild.yml`](../../.github/workflows/addon-prebuild.yml); its tool is `scripts/addon/manifest.mjs`.
+
+1. **Phase 1, CI record.** Dispatch the workflow (`workflow_dispatch`, input `release`) on the commit to release. It builds x64 and arm64 on `windows-2025` with `build.mjs --toolset-of-record`, after the Visual Studio installer has added any component of the toolset of record that the image lacks. `test-x64` requires the toolchain of record (`manifest.mjs check-toolchain`) so that the record check runs, then runs the addon tests of plan §6.5 on the x64 build, including the containment suites with the pinned CLI. `manifest` writes the candidate record as the artifact `addon-record` (`manifest.json`, `SHA256SUMS`, `toolchain.json`, in exactly the committed format). The run log prints all three files.
+2. **Independent local build.** On a Windows machine with the toolset of record (`manifest.mjs components --arch <arch>` prints its component ids):
+
+   ```sh
+   node native/win32-job/build.mjs --toolset-of-record --arch x64
+   node native/win32-job/build.mjs --toolset-of-record --arch arm64
+   ```
+
+3. **Compare.** Download `addon-record` from the run, then:
+
+   ```sh
+   node scripts/addon/manifest.mjs compare --manifest <download>/manifest.json
+   ```
+
+   It prints `MATCH` or `MISMATCH` per architecture, with the local and CI sha256 and size, and the toolchain fields that differ. It exits 0 only when every architecture matches. On a mismatch, stop: nothing is committed.
+
+4. **Commit the record and the table.** Copy the three files into `native/win32-job/release/<release>/`, then regenerate the table from them and commit both:
+
+   ```sh
+   node scripts/addon/write-digests.mjs --from-manifest native/win32-job/release/<release>/manifest.json
+   ```
+
+5. **Version.** Add the changeset and bump the versions (`pnpm changeset`, then `pnpm changeset version`). The core's optional dependency on `@hudhudjs/win32-job-x64` is `workspace:*`, so `pnpm pack` writes the platform package's exact version into it.
+6. **Tag.** Push `v<release>` on the commit that holds the record, the table and the versions.
+7. **Phase 2, verification.** The tag runs the workflow again. Each build must reproduce the committed record (`manifest.mjs verify --record native/win32-job/release/<release>/manifest.json`: sha256 and size per architecture, and the table must be written from that record). `release-verify` stages both builds, builds the core, packs the core and both platform packages, and hashes the packed bytes again (`node scripts/check-tarball.mjs --release-record native/win32-job/release/<release>/manifest.json`). The `.node` and `SHA256SUMS` in each platform tarball and the digest table in the core's tarball (source and compiled `dist` module) must equal the record, and the core's optional dependency must name the packed x64 version. Every failure names both values.
+8. **Publish** (not automated yet; it comes at open-sourcing with npm trusted publishing and provenance, ADR-0009). Publish `@hudhudjs/win32-job-x64` first and `@hudhudjs/core` second, so that the core's exact optional dependency always resolves. `@hudhudjs/win32-job-arm64` stays private (K17).
+
+The workflow holds `contents: read` only and references no secret, so the tag run has no write token. It reads and writes no cache, and it keeps its artifacts for 3 days.
 
 ## Security properties
 
