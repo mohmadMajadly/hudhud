@@ -202,6 +202,8 @@ describe('sha256File', () => {
       sha256: oneShot('identity'),
       size: 8,
       mtimeMs: Number(facts.mtimeMs),
+      mtimeNs: String(facts.mtimeNs),
+      ctimeNs: String(facts.ctimeNs),
       fileId: `${String(facts.dev)}:${String(facts.ino)}`,
     });
   });

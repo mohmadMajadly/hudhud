@@ -7,7 +7,7 @@
  *
  * - Runs only a binary that passed {@link assertSpawnable}: in strict mode
  *   only a `verified` one, and in every mode only while the realpath, file
- *   id, size and mtime still equal the verified ones.
+ *   id, size, mtime and ctime (in nanoseconds) still equal the verified ones.
  * - argv hygiene: the argv is the caller's fixed list, each entry passed as
  *   one argument with `shell: false`; an entry with a NUL is refused.
  * - env hygiene: the child gets exactly `env` (on Windows plus the libuv

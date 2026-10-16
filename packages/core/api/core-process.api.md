@@ -88,9 +88,10 @@ export class BinaryChangedError extends Error {
 
 // @public
 export interface BinaryIdentity {
+    readonly ctimeNs: string;
     readonly fileId: string;
-    // (undocumented)
     readonly mtimeMs: number;
+    readonly mtimeNs: string;
     // (undocumented)
     readonly size: number;
 }
@@ -295,7 +296,15 @@ export interface ExecutableFs {
     // (undocumented)
     realpath(value: string): Promise<string>;
     // (undocumented)
-    stat(value: string): Promise<FileIdentity>;
+    stat(value: string): Promise<ExecutableIdentity>;
+}
+
+// @public
+export interface ExecutableIdentity extends FileIdentity {
+    // (undocumented)
+    readonly ctimeNs: bigint;
+    // (undocumented)
+    readonly mtimeNs: bigint;
 }
 
 // @public
@@ -326,8 +335,10 @@ export class FileChangedError extends Error {
 
 // @public
 export interface FileDigest {
+    readonly ctimeNs: string;
     readonly fileId: string;
     readonly mtimeMs: number;
+    readonly mtimeNs: string;
     readonly sha256: string;
     readonly size: number;
 }
@@ -423,7 +434,7 @@ export interface IdentityFs {
     // (undocumented)
     realpath(path: string): Promise<string>;
     // (undocumented)
-    stat(path: string): Promise<FileIdentity>;
+    stat(path: string): Promise<ExecutableIdentity>;
 }
 
 // @public
@@ -821,7 +832,9 @@ export function recheckBinary(binary: VerifiedBinary, fs?: IdentityFs): Promise<
 
 // @public
 export interface ResolvedExecutable {
+    readonly ctimeNs: string;
     readonly mtimeMs: number;
+    readonly mtimeNs: string;
     readonly path: string;
     readonly requested: string;
     readonly size: number;

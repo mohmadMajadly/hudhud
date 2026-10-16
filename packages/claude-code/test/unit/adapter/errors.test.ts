@@ -149,7 +149,7 @@ describe('connect errors', () => {
         ...fake.host.verify,
         hash: async (file: string) => {
           const digest = await hash?.(file);
-          return { ...digest, mtimeMs: 99 } as never;
+          return { ...digest, mtimeNs: '99' } as never;
         },
       },
     };

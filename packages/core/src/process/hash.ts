@@ -18,18 +18,22 @@
  *   `stat`, so the type check and the read see the same file). On POSIX the
  *   file is opened with `O_NONBLOCK`, so a FIFO planted at the path is refused
  *   instead of blocking the open forever.
- * - The size, mtime and file id returned are taken from the same handle, by
- *   `fstat` before and after hashing. If size, mtime or file id differ
- *   between the two, or the bytes read differ from the size, the file
- *   changed while it was read and {@link FileChangedError} is thrown, so a
- *   digest is never bound to the wrong content.
+ * - The size, the modification and change times (`mtimeNs`, `ctimeNs`) and
+ *   the file id returned are taken from the same handle, by `fstat` before
+ *   and after hashing. If any of them differ between the two, or the bytes
+ *   read differ from the size, the file changed while it was read and
+ *   {@link FileChangedError} is thrown, so a digest is never bound to the
+ *   wrong content.
  * - The handle is always closed.
  *
  * Not guaranteed (TOCTOU): the result describes the file at the time it was
  * read. A file replaced afterwards is not detected here; callers bind the
- * digest to `fileId`, `size` and `mtimeMs` and compare them before use. A
- * same-size write within one mtime tick during the read is not detectable
- * from metadata.
+ * digest to `fileId`, `size`, `mtimeNs` and `ctimeNs` and compare them
+ * before use. What this metadata cannot show: on POSIX, a change by root
+ * (which can set the clock, and so `ctime`) or on a filesystem whose
+ * attributes are cached (NFS, some FUSE mounts); on win32, a same-size
+ * rewrite in place by a writer that restores the timestamps
+ * (`SetFileInformationByHandle` sets both the write and the change time).
  *
  * @packageDocumentation
  */
@@ -91,6 +95,10 @@ export interface FileDigest {
   readonly size: number;
   /** Modification time in whole milliseconds. */
   readonly mtimeMs: number;
+  /** Modification time in nanoseconds, decimal. */
+  readonly mtimeNs: string;
+  /** Status change time (`ctime`) in nanoseconds, decimal. */
+  readonly ctimeNs: string;
   /**
    * `<dev>:<ino>` in decimal: device and inode on POSIX, volume serial
    * number and file index on win32.
@@ -105,6 +113,7 @@ interface HandleStat {
   readonly size: bigint;
   readonly mtimeMs: bigint;
   readonly mtimeNs: bigint;
+  readonly ctimeNs: bigint;
 }
 
 function fileId(stat: HandleStat): string {
@@ -113,7 +122,7 @@ function fileId(stat: HandleStat): string {
 
 /** Everything that must agree before and after the read, as one string. */
 function fingerprint(stat: HandleStat, bytes: bigint): string {
-  return `${fileId(stat)}|${String(stat.size)}|${String(stat.mtimeNs)}|${String(bytes)}`;
+  return [fileId(stat), stat.size, stat.mtimeNs, stat.ctimeNs, bytes].map(String).join('|');
 }
 
 /** The default read buffer (see the module remarks for the measurements). */
@@ -160,6 +169,8 @@ export async function sha256File(
       sha256: hash.digest('hex'),
       size: Number(before.size),
       mtimeMs: Number(before.mtimeMs),
+      mtimeNs: String(before.mtimeNs),
+      ctimeNs: String(before.ctimeNs),
       fileId: fileId(before),
     };
   } finally {
