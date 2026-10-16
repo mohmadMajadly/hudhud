@@ -12,4 +12,8 @@ packages/*/src/**/generated/
 
 # Design documents are owner-maintained prose; reformatting them is not a
 # tooling decision. They are checked by the link checker and privacy scan.
-docs/
+# The user guide (docs/guide/) is formatted like every other document.
+docs/adr/
+docs/plan/
+docs/research/
+docs/architecture.md

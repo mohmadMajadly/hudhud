@@ -20,7 +20,8 @@
     "packages/*/schema-src/**/*.ts",
     "tooling/*/test/**/*.ts",
     "tooling/*/bin/**/*.mjs",
-    "native/*/*.mjs"
+    "native/*/*.mjs",
+    "examples/**/*.ts"
   ],
   "references": [
     { "path": "packages/core" },
