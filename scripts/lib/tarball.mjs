@@ -5,6 +5,13 @@
 
 import { gunzipSync } from 'node:zlib';
 
+import {
+  ADDON_FILE,
+  DIGESTS_MODULE,
+  parseDigestsModule,
+  renderSha256Sums,
+  sha256Hex,
+} from './addon-digests.mjs';
 import { scanText } from './privacy.mjs';
 
 /**
@@ -852,4 +859,151 @@ export function rootProblem(root, repo, hasResolutionMarker, inside, parentOf) {
     }
     if (parentOf(dir) === dir) return null;
   }
+}
+
+// ---- release record (plan §6.3 phase 2) -------------------------------------
+
+/** The core's package directory, the prefix of {@link DIGESTS_MODULE}. */
+const CORE_DIR = 'packages/core/';
+
+/** The digest table's source inside the core's tarball. */
+export const DIGESTS_SOURCE = DIGESTS_MODULE.slice(CORE_DIR.length);
+
+/** The digest table's compiled module inside the core's tarball (what the loader imports). */
+export const DIGESTS_BUILD = DIGESTS_SOURCE.replace(/^src\//u, 'dist/').replace(/\.ts$/u, '.js');
+
+/**
+ * Reads the digest table from its compiled module: the `tsc` output of the
+ * generated table, exactly one `WIN32_JOB_DIGESTS` object with `version`
+ * and `x64`. Anything else is null.
+ *
+ * @param {string} text
+ * @returns {{ version: string, x64: string } | null}
+ */
+export function parseCompiledDigests(text) {
+  const matches = [
+    ...text.matchAll(
+      /^export const WIN32_JOB_DIGESTS = Object\.freeze\(\{\n {4}version: '([^'\n]*)',\n {4}x64: '([^'\n]*)',\n\}\);$/gmu,
+    ),
+  ];
+  const [match] = matches;
+  if (matches.length !== 1 || match === undefined) return null;
+  return { version: String(match[1]), x64: String(match[2]) };
+}
+
+/**
+ * @param {readonly TarEntry[]} entries
+ * @param {string} path
+ * @returns {Buffer | undefined}
+ */
+function fileIn(entries, path) {
+  return entries.find((entry) => entry.path === path)?.data;
+}
+
+/**
+ * @param {readonly TarEntry[]} entries
+ * @returns {PackageJson | undefined}
+ */
+function packedManifest(entries) {
+  const data = fileIn(entries, 'package.json');
+  if (data === undefined) return undefined;
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(data.toString('utf8'));
+    return typeof parsed === 'object' && parsed !== null
+      ? /** @type {PackageJson} */ (parsed)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The release check of the packed tarballs (plan §6.3 phase 2): the bytes a
+ * release would publish must equal the release record.
+ *
+ * - Each platform package of the record carries the addon with the record's
+ *   sha256 and size, and a `SHA256SUMS` naming that sha256.
+ * - The core carries the digest table written from this record, in its
+ *   source and in its compiled module (`dist`, what the loader imports).
+ * - The core's optional dependency on the x64 package is that package's
+ *   exact packed version, so it resolves to these bytes; arm64 is not a
+ *   dependency (K17).
+ *
+ * @param {import('./addon-digests.mjs').Manifest} manifest The record.
+ * @param {string} manifestPath Its repository path, as the table names it.
+ * @param {{ core: readonly TarEntry[], platforms: Readonly<Record<string, readonly TarEntry[]>> }} packs
+ * @returns {string[]} problems, each naming both values
+ */
+export function checkReleaseRecord(manifest, manifestPath, packs) {
+  /** @type {string[]} */
+  const problems = [];
+  const core = packedManifest(packs.core);
+  if (core === undefined) problems.push('@hudhudjs/core: the tarball has no readable package.json');
+  const optional = core?.optionalDependencies ?? {};
+  for (const arch of Object.keys(manifest.arches).sort()) {
+    const record = /** @type {import('./addon-digests.mjs').ReleaseArch} */ (manifest.arches[arch]);
+    const label = `the ${arch} platform package`;
+    const entries = packs.platforms[arch];
+    if (entries === undefined) {
+      problems.push(`${label} was not packed`);
+      continue;
+    }
+    const addon = fileIn(entries, ADDON_FILE);
+    if (addon === undefined) {
+      problems.push(`${label}: the tarball has no ${ADDON_FILE}`);
+    } else {
+      const sha256 = sha256Hex(addon);
+      if (sha256 !== record.sha256 || addon.length !== record.size) {
+        problems.push(
+          `${label}: ${ADDON_FILE} in the tarball is sha256 ${sha256} size ${String(addon.length)}, ${manifestPath} records sha256 ${record.sha256} size ${String(record.size)}`,
+        );
+      }
+    }
+    if (fileIn(entries, 'SHA256SUMS')?.toString('utf8') !== renderSha256Sums(record.sha256)) {
+      problems.push(`${label}: SHA256SUMS in the tarball does not name ${record.sha256} alone`);
+    }
+    const platform = packedManifest(entries);
+    const name = platform?.name;
+    const version = platform?.version;
+    if (typeof name !== 'string' || typeof version !== 'string') {
+      problems.push(`${label}: the tarball's package.json has no name and version`);
+    } else if (arch === 'x64') {
+      if (optional[name] !== version) {
+        problems.push(
+          `@hudhudjs/core: optionalDependencies.${name} is ${String(optional[name])}, the packed ${name} is ${version}`,
+        );
+      }
+    } else if (Object.hasOwn(optional, name)) {
+      problems.push(`@hudhudjs/core: lists ${name} as an optional dependency (K17: x64 only)`);
+    }
+  }
+
+  const x64 = manifest.arches['x64']?.sha256;
+  const want = `version ${manifest.version}, x64 ${String(x64)}`;
+  const source = fileIn(packs.core, DIGESTS_SOURCE);
+  const table = source === undefined ? null : parseDigestsModule(source.toString('utf8'));
+  if (table === null) {
+    problems.push(`@hudhudjs/core: ${DIGESTS_SOURCE} is missing or not a generated table`);
+  } else if (
+    table.version !== manifest.version ||
+    table.x64 !== x64 ||
+    table.manifest !== manifestPath
+  ) {
+    problems.push(
+      `@hudhudjs/core: ${DIGESTS_SOURCE} holds version ${table.version}, x64 ${table.x64} from ${table.manifest}; ${manifestPath} records ${want}`,
+    );
+  }
+  const built = fileIn(packs.core, DIGESTS_BUILD);
+  const compiled = built === undefined ? null : parseCompiledDigests(built.toString('utf8'));
+  if (compiled === null) {
+    problems.push(
+      `@hudhudjs/core: ${DIGESTS_BUILD} is missing or not the compiled table (build first)`,
+    );
+  } else if (compiled.version !== manifest.version || compiled.x64 !== x64) {
+    problems.push(
+      `@hudhudjs/core: ${DIGESTS_BUILD} holds version ${compiled.version}, x64 ${compiled.x64}; ${manifestPath} records ${want}`,
+    );
+  }
+  return problems;
 }

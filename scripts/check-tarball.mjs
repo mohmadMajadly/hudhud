@@ -21,6 +21,20 @@
 // directory), refused when an ancestor would change package resolution, and
 // is removed at the end.
 //
+// Release mode (plan §6.3 phase 2):
+//
+//   node scripts/check-tarball.mjs --release-record native/win32-job/release/<release>/manifest.json
+//
+// packs only the core and the platform packages the record names (the
+// addon staged into them first, `write-digests.mjs --stage`; the arm64
+// package too, although it is private, K17) and hashes the bytes a release
+// would publish again: the `.node` and `SHA256SUMS` inside each platform
+// tarball and the digest table inside the core's tarball (source and
+// compiled `dist` module) must equal the record, and the core's optional
+// dependency must name the packed x64 version (scripts/lib/tarball.mjs
+// `checkReleaseRecord`). Every mismatch names both values. The full package
+// checks above are not repeated in this mode.
+//
 // Exit codes: 0 all checks passed, 1 problems found, 2 tool or setup error.
 
 import { spawnSync } from 'node:child_process';
@@ -39,8 +53,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
+import { ARCHES, parseManifest, releaseOf } from './lib/addon-digests.mjs';
 import {
   checkImports,
+  checkReleaseRecord,
   checkSourceManifest,
   checkTarball,
   cleanEnv,
@@ -48,6 +64,7 @@ import {
   isPublishable,
   nativeSkipReason,
   parseImportResults,
+  readTarGz,
   renderTypeProject,
   rootProblem,
   supportsPlatform,
@@ -204,10 +221,39 @@ function report(lines, heading) {
   process.stdout.write(`${heading}\n${lines.map((line) => `  ${line}`).join('\n')}\n`);
 }
 
+/**
+ * Packs one package with `pnpm pack` into `tarballs`.
+ *
+ * @param {string} dir The package directory.
+ * @param {string} name Its name, for messages.
+ * @param {string} tarballs
+ * @returns {string} The tarball's path.
+ */
+function pack(dir, name, tarballs) {
+  const before = new Set(readdirSync(tarballs));
+  pnpm(['pack', '--pack-destination', tarballs], dir);
+  const created = readdirSync(tarballs).filter(
+    (file) => !before.has(file) && file.endsWith('.tgz'),
+  );
+  if (created.length !== 1 || created[0] === undefined) {
+    throw new ToolError(
+      `pnpm pack of ${name} produced ${String(created.length)} tarballs, expected 1`,
+    );
+  }
+  return path.join(tarballs, created[0]);
+}
+
+const USAGE =
+  'usage: node scripts/check-tarball.mjs [--release-record native/win32-job/release/<release>/manifest.json]\n';
+
 /** @returns {number} */
 function main() {
-  if (process.argv.length > 2) {
-    process.stderr.write('usage: node scripts/check-tarball.mjs (no arguments)\n');
+  const args = process.argv.slice(2);
+  if (args.length === 2 && args[0] === '--release-record' && args[1] !== undefined) {
+    return releaseRecord(args[1]);
+  }
+  if (args.length > 0) {
+    process.stderr.write(USAGE);
     return 2;
   }
   const packages = publishablePackages();
@@ -230,17 +276,7 @@ function main() {
         problems.push(...scripted.map((problem) => `${name}: ${problem}`));
         continue;
       }
-      const before = new Set(readdirSync(tarballs));
-      pnpm(['pack', '--pack-destination', tarballs], dir);
-      const created = readdirSync(tarballs).filter(
-        (file) => !before.has(file) && file.endsWith('.tgz'),
-      );
-      if (created.length !== 1 || created[0] === undefined) {
-        throw new ToolError(
-          `pnpm pack of ${name} produced ${String(created.length)} tarballs, expected 1`,
-        );
-      }
-      const file = path.join(tarballs, created[0]);
+      const file = pack(dir, name, tarballs);
       const skipped = nativeSkipReason(manifest, process.platform);
       if (skipped !== null) {
         // Not built on this host, so nothing in it can be checked here; the
@@ -374,6 +410,77 @@ function installAndImport(root, installed, otherPlatform, problems) {
     process.stdout.write(
       `type-checked ${String(typed.length)} entry points against the installed packages\n`,
     );
+  }
+}
+
+/**
+ * Release mode: packs the core and the record's platform packages and
+ * checks the packed bytes against the release record.
+ *
+ * @param {string} given The record's repository path.
+ * @returns {number}
+ */
+function releaseRecord(given) {
+  const manifestPath = given.replaceAll('\\', '/');
+  if (releaseOf(manifestPath) === null) {
+    process.stderr.write(`${given} is not a release record path\n${USAGE}`);
+    return 2;
+  }
+  /** @type {string} */
+  let text;
+  try {
+    text = readFileSync(path.join(REPO, manifestPath), 'utf8');
+  } catch (error) {
+    throw new ToolError(
+      `cannot read ${manifestPath} (${String(/** @type {{ code?: unknown }} */ (error).code ?? error)})`,
+    );
+  }
+  const manifest = parseManifest(text);
+  if (typeof manifest === 'string') throw new ToolError(`${manifestPath}: ${manifest}`);
+
+  const root = makeRoot(process.env['HUDHUD_TEST_ROOT'] ?? os.tmpdir());
+  try {
+    const tarballs = path.join(root, 'tarballs');
+    mkdirSync(tarballs);
+    /** @param {string} dir */
+    const packed = (dir) => {
+      const source = path.join(REPO, dir);
+      /** @type {unknown} */
+      const parsed = JSON.parse(readFileSync(path.join(source, 'package.json'), 'utf8'));
+      const name = String(/** @type {PackageJson} */ (parsed).name);
+      const scripted = checkSourceManifest(/** @type {PackageJson} */ (parsed));
+      if (scripted.length > 0) throw new ToolError(`${name}: ${scripted.join('; ')}`);
+      const file = pack(source, name, tarballs);
+      try {
+        return readTarGz(readFileSync(file));
+      } catch (error) {
+        throw new ToolError(
+          `cannot read the tarball of ${name}: ${/** @type {Error} */ (error).message}`,
+        );
+      }
+    };
+    const core = packed('packages/core');
+    /** @type {Record<string, import('./lib/tarball.mjs').TarEntry[]>} */
+    const platforms = {};
+    for (const arch of Object.keys(manifest.arches).sort()) {
+      const target = ARCHES[arch];
+      if (target !== undefined) platforms[arch] = packed(target.packageDir);
+    }
+    const problems = checkReleaseRecord(manifest, manifestPath, { core, platforms });
+    if (problems.length > 0) {
+      report(problems, `release record check FAILED against ${manifestPath}:`);
+      return 1;
+    }
+    const lines = Object.keys(manifest.arches)
+      .sort()
+      .map((arch) => `${arch} sha256 ${String(manifest.arches[arch]?.sha256)}`);
+    report(
+      lines,
+      `release record check passed: the packed tarballs carry ${manifestPath} (version ${manifest.version})`,
+    );
+    return 0;
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   }
 }
 

@@ -21,6 +21,23 @@ describe('check-tarball.mjs', () => {
     expect(result.stdout).toBe('');
   });
 
+  it('release mode refuses a path that is not a committed release record, before packing', () => {
+    const bad = spawnSync(process.execPath, [script, '--release-record', 'manifest.json'], {
+      encoding: 'utf8',
+    });
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toContain('manifest.json is not a release record path');
+    expect(bad.stderr).toContain('usage: node scripts/check-tarball.mjs [--release-record');
+    expect(bad.stdout).toBe('');
+    const missing = 'native/win32-job/release/9.9.9-missing/manifest.json';
+    const absent = spawnSync(process.execPath, [script, '--release-record', missing], {
+      encoding: 'utf8',
+    });
+    expect(absent.status).toBe(2);
+    expect(absent.stderr).toBe(`tarball check: cannot read ${missing} (ENOENT)\n`);
+    expect(absent.stdout).toBe('');
+  });
+
   it('never publishes and never talks to a registry itself', () => {
     const source = readFileSync(script, 'utf8');
     // It packs and installs tarballs only: no publish command, no registry URL,
