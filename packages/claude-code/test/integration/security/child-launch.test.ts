@@ -94,12 +94,16 @@ test('default launch: exact argv, allowlisted environment, pinned keys, no TRACE
   );
 
   // The variables the platform never reads are not passed (plan §2.5
-  // allowlist per platform); the pinned ones are hudhud's own values.
+  // allowlist per platform); the pinned ones are hudhud's own values. The
+  // sandbox parent holds DISABLE_AUTOUPDATER, which the preset filters out
+  // and the pin sets again: the child holds it, so it is not dropped
+  // (env.dropped names parent variables absent from the child, W7-T5).
   const unread = platform === 'win32' ? ['HOME', 'TMPDIR'] : ['TEMP', 'TMP'];
+  expect(Object.keys(sandbox.env)).toContain('DISABLE_AUTOUPDATER');
   const dropped = diagnostics(collected.events, 'env.dropped');
   expect(dropped).toHaveLength(1);
   expect(dropped[0]).toEqual({
-    names: [...Object.keys(PARENT_EXTRAS), ...unread, 'DISABLE_AUTOUPDATER'].sort(),
+    names: [...Object.keys(PARENT_EXTRAS), ...unread].sort(),
     spawnInjected: [],
   });
   if (probe.exactEnv) {
