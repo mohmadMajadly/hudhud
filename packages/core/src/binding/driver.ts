@@ -601,7 +601,8 @@ export class SessionDriver<State, Config> implements SessionCore {
    * Queues a raw command input, bypassing the handles' bookkeeping (no turn
    * record, no permission bridge): for replays of recorded inputs through
    * the loopback binding. Effects bound to unknown turns or correlations
-   * are ignored.
+   * are ignored. The session handles never call it; it is the only way the
+   * internal `cmd.permission-abort` reaches a machine (see `CommandInput`).
    */
   command(input: CommandInput): void {
     this.#begin();

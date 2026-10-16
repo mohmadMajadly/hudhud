@@ -103,6 +103,17 @@ export type PermissionErrorReason = 'no-handler' | 'handler-failed' | 'invalid-d
  * already told the application what failed. A machine that ignores it breaks
  * the contract (the machine kit checks it).
  *
+ * `cmd.permission-abort` is an internal protocol input, not an application
+ * action: no public call of a session, a turn or a permission handler
+ * produces it (an answer is `cmd.permission`, a missing or failed one
+ * `cmd.permission-error`, and a withdrawal by the harness, `close()` or
+ * `abort()` is the machine's own `permission.cancel`). It exists so that a
+ * recorded answer hudhud itself never writes (a control error for a
+ * permission request) can be replayed through the binding's
+ * `SessionDriver.command` by the conformance replay. A machine must still end
+ * the ask when it arrives, never with an allow; the machine kit checks that
+ * every ask ends exactly once.
+ *
  * @public
  */
 export type CommandInput =
