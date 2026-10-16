@@ -9,7 +9,8 @@
 // parent unless the addon's job holds it: the control case shows that, the
 // job cases show the job ending it (05 §10, ADR-0009).
 //
-// Cases: exports and argument validation; control (no job, the grandchild
+// Cases: exports and argument validation; the host's own pid refused
+// (ERR_SELF_ASSIGN); control (no job, the grandchild
 // survives its parent); create/assign/list/terminate (nesting under
 // libuv's job, the grandchild inherits the job, terminate ends both);
 // idempotency and ERR_JOB_CLOSED; kill on close while an unrelated child
@@ -75,6 +76,27 @@ const HELPER_HOST = [
   '});',
   "child.stdin.write('go\\n');",
   'setInterval(() => {}, 1e6);',
+].join('\n');
+
+/**
+ * A host that tries to assign itself: prints the error code (or `assigned`),
+ * the job's pid count, then terminates and closes the job and prints
+ * `alive`. A host that had been assigned would never print `alive`.
+ */
+const SELF_ASSIGN_HOST = [
+  'const m = { exports: {} };',
+  'process.dlopen(m, process.argv[1]);',
+  'const job = m.exports.createJob();',
+  'try {',
+  '  m.exports.assignProcess(job, process.pid);',
+  "  process.stdout.write('assigned\\n');",
+  '} catch (error) {',
+  '  process.stdout.write(`${error.code}\\n`);',
+  '}',
+  'process.stdout.write(`pids=${m.exports.listPids(job).length}\\n`);',
+  'm.exports.terminateJob(job, 0);',
+  'm.exports.closeJob(job);',
+  "process.stdout.write('alive\\n');",
 ].join('\n');
 
 /** A host that loads the addon and uses it once; prints `ok`. */
@@ -322,6 +344,27 @@ function exited(child) {
 }
 
 /**
+ * Resolves when the child exited and its stdio closed (all output read);
+ * rejects after the case timeout.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @returns {Promise<void>}
+ */
+function closed(child) {
+  return new Promise((resolve, reject) => {
+    const onClose = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      child.off('close', onClose);
+      reject(new Error(`timed out waiting for pid ${String(child.pid)} to close`));
+    }, CASE_TIMEOUT_MS);
+    child.once('close', onClose);
+  });
+}
+
+/**
  * Starts a tree; `beforeGo` runs between the spawn and the grandchild's
  * start (the assignment).
  *
@@ -381,6 +424,30 @@ function caseValidation(addon) {
   }
 }
 
+/**
+ * The host's own pid is refused. Probed in a helper host, never in this
+ * one: a host that had been assigned dies silently (exit code 0) when the
+ * job is closed, so only the helper's complete output proves the refusal.
+ *
+ * @param {string} file
+ */
+async function caseSelfAssign(file) {
+  const host = spawnNode(['-e', SELF_ASSIGN_HOST, file], ['ignore', 'pipe', 'inherit']);
+  const { stdout } = host;
+  check(stdout !== null, 'the helper host has a stdout pipe');
+  let output = '';
+  stdout.on('data', (/** @type {Buffer} */ chunk) => {
+    output += String(chunk);
+  });
+  await closed(host);
+  const lines = output.split('\n').filter((line) => line !== '');
+  check(
+    JSON.stringify(lines) === JSON.stringify(['ERR_SELF_ASSIGN', 'pids=0', 'alive']),
+    `the helper refused its own pid and outlived its job (${lines.join(' | ')})`,
+  );
+  check(host.exitCode === 0, 'the helper exited 0');
+}
+
 /** @param {Addon} addon */
 async function caseControl(addon) {
   const tree = await startTree(addon, () => undefined);
@@ -433,7 +500,7 @@ async function caseTerminate(addon) {
   addon.closeJob(job);
   expectThrow(() => addon.terminateJob(job, 0), 'ERR_JOB_CLOSED');
   expectThrow(() => addon.listPids(job), 'ERR_JOB_CLOSED');
-  expectThrow(() => addon.assignProcess(job, process.pid), 'ERR_JOB_CLOSED');
+  expectThrow(() => addon.assignProcess(job, NO_SUCH_PID), 'ERR_JOB_CLOSED');
   expectThrow(() => addon.closeJob({}), 'ERR_INVALID_ARG_TYPE');
 }
 
@@ -577,6 +644,7 @@ async function main() {
         caseValidation(addon);
       },
     ],
+    ['the host refuses to assign itself (ERR_SELF_ASSIGN)', () => caseSelfAssign(file)],
     ['control: no job, the grandchild survives', () => caseControl(addon)],
     ['create/assign/list/terminate, idempotency, ERR_JOB_CLOSED', () => caseTerminate(addon)],
     ['kill on close, handle not inherited', () => caseKillOnClose(addon)],

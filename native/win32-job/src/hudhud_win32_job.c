@@ -8,13 +8,15 @@
  * Win32 calls (the complete list, plan section 6.1): CreateJobObjectW,
  * SetInformationJobObject, OpenProcess, GetProcessTimes,
  * AssignProcessToJobObject, TerminateJobObject,
- * QueryInformationJobObject, CloseHandle, GetLastError. The delay-load
+ * QueryInformationJobObject, CloseHandle, GetLastError, and
+ * GetCurrentProcessId (assignProcess refuses the host itself). The delay-load
  * hook (delay_load_hook.c) adds GetModuleHandleW(NULL).
  *
  * Errors: a JS Error whose code is WIN32_<GetLastError()> and whose message
  * names the failing API; argument errors are TypeErrors with code
  * ERR_INVALID_ARG_TYPE, ERR_INVALID_ARG_VALUE or ERR_INVALID_ARG_COUNT; any
- * use of a closed job throws ERR_JOB_CLOSED.
+ * use of a closed job throws ERR_JOB_CLOSED; assignProcess with the host's
+ * own pid throws ERR_SELF_ASSIGN.
  */
 
 #define NAPI_VERSION 8
@@ -275,6 +277,12 @@ static napi_value assign_process(napi_env env, napi_callback_info info) {
   job *j;
   if (!get_args(env, info, 2u, argv) || !get_open_job(env, argv[0], &j) ||
       !get_uint32(env, argv[1], 1u, "pid must be an integer in [1, 4294967295]", &pid)) {
+    return NULL;
+  }
+  /* The host in its own KILL_ON_JOB_CLOSE job would die with the job (and
+     terminateJob would kill it): refused before any handle is opened. */
+  if (pid == GetCurrentProcessId()) {
+    throw_error(env, "ERR_SELF_ASSIGN", "assignProcess refuses the host's own pid");
     return NULL;
   }
   process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,

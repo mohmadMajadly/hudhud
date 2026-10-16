@@ -1341,7 +1341,7 @@ N-API surface (plain C on `node_api.h`, `NAPI_VERSION 8`):
 | JS name | Win32 calls | Contract |
 |---|---|---|
 | `createJob()` -> external | `CreateJobObjectW(NULL, NULL)`; `SetInformationJobObject(JobObjectExtendedLimitInformation)` with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` only (no breakaway flags) | handle **not inheritable** (otherwise the CLI would keep the job alive after host death); finalizer closes the handle (kills the tree, "dies with its owner") |
-| `assignProcess(job, pid)` -> `{ creationTime: string }` | `OpenProcess(PROCESS_SET_QUOTA \| PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `AssignProcessToJobObject`, `CloseHandle` | called while Node holds the child handle (no pid reuse); creation time as a decimal string of 100 ns units |
+| `assignProcess(job, pid)` -> `{ creationTime: string }` | `GetCurrentProcessId`, `OpenProcess(PROCESS_SET_QUOTA \| PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `AssignProcessToJobObject`, `CloseHandle` | called while Node holds the child handle (no pid reuse); creation time as a decimal string of 100 ns units; the host's own pid is refused with `ERR_SELF_ASSIGN` before any handle is opened (lead ruling, A1: in its own `KILL_ON_JOB_CLOSE` job the host would die with the job, and `terminateJob` would kill it; `GetCurrentProcessId` is in the table for this check only) |
 | `terminateJob(job, exitCode)` | `TerminateJobObject` | idempotent |
 | `closeJob(job)` | `CloseHandle` | idempotent; later use fails with `ERR_JOB_CLOSED` |
 | `listPids(job)` | `QueryInformationJobObject(JobObjectBasicProcessIdList)` | buffer bounded at 65536 entries |
