@@ -77,7 +77,7 @@ describe.each([
     const ignored = read(`${dir}/.gitignore`)
       .split('\n')
       .filter((line) => line !== '' && !line.startsWith('#'));
-    expect(ignored).toEqual(['hudhud_win32_job.node', 'SHA256SUMS']);
+    expect(ignored).toEqual(['hudhud_win32_job.node', 'SHA256SUMS', 'toolchain.json']);
   });
 });
 

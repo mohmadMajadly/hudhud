@@ -22,7 +22,7 @@
     "test:conformance": "vitest run --project conformance",
     "test:integration": "pnpm build && vitest run --project integration",
     "check:tarball": "node scripts/check-tarball.mjs",
-    "addon:stage": "node native/win32-job/build.mjs --arch x64 && node scripts/addon/write-digests.mjs --arch x64 --check",
+    "addon:stage": "node native/win32-job/build.mjs --arch x64 && node scripts/addon/write-digests.mjs --stage --arch x64",
     "api:check": "node scripts/api-report.mjs",
     "api:update": "node scripts/api-report.mjs --local",
     "privacy:staged": "node scripts/privacy-scan.mjs --staged",

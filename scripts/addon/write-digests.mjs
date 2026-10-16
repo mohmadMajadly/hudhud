@@ -1,30 +1,30 @@
 #!/usr/bin/env node
-// Digest table and staging of the Windows job addon (plan §6.2; run:
-// node scripts/addon/write-digests.mjs --arch x64|arm64 [--addon <file>]
-//   [--version <v>] [--check]).
+// The job addon's digest table and staging (plan §6.2; lead rulings on A2).
 //
-// Reads a built hudhud_win32_job.node (default: the build tree of
-// native/win32-job/build.mjs, native/win32-job/build/<arch>/Release/; or a CI
-// artifact given with --addon), refuses anything but a PE image of the
-// requested architecture, computes its sha256 and reads its ABI `version`:
-// by loading it on Windows when the host has the same architecture, else
-// from --version (which, when also given on Windows, must match). Then:
+//   node scripts/addon/write-digests.mjs --from-manifest native/win32-job/release/<release>/manifest.json
 //
-// - without --check (x64): writes the digest table the core's loader checks,
-//   packages/core/src/process/containment/win32-job-digests.ts;
-// - with --check, and always for arm64 (not in the table, K17): verifies the
-//   build against the committed table (sha256 for x64, version for both) and
-//   writes nothing there.
+// writes the core's digest table
+// (packages/core/src/process/containment/win32-job-digests.ts) from a
+// committed release record. It is the only way the table is written: build
+// output never writes it, not even locally.
 //
-// Then it stages the bytes it hashed into the platform package
-// (packages/win32-job-<arch>/hudhud_win32_job.node, never committed) with a
-// SHA256SUMS file. Windows test runs need the staged x64 addon: the core
-// resolves it through its optional dependency @hudhudjs/win32-job-x64, so
-// the loader's digest check runs in every Windows test. Logic and tests:
-// scripts/lib/addon-digests.mjs, scripts/test/addon-*.test.ts.
+//   node scripts/addon/write-digests.mjs --stage --arch x64|arm64 [--addon <file>]
+//     [--toolchain <file>] [--version <v>]
 //
-// Exit codes: 0 written or verified and staged, 1 the build was refused,
-// 2 usage error.
+// stages a build into its platform package: it reads the built
+// hudhud_win32_job.node (default: native/win32-job/build/<arch>/Release/, as
+// native/win32-job/build.mjs leaves it, with the build's toolchain.json next
+// to it; a CI artifact is given with --addon and --toolchain), refuses
+// anything but a PE image of the requested architecture, reads the ABI
+// `version` (by loading the addon on a Windows host of the same
+// architecture, else from --version, which must match when both exist), and
+// writes the exact bytes, a SHA256SUMS for them and the toolchain.json into
+// packages/win32-job-<arch>/ (all gitignored). Staging never touches the
+// table. `pnpm addon:stage` builds and stages x64.
+//
+// Logic and tests: scripts/lib/addon-digests.mjs, scripts/test/addon-*.test.ts.
+//
+// Exit codes: 0 written, 1 the input was refused, 2 usage error.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

@@ -1,0 +1,20 @@
+{
+  "arm64": {
+    "arch": "arm64",
+    "generator": "Visual Studio 17 2022",
+    "vcToolsVersion": "14.44.35207",
+    "clVersion": "19.44.35229",
+    "windowsSdkVersion": "10.0.26100.0",
+    "cmakeVersion": "4.4.4",
+    "nodeApiHeadersVersion": "1.9.0"
+  },
+  "x64": {
+    "arch": "x64",
+    "generator": "Visual Studio 17 2022",
+    "vcToolsVersion": "14.44.35207",
+    "clVersion": "19.44.35229",
+    "windowsSdkVersion": "10.0.26100.0",
+    "cmakeVersion": "4.4.4",
+    "nodeApiHeadersVersion": "1.9.0"
+  }
+}

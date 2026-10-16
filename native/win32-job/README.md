@@ -30,10 +30,10 @@ Errors are JavaScript errors with a `code`:
 
 ## Build
 
-Requirements (Windows only; the build is not part of `pnpm check`):
+Requirements (Windows only; `pnpm addon:stage` runs the build before Windows checks, see CONTRIBUTING):
 
-- Visual Studio 2022 or its Build Tools, with these components:
-  - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`, the MSVC v143 x64 tools;
+- Visual Studio 2022 (17.x) or 2026 (18.x), or their Build Tools, with these components:
+  - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`, the MSVC x64 tools;
   - `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre`, the Spectre-mitigated libraries that `/Qspectre` links against;
   - a Windows 10 or 11 SDK;
   - for ARM64, also `Microsoft.VisualStudio.Component.VC.Tools.ARM64` and `Microsoft.VisualStudio.Component.VC.Runtimes.ARM64.Spectre`.
@@ -43,15 +43,20 @@ Requirements (Windows only; the build is not part of `pnpm check`):
 ```sh
 node native/win32-job/build.mjs --arch x64
 node native/win32-job/build.mjs --arch arm64
+node native/win32-job/build.mjs --arch x64 --toolset-of-record
 ```
 
-`build.mjs` deletes and recreates `native/win32-job/build/<arch>` (gitignored). It then configures that directory with CMake's Visual Studio generator and builds Release with MSBuild warnings as errors. Finally it prints the path and sha256 of `build/<arch>/Release/hudhud_win32_job.node`. Add `--build-dir <name>` to use `build/<name>` instead, for example to compare two builds.
+`build.mjs` deletes and recreates `native/win32-job/build/<arch>` (gitignored). It then configures that directory with CMake's Visual Studio generator and builds Release with MSBuild warnings as errors. The generator follows the Visual Studio instance: `Visual Studio 17 2022` for 17.x, `Visual Studio 18 2026` for 18.x; any other version is refused. Finally it writes `build/<arch>/toolchain.json` and prints it with the path and sha256 of `build/<arch>/Release/hudhud_win32_job.node`. Add `--build-dir <name>` to use `build/<name>` instead, for example to compare two builds.
+
+`toolchain.json` records what changes the bytes: `arch`, `generator`, `vcToolsVersion` (the MSVC toolset), `clVersion`, `windowsSdkVersion` (the static `/MT` runtime takes the UCRT from the SDK), `cmakeVersion` and `nodeApiHeadersVersion`.
+
+Without `--toolset-of-record` the build uses the instance's default MSVC toolset and the newest Windows SDK, so its bytes depend on the machine. With it, the build pins the MSVC toolset and Windows SDK of the release record that the committed digest table was written from (`-T v143,version=<vcToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<windowsSdkVersion>`). If that toolset, its Spectre libraries or that SDK is not installed, the build fails and names the Visual Studio component ids to install, for example `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64` and `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre`. Releases use it (plan §6.3).
 
 Tool lookup:
 
 - CMake is the first `cmake.exe` in an absolute `PATH` entry, or the absolute path in `HUDHUD_CMAKE`.
 - Visual Studio is found with `vswhere`.
-- If a required component is missing, the build fails and names it.
+- If a required component is missing, the build fails and names it. Nothing is ever installed.
 
 The build is reproducible: two builds of the same source with the same toolchain give the same sha256.
 
@@ -69,19 +74,27 @@ Linker flags:
 
 The import library for `node.exe` is generated from `node_api.def` with `lib /def`.
 
-## Digest table and staging
+## Release record, digest table and staging
 
-The core loads the addon only when its sha256 and `version` equal the committed digest table, `packages/core/src/process/containment/win32-job-digests.ts`. `scripts/addon/write-digests.mjs` connects a build to that table and to the platform packages:
+The core loads the addon only when its sha256 and `version` equal the committed digest table, `packages/core/src/process/containment/win32-job-digests.ts`. The table has one source: a release record, `release/<release>/` here, which holds `manifest.json` (the addon `version`, and per architecture the `sha256`, `size` and `toolchain`), and the derived `SHA256SUMS` and `toolchain.json`. Only this command writes the table, never a build:
 
 ```sh
-node scripts/addon/write-digests.mjs --arch x64 --check   # verify against the table, then stage
-node scripts/addon/write-digests.mjs --arch x64           # write the table from this build, then stage
-node scripts/addon/write-digests.mjs --arch arm64 --version 0.1.0
+node scripts/addon/write-digests.mjs --from-manifest native/win32-job/release/0.0.0-dev/manifest.json
 ```
 
-It reads `build/<arch>/Release/hudhud_win32_job.node`, or the file given with `--addon` (a CI artifact, for example). It refuses a file that is not a PE image of the requested architecture. It reads `version` by loading the addon when the host is Windows with the same architecture, and otherwise takes it from `--version`. If `--version` is given on such a host as well, the two must match. It then stages the exact bytes it hashed into `packages/win32-job-<arch>/`, next to a `SHA256SUMS` file. Both files are gitignored. ARM64 is not in the table (K17): its build is only checked against the table's `version` and staged.
+`release/0.0.0-dev/` is the local build of record until the first release (plan §6.1: x64 `fbe7d9ad…69b0`, ARM64 `a38a74a0…4206`, Build Tools 17.14 with MSVC 14.44.35207, SDK 10.0.26100.0, CMake 4.4.4). Plan §6.3 describes how a release record is made.
 
-Windows x64 test runs need the staged x64 addon (see CONTRIBUTING). Only a change of the addon itself should rewrite the table, and that change is reviewed like any other.
+Staging copies a build into its platform package for the tests, and never touches the table:
+
+```sh
+node scripts/addon/write-digests.mjs --stage --arch x64
+node scripts/addon/write-digests.mjs --stage --arch arm64 --version 0.1.0
+node scripts/addon/write-digests.mjs --stage --arch x64 --addon <file> --toolchain <toolchain.json>
+```
+
+It reads `build/<arch>/Release/hudhud_win32_job.node` and the `toolchain.json` next to it, or the files given with `--addon` and `--toolchain` (a CI artifact, for example). It refuses a file that is not a PE image of the requested architecture. It reads `version` by loading the addon when the host is Windows with the same architecture, and otherwise takes it from `--version`. If `--version` is given on such a host as well, the two must match. It then writes the exact bytes it read, a `SHA256SUMS` for them and the `toolchain.json` into `packages/win32-job-<arch>/`, all gitignored.
+
+The Windows test suites load the staged addon with the digest from its `SHA256SUMS`, after checking that it names the staged bytes. The committed table must equal the staged addon only when the staged `toolchain.json` equals the record's; on any other toolchain that check is skipped and the differing fields are named (see CONTRIBUTING).
 
 ## Security properties
 

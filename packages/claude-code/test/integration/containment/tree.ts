@@ -22,8 +22,8 @@ export const table = hostProcessTable(process.platform, process.env);
 export const WINDOWS = process.platform === 'win32';
 
 /**
- * Whether the host loads the job addon (`'host'` mode): Windows x64 with the
- * staged addon, which every Windows x64 test run has (plan §6.2).
+ * Whether the suites load the job addon (harness mode `'staged'`): Windows
+ * x64, where every test run has the addon staged (plan §6.2).
  */
 export const JOB_HOST = WINDOWS && process.arch === 'x64';
 
@@ -34,17 +34,17 @@ export interface ContainmentMode {
 }
 
 /**
- * The modes the containment suites run in: on Windows x64 the shipping
- * default (`'job'`) and the addon forced unavailable (`'best-effort'`, as
- * without the platform package, on arm64 or after a digest mismatch); off
- * Windows the host's own (`'best-effort'`, ADR-0010).
+ * The modes the containment suites run in: on Windows x64 the staged addon
+ * (`'job'`, the shipping default) and the addon forced unavailable
+ * (`'best-effort'`, as without the platform package, on arm64 or after a
+ * digest mismatch); off Windows the host's own (`'best-effort'`, ADR-0010).
  */
 export const CONTAINMENT_MODES: readonly ContainmentMode[] = JOB_HOST
   ? [
-      { jobAddon: 'host', containment: 'job' },
+      { jobAddon: 'staged', containment: 'job' },
       { jobAddon: 'unavailable', containment: 'best-effort' },
     ]
-  : [{ jobAddon: 'host', containment: 'best-effort' }];
+  : [{ jobAddon: 'staged', containment: 'best-effort' }];
 
 /** Base64 of UTF-8 text, for mock scenario arguments. */
 export function b64(text: string): string {

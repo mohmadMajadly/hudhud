@@ -496,16 +496,22 @@ describe('jobContainmentCapability (K2)', () => {
 });
 
 describe('the host loader', () => {
-  it('loads once per process: the staged addon on Windows x64, nothing elsewhere', () => {
+  it('loads once per process: the staged addon, checked against the table, on Windows x64', () => {
     const first = loadHostJobAddon();
     expect(loadHostJobAddon()).toBe(first);
     // Windows x64 test runs have the addon staged in @hudhudjs/win32-job-x64
-    // (plan §6.2, scripts/addon/write-digests.mjs); scripts/test/addon-loader
-    // names the commands when it is missing.
+    // (`pnpm addon:stage`), so the package always resolves and the digest
+    // check runs. The staged bytes equal the committed table only when they
+    // were built with the toolchain of record: then the addon loads, else
+    // the digest check refuses it. scripts/test/addon-record.test.ts decides
+    // which one this host must see, and fails if it sees the other.
     const outcome = first.status === 'loaded' ? 'loaded' : first.reason;
     if (process.platform !== 'win32') expect(outcome).toBe('not-windows');
     else if (process.arch === 'x64') {
-      expect(outcome, 'the job addon is not staged: run `pnpm addon:stage`').toBe('loaded');
+      expect(
+        ['loaded', 'digest-mismatch'],
+        'the job addon is not staged: run `pnpm addon:stage`',
+      ).toContain(outcome);
     } else if (process.arch === 'arm64') expect(outcome).toBe('arm64-not-first-class');
     else expect(outcome).toBe('unsupported-arch');
   });

@@ -67,31 +67,36 @@ The design documents under `docs/` are covered by the link checker and the priva
 
 ### The job-object addon on Windows
 
-On Windows x64, `pnpm check` and the integration suites need the job-object addon built and staged in `packages/win32-job-x64` first. Windows checks always exercise the real addon: the core's loader checks it against the committed digest table, and the suites run under `'job'` containment (plan §6.2). Linux and macOS need nothing.
+On Windows x64, `pnpm check` and the integration suites need the job-object addon built and staged in `packages/win32-job-x64` first. Windows checks always exercise the real addon: the suites run under `'job'` containment through the core's real loader (plan §6.2). Linux and macOS need nothing.
 
 Prerequisites (Windows x64 only):
 
-- Visual Studio Build Tools 2022 (or Visual Studio 2022) with the components `Microsoft.VisualStudio.Component.VC.Tools.x86.x64` (MSVC v143 x64 tools), `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre` (the Spectre-mitigated libraries `/Qspectre` links against) and a Windows 10 or 11 SDK;
+- Visual Studio 2022 (17.x) or 2026 (18.x), or their Build Tools, with the components `Microsoft.VisualStudio.Component.VC.Tools.x86.x64` (the MSVC x64 tools), `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre` (the Spectre-mitigated libraries `/Qspectre` links against) and a Windows 10 or 11 SDK;
 - CMake 3.28 or newer, as `cmake.exe` in an absolute `PATH` entry (or its absolute path in `HUDHUD_CMAKE`).
 
-Then, after `pnpm install`, run once and again after every change of the addon or its digest table:
+Then, after `pnpm install`, run this once, and again after every change of the addon:
 
 ```sh
 pnpm addon:stage
 ```
 
-It runs `node native/win32-job/build.mjs --arch x64`, which builds the addon reproducibly, then `node scripts/addon/write-digests.mjs --arch x64 --check`. The second command passes only when your build equals the committed digest, and it never edits the table. It then stages the addon (gitignored). [native/win32-job/README.md](native/win32-job/README.md#build) describes both tools. A missing component makes the build fail and names it.
+It runs `node native/win32-job/build.mjs --arch x64`, which builds with your instance's default toolset and writes the build's `toolchain.json`. Then it runs `node scripts/addon/write-digests.mjs --stage --arch x64`, which copies the exact bytes, a `SHA256SUMS` for them and the `toolchain.json` into the package (all gitignored). Staging works with any of these toolchains and never touches the committed digest table. A missing component makes the build fail and names it.
+
+How the tests use it:
+
+- The suites load the staged addon through the real loader, with the digest from its `SHA256SUMS` (checked to name the staged bytes) and the committed table's ABI `version`.
+- The record check, `scripts/test/addon-record.test.ts`, requires the staged addon to equal the committed table and to load through the exact product path. It runs only when your staged `toolchain.json` equals the release record's (`native/win32-job/release/<release>/toolchain.json`) field by field: today Build Tools 17.14 with MSVC 14.44.35207 (`cl` 19.44.35229), Windows SDK 10.0.26100.0, CMake 4.4.4 and node-api-headers 1.9.0. On any other toolchain it is reported as skipped, with the differing fields, for example `differing fields: generator Visual Studio 18 2026 (record Visual Studio 17 2022), vcToolsVersion 14.51.36231 (record 14.44.35207)`.
 
 Without a staged addon, `pnpm check` fails on Windows x64 with:
 
 ```text
-FAIL  |scripts| scripts/test/addon-loader.test.ts > ... > is staged with its SHA256SUMS and matches the committed digest table
-Error: <checkout>\packages\win32-job-x64\hudhud_win32_job.node is missing; stage the addon with `pnpm addon:stage` (...)
+FAIL  |scripts| scripts/test/addon-loader.test.ts > ... > is staged with a SHA256SUMS that names its bytes and the toolchain that built it
+StagedAddonError: the job addon is not staged in packages/win32-job-x64; stage it with `pnpm addon:stage` (prerequisites in CONTRIBUTING.md)
 FAIL  |unit| packages/core/test/process/containment/win32-job.test.ts > the host loader > ...
-AssertionError: the job addon is not staged: run `pnpm addon:stage`: expected 'package-missing' to be 'loaded'
+AssertionError: the job addon is not staged: run `pnpm addon:stage`: expected [ 'loaded', 'digest-mismatch' ] to include 'package-missing'
 ```
 
-A stale addon (a build that differs from the table) fails the same test with `the staged addon is stale; stage the addon with pnpm addon:stage`.
+The integration suites fail the same way at their first connect. A `SHA256SUMS` that does not name the staged bytes fails with `SHA256SUMS names <sha>, the staged addon is <sha>`; stage again.
 
 ## Public API changes
 

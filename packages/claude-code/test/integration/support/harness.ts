@@ -33,7 +33,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
 import type { Session } from '@hudhudjs/core';
-import { hostJobAddonDeps, loadJobAddon } from '@hudhudjs/core/process';
+import { hostJobAddonDeps, loadJobAddon, type JobAddonLoad } from '@hudhudjs/core/process';
 
 import { nodeHost, type ClaudeHost } from '../../../src/adapter.js';
 import { connectWith, sessionWith, type ClaudeCodeHarness } from '../../../src/connect.js';
@@ -44,45 +44,65 @@ import {
   type ProductConnect,
   type ProductConnectRequest,
 } from '../../../../../tooling/test-support/src/launcher/integration.js';
+import { stagedJobAddonDeps } from '../../../../../tooling/test-support/src/launcher/staged-addon.js';
 
 /** The repository root (the pin and the CLI cache). */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
 
 /**
- * Where a sandboxed connect gets the Windows job addon from (plan §6.4, K2):
+ * Where a sandboxed connect gets the Windows job addon from (plan §6.4, K2;
+ * lead rulings on A2). Every mode runs the real loader, and in every mode
+ * the ABI `version` is compared with the committed digest table, so a stale
+ * table fails every run:
  *
- * - `'host'` (the default): the product's own loader, as an application has
- *   it. On Windows x64 that is the staged addon (`pnpm addon:stage`), so the
- *   Harness reports `'job'`, the shipping default.
- * - `'unavailable'`: the loader runs with the host's real deps except that
- *   the addon package cannot be resolved, so it reports `package-missing`
- *   and the Harness falls back to `'best-effort'`, exactly as for an
- *   application installed without the optional platform package. This is a
- *   test seam of this composition root only; the product has no switch.
+ * - `'staged'` (the default, the mode of the Windows suites): the loader with
+ *   the x64 digest taken from the staged `SHA256SUMS`, which test-support's
+ *   `readStagedAddon` first proves to name the staged bytes. On Windows x64
+ *   the Harness reports `'job'` whatever supported toolchain built the
+ *   staged addon (`pnpm addon:stage`); a missing or inconsistent staged
+ *   addon fails the connect, never falls back.
+ * - `'host'`: the exact product path, `loadHostJobAddon()` with the committed
+ *   `WIN32_JOB_DIGESTS`. It reports `'job'` only when the staged addon is the
+ *   build of record (`scripts/test/addon-record.test.ts`).
+ * - `'unavailable'`: the loader with the addon package unresolvable, so it
+ *   reports `package-missing` and the Harness falls back to `'best-effort'`,
+ *   as for an application installed without the optional platform package.
  *
- * Off Windows both modes report `not-windows`.
+ * These are test seams of this composition root only; the product has no
+ * switch. Off Windows every mode reports `not-windows`.
  */
-export type JobAddonMode = 'host' | 'unavailable';
+export type JobAddonMode = 'staged' | 'host' | 'unavailable';
 
 /** `connect` options of a sandboxed test: the binary is always the pinned one. */
 export type SandboxConnectOptions = Omit<ConnectOptions, 'binaryPath'> & {
-  /** Where the job addon comes from; default `'host'`. Never passed to the product. */
+  /** Where the job addon comes from; default `'staged'`. Never passed to the product. */
   readonly jobAddon?: JobAddonMode;
 };
 
+/** The `'staged'` load of this process (a native module is opened once per process). */
+let stagedLoad: JobAddonLoad | undefined;
+
 /** The host seam of a {@link JobAddonMode}: nothing for `'host'`. */
 export function jobAddonSeam(mode: JobAddonMode | undefined): Partial<ClaudeHost> {
-  if (mode !== 'unavailable') return {};
+  if (mode === 'host') return {};
+  if (mode === 'unavailable') {
+    return {
+      loadJobAddon: () =>
+        loadJobAddon({
+          ...hostJobAddonDeps(),
+          requireResolve: (specifier) => {
+            throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
+              code: 'MODULE_NOT_FOUND',
+            });
+          },
+        }),
+    };
+  }
   return {
-    loadJobAddon: () =>
-      loadJobAddon({
-        ...hostJobAddonDeps(),
-        requireResolve: (specifier) => {
-          throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
-            code: 'MODULE_NOT_FOUND',
-          });
-        },
-      }),
+    loadJobAddon: () => {
+      stagedLoad ??= loadJobAddon(stagedJobAddonDeps(REPO_ROOT, hostJobAddonDeps()));
+      return stagedLoad;
+    },
   };
 }
 

@@ -36,6 +36,7 @@ import {
   productHostSeams,
   samePath,
 } from '../../../../../tooling/test-support/dist/launcher/product-host.js';
+import { stagedJobAddonDeps } from '../../../../../tooling/test-support/dist/launcher/staged-addon.js';
 
 /**
  * The test's request (`crash-host.ts`).
@@ -47,9 +48,10 @@ import {
  * @property {Pick<import('../../../../../tooling/test-support/src/launcher/sandbox.js').Sandbox, 'dirs' | 'env' | 'mockUrl' | 'platform'>} sandbox
  * @property {string} prompt the session's first turn
  * @property {number} lifetimeMs
- * @property {'host' | 'unavailable'} jobAddon where the job addon comes from
- *   (`JobAddonMode` of `harness.ts`): the product's own loader, or the loader
- *   with the addon package unresolvable (`package-missing`)
+ * @property {'staged' | 'host' | 'unavailable'} jobAddon where the job addon
+ *   comes from (`JobAddonMode` of `harness.ts`): the staged addon's verified
+ *   digest, the product's own loader, or the loader with the addon package
+ *   unresolvable (`package-missing`)
  */
 
 const parsed = /** @type {unknown} */ (JSON.parse(readFileSync(process.argv[2] ?? '', 'utf8')));
@@ -120,21 +122,25 @@ try {
       report({ type: 'refused', message: String(error) });
     },
   });
-  // The seam of `jobAddonSeam` in `harness.ts` (this host runs the built modules).
-  const jobAddon =
-    config.jobAddon === 'unavailable'
-      ? {
-          loadJobAddon: () =>
-            loadJobAddon({
-              ...hostJobAddonDeps(),
-              requireResolve: (/** @type {string} */ specifier) => {
-                throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
-                  code: 'MODULE_NOT_FOUND',
-                });
-              },
-            }),
-        }
-      : {};
+  // The seams of `jobAddonSeam` in `harness.ts` (this host runs the built modules).
+  /** @type {{ loadJobAddon?: () => import('@hudhudjs/core/process').JobAddonLoad }} */
+  let jobAddon = {};
+  if (config.jobAddon === 'unavailable') {
+    jobAddon = {
+      loadJobAddon: () =>
+        loadJobAddon({
+          ...hostJobAddonDeps(),
+          requireResolve: (/** @type {string} */ specifier) => {
+            throw Object.assign(new Error(`Cannot find module '${specifier}'`), {
+              code: 'MODULE_NOT_FOUND',
+            });
+          },
+        }),
+    };
+  } else if (config.jobAddon === 'staged') {
+    const load = loadJobAddon(stagedJobAddonDeps(config.repoRoot, hostJobAddonDeps()));
+    jobAddon = { loadJobAddon: () => load };
+  }
   harness = await connectWith(
     { binaryPath: cli.binaryPath, claudeCode: { configDir: sandbox.dirs.cfg } },
     () => ({ ...nodeHost(), ...jobAddon, ...seams }),
