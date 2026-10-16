@@ -10,9 +10,12 @@
 # cannot meet is reported, never hidden.
 #
 # Cost: each run is the bounded tests only (close deadline, auth fail-fast x2,
-# host crash per containment mode, egress), about 1 min on Linux and 2.5 min
-# on Windows locally (W7-T1); 15 runs are about 15 + 2 x 40 Linux-equivalent
-# minutes (planning multipliers of 04 §1).
+# host crash per containment mode, egress): 31-33 s in node:22-bookworm and
+# 35-37 s on Windows 11 with the job addon, on the 16-core W7-T1 host (3 runs
+# each). With up to 2.6x on a CI runner (the unit-test ratio, ci.yml) 15 runs
+# are about 22 min of tests per platform, plus setup (and on Windows the
+# addon build): about 27 + 2 x 32 = 91 Linux-equivalent minutes (planning
+# multipliers of 04 §1).
 name: Integration timing
 
 on:
@@ -37,10 +40,10 @@ jobs:
   measure:
     name: measure (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Provisional: 30 runs at about twice the local per-run time on Linux,
-    # setup and the addon build included; re-sized with ci.yml from the first
-    # measured runs.
-    timeout-minutes: 120
+    # Provisional until the first dispatch is measured: the 30-run maximum at
+    # 2.6x the local 37 s (48 min) plus about 10 min of setup and addon
+    # build is 58 min; x 1.5 for an unmeasured runner, 90.
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
