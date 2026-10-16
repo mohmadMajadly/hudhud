@@ -153,7 +153,7 @@ describe('the launcher refuses the real pinned CLI on a local Mac (keyed on what
     localHost();
     await expect(resolvePinnedCli(real)).rejects.toMatchObject({ code: 'host' });
     await expect(probePinnedCli(real)).rejects.toMatchObject({ code: 'host' });
-    // A pending entry (no digest yet) is presumed real as well.
+    // So is the pinned darwin binary of this very host platform.
     await expect(resolvePinnedCli({ ...real, platformKey: 'darwin-arm64' })).rejects.toMatchObject({
       code: 'host',
     });
@@ -161,10 +161,9 @@ describe('the launcher refuses the real pinned CLI on a local Mac (keyed on what
     await expect(resolvePinnedCli({ ...real, platformKey: 'linux-arm64' })).rejects.toMatchObject({
       code: 'host',
     });
-    // The probe still reports a pending pin first.
-    await expect(probePinnedCli({ ...real, platformKey: 'darwin-arm64' })).resolves.toEqual({
-      available: false,
-      reason: expect.stringContaining('pending the macOS gate') as unknown,
+    // The probe refuses it too: a refused host is never reported as a skip.
+    await expect(probePinnedCli({ ...real, platformKey: 'darwin-arm64' })).rejects.toMatchObject({
+      code: 'host',
     });
   });
 

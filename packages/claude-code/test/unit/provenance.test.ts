@@ -38,7 +38,12 @@ describe('the committed digest table (known-binaries.ts, the single source)', ()
     const entry = KNOWN_BINARIES[pin.version];
     expect(entry).toBeDefined();
     const pinned = Object.entries(pin.platforms).filter(([, value]) => value.pendingGate !== true);
-    expect(pinned.map(([key]) => key).sort()).toEqual(['linux-x64', 'win32-x64']);
+    expect(pinned.map(([key]) => key).sort()).toEqual([
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+      'win32-x64',
+    ]);
     for (const [key, value] of pinned) {
       expect(entry?.[key]).toEqual({ sha256: value.sha256, size: value.size });
     }
@@ -46,12 +51,8 @@ describe('the committed digest table (known-binaries.ts, the single source)', ()
     expect(Object.keys(entry ?? {}).sort()).toEqual(pinned.map(([key]) => key).sort());
   });
 
-  it('has no darwin entry until the macOS gate has recorded one', () => {
-    expect(pin.platforms['darwin-arm64']?.pendingGate).toBe(true);
-    expect(pin.platforms['darwin-x64']?.pendingGate).toBe(true);
-    for (const platforms of Object.values(KNOWN_BINARIES)) {
-      expect(Object.keys(platforms).filter((key) => key.startsWith('darwin'))).toEqual([]);
-    }
+  it('pins no platform as pending its gate', () => {
+    expect(Object.values(pin.platforms).filter((value) => value.pendingGate === true)).toEqual([]);
   });
 
   it('is the only copy: no JSON mirror ships beside it', () => {
@@ -91,7 +92,14 @@ describe('knownDigestsFor', () => {
         size: 260489376,
       },
     ]);
-    expect(knownDigestsFor('darwin-arm64')).toEqual([]);
+    expect(knownDigestsFor('darwin-arm64')).toEqual([
+      {
+        version: '2.1.296',
+        sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
+        size: 240664432,
+      },
+    ]);
+    expect(knownDigestsFor('linux-arm64')).toEqual([]);
   });
 
   it('adds the application digests of that platform, lower-cased and without a size', () => {
@@ -108,6 +116,11 @@ describe('knownDigestsFor', () => {
       { version: '2.1.297', sha256: 'c'.repeat(64) },
     ]);
     expect(knownDigestsFor('darwin-arm64', app)).toEqual([
+      {
+        version: '2.1.296',
+        sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
+        size: 240664432,
+      },
       { version: '2.1.298', sha256: 'e'.repeat(64) },
     ]);
     expect(knownDigestsFor('linux-arm64', app, {})).toEqual([]);

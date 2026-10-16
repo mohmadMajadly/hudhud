@@ -10,10 +10,10 @@
  *   research 05 §1); a unit test keeps this table equal to the pin for every
  *   pinned platform. Changed only by the version-bump PR the lead prepares
  *   locally (K16).
- * - darwin-arm64 and darwin-x64 are left out on purpose until the macOS gate
- *   (M1) has recorded and cross-checked their digests; until then a darwin
- *   binary is `unverified` in advisory mode and refused in strict mode unless
- *   the application supplies `claudeCode.binaryDigests`.
+ * - darwin-arm64 and darwin-x64: recorded by the macOS gate (M1) on both
+ *   runners, each cross-checked against the npm integrity and the
+ *   `manifest.json` of `@anthropic-ai/claude-agent-sdk@0.3.296` (research 10
+ *   §5), and verified against this pin by gate item 1 (research 11).
  * - Publisher (W3-Z ruling 9): strict mode requires the Authenticode signer
  *   subject below on Windows, read-only from the pinned win32-x64 2.1.296
  *   binary with `Get-AuthenticodeSignature` (the binary was never executed).
@@ -65,7 +65,14 @@ export const KNOWN_BINARIES: Readonly<Record<string, Readonly<Record<string, Kno
         sha256: '76de74f7694a5bdc03378a5f837c9e132827bf004c98c276bc4e9094ff06769a',
         size: 260489376,
       }),
-      // darwin-arm64, darwin-x64: added only after the macOS gate (M1).
+      'darwin-arm64': Object.freeze({
+        sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
+        size: 240664432,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: 'a6bf4f30be241053a923f3820ad23c5991d2f5ac2935b3a8dd64da218d9cc603',
+        size: 249194752,
+      }),
     }),
   });
 

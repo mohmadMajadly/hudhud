@@ -66,12 +66,24 @@ describe('the committed pin (tooling/cli-pin.json)', () => {
     });
   });
 
-  it('marks the darwin platforms as pending their gate', async () => {
+  it('pins the darwin platforms recorded by the macOS gate (research 10 §5, research 11)', async () => {
     const pin = await loadPin(PIN_FILE);
-    for (const platform of ['darwin-arm64', 'darwin-x64']) {
-      expect(pin.platforms.get(platform)).toMatchObject({ pendingGate: true });
-      expect(code(() => requirePinned(pin, platform))).toBe('platform-unavailable');
-    }
+    expect(requirePinned(pin, 'darwin-arm64')).toMatchObject({
+      package: '@anthropic-ai/claude-code-darwin-arm64',
+      file: 'claude',
+      integrity:
+        'sha512-vqtx3kS3r1hNLMk+N8JMG5J4kcLHIbI3t/NSIdcFQZrRVCFA6NtcxJyn/B+Sf3GxJaFJOCEfoBQXsFo10+Oj9A==',
+      sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
+      size: 240664432,
+    });
+    expect(requirePinned(pin, 'darwin-x64')).toMatchObject({
+      package: '@anthropic-ai/claude-code-darwin-x64',
+      file: 'claude',
+      integrity:
+        'sha512-yCJe1vp7juHg3xVyk0Ts8b+mcEylCo6aINg7yC7r1eI8BKfm1DT15htxl1riz3y+B1FV25emIK90d7rH+zFjLA==',
+      sha256: 'a6bf4f30be241053a923f3820ad23c5991d2f5ac2935b3a8dd64da218d9cc603',
+      size: 249194752,
+    });
   });
 });
 

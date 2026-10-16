@@ -19,12 +19,16 @@
     "darwin-arm64": {
       "package": "@anthropic-ai/claude-code-darwin-arm64",
       "file": "claude",
-      "pendingGate": true
+      "integrity": "sha512-vqtx3kS3r1hNLMk+N8JMG5J4kcLHIbI3t/NSIdcFQZrRVCFA6NtcxJyn/B+Sf3GxJaFJOCEfoBQXsFo10+Oj9A==",
+      "sha256": "c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937",
+      "size": 240664432
     },
     "darwin-x64": {
       "package": "@anthropic-ai/claude-code-darwin-x64",
       "file": "claude",
-      "pendingGate": true
+      "integrity": "sha512-yCJe1vp7juHg3xVyk0Ts8b+mcEylCo6aINg7yC7r1eI8BKfm1DT15htxl1riz3y+B1FV25emIK90d7rH+zFjLA==",
+      "sha256": "a6bf4f30be241053a923f3820ad23c5991d2f5ac2935b3a8dd64da218d9cc603",
+      "size": 249194752
     }
   }
 }
