@@ -6,7 +6,8 @@
 // `/proc/<pid>/environ`, the CLI's exact launch; Windows: the CLI's command
 // line from `Win32_Process` and the Bash tool's environment, which is the
 // CLI's plus what the CLI and Git Bash add for tools; 05 §3, §11 runs 78-80
-// show the Bash tool and its environment on both OSes).
+// show the Bash tool and its environment on both OSes; macOS: the argv from
+// `ps -ww -o args=` and the Bash tool's environment, research 11).
 //
 // Evidence: the always-passed flags and the sandbox recipe, 05 §13.2 and
 // 07 §9 p5 (`--setting-sources` must always be passed); the session-state
