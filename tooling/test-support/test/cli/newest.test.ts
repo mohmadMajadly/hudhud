@@ -6,7 +6,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { manifestEntry } from '../../src/cli/crosscheck.js';
 import { CliFetchError } from '../../src/cli/errors.js';
-import { fetchNewestCli, runPinSummary } from '../../src/cli/newest.js';
+import {
+  fetchNewestCli,
+  fetchRecordedCli,
+  runPinDocument,
+  runPinFile,
+  runPinSummary,
+} from '../../src/cli/newest.js';
+import type { RunPin } from '../../src/cli/newest.js';
+import { parsePin } from '../../src/cli/pin.js';
 import type { FakeRegistry, Release } from './fake-registry.js';
 import {
   SDK_LATEST,
@@ -163,6 +171,113 @@ describe('fetchNewestCli', () => {
   it('refuses an unsupported platform without network access', async () => {
     await expect(newest('freebsd-x64')).rejects.toMatchObject({ code: 'platform-unavailable' });
     expect(registry.calls).toEqual([]);
+  });
+});
+
+describe('fetchRecordedCli', () => {
+  function recorded(version: string, sdkVersion?: string): ReturnType<typeof fetchRecordedCli> {
+    return fetchRecordedCli({
+      platform: 'linux-x64',
+      version,
+      sdkVersion,
+      cacheRoot: path.join(root, 'cache'),
+      hostPlatform: HOST,
+      registry: registry.options,
+      now: () => NOW,
+    });
+  }
+
+  it('records an exact version without reading the latest dist-tag', async () => {
+    const r = release('linux-x64', '2.5.0');
+    serve(registry, r);
+    serveSdk(registry, '0.9.0', '3.0.0');
+    const { runPin } = await recorded('2.5.0');
+    expect(registry.calls).not.toContain(LATEST);
+    expect(runPin).toMatchObject({
+      version: '2.5.0',
+      integrity: r.integrity,
+      crossCheck: 'unavailable',
+    });
+  });
+
+  it('cross-checks against an explicit SDK release and fails closed when it disagrees', async () => {
+    const r = release('linux-x64', '2.5.0');
+    serve(registry, r);
+    serveSdk(registry, '0.8.0', '2.5.0', manifestFor('2.5.0', r));
+    serveSdk(registry, '0.9.0', '3.0.0', manifestFor('3.0.0', r));
+    const { runPin } = await recorded('2.5.0', '0.8.0');
+    expect(runPin.crossCheck).toBe('verified');
+    expect(runPin.crossCheckDetail).toContain('@anthropic-ai/claude-agent-sdk@0.8.0 manifest.json');
+    await expect(recorded('2.5.0', '0.9.0')).rejects.toMatchObject({ code: 'cross-check-failed' });
+  });
+
+  it('refuses an invalid version and platform without network access', async () => {
+    await expect(recorded('../2.5.0')).rejects.toMatchObject({ code: 'pin-invalid' });
+    await expect(
+      fetchRecordedCli({
+        platform: 'aix-ppc64',
+        version: '2.5.0',
+        cacheRoot: root,
+        hostPlatform: HOST,
+        registry: registry.options,
+        now: () => NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'platform-unavailable' });
+    expect(registry.calls).toEqual([]);
+  });
+});
+
+describe('runPinDocument', () => {
+  const base: RunPin = {
+    package: '@anthropic-ai/claude-code-linux-x64',
+    version: '3.0.0',
+    platform: 'linux-x64',
+    file: 'claude',
+    integrity: `sha512-${'A'.repeat(86)}==`,
+    sha256: 'a'.repeat(64),
+    size: 5,
+    recordedAt: NOW.toISOString(),
+    crossCheck: 'verified',
+    crossCheckDetail: 'sdk 0.9.0',
+  };
+  const win: RunPin = {
+    ...base,
+    package: '@anthropic-ai/claude-code-win32-x64',
+    platform: 'win32-x64',
+    file: 'claude.exe',
+    crossCheck: 'unavailable',
+    crossCheckDetail: 'no SDK yet',
+  };
+
+  it('writes a document the pin parser accepts, with the record in $comment', () => {
+    const text = runPinDocument([base, win]);
+    expect(text.endsWith('}\n')).toBe(true);
+    const parsed: unknown = JSON.parse(text);
+    const pin = parsePin(parsed, 'run-pin');
+    expect(pin.version).toBe('3.0.0');
+    expect([...pin.platforms.keys()]).toEqual(['linux-x64', 'win32-x64']);
+    expect(pin.platforms.get('win32-x64')).toEqual({
+      package: win.package,
+      file: 'claude.exe',
+      integrity: win.integrity,
+      sha256: win.sha256,
+      size: 5,
+    });
+    expect((parsed as { $comment: string }).$comment).toBe(
+      'Run-local pin of the canary (K16), recorded from the registry at 2026-10-12T03:00:00.000Z; never committed. Cross-check: linux-x64 verified (sdk 0.9.0); win32-x64 unavailable (no SDK yet).',
+    );
+  });
+
+  it('refuses no pins, mixed versions and a platform twice', () => {
+    expect(() => runPinDocument([])).toThrow(CliFetchError);
+    expect(() => runPinDocument([base, { ...win, version: '3.0.1' }])).toThrow(
+      'run-local pins name 3.0.0 and 3.0.1',
+    );
+    expect(() => runPinDocument([base, base])).toThrow('lists linux-x64 twice');
+  });
+
+  it('lives in the cache root', () => {
+    expect(runPinFile('c')).toBe(path.join(path.resolve('c'), 'run-pin.json'));
   });
 });
 
