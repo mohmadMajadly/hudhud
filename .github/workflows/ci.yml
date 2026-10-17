@@ -105,6 +105,12 @@ jobs:
         with:
           node-version: '22'
 
+      # The documentation is under `prettier --check .` (the first step of
+      # `pnpm check`), and markdownlint does not apply prettier's rules, so a
+      # docs-only change is format-checked here as FULL would (R7-1).
+      - name: Format check
+        run: pnpm run format:check
+
       - name: Markdown lint and offline link check
         run: pnpm run lint:md
 

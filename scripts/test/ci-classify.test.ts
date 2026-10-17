@@ -16,7 +16,13 @@ describe('classifyPaths (default FULL)', () => {
   it.each([
     [['docs/architecture.md'], 'LIGHT'],
     [['docs/adr/0014-ci-strategy.md', 'README.md'], 'LIGHT'],
-    [['CHANGELOG.md', 'LICENSE', 'docs/research/img.png'], 'LIGHT'],
+    [['CHANGELOG.md', 'docs/research/img.png'], 'LIGHT'],
+    // the legal files: their package copies are checked by FULL only (R7-1)
+    [['LICENSE'], 'FULL'],
+    [['NOTICE'], 'FULL'],
+    [['packages/core/LICENSE'], 'FULL'],
+    [['packages/claude-code/NOTICE'], 'FULL'],
+    [['README.md', 'LICENSE'], 'FULL'],
     // risky paths
     [['packages/core/src/index.ts'], 'FULL'],
     [['.github/workflows/ci.yml'], 'FULL'],
@@ -106,8 +112,13 @@ describe('classify (event + paths)', () => {
     ['docs-only push to main', { event: 'push', files: docs, ref: 'refs/heads/main' }, 'LIGHT'],
     [
       'root-docs push to main',
-      { event: 'push', files: ['README.md', 'CHANGELOG.md', 'LICENSE'], ref: 'refs/heads/main' },
+      { event: 'push', files: ['README.md', 'CHANGELOG.md'], ref: 'refs/heads/main' },
       'LIGHT',
+    ],
+    [
+      'LICENSE-only push to main (R7-1)',
+      { event: 'push', files: ['LICENSE'], ref: 'refs/heads/main' },
+      'FULL',
     ],
     ['code push to main', { event: 'push', files: code, ref: 'refs/heads/main' }, 'FULL'],
     [
