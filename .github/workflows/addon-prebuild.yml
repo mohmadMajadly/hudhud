@@ -223,7 +223,14 @@ jobs:
             echo "::error::Kitware's SHA-256 list of CMake ${version} names no sha256 for ${zip}"
             exit 1
           fi
-          actual="$(sha256sum "$RUNNER_TEMP/cmake/$zip" | cut -d ' ' -f 1)"
+          # Hash stdin: given a file name with a backslash (RUNNER_TEMP is a
+          # Windows path here), GNU sha256sum escapes the line and prefixes
+          # the digest with `\` (run 39065844822).
+          actual="$(sha256sum < "$RUNNER_TEMP/cmake/$zip" | cut -d ' ' -f 1)"
+          if [[ ! "$actual" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::sha256sum gave no digest for ${zip} (${actual@Q})"
+            exit 1
+          fi
           if [[ "$actual" != "$expected" ]]; then
             echo "::error::${zip} is sha256 ${actual}, Kitware's list names ${expected}"
             exit 1

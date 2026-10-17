@@ -62,6 +62,17 @@ describe('ci.yml', () => {
     expect(job('ci-gate')).toMatch(/needs: \[[^\]]*\bnode-floor\b[^\]]*\]/u);
   });
 
+  it('addon-prebuild hashes the CMake download from stdin (run 39065844822)', () => {
+    // Given a file name with a backslash (a Windows RUNNER_TEMP), GNU
+    // sha256sum escapes its output line and prefixes the digest with `\`.
+    const prebuild = readFileSync(
+      new URL('../../.github/workflows/addon-prebuild.yml', import.meta.url),
+      'utf8',
+    );
+    expect(prebuild).toContain('sha256sum < "$RUNNER_TEMP/cmake/$zip"');
+    expect(prebuild).not.toMatch(/sha256sum +["$]/u);
+  });
+
   it('every OS job of STANDARD and FULL runs the whole check', () => {
     for (const name of ['linux', 'windows', 'macos']) {
       expect(commands(name)).toEqual(
