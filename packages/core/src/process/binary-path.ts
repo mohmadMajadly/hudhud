@@ -26,8 +26,8 @@
  *   spawn uses `shell: false`.
  *
  * Not guaranteed (TOCTOU): the file can be replaced between this check and
- * the spawn, or by an auto-update between sessions. `size` and `mtimeMs` let
- * the caller key a verification cache and detect a change; binding the
+ * the spawn, or by an auto-update between sessions. `size`, `mtimeNs` and
+ * `ctimeNs` let the caller key a verification cache and detect a change; binding the
  * spawned image to a digest is the job of `verify/` (ADR-0011, K8).
  *
  * @packageDocumentation
@@ -37,7 +37,7 @@ import { constants } from 'node:fs';
 import { access, realpath, stat } from 'node:fs/promises';
 
 import { errnoCode, hostPlatform, pathProblem } from './cwd.js';
-import type { FileIdentity, PathProblem, ProcessPlatform } from './cwd.js';
+import type { ExecutableIdentity, PathProblem, ProcessPlatform } from './cwd.js';
 
 /**
  * A validated executable.
@@ -53,6 +53,10 @@ export interface ResolvedExecutable {
   readonly size: number;
   /** Modification time in whole milliseconds at the time of the check. */
   readonly mtimeMs: number;
+  /** Modification time in nanoseconds (decimal) at the time of the check. */
+  readonly mtimeNs: string;
+  /** Status change time (`ctime`) in nanoseconds (decimal) at the time of the check. */
+  readonly ctimeNs: string;
 }
 
 /**
@@ -129,7 +133,7 @@ export function checkExecutablePath(
  */
 export interface ExecutableFs {
   realpath(value: string): Promise<string>;
-  stat(value: string): Promise<FileIdentity>;
+  stat(value: string): Promise<ExecutableIdentity>;
   /**
    * Resolves when the current process may execute the file: `access(X_OK)`,
    * which on win32 only checks that the file is still there.
@@ -173,7 +177,7 @@ export async function resolveExecutable(
   if (lexical !== undefined) throw new ExecutableResolutionError(lexical, requested);
 
   let resolved: string;
-  let identity: FileIdentity;
+  let identity: ExecutableIdentity;
   try {
     resolved = await fs.realpath(requested);
     identity = await fs.stat(resolved);
@@ -198,6 +202,8 @@ export async function resolveExecutable(
     path: resolved,
     size: Number(identity.size),
     mtimeMs: Number(identity.mtimeMs),
+    mtimeNs: String(identity.mtimeNs),
+    ctimeNs: String(identity.ctimeNs),
   };
 }
 

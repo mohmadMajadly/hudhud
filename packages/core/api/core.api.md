@@ -420,6 +420,16 @@ export type HudhudEvent = (EventBase & {
 });
 
 // @public
+export type HudhudEventOf<T extends string> = T extends unknown ? [Extract<HudhudEvent, {
+    readonly type: T;
+}>] extends [never] ? EventBase & {
+    readonly type: T;
+    readonly raw?: JsonValue;
+} : Extract<HudhudEvent, {
+    readonly type: T;
+}> : never;
+
+// @public
 export class InvalidOptionsError extends HudhudError {
     // (undocumented)
     static readonly code = "INVALID_OPTIONS";
@@ -429,6 +439,9 @@ export class InvalidOptionsError extends HudhudError {
 
 // @public
 export function isCredentialEnvName(name: string): boolean;
+
+// @public
+export function isEventType<T extends HudhudEvent['type']>(event: HudhudEvent, type: T): event is HudhudEventOf<T>;
 
 // @public
 export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError;

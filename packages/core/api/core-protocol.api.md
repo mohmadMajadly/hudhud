@@ -311,6 +311,19 @@ export type HudhudEvent = (EventBase & {
 export type HudhudEventData = HudhudEvent;
 
 // @public
+export type HudhudEventOf<T extends string> = T extends unknown ? [Extract<HudhudEvent, {
+    readonly type: T;
+}>] extends [never] ? EventBase & {
+    readonly type: T;
+    readonly raw?: JsonValue;
+} : Extract<HudhudEvent, {
+    readonly type: T;
+}> : never;
+
+// @public
+export function isEventType<T extends HudhudEvent['type']>(event: HudhudEvent, type: T): event is HudhudEventOf<T>;
+
+// @public
 export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode;
 
 // @public

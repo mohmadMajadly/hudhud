@@ -1,8 +1,9 @@
 name: Setup toolchain
 description: >-
   Installs the pinned pnpm and the requested Node version, restores the pnpm
-  store cache and runs a frozen, script-free install. The cache is written
-  only by pushes to main (ADR-0014).
+  store cache and runs a frozen, script-free install; with `integration`,
+  also fetches the pinned CLI and creates the integration test root. Caches
+  are written only by pushes to main (ADR-0014).
 inputs:
   node-version:
     description: Node.js version (major) to install.
@@ -22,6 +23,14 @@ inputs:
       fail). Used for darwin-x64 only.
     required: false
     default: action-setup
+  integration:
+    description: >-
+      `'true'`: also prepare the integration suite (plan §4.4, §4.6): restore
+      the pinned CLI cache (written by pushes to main only), fetch and verify
+      the pinned CLI with `pnpm run cli:fetch`, and create a fresh test root
+      exported as HUDHUD_TEST_ROOT. `'false'` (default): nothing of that.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -77,3 +86,104 @@ runs:
       with:
         path: ${{ steps.store.outputs.path }}
         key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    # Integration prerequisites (plan §4.4, §4.6; K15, W7-T1), with
+    # `integration: 'true'` only.
+    - name: Reject an unknown integration value
+      if: inputs.integration != 'true' && inputs.integration != 'false'
+      shell: bash
+      run: |
+        echo "::error::unknown integration value: ${INTEGRATION} (true or false)"
+        exit 1
+      env:
+        INTEGRATION: ${{ inputs.integration }}
+
+    # The cache key names the pinned version and the pinned npm integrity of
+    # this platform's tarball: a pin change never restores an old binary.
+    - name: Key the pinned CLI cache
+      id: cli-key
+      if: inputs.integration == 'true'
+      shell: bash
+      run: |
+        node --input-type=module -e '
+          import { appendFileSync, readFileSync } from "node:fs";
+          const pin = JSON.parse(readFileSync("tooling/cli-pin.json", "utf8"));
+          const platform = `${process.platform}-${process.arch}`;
+          const integrity = pin.platforms?.[platform]?.integrity;
+          if (typeof integrity !== "string") {
+            console.log(`::error::tooling/cli-pin.json pins no integrity for ${platform}`);
+            process.exit(1);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `key=claude-cli-${platform}-${pin.version}-${integrity}\n`);
+        '
+
+    - name: Restore the pinned CLI cache
+      id: cli-cache
+      if: inputs.integration == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .cache/claude-cli
+        key: ${{ steps.cli-key.outputs.key }}
+
+    # The cache is never trusted: `cli:fetch` re-hashes a restored binary
+    # against the pin (sha256 and size, plan §4.6 step 5) and downloads and
+    # verifies it again when it does not match.
+    - name: Fetch and verify the pinned CLI
+      if: inputs.integration == 'true'
+      shell: bash
+      run: pnpm run cli:fetch
+
+    - name: Save the pinned CLI cache (main only)
+      if: inputs.integration == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cli-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .cache/claude-cli
+        key: ${{ steps.cli-key.outputs.key }}
+
+    # The harness requires of the test root only that it is an absolute,
+    # existing directory with no real home and no `.claude`, `CLAUDE.md` or
+    # `.mcp.json` at or above it (`checkTestRoot`, `launcher/ancestors.ts`;
+    # plan §4.4); it sets no ACL requirement. The root is explicit on every
+    # OS: `RUNNER_TEMP` is /home/runner/work/_temp on Linux and
+    # /Users/runner/work/_temp on macOS, under the home (refused), so
+    # test-support uses it as a default on Windows only. A fresh directory,
+    # owner-only as defence in depth: mode 0700 on POSIX (/tmp on Linux,
+    # /private/tmp on macOS: no symlink in the path); on Windows, where file
+    # modes carry no access control and Git Bash's `mkdir -m` cannot chmod
+    # there (Permission denied, run 38980331321), an ACL with inheritance
+    # removed and full control for the runner's account only (next step).
+    - name: Create the integration test root
+      if: inputs.integration == 'true'
+      shell: bash
+      run: |
+        node -e '
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const os = process.env.RUNNER_OS;
+          const root =
+            os === "Windows" ? path.win32.join(process.env.RUNNER_TEMP, "hudhud-test-root")
+            : os === "macOS" ? "/private/tmp/hudhud-test-root"
+            : "/tmp/hudhud-test-root";
+          try {
+            fs.mkdirSync(root, { mode: 0o700 });
+            if (os !== "Windows") fs.chmodSync(root, 0o700);
+          } catch (error) {
+            console.log(`::error::cannot create the integration test root ${root}: ${error.message}`);
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `HUDHUD_TEST_ROOT=${root}\n`);
+          console.log(`integration test root: ${root}`);
+        '
+
+    - name: Make the integration test root owner-only (Windows)
+      if: inputs.integration == 'true' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $root = $env:HUDHUD_TEST_ROOT
+        $account = "$($env:USERDOMAIN)\$($env:USERNAME)"
+        icacls $root /inheritance:r /grant:r "${account}:(OI)(CI)F"
+        if ($LASTEXITCODE -ne 0) {
+          Write-Output "::error::icacls could not restrict the integration test root $root to $account (exit $LASTEXITCODE)"
+          exit 1
+        }
+        icacls $root

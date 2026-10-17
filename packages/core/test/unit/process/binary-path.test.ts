@@ -13,9 +13,9 @@ import {
 } from '../../../src/process/binary-path.js';
 import type { ExecutableFs } from '../../../src/process/binary-path.js';
 import { hostPlatform } from '../../../src/process/cwd.js';
-import type { FileIdentity, ProcessPlatform } from '../../../src/process/cwd.js';
+import type { ExecutableIdentity, ProcessPlatform } from '../../../src/process/cwd.js';
 
-function identity(file = true): FileIdentity {
+function identity(file = true): ExecutableIdentity {
   return {
     isFile: () => file,
     isDirectory: () => !file,
@@ -23,6 +23,8 @@ function identity(file = true): FileIdentity {
     ino: 2n,
     size: 1234n,
     mtimeMs: 1700000000123n,
+    mtimeNs: 1700000000123456789n,
+    ctimeNs: 1700000000223456789n,
   };
 }
 
@@ -32,7 +34,7 @@ function errno(code: string): Error {
 
 function fakeFs(
   realpaths: Readonly<Record<string, string | Error>>,
-  stats: Readonly<Record<string, FileIdentity>>,
+  stats: Readonly<Record<string, ExecutableIdentity>>,
   executable = true,
 ): ExecutableFs & { calls: string[] } {
   const calls: string[] = [];
@@ -175,6 +177,8 @@ describe('resolveExecutable with an injected filesystem', () => {
       path: '/srv/user/.local/share/claude/versions/2.1.296',
       size: 1234,
       mtimeMs: 1700000000123,
+      mtimeNs: '1700000000123456789',
+      ctimeNs: '1700000000223456789',
     });
     expect(fs.calls).toContain('access /srv/user/.local/share/claude/versions/2.1.296');
   });

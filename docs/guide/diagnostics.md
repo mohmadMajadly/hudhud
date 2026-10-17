@@ -1,0 +1,104 @@
+# Diagnostics
+
+hudhud reports what it found and what it did, so that an application can explain a failure without guessing. Nothing it reports carries a secret: environment variables appear by name only, and everything taken from Claude Code's error output is redacted ([ADR-0016](../adr/0016-observability.md)).
+
+## At connect
+
+| Where                                   | What                                                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `harness.binary`                        | The resolved binary, how it was found, its version and its verification ([Security](security.md#binary-verification)) |
+| `harness.compat` and the `compat` event | The tested window and the status of the running version ([Compatibility](compatibility.md))                           |
+| `harness.capabilities`                  | What the Harness supports, including `processContainment`, with `reasons` for anything that is not fully supported    |
+| `harness.securityPosture`               | Every security-relevant setting and whether it deviates ([Security](security.md#security-posture))                    |
+
+Each session adds `session.info` and its own `security.posture` diagnostic.
+
+```ts
+const { binary, compat, capabilities } = harness;
+console.log(`Claude Code ${binary.version} at ${binary.path} (found by: ${binary.source})`);
+console.log(`verification: ${binary.verification.status} (${binary.verification.method})`);
+console.log(`compat: ${compat.status}, tested ${compat.minTested} to ${compat.maxTested}`);
+console.log(`process containment: ${capabilities.processContainment}`);
+for (const [capability, reason] of Object.entries(capabilities.reasons)) {
+  console.log(`  ${capability}: ${reason}`);
+}
+```
+
+## Diagnostic events
+
+`diagnostic` events have a `code`, a human-readable `message` and structured `data`. They are information, not errors: a session that publishes them keeps running unless an error says otherwise. `DiagnosticCode` is open, so new codes can appear; log unknown ones.
+
+### Start and configuration
+
+| Code                             | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `security.posture`               | The session's security posture (`data.entries`)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `env.dropped`                    | Names of variables of your process's environment that are absent from Claude Code's final environment (`data.names`): the variables the preset filtered out and the ones hudhud always removes, unless set again (a variable hudhud pins, such as `DISABLE_AUTOUPDATER`, or one in `env.add`); names you take out with `env.remove` are reported in `env.removed` instead; on Windows also `data.spawnInjected`, the names hudhud passed as empty so that nothing is copied from the parent |
+| `env.added`, `env.removed`       | Names from `env.add` and `env.remove`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `binary.unverified`              | The binary is not `'verified'` (`data` is the `binary.verification` object)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `binary.version-changed`         | The version at session start differs from the one `connect()` probed ([Compatibility](compatibility.md#version-drift))                                                                                                                                                                                                                                                                                                                                                                      |
+| `binary.launcher-detected`       | Claude Code reports a pid other than the spawned one: a launcher sits in between. hudhud keeps using the spawned process as the session's identity                                                                                                                                                                                                                                                                                                                                          |
+| `settings-guard.allowed`         | `projectCredentialEnv: 'allow'` let project settings with credential or routing variables through (names only)                                                                                                                                                                                                                                                                                                                                                                              |
+| `containment.fallback`           | Assigning the process to its Windows job failed; the session runs with `'best-effort'` containment                                                                                                                                                                                                                                                                                                                                                                                          |
+| `events.pre-handshake-truncated` | More events happened before the session was returned than the replay keeps (`data.dropped`)                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+### During a session
+
+| Code                                                                                                                                                                                                                                                        | Meaning                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stdout.non-json-line`                                                                                                                                                                                                                                      | A line of Claude Code's output was not a JSON object (or not UTF-8) and was skipped                                                                                                                                                    |
+| `frame.skipped-oversized`                                                                                                                                                                                                                                   | A line above `maxFrameBytes` was skipped under `onOversizedFrame: 'skip'`                                                                                                                                                              |
+| `interrupt.still-queued-retry`                                                                                                                                                                                                                              | Claude Code still listed the interrupted turn as queued; the interrupt was sent once more                                                                                                                                              |
+| `turn.dropped`                                                                                                                                                                                                                                              | Claude Code finished a prompt without running a turn for it; the turn failed with `TURN_DROPPED`                                                                                                                                       |
+| `turn.unmatched-result`                                                                                                                                                                                                                                     | A result arrived that matches no open turn; it was ignored                                                                                                                                                                             |
+| `permission.handler-failed`                                                                                                                                                                                                                                 | `onPermission` threw or rejected; Claude Code got a deny                                                                                                                                                                               |
+| `permission.invalid-decision`                                                                                                                                                                                                                               | `onPermission` returned something that is not a valid decision; Claude Code got a deny                                                                                                                                                 |
+| `permission.updates-stripped`                                                                                                                                                                                                                               | Permission updates that would write settings files were removed                                                                                                                                                                        |
+| `permission.ignored-after-abort`                                                                                                                                                                                                                            | A permission question arrived after the session was aborted; nothing was answered                                                                                                                                                      |
+| `permission.duplicate-request-id`                                                                                                                                                                                                                           | A permission question reused the id of an earlier one; it was denied without asking                                                                                                                                                    |
+| `permission.malformed-request`, `permission.duplicate-request`, `permission.unknown-request`                                                                                                                                                                | Claude Code sent a permission message hudhud could not match; it was answered with an error or ignored                                                                                                                                 |
+| `control.unknown-response`, `control.late-response`, `control.duplicate-request`, `control.unknown-cancel`, `control.unsupported-request`, `control.unanswered-request`, `control.malformed-request`, `control.answer-not-pending`, `control.answer-failed` | Anomalies of Claude Code's control protocol: an answer to nothing, a late or duplicate message, a request hudhud does not support (answered with an error). A raw control request's answer also shows up as `control.unknown-response` |
+| `session.id-mismatch`                                                                                                                                                                                                                                       | Claude Code runs under another session id than requested; the session fails with `PROTOCOL_ERROR`                                                                                                                                      |
+| `session.id-in-use`                                                                                                                                                                                                                                         | Claude Code reports a session id that another live session of this Harness holds; the session is aborted                                                                                                                               |
+| `stdin.error`, `stdout.error`                                                                                                                                                                                                                               | Writing to or reading from Claude Code failed                                                                                                                                                                                          |
+
+### End of a session
+
+| Code                           | Meaning                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `termination.ladder`           | The termination ladder ran (its steps and what each did), or failed                   |
+| `termination.sweep-after-exit` | After Claude Code exited by itself, hudhud ended the descendants it left behind       |
+| `binding.machine-error`        | An internal invariant broke; the session ends with `PROTOCOL_ERROR`. Please report it |
+
+The codes `project.permissions-ignored` and `containment.addon-unavailable` are part of the `DiagnosticCode` type but are not published by this version.
+
+## Other operational events
+
+- `api.retry`: Claude Code retries a model request (`attempt`, `retryDelayMs`, `errorStatus`, `error`).
+- `stalled`: no output for `idleStallMs` while a turn runs; informational only.
+- `gap`: events were dropped for one subscriber under `'drop-oldest-with-gap-marker'`.
+- `session.terminated`: why and how the session ended (`intent`, `outcome`, `exitCode`, `signal`). Decide on `outcome`; exit codes vary with timing.
+
+## Usage and cost
+
+`TurnResult.usage` and `usage.update` events carry Claude Code's figures: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens` and `costUsd`. `usage.update.reported` is cumulative, as Claude Code reports it; `estimatedDelta` is hudhud's estimate of the change since the previous report and is marked `estimate: true`. Claude Code's cost figures are themselves client-side estimates.
+
+## Error output
+
+Claude Code's standard error is kept as a bounded tail (2 048 characters by default), redacted, and attached as `details.stderrTail` to `PROCESS_EXITED` and `HANDSHAKE_FAILED` errors. Redaction replaces the values of credential variables of the child's environment (values of at least 8 characters) with `<redacted>`.
+
+The redaction helpers are public, for your own logs: `redactText(text, secrets)`, `redactJson(value, policy)`, `secretsFromEnv(env)` (the secret values to redact; keep them in memory only), `credentialEnvNames(env)`, `isCredentialEnvName(name)` and `isSensitiveFieldName(name)`.
+
+## Tracing
+
+Distributed tracing is off by default: hudhud removes `TRACEPARENT` and `TRACESTATE` from Claude Code's environment, so your application's trace context does not leak into a third-party process. To propagate it, pass the W3C values:
+
+```text
+trace: { traceparent: '00-<32 hex trace id>-<16 hex span id>-01', tracestate: '<optional>' }
+```
+
+hudhud then sets `TRACEPARENT` (and `TRACESTATE` when given) for that session ([ADR-0016](../adr/0016-observability.md)).
+
+## Serializing errors
+
+A `HudhudError` serializes to plain JSON with `error.toJSON()` (`code`, `message`, `retryable`, `details`), and `HudhudError.fromData(data)` rebuilds the matching error class, for example on the other side of a worker or a network boundary.

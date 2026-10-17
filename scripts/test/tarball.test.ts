@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   checkFileList,
   checkImports,
+  checkLegalFiles,
   checkPackedManifest,
+  checkRequiredFiles,
   checkSourceManifest,
   checkSourceMap,
   checkTarball,
@@ -323,6 +325,7 @@ describe('checkFileList', () => {
     'package.json',
     'README.md',
     'LICENSE',
+    'NOTICE',
     'dist/index.js',
     'src/index.ts',
     'schemas/a.json',
@@ -339,13 +342,14 @@ describe('checkFileList', () => {
     ).toEqual([]);
   });
 
-  it('requires package.json, a README and a LICENSE', () => {
+  it('requires package.json, a README, a LICENSE and a NOTICE', () => {
     expect(checkFileList({}, [])).toEqual([
       'package.json is missing',
       'README is missing',
       'LICENSE is missing',
+      'NOTICE is missing',
     ]);
-    expect(checkFileList({}, ['package.json', 'README', 'LICENCE'])).toEqual([]);
+    expect(checkFileList({}, ['package.json', 'README', 'LICENCE', 'NOTICE.md'])).toEqual([]);
   });
 
   it('flags a files entry that packs nothing', () => {
@@ -382,13 +386,13 @@ describe('checkFileList', () => {
     ['.gitignore', 'a git or npm configuration file'],
     ['.npmrc', 'a git or npm configuration file'],
   ])('flags %s as %s', (path, label) => {
-    expect(checkFileList({ files: [path] }, ['package.json', 'README', 'LICENSE', path])).toContain(
-      `${path}: ${label}`,
-    );
+    expect(
+      checkFileList({ files: [path] }, ['package.json', 'README', 'LICENSE', 'NOTICE', path]),
+    ).toContain(`${path}: ${label}`);
   });
 
   it('treats a manifest without files as allowing only the always-included files', () => {
-    expect(checkFileList({}, ['package.json', 'README', 'LICENSE', 'x.js'])).toEqual([
+    expect(checkFileList({}, ['package.json', 'README', 'LICENSE', 'NOTICE', 'x.js'])).toEqual([
       'x.js: not covered by the files allowlist',
     ]);
   });
@@ -601,6 +605,50 @@ describe('listEntryPoints', () => {
 
 // ---- one tarball --------------------------------------------------------------
 
+const LICENSE_TEXT = 'Apache License 2.0';
+const NOTICE_TEXT = 'hudhud\nCopyright\n';
+const LEGAL = [
+  { label: 'LICENSE' as const, data: Buffer.from(LICENSE_TEXT) },
+  { label: 'NOTICE' as const, data: Buffer.from(NOTICE_TEXT) },
+];
+
+describe('checkRequiredFiles and checkLegalFiles', () => {
+  it('names each required file that no path matches', () => {
+    expect(checkRequiredFiles(['README.md', 'LICENSE', 'NOTICE'])).toEqual([]);
+    expect(checkRequiredFiles(['README.md'])).toEqual(['LICENSE is missing', 'NOTICE is missing']);
+  });
+
+  it('accepts copies equal to the repository files and leaves absence to checkRequiredFiles', () => {
+    expect(
+      checkLegalFiles([entry('LICENSE', LICENSE_TEXT), entry('NOTICE', NOTICE_TEXT)], LEGAL),
+    ).toEqual([]);
+    expect(checkLegalFiles([entry('README.md', 'x')], LEGAL)).toEqual([]);
+  });
+
+  it('names every LICENSE or NOTICE file, of any accepted spelling, that differs', () => {
+    expect(
+      checkLegalFiles(
+        [
+          entry('LICENSE', LICENSE_TEXT),
+          entry('LICENCE.md', 'other'),
+          entry('NOTICE', `${NOTICE_TEXT} `),
+          entry('dist/NOTICE', 'not at the root'),
+        ],
+        LEGAL,
+      ),
+    ).toEqual([
+      "LICENCE.md differs from the repository's LICENSE",
+      "NOTICE differs from the repository's NOTICE",
+    ]);
+  });
+
+  it('refuses a label that is not a legal file', () => {
+    expect(() =>
+      checkLegalFiles([], [{ label: 'COPYING' as 'NOTICE', data: Buffer.from('') }]),
+    ).toThrow('not a legal file: COPYING');
+  });
+});
+
 describe('checkTarball', () => {
   const source: PackageJson = {
     name: 'p',
@@ -612,18 +660,29 @@ describe('checkTarball', () => {
   const clean = [
     file('package.json', packed),
     file('README.md'),
-    file('LICENSE'),
+    file('LICENSE', LICENSE_TEXT),
+    file('NOTICE', NOTICE_TEXT),
     file('dist/index.js', 'export {}'),
     file('dist/index.d.ts', 'export {}'),
     file('dist/index.js.map', JSON.stringify({ sources: ['../src/index.ts'] })),
   ];
 
   it('passes a clean tarball and lists its entry points', () => {
-    const report = checkTarball(source, gz(clean), []);
+    const report = checkTarball(source, gz(clean), [], LEGAL);
     expect(report.problems).toEqual([]);
+    expect(checkTarball(source, gz(clean), []).problems).toEqual([]);
     expect(report.paths).toContain('dist/index.js');
     expect(report.entryPoints).toEqual([
       { specifier: 'p', kind: 'js', runtime: 'dist/index.js', types: 'dist/index.d.ts' },
+    ]);
+  });
+
+  it('reports a LICENSE or NOTICE that is not the repository file', () => {
+    const drifted = clean.map((item) =>
+      item.name === 'package/NOTICE' ? file('NOTICE', 'Copyright someone else') : item,
+    );
+    expect(checkTarball(source, gz(drifted), [], LEGAL).problems).toEqual([
+      "NOTICE differs from the repository's NOTICE",
     ]);
   });
 

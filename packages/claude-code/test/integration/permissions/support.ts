@@ -295,7 +295,9 @@ const SETTINGS_FILE = /^settings(?:\.local)?\.json$/iu;
 /**
  * Every settings file under `root` (any depth) with the sha256 of its
  * content: the files a permission update with a `localSettings`,
- * `userSettings` or `projectSettings` destination would write.
+ * `userSettings` or `projectSettings` destination would write. Call it only
+ * while no CLI runs in the sandbox: a live CLI creates and removes
+ * `cfg/.claude.json.lock` and temporary files, and a walk would race them.
  */
 export async function settingsFiles(root: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};

@@ -12,6 +12,7 @@ import { isHudhudError, type Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
+import { recordTiming } from '../support/timing.js';
 import { b64, diagnostics, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
@@ -121,9 +122,23 @@ test('close while a turn streams: the turn completes, then the session closes', 
  * 1392 ms; the ladder's steps were intent, interrupt `acknowledged`, then
  * snapshot S1 (one CIM query), during which the CLI exited. Linux
  * `node:22-bookworm` (`docker run --init`): 23 to 45 ms; intent, interrupt
- * `acknowledged`, EOF, then the exit. 3 x 1392 ms and 3 x 45 ms.
+ * `acknowledged`, EOF, then the exit. Re-measured (W7-T1, plan §5.9) in
+ * today's configuration (Windows suites always run with the staged job
+ * addon, so the CIM snapshot of the W6-Z runs is gone):
+ * - Linux: GitHub ubuntu-24.04, timing runs 38980331321 and 38984419523,
+ *   15 samples each, 30.0 to 41.2 ms and 26.4 to 32.9 ms;
+ *   `node:22-bookworm` on the W7-T1 host, 3 samples, 22.7 to 47.7 ms.
+ * - Windows: GitHub windows-2025, timing run 38984419523, 15 samples,
+ *   50.1 to 210.4 ms; the W7-T1 host, 3 samples, 42.9 to 53.0 ms.
+ * - macOS: GitHub macos-15 (darwin-arm64), the macOS gate's integration
+ *   evidence job, runs 38967893191 and 38977497768, 20 samples each, 14.6
+ *   to 39.241 ms and 15.4 to 37.7 ms (research 11 §6); the maximum
+ *   rounded up to a whole 10 ms, 40 ms.
+ * Bound: 3x the largest measurement per platform: 47.7 ms (Linux), 210.4 ms
+ * (Windows) and 40 ms (macOS).
  */
-const CLOSE_OVERRUN_BOUND_MS = process.platform === 'win32' ? 3 * 1392 : 3 * 45;
+const CLOSE_OVERRUN_BOUND_MS =
+  process.platform === 'win32' ? 3 * 210.4 : process.platform === 'darwin' ? 3 * 40 : 3 * 47.7;
 
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;
@@ -134,6 +149,9 @@ test('close with a deadline: a turn that never ends is cut at the deadline', asy
   const started = performance.now();
   await session.close();
   const elapsed = performance.now() - started;
+  // The overrun past the deadline, recorded before any assertion so a
+  // measurement run keeps the samples that break the bound (off by default).
+  recordTiming('close-abort.overrun', elapsed - closeTimeoutMs);
   const result = await turn.done;
   expect(result.outcome).toBe('cancelled');
   const events = await recording.done;
@@ -281,7 +299,10 @@ test('session(): one call opens a session on the pinned CLI; it closes and nothi
   expect(result).toMatchObject({ outcome: 'completed', text: reply });
   await session.close();
   const events = await recording.done;
-  expect(events[0]).toMatchObject({ type: 'compat', compat: { status: 'tested' } });
+  expect(events[0]).toMatchObject({
+    type: 'compat',
+    compat: { status: suite.expectedCompatStatus },
+  });
   expect(ofType(events, 'message.delta').length).toBeGreaterThan(0);
   expect(terminatedOf(events)).toMatchObject({ intent: 'close', outcome: 'closed' });
 });

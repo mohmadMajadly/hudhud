@@ -20,8 +20,9 @@ import {
 const LINUX = release('linux-x64', '9.9.9');
 const WIN = release('win32-x64', '9.9.9');
 // The fake host is win32 on Windows and linux elsewhere (arch x64), so the
-// default runs always target a pinned platform: macOS hosts would otherwise
-// derive darwin-*, which stays pendingGate until the macOS gate passes.
+// default runs always target a platform the fake registry serves: macOS hosts
+// would otherwise derive darwin-*, which this test's fake pin keeps
+// pendingGate (the real pin has pinned darwin since the macOS gate).
 const FAKE_PLATFORM = process.platform === 'win32' ? 'win32' : 'linux';
 const HOST_RELEASE = FAKE_PLATFORM === 'win32' ? WIN : LINUX;
 
@@ -30,6 +31,8 @@ let registry: FakeRegistry;
 let out = '';
 let err = '';
 let summaries: { file: string; text: string }[] = [];
+let written: { file: string; text: string }[] = [];
+let removed: string[] = [];
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'hudhud-main-'));
@@ -39,6 +42,8 @@ beforeEach(async () => {
   out = '';
   err = '';
   summaries = [];
+  written = [];
+  removed = [];
   const doc = pinDocument(LINUX, WIN) as { platforms: Record<string, unknown> };
   doc.platforms['darwin-arm64'] = {
     package: '@anthropic-ai/claude-code-darwin-arm64',
@@ -77,6 +82,14 @@ function host(
       summaries.push({ file, text });
       return Promise.resolve();
     },
+    writeFile: (file, text) => {
+      written.push({ file, text });
+      return Promise.resolve();
+    },
+    removeFile: (file) => {
+      removed.push(file);
+      return Promise.resolve();
+    },
     ...overrides,
   };
 }
@@ -101,6 +114,15 @@ describe('runFetchCli usage', () => {
     expect(await runFetchCli(host(['--channel', 'newest', '--all']))).toBe(2);
     expect(err).toContain('--all applies to the pinned channel only');
     expect(registry.calls).toEqual([]);
+  });
+
+  it('rejects --version outside the newest channel and an invalid version', async () => {
+    expect(await runFetchCli(host(['--version', '9.9.9']))).toBe(2);
+    expect(err).toContain('--version applies to the newest channel only');
+    expect(await runFetchCli(host(['--channel', 'newest', '--version', '../9']))).toBe(2);
+    expect(err).toContain('not a SemVer version "../9"');
+    expect(registry.calls).toEqual([]);
+    expect(removed).toEqual([]);
   });
 });
 
@@ -234,5 +256,39 @@ describe('runFetchCli newest', () => {
     ).toBe(0);
     expect(out).toContain('ok win32-x64 9.9.9');
     expect(summaries).toEqual([]);
+  });
+
+  it('resolves latest once, removes a stale run pin first and writes the new one', async () => {
+    const argv = ['--channel', 'newest', '--platform', 'linux-x64', '--platform', 'win32-x64'];
+    expect(await runFetchCli(host([...argv, '--cache', 'c']))).toBe(0);
+    expect(registry.calls.filter((url) => url === LATEST)).toHaveLength(1);
+    const pinFile = path.join(root, 'c', 'run-pin.json');
+    expect(removed).toEqual([pinFile]);
+    expect(written.map((item) => item.file)).toEqual([pinFile]);
+    const doc = JSON.parse(written[0]?.text ?? '') as {
+      version: string;
+      platforms: Record<string, unknown>;
+    };
+    expect(doc.version).toBe('9.9.9');
+    expect(Object.keys(doc.platforms)).toEqual(['linux-x64', 'win32-x64']);
+    expect(out).toContain(`run-pin ${pinFile}\n`);
+  });
+
+  it('records an exact --version without reading latest (the dry run)', async () => {
+    const old = release('linux-x64', '9.9.8');
+    serve(registry, old);
+    const argv = ['--channel', 'newest', '--version', '9.9.8', '--platform', 'linux-x64'];
+    expect(await runFetchCli(host(argv))).toBe(0);
+    expect(registry.calls).not.toContain(LATEST);
+    expect(out).toContain(`recorded ${old.pkg}@9.9.8 integrity=${old.integrity}`);
+    expect(out).toContain('cross-check=unavailable');
+    expect(written[0]?.text).toContain('"version": "9.9.8"');
+  });
+
+  it('writes no run pin when a fetch fails', async () => {
+    registry.routes.delete(LINUX.tarballUrl);
+    expect(await runFetchCli(host(['--channel', 'newest', '--platform', 'linux-x64']))).toBe(1);
+    expect(removed).toHaveLength(1);
+    expect(written).toEqual([]);
   });
 });

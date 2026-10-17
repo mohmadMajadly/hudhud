@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,12 +7,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CliFetchError } from '../../src/cli/errors.js';
 import { SandboxRefusedError } from '../../src/launcher/errors.js';
 import {
+  cliChannel,
   defaultCacheRoot,
   HOST_FACTS,
   hostPlatformKey,
   isInside,
   probePinnedCli,
   recheckPinnedCli,
+  resolvePinnedCli,
 } from '../../src/launcher/pinned-cli.js';
 import { FAKE_VERSION, makeFakeCli } from './fake-cli.js';
 import type { FakeCli } from './fake-cli.js';
@@ -81,7 +83,6 @@ describe('resolvePinnedCli', () => {
     const repo = await mkdtemp(path.join(tmpdir(), 'hudhud-repo-'));
     try {
       await mkdir(path.join(repo, 'tooling'));
-      const { readFile } = await import('node:fs/promises');
       await writeFile(path.join(repo, 'tooling', 'cli-pin.json'), await readFile(fake.pinFile));
       const probe = await probePinnedCli({
         repoRoot: repo,
@@ -146,6 +147,55 @@ describe('resolvePinnedCli', () => {
     await expect(
       probePinnedCli({ repoRoot: fake.root, env: {}, pinFile: fake.pinFile, platformKey: 'aix' }),
     ).rejects.toMatchObject({ code: 'platform-unavailable' });
+  });
+});
+
+describe('the newest channel (canary, K16)', () => {
+  it('reads the channel from HUDHUD_CLI_CHANNEL and refuses an unknown one', () => {
+    expect(cliChannel({})).toBe('pinned');
+    expect(cliChannel({ HUDHUD_CLI_CHANNEL: '' })).toBe('pinned');
+    expect(cliChannel({ HUDHUD_CLI_CHANNEL: 'pinned' })).toBe('pinned');
+    expect(cliChannel({ HUDHUD_CLI_CHANNEL: 'newest' })).toBe('newest');
+    expect(() => cliChannel({ HUDHUD_CLI_CHANNEL: 'latest' })).toThrow(
+      'HUDHUD_CLI_CHANNEL must be pinned or newest, got "latest"',
+    );
+  });
+
+  it('verifies against the run-local pin in the cache root, not the repository pin', async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), 'hudhud-repo-'));
+    const env = { HUDHUD_CLI_CHANNEL: 'newest', HUDHUD_CLI_CACHE: fake.cacheRoot };
+    const runPin = path.join(fake.cacheRoot, 'run-pin.json');
+    try {
+      // No tooling/cli-pin.json in this repository: only the run pin can answer.
+      await expect(
+        resolvePinnedCli({ repoRoot: repo, env, platformKey: fake.platformKey }),
+      ).rejects.toMatchObject({
+        code: 'cache-invalid',
+        message: expect.stringContaining('fetch-cli.mjs --channel newest') as unknown,
+      });
+      await expect(
+        probePinnedCli({ repoRoot: repo, env, platformKey: fake.platformKey }),
+      ).rejects.toMatchObject({ code: 'cache-invalid' });
+      await writeFile(runPin, await readFile(fake.pinFile));
+      const cli = await resolvePinnedCli({ repoRoot: repo, env, platformKey: fake.platformKey });
+      expect(cli).toMatchObject({ version: FAKE_VERSION, binaryPath: fake.cli.binaryPath });
+      await writeFile(runPin, '{}');
+      await expect(
+        resolvePinnedCli({ repoRoot: repo, env, platformKey: fake.platformKey }),
+      ).rejects.toMatchObject({ code: 'pin-invalid' });
+      // An explicit pin file wins over the channel.
+      await expect(
+        resolvePinnedCli({
+          repoRoot: repo,
+          env,
+          pinFile: fake.pinFile,
+          platformKey: fake.platformKey,
+        }),
+      ).resolves.toMatchObject({ version: FAKE_VERSION });
+    } finally {
+      await rm(runPin, { force: true });
+      await rm(repo, { recursive: true, force: true, maxRetries: 10 });
+    }
   });
 });
 

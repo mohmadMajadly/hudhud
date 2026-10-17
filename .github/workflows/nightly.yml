@@ -1,20 +1,59 @@
-# Nightly safety net (ADR-0014, G3, amendment 2): the full matrix runs only
-# when a new Claude Code CLI version was published in the last window, or on
-# manual dispatch. Changes to main are not a trigger: every non-docs push to
-# main already runs FULL in ci.yml. A cheap Linux job decides; Windows and
-# macOS are reached only through it. An unreadable registry fails that job.
-name: Nightly
+# Nightly canary (K16, ADR-0013 item 12, ADR-0014 amendment 3, plan 5.9
+# W7-T2): the integration suite on Linux against the newest published Claude
+# Code CLI (the `latest` dist-tag) whenever it is newer than the pinned
+# version in tooling/cli-pin.json. It never re-runs the pinned version: the
+# pinned CLI is covered by every FULL run of ci.yml. A cheap job decides; the
+# canary job fetches the decided version through cli/newest.ts (registry
+# integrity recorded for the run, tarball verified against it, binary
+# cross-checked against the Agent SDK manifest when one bundles it), runs the
+# suite with HUDHUD_CLI_CHANNEL=newest (which includes the settings lookup
+# check, research 08 section 7) and writes the verdict to the job summary
+# (version, integrity, results, lookup check, degradation classification).
+# Any failure turns the run red. Scheduled jobs hold `contents: read` only:
+# no write token, no PR; the lead prepares the bump locally (`pnpm cli:bump`).
+#
+# Manual dispatch: `mode: canary` behaves like the schedule; `mode: dry-run`
+# runs the same path against the PINNED version to validate the workflow.
+# Its job summary says DRY RUN in every heading; it is never a canary result,
+# and the schedule never takes that path.
+#
+# Cost (plan 5.9 W7-T2 formula: 30 x D_linux + 4.3 x 2 x D_windows + 4.3 x
+# 10 x D_macos Linux-equivalent minutes per month; macOS off until its gate).
+# Durations of the whole integration suite, local hosts: W6 (plan 4.4)
+# D_linux = 163.9 s, D_windows = 682.6 s (no job addon); W7-T2 canary runs
+# against CLI 2.1.301, D_linux = 165.7 s (Docker, n=1), D_windows = 360.5 and
+# 365.1 s (addon staged, as in the canary, n=2). Suite only: W6 30 x 2.73 +
+# 8.6 x 11.38 = 180; W7 30 x 2.76 + 8.6 x 6.08 = 135. Whole jobs (setup and
+# build about 3 min on Linux, 6 min on Windows), W7: 30 x 5.8 + 8.6 x 12.1 =
+# 278, plus about 17 min of should-run checks. At most 30 nightly runs a
+# month (one per night while a newer version exists). Recompute with the
+# CI-measured durations of the first runs (K15).
+name: Nightly canary
 
 on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: >-
+          canary: test the newest CLI when it is newer than the pin (what the
+          schedule does). dry-run: run the whole canary path against the
+          PINNED version to validate the workflow; labelled DRY RUN, never a
+          canary result.
+        type: choice
+        options: [canary, dry-run]
+        default: canary
 
 permissions: {}
 
 concurrency:
   group: nightly
   cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   check:
@@ -25,6 +64,8 @@ jobs:
       contents: read
     outputs:
       run: ${{ steps.check.outputs.run }}
+      mode: ${{ steps.check.outputs.mode }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,19 +78,71 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
-      - name: Was a new CLI version published?
+      - name: Is a CLI newer than the pin published?
         id: check
-        shell: bash
         env:
-          NIGHTLY_FORCED: ${{ github.event_name == 'workflow_dispatch' }}
-        run: node scripts/nightly-check.mjs
+          # Empty on the schedule; the dispatch input otherwise.
+          CANARY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || '' }}
+        run: node scripts/nightly-check.mjs nightly
 
-  full:
-    name: full
+  canary:
+    name: canary (linux-x64)
     needs: check
     if: needs.check.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    # K15: measured p95 x 2. The first dispatched runs (W7-T2): dry run
+    # 38981732871 (pinned 2.1.296, green) 4 min 45 s; canary run 38981735322
+    # (2.1.302, the whole suite ran, red only on the 4 request-shape tests)
+    # 3 min 36 s. p95 of the two (the maximum) 4.75 min; x 2 = 9.5, rounded
+    # up to 10. The earlier estimate was 25 min. Re-size as runs accumulate.
+    timeout-minutes: 10
     permissions:
       contents: read
-    uses: ./.github/workflows/ci.yml
-    with:
-      full: true
+    env:
+      CANARY_MODE: ${{ needs.check.outputs.mode }}
+      CANARY_VERSION: ${{ needs.check.outputs.version }}
+      HUDHUD_CLI_CHANNEL: newest
+      # Outside the runner's home: the harness refuses a test root below a
+      # home directory, and RUNNER_TEMP lies under the runner's home on Linux.
+      HUDHUD_TEST_ROOT: /tmp/hudhud-canary
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Fetch the CLI under test (registry integrity recorded for this run)
+        id: fetch
+        run: node tooling/test-support/bin/fetch-cli.mjs --channel newest --version "$CANARY_VERSION"
+
+      - name: Integration suite against it (includes the settings lookup check)
+        run: |
+          mkdir -m 700 "$HUDHUD_TEST_ROOT"
+          HUDHUD_CANARY_RESULTS="$RUNNER_TEMP/canary-results.json" pnpm exec vitest run \
+            --project integration \
+            --reporter=default \
+            --reporter=./tooling/test-support/src/canary/reporter.ts
+
+      - name: Verdict and job summary
+        if: always() && steps.fetch.outcome == 'success'
+        run: >-
+          node tooling/test-support/bin/canary-report.mjs
+          --results "$RUNNER_TEMP/canary-results.json"
+          --platform linux-x64 --mode "$CANARY_MODE" --schedule nightly
+
+      - name: Keep the results
+        if: always() && steps.fetch.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-results-linux-x64
+          path: ${{ runner.temp }}/canary-results.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -56,6 +56,8 @@ export type {
   TurnResult,
   UsageTotals,
 } from './events/types.js';
+export type { HudhudEventOf } from './events/guard.js';
+export { isEventType } from './events/guard.js';
 
 export type {
   CommandInput,

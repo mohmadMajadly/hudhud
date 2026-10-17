@@ -37,6 +37,12 @@ import {
 
 const suite = integrationSuite();
 
+/** The prefix that starts the workload in a new session and process group, per platform. */
+const DETACH: Readonly<Partial<Record<NodeJS.Platform, string>>> = {
+  win32: '',
+  darwin: "/usr/bin/perl -MPOSIX -e 'POSIX::setsid() or die qq(setsid: $!); exec @ARGV or die' ",
+};
+
 /** Hang guard for the background workload to appear. */
 const TOOL_START_GUARD_MS = 30_000;
 
@@ -67,8 +73,10 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     // shell completes (measured, W6-T3: a plain `sleep &` left nothing for
     // the sweep), so the descendant leaves the group with `setsid`, the classic
     // way a tool daemonizes. Git Bash has no process groups the CLI could end
-    // that way.
-    const detach = WINDOWS ? '' : 'setsid ';
+    // that way. macOS has no setsid(1) (util-linux): there the same setsid(2)
+    // call runs through the system perl, which then execs `sleep` (the
+    // first macOS run found the workload never started, research 11).
+    const detach = DETACH[process.platform] ?? 'setsid ';
     const command = `${detach}sleep ${tag} >/dev/null 2>&1 & sleep 5`;
     const result = await session.ask(`${bashTool({ command, run_in_background: true })} start it`);
     expect(result.outcome).toBe('completed');
@@ -136,8 +144,8 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
       expect(survivors).toEqual([]);
     } else {
       // The orphaned `sleep` (reparented once its shell exited) was in the
-      // EOF snapshot; it leads its own verified group (`setsid`), which the
-      // sweep killed with `kill(-pgid)`.
+      // EOF snapshot; it leads its own verified group (`setsid`, or perl's
+      // `POSIX::setsid` on macOS), which the sweep killed with `kill(-pgid)`.
       expect(killed).toContain(workload.pid);
       expect(survivors).toEqual([]);
     }

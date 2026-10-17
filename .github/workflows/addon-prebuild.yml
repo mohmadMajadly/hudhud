@@ -15,10 +15,12 @@
 # Phase 2, verify (tag `v*`): the same builds must reproduce the committed
 # record of the tag's release, and `release-verify` packs the core and both
 # platform packages and hashes the packed bytes again
-# (scripts/check-tarball.mjs --release-record). Publishing is not part of
-# this workflow (it comes at open-sourcing, with npm trusted publishing and
-# provenance, ADR-0009): the platform package is published first and the
-# core second, so the core's exact optional dependency always resolves.
+# (scripts/check-tarball.mjs --release-record), then runs the full tarball
+# check of every published package (`pnpm check:tarball`, plan §4.1, §6.3).
+# Publishing is not part of this workflow (it comes at open-sourcing, with
+# npm trusted publishing and provenance, ADR-0009): the platform package is
+# published first and the core second, so the core's exact optional
+# dependency always resolves.
 #
 # Security (ADR-0014): triggered only by a dispatch or a tag push, never by
 # pull_request_target; every job holds `contents: read` only, no secret is
@@ -41,7 +43,8 @@
 # - manifest: under 1 min, 5 minutes.
 # release-verify has not run yet (it runs on tags only): estimated about
 # 4 min from the test-x64 setup and build steps plus three pnpm pack runs
-# (under 10 s locally), 10 minutes until its first run is measured.
+# (under 10 s locally) and the full tarball check (7 s locally, W7-Z), 10
+# minutes until its first run is measured.
 name: Addon prebuild
 
 on:
@@ -343,7 +346,8 @@ jobs:
     needs: [build, test-x64]
     runs-on: windows-2025
     # Setup about 2 min, pnpm build about 1 min, three pnpm pack runs under
-    # 1 min (the full local check took under 10 s). About 4 min, x 2.
+    # 1 min (the full local check took under 10 s), the full tarball check
+    # under 1 min (7 s locally). About 4 min, x 2.
     timeout-minutes: 10
     permissions:
       contents: read
@@ -398,3 +402,12 @@ jobs:
         env:
           HUDHUD_TEST_ROOT: ${{ runner.temp }}
         run: node scripts/check-tarball.mjs --release-record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+
+      # The full check of every published package (plan §4.1): files, manifest,
+      # README, LICENSE and NOTICE, entry points, an offline install of the
+      # tarballs, imports and a type-check; the x64 package with the staged
+      # build above (W6-Z ruling 8, lead ruling on A3).
+      - name: Full tarball check of every published package
+        env:
+          HUDHUD_TEST_ROOT: ${{ runner.temp }}
+        run: pnpm run check:tarball

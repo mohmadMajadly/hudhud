@@ -25,9 +25,13 @@
  * On win32 names are case-insensitive, as the OS treats them: matching,
  * removal and overrides ignore case, and two option names that differ only
  * in case are refused. Dropped, added and removed variables are reported by
- * name, never by value. On win32 libuv would add some parent variables to
- * every child env that lacks them; the spawn layer blanks them instead (see
- * `spawnInjected`).
+ * name, never by value. A variable is dropped when the parent holds it and
+ * the child's final environment does not (compared as the OS compares
+ * names): a parent variable that a preset filters out but `env.add` or a
+ * hudhud pin sets again reaches the child, so it is not dropped (it is
+ * reported as added, or it is hudhud's own value). On win32 libuv would add
+ * some parent variables to every child env that lacks them; the spawn layer
+ * blanks them instead (see `spawnInjected`).
  */
 
 import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhudjs/core';
@@ -217,7 +221,11 @@ export function isCredentialOrRoutingEnvName(name: string): boolean {
 export interface ChildEnv {
   /** Exactly the variables the child receives. */
   readonly env: Readonly<Record<string, string>>;
-  /** Parent variables the preset or hudhud did not pass on (`env.dropped`). */
+  /**
+   * Parent variables absent from `env` (`env.dropped`): the preset or hudhud
+   * removed them and neither `env.add` nor a pin set them again. Never a
+   * name `env` holds, in any case on win32.
+   */
   readonly dropped: readonly string[];
   /** Names from `env.add` (`env.added`). */
   readonly added: readonly string[];
@@ -360,7 +368,9 @@ export function buildChildEnv(
 
   return {
     env: table.toObject(),
-    dropped: sorted(dropped),
+    // A name set again after it was dropped (a pin such as
+    // DISABLE_AUTOUPDATER, or env.add) reaches the child: not dropped.
+    dropped: sorted(dropped.filter((name) => table.spelling(name) === undefined)),
     added: sorted(added),
     removed: sorted(removed),
     spawnInjected:

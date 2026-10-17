@@ -21,6 +21,7 @@
   "files": [
     "dist",
     "src",
+    "NOTICE",
     "schemas",
     "!schemas/.baseline",
     "!**/*.tsbuildinfo"

@@ -13,6 +13,10 @@
     "**/CHANGELOG.md",
     // Owner-maintained design documents: not lint-clean yet (see
     // CONTRIBUTING.md); covered by the link checker and the privacy scan.
-    "docs/**",
+    // The user guide (docs/guide/) is linted like every other document.
+    "docs/adr/**",
+    "docs/plan/**",
+    "docs/research/**",
+    "docs/architecture.md",
   ],
 }

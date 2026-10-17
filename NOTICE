@@ -1,0 +1,15 @@
+hudhud
+Copyright 2026 The hudhud authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Claude Code wire-protocol types and state machines of hudhud were derived
+independently from the observed behaviour of the Claude Code CLI. Where the
+shape of a message follows the Claude Agent SDK for Python
+(https://github.com/anthropics/claude-agent-sdk-python), that SDK was used as
+a reference under its MIT License, Copyright (c) 2025 Anthropic, PBC. No code
+of that SDK, and no code of any proprietary Anthropic SDK, is included in
+hudhud.
+
+hudhud does not include or redistribute Claude Code. Claude Code is a product
+of Anthropic, PBC, and is subject to Anthropic's own terms.

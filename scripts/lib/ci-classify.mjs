@@ -11,7 +11,7 @@
  * @property {string} [ref] GITHUB_REF.
  * @property {boolean} [draft] Whether the pull request is a draft.
  * @property {readonly string[]} [labels] Pull request label names.
- * @property {boolean} [fullRequested] `full` input of workflow_dispatch or workflow_call.
+ * @property {boolean} [fullRequested] `full` input of workflow_dispatch.
  */
 
 /**

@@ -34,6 +34,7 @@ import os from 'node:os';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { nodeSignatureDeps } from '../../../packages/core/src/process/verify/os-signature.js';
 import { startMockServer } from '../../test-support/src/mock/server.js';
 import { prepareBinaries } from '../src/items/provenance.js';
 import { parseGateArgs, runGate, USAGE } from '../src/main.js';
@@ -207,6 +208,7 @@ const host = {
     realpath: (value) => realpath(value),
     stat: (value) => stat(value, { bigint: true }),
   },
+  product: { signature: nodeSignatureDeps },
   startMock: () => startMockServer(),
   registry: {
     fetch: (url, init) => fetch(url, init),

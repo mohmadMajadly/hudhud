@@ -11,7 +11,10 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { cliChannel } from '../../../../../tooling/test-support/src/launcher/pinned-cli.js';
 import type { ClaudeIntegrationSuite, JobAddonMode } from '../support/harness.js';
+
+import { hostPolicyEnv } from '../../../../../tooling/test-support/src/launcher/host-policy.js';
 
 /** The repository root (the pin and the CLI cache). */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
@@ -57,9 +60,15 @@ export interface CrashHost {
 /** The host's own lifetime: it ends itself after this (it never outlives its test). */
 const HOST_LIFETIME_MS = 110_000;
 
-/** The minimal environment of the host process: nothing of the worker's environment reaches it. */
+/**
+ * The minimal environment of the host process: nothing of the worker's
+ * environment reaches it but the host-policy markers, so the host's own
+ * `resolvePinnedCli` decides as the worker did (on macOS it refuses
+ * without them, research 11).
+ */
 function hostEnv(tmp: string, home: string): Record<string, string> {
-  if (process.platform !== 'win32') return { TMPDIR: tmp, HOME: home };
+  if (process.platform !== 'win32')
+    return { TMPDIR: tmp, HOME: home, ...hostPolicyEnv(process.env) };
   const systemRoot = process.env['SYSTEMROOT'] ?? process.env['SystemRoot'] ?? 'C:\\Windows';
   return { SYSTEMROOT: systemRoot, TEMP: tmp, TMP: tmp, USERPROFILE: home };
 }
@@ -81,6 +90,9 @@ export async function startCrashHost(
     JSON.stringify({
       repoRoot: REPO_ROOT,
       cacheRoot: suite.cli.cacheRoot,
+      // The host verifies the CLI against the same pin: the canary's run pin
+      // on the newest channel (K16), the repository pin otherwise.
+      cliChannel: cliChannel(process.env),
       binaryPath: suite.cli.binaryPath,
       sandbox: {
         dirs: sandbox.dirs,

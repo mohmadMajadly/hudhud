@@ -1,6 +1,9 @@
 // Helpers of the security-defaults suites (W6-T4, plan §4.4, §5.8). Every
 // file and directory they make lies inside the test's sandbox; nothing here
-// starts a process: the CLI runs only through the harness (`testConnect`).
+// starts a CLI: it runs only through the harness (`testConnect`). On
+// Windows the probe reads the CLI's command line through test-support's host
+// process table (one CIM query by the host's PowerShell, as the leak tracker
+// reads it every second).
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,6 +16,7 @@ import type {
   Session,
 } from '@hudhudjs/core';
 
+import { hostProcessTable } from '../../../../../tooling/test-support/src/leaks/process-table.js';
 import type { MockServer } from '../../../../../tooling/test-support/src/mock/server.js';
 
 /** Base64 of a UTF-8 string, for the mock's scenario arguments. */
@@ -141,29 +145,56 @@ export interface ChildProbe {
   readonly pid: number;
   /**
    * Linux: the CLI's own argv (`/proc/<pid>/cmdline`, binary first).
-   * Windows: `undefined`, see {@link ChildProbe.commandLine}.
+   * Windows and macOS: `undefined`, see {@link ChildProbe.commandLine}.
    */
   readonly argv: readonly string[] | undefined;
-  /** Windows: the CLI's command line (`Win32_Process.CommandLine`). */
+  /**
+   * Windows: the CLI's command line (`Win32_Process.CommandLine`, quoted
+   * as libuv quotes it). macOS: its argv joined by single spaces, unquoted
+   * (`ps -ww -o args=`; macOS has no `/proc`).
+   */
   readonly commandLine: string | undefined;
   /**
    * Linux: the CLI's own environment (`/proc/<pid>/environ`, exact).
    * Windows: the Bash tool's environment, which is the CLI's plus what the
-   * CLI and Git Bash add for tools (names folded to upper case).
+   * CLI and Git Bash add for tools (names folded to upper case). macOS: the
+   * Bash tool's environment (`env`), the CLI's plus what the CLI and the
+   * shell add for tools: `ps -E` prints another process's environment
+   * only joined by spaces, which values with spaces make ambiguous.
    */
   readonly env: ReadonlyMap<string, string>;
   /** Whether {@link ChildProbe.env} is the CLI's exact environment. */
   readonly exactEnv: boolean;
+  /** Whether {@link ChildProbe.commandLine} quotes arguments with spaces (Windows). */
+  readonly quotedCommandLine: boolean;
 }
 
-const PROBE_FILES = ['probe-pid.txt', 'probe-argv.txt', 'probe-env.txt'] as const;
-
-/** The Bash command of the probe tool call (see {@link probeChild}). */
+/**
+ * The Bash command of the probe tool call (see {@link probeChild}). Linux:
+ * pid, argv and environment from `/proc`. macOS: pid, the argv joined by
+ * `ps` and the tool's environment. Windows: pid and the tool's environment
+ * only; the command line is read from outside the sandbox.
+ *
+ * @remarks
+ * Windows used to run `powershell.exe ... Get-CimInstance Win32_Process`
+ * inside the tool, that is under the sandbox's fresh profile directories:
+ * on the GitHub windows-2025 runner both tests that probe took 56.9 and
+ * 61.8 s (CI run 38984419589, the second past the 60 s hang guard) against
+ * 4.3 s on the W7-T1 host, while every other Windows test, Bash tools
+ * included, stayed within a few seconds of its local time (W7-T1, plan
+ * §5.9). The host's table read (the leak tracker's, every second on CI)
+ * reads the same `Win32_Process.CommandLine`.
+ */
 export function probeCommand(platform: NodeJS.Platform): string {
   if (platform === 'win32') {
+    return ['echo "$CLAUDE_PID" > probe-pid.txt', 'env > probe-env.txt'].join('; ');
+  }
+  if (platform === 'darwin') {
+    // No /proc on macOS (integration evidence run 38967893191, research 11):
+    // the redirection from /proc failed, so the tool wrote no argv file.
     return [
       'echo "$CLAUDE_PID" > probe-pid.txt',
-      'powershell.exe -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=$CLAUDE_PID\\").CommandLine" > probe-argv.txt',
+      '/bin/ps -ww -o args= -p "$CLAUDE_PID" > probe-argv.txt',
       'env > probe-env.txt',
     ].join('; ');
   }
@@ -175,11 +206,26 @@ export function probeCommand(platform: NodeJS.Platform): string {
 }
 
 /**
+ * The Windows command line of the live process `pid`
+ * (`Win32_Process.CommandLine`, one read of the host process table).
+ *
+ * @throws Error when the table lists no such process.
+ */
+async function windowsCommandLine(pid: number): Promise<string> {
+  const rows = await hostProcessTable('win32', process.env).read();
+  const row = rows.find((candidate) => candidate.pid === pid);
+  if (row === undefined) throw new Error(`the process table lists no process ${String(pid)}`);
+  return row.commandLine.trim();
+}
+
+/**
  * Runs one turn in which the mock makes the CLI call its Bash tool with
- * {@link probeCommand}; the tool writes the CLI's pid, argv and environment
- * into files in the session's cwd (inside the sandbox), and nothing of them
- * goes back to the mock. The session needs permission for the Bash tool
- * (`onPermission` or `claudeCode.allowedTools`).
+ * {@link probeCommand}; the tool writes the CLI's pid, argv (Linux and
+ * macOS) and environment into files in the session's cwd (inside the sandbox), and
+ * nothing of them goes back to the mock. On Windows the CLI's command line
+ * is then read from the host process table while the session is still
+ * open. The session needs permission for the Bash tool (`onPermission` or
+ * `claudeCode.allowedTools`).
  */
 export async function probeChild(
   session: Session,
@@ -190,23 +236,29 @@ export async function probeChild(
   if (result.isError || result.outcome !== 'completed') {
     throw new Error(`the probe turn did not complete: ${result.outcome}`);
   }
-  const [pidText, argvText, envText] = PROBE_FILES.map((name) =>
-    readFileSync(path.join(cwd, name), 'utf8'),
-  ) as [string, string, string];
+  const read = (name: string): string => readFileSync(path.join(cwd, name), 'utf8');
+  const pid = Number(read('probe-pid.txt').trim());
   const lines = (text: string): string[] => text.split(/\r?\n/).filter((line) => line !== '');
   const env = new Map<string, string>();
-  for (const line of lines(envText)) {
+  for (const line of lines(read('probe-env.txt'))) {
     const eq = line.indexOf('=');
     if (eq <= 0) continue;
     const name = line.slice(0, eq);
     env.set(platform === 'win32' ? name.toUpperCase() : name, line.slice(eq + 1));
   }
+  const exact = platform !== 'win32' && platform !== 'darwin';
   return {
-    pid: Number(pidText.trim()),
-    argv: platform === 'win32' ? undefined : lines(argvText),
-    commandLine: platform === 'win32' ? argvText.trim() : undefined,
+    pid,
+    argv: exact ? lines(read('probe-argv.txt')) : undefined,
+    commandLine:
+      platform === 'win32'
+        ? await windowsCommandLine(pid)
+        : exact
+          ? undefined
+          : read('probe-argv.txt').trim(),
     env,
-    exactEnv: platform !== 'win32',
+    exactEnv: exact,
+    quotedCommandLine: platform === 'win32',
   };
 }
 
@@ -217,15 +269,17 @@ function quoteSimple(arg: string): string {
 
 /**
  * The argv the probe observed, as one comparable list: Linux the real argv,
- * Windows the command line split back (every element hudhud passes is
- * `--flag=value` without quotes; the binary path is quoted when it holds a
- * space).
+ * Windows and macOS the command line split back (every element hudhud
+ * passes is `--flag=value` without spaces; on Windows the binary path is
+ * quoted when it holds a space, on macOS nothing is quoted, so the binary
+ * path must be the exact prefix).
  */
 export function observedArgv(probe: ChildProbe, binaryPath: string): readonly string[] {
   if (probe.argv !== undefined) return probe.argv;
   const line = probe.commandLine ?? '';
-  const head = quoteSimple(binaryPath);
-  if (!line.toLowerCase().startsWith(`${head.toLowerCase()} `)) {
+  const head = probe.quotedCommandLine ? quoteSimple(binaryPath) : binaryPath;
+  const fold = (text: string): string => (probe.quotedCommandLine ? text.toLowerCase() : text);
+  if (!fold(line).startsWith(`${fold(head)} `)) {
     throw new Error(`the command line does not start with the pinned binary: ${line}`);
   }
   return [binaryPath, ...line.slice(head.length + 1).split(' ')];

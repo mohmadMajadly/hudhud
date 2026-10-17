@@ -4,9 +4,11 @@
 // run its Bash tool; the tool writes the CLI's pid, argv and environment into
 // files in the sandbox work directory (Linux: `/proc/<pid>/cmdline` and
 // `/proc/<pid>/environ`, the CLI's exact launch; Windows: the CLI's command
-// line from `Win32_Process` and the Bash tool's environment, which is the
+// line from `Win32_Process`, read by the test from the host process table
+// while the session is open, and the Bash tool's environment, which is the
 // CLI's plus what the CLI and Git Bash add for tools; 05 §3, §11 runs 78-80
-// show the Bash tool and its environment on both OSes).
+// show the Bash tool and its environment on both OSes; macOS: the argv from
+// `ps -ww -o args=` and the Bash tool's environment, research 11).
 //
 // Evidence: the always-passed flags and the sandbox recipe, 05 §13.2 and
 // 07 §9 p5 (`--setting-sources` must always be passed); the session-state
@@ -94,12 +96,16 @@ test('default launch: exact argv, allowlisted environment, pinned keys, no TRACE
   );
 
   // The variables the platform never reads are not passed (plan §2.5
-  // allowlist per platform); the pinned ones are hudhud's own values.
+  // allowlist per platform); the pinned ones are hudhud's own values. The
+  // sandbox parent holds DISABLE_AUTOUPDATER, which the preset filters out
+  // and the pin sets again: the child holds it, so it is not dropped
+  // (env.dropped names parent variables absent from the child, W7-T5).
   const unread = platform === 'win32' ? ['HOME', 'TMPDIR'] : ['TEMP', 'TMP'];
+  expect(Object.keys(sandbox.env)).toContain('DISABLE_AUTOUPDATER');
   const dropped = diagnostics(collected.events, 'env.dropped');
   expect(dropped).toHaveLength(1);
   expect(dropped[0]).toEqual({
-    names: [...Object.keys(PARENT_EXTRAS), ...unread, 'DISABLE_AUTOUPDATER'].sort(),
+    names: [...Object.keys(PARENT_EXTRAS), ...unread].sort(),
     spawnInjected: [],
   });
   if (probe.exactEnv) {

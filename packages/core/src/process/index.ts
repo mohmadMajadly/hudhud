@@ -35,6 +35,7 @@ export type {
   CwdErrorReason,
   CwdFs,
   CwdProblem,
+  ExecutableIdentity,
   FileIdentity,
   PathProblem,
   ProcessPlatform,

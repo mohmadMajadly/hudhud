@@ -60,6 +60,8 @@ export type {
   TurnResult,
   UsageTotals,
 } from './protocol/events/types.js';
+export type { HudhudEventOf } from './protocol/events/guard.js';
+export { isEventType } from './protocol/events/guard.js';
 
 export type { ErrorData, HudhudErrorCode, KnownErrorData } from './protocol/errors.js';
 export { HUDHUD_ERROR_CODES } from './protocol/errors.js';

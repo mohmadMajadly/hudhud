@@ -49,7 +49,7 @@ describe.each([
         './hudhud_win32_job.node': './hudhud_win32_job.node',
         './package.json': './package.json',
       },
-      files: ['hudhud_win32_job.node', 'SHA256SUMS'],
+      files: ['hudhud_win32_job.node', 'SHA256SUMS', 'NOTICE'],
       engines: core['engines'],
       ...publish,
     });
@@ -72,8 +72,9 @@ describe.each([
     }
   });
 
-  it('carries the repository license and never commits the addon', () => {
+  it('carries the repository license and notice and never commits the addon', () => {
     expect(read(`${dir}/LICENSE`)).toBe(read('LICENSE'));
+    expect(read(`${dir}/NOTICE`)).toBe(read('NOTICE'));
     const ignored = read(`${dir}/.gitignore`)
       .split('\n')
       .filter((line) => line !== '' && !line.startsWith('#'));

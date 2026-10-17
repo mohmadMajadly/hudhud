@@ -12,6 +12,11 @@
  *   to a named launch cause. The unsigned copy's outcome is evidence only
  *   (lead ruling: hudhud does not depend on Gatekeeper behaviour);
  *   `codesign --verify --strict` on the real binary stays a hard check.
+ * - The product's own verification with the committed pins
+ *   (`product-verify.ts`): the core codesign Team ID requirement, its
+ *   negative control and `verifyBinary` in strict and advisory mode. The
+ *   binary's designated requirement (`codesign -d -r-`) is recorded beside
+ *   it as evidence.
  */
 
 import path from 'node:path';
@@ -24,6 +29,7 @@ import type { GateHost, RunResult } from '../host.js';
 import type { ItemRecorder } from '../report.js';
 import { createSandbox, sandboxEnv } from '../sandbox.js';
 import { errorMessage } from './common.js';
+import { productVerification } from './product-verify.js';
 
 const CODESIGN = '/usr/bin/codesign';
 const XATTR = '/usr/bin/xattr';
@@ -136,6 +142,16 @@ export async function provenanceItem(
     timeoutMs: TOOL_TIMEOUT_MS,
   });
   r.note('signer', signerLines(display.stderr));
+  const requirement = await host.run(CODESIGN, ['-d', '-r-', binary], {
+    env: { PATH: '/usr/bin:/bin' },
+    timeoutMs: TOOL_TIMEOUT_MS,
+  });
+  r.note('designatedRequirement', {
+    code: requirement.code,
+    stdout: new TextDecoder().decode(requirement.stdout).trim().slice(0, 2000),
+    stderr: requirement.stderr.trim().slice(0, 1000),
+  });
+  await productVerification(host.product, binary, `darwin-${host.arch}`, version, r);
 
   const mock = await host.startMock();
   try {

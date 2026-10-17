@@ -17,6 +17,7 @@ import {
   authenticodeArgv,
   checkOsSignature,
   CODESIGN_PATH,
+  codesignRequirement,
   DEFAULT_SIGNATURE_TIMEOUT_MS,
   nodeSignatureDeps,
   signaturePlatformOf,
@@ -281,24 +282,50 @@ describe('the Windows Authenticode check', () => {
   });
 });
 
+/** A Team ID of the right format (not a real team). */
+const TEAM = 'ABCDE12345';
+/** The requirement codesign must evaluate for {@link TEAM}. */
+const REQUIREMENT =
+  'anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and ' +
+  'certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ' +
+  'certificate leaf[subject.OU] = "ABCDE12345"';
+
+describe('codesignRequirement', () => {
+  it('is the Developer ID form bound to the Team ID', () => {
+    expect(codesignRequirement(TEAM)).toBe(REQUIREMENT);
+  });
+
+  it.each([
+    ['too short', 'ABCDE1234'],
+    ['too long', 'ABCDE123456'],
+    ['lower case', 'abcde12345'],
+    ['a quote that would end the string', 'ABCDE1234"'],
+    ['a clause', 'X" or true'],
+    ['empty', ''],
+  ])('refuses a Team ID that is %s', (_name, teamId) => {
+    expect(() => codesignRequirement(teamId)).toThrow(RangeError);
+  });
+});
+
 describe('the macOS codesign check', () => {
   function darwinDeps(
     run: SignatureDeps['run'],
     fs = fakeFs({ [CODESIGN_PATH]: CODESIGN_PATH }),
+    publisher: SignatureDeps['publisher'] = { darwinTeamId: TEAM },
   ): SignatureDeps {
-    return { platform: 'darwin', hostEnv: {}, fs, run };
+    return { platform: 'darwin', hostEnv: {}, fs, run, publisher };
   }
 
-  it('runs /usr/bin/codesign --verify --strict with the path as its own argument', async () => {
+  it('runs /usr/bin/codesign --verify --strict with the Team ID requirement, the path as its own argument', async () => {
     const { commands, run } = recorder(exited(''));
     await expect(checkOsSignature('/Users/user/claude', darwinDeps(run))).resolves.toEqual({
       kind: 'valid',
-      detail: 'codesign valid',
+      detail: 'codesign valid, pinned Team ID ABCDE12345',
     });
     expect(commands).toEqual([
       {
         file: '/usr/bin/codesign',
-        args: ['--verify', '--strict', '/Users/user/claude'],
+        args: ['--verify', '--strict', '-R', `=${REQUIREMENT}`, '/Users/user/claude'],
         env: { LC_ALL: 'C' },
         cwd: '/',
         platform: 'posix',
@@ -308,10 +335,38 @@ describe('the macOS codesign check', () => {
     ]);
   });
 
-  it('fails definitively on a non-zero exit code: codesign verdict', async () => {
-    await expect(
-      checkOsSignature('/a/claude', darwinDeps(recorder(exited('', 1)).run)),
-    ).resolves.toEqual({ kind: 'invalid', detail: 'codesign failed: exit 1' });
+  it.each([1, 3])(
+    'fails definitively on a non-zero exit code: codesign verdict (exit %i)',
+    async (code) => {
+      await expect(
+        checkOsSignature('/a/claude', darwinDeps(recorder(exited('', code)).run)),
+      ).resolves.toEqual({ kind: 'invalid', detail: `codesign failed: exit ${String(code)}` });
+    },
+  );
+
+  it.each<[string, SignatureDeps['publisher'], string]>([
+    ['no publisher', undefined, 'codesign not run: no publisher Team ID is pinned'],
+    [
+      'a Windows subject only',
+      { windowsSubject: SUBJECT },
+      'codesign not run: no publisher Team ID is pinned',
+    ],
+    [
+      'a malformed Team ID',
+      { darwinTeamId: 'X" or true' },
+      'codesign not run: the pinned Team ID is malformed',
+    ],
+  ])('fails without running codesign when there is %s', async (_name, publisher, detail) => {
+    const { commands, run } = recorder(exited(''));
+    const deps: SignatureDeps = {
+      platform: 'darwin',
+      hostEnv: {},
+      fs: fakeFs({ [CODESIGN_PATH]: CODESIGN_PATH }),
+      run,
+      ...(publisher === undefined ? {} : { publisher }),
+    };
+    await expect(checkOsSignature('/a/claude', deps)).resolves.toEqual({ kind: 'invalid', detail });
+    expect(commands).toHaveLength(0);
   });
 
   it.each<[CommandOutcome, string]>([
@@ -435,6 +490,54 @@ describe.runIf(process.platform === 'win32')('the Authenticode check on this Win
       const { deps } = capturing('unsigned 21 B');
       const result = await checkOsSignature(binary, deps);
       expect(result.kind).toBe('invalid');
+    },
+    guardFor(1),
+  );
+});
+
+// The real check on a macOS host (the CI macOS job runs the unit tests). No
+// Developer ID binary of a known team is available here, so the passing case
+// is covered by the macOS gate (item 1, research 11); these cases prove that
+// codesign parses the requirement and evaluates it: exit 3 means "valid
+// signature, requirement not satisfied", exit 1 "no valid signature".
+describe.runIf(process.platform === 'darwin')('the codesign check on this macOS host', () => {
+  let root = '';
+
+  beforeAll(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'hudhud-sig-'));
+  });
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
+  });
+
+  const deps = (): SignatureDeps => ({
+    platform: 'darwin',
+    hostEnv: {},
+    ...nodeSignatureDeps,
+    publisher: { darwinTeamId: TEAM },
+  });
+
+  it(
+    'refuses an Apple platform binary: its signature is valid, but it is no Developer ID of the team (exit 3)',
+    async () => {
+      await expect(checkOsSignature('/bin/ls', deps())).resolves.toEqual({
+        kind: 'invalid',
+        detail: 'codesign failed: exit 3',
+      });
+    },
+    guardFor(1),
+  );
+
+  it(
+    'refuses an unsigned file (exit 1)',
+    async () => {
+      const binary = path.join(root, 'plain');
+      await writeFile(binary, 'not a signed image');
+      await expect(checkOsSignature(binary, deps())).resolves.toEqual({
+        kind: 'invalid',
+        detail: 'codesign failed: exit 1',
+      });
     },
     guardFor(1),
   );
