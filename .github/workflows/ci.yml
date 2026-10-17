@@ -122,12 +122,13 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    # K15 (ADR-0014 amendment 7): measured p95 x 2. Six jobs with
-    # integration (W7-T1): run 38980330927 node 22/24/26 8.5/9.4/9.2 min,
-    # run 38984419589 8.6/10.0/8.7 min; per job 33-43 s setup with the CLI
-    # fetch, 4.0-4.6 min check, 38-47 s OS coverage, 3.2-4.0 min
-    # integration. p95 (nearest rank of 6: the maximum) 10.0 min; x 2 = 20.
-    timeout-minutes: 20
+    # K15 (ADR-0014 amendment 7): measured p95 x 2. Nine jobs with
+    # integration (W7-T1), node 22/24/26: run 38980330927 8.5/9.4/9.2 min,
+    # run 38984419589 8.6/10.0/8.7 min, run 38989536648 10.3/6.8/7.3 min;
+    # per job 30-44 s setup with the CLI fetch, 3.0-5.0 min check, 30-47 s OS
+    # coverage, 2.7-4.0 min integration. p95 (nearest rank of 9: the
+    # maximum) 10.3 min; x 2 = 20.7, rounded up to 21.
+    timeout-minutes: 21
     permissions:
       contents: read
     strategy:
@@ -162,13 +163,14 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: windows-2025
-    # K15 (ADR-0014 amendment 7): measured p95 x 2, one sample so far. Run
-    # 38984419589 (W7-T1 round B): job 24.9 min: setup with the CLI fetch
-    # 77 s, addon build 21 s, check 532 s, OS coverage 113 s, integration
-    # 731 s (including about 105 s the child-launch probe lost to PowerShell
-    # in the sandbox, removed since, and one 60 s hang-guard expiry). p95
-    # taken as 24.9 min; x 2 = 49.8, rounded up to 50. Re-size as runs
-    # accumulate.
+    # K15 (ADR-0014 amendment 7): measured p95 x 2, two samples. Run
+    # 38984419589 (W7-T1 round B): 24.9 min (setup with the CLI fetch 77 s,
+    # addon build 21 s, check 532 s, OS coverage 113 s, integration 731 s,
+    # including about 105 s the child-launch probe lost to PowerShell in the
+    # sandbox, removed since, and one 60 s hang-guard expiry). Run
+    # 38989536648 (round C): 22.5 min (78 s, 23 s, 503 s, 98 s, 618 s).
+    # p95 (the maximum of 2) 24.9 min; x 2 = 49.8, rounded up to 50.
+    # Re-size as runs accumulate.
     timeout-minutes: 50
     permissions:
       contents: read
@@ -251,10 +253,10 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: macos-15
-    # K15: measured p95 x 2. Run 38984419589 (W7-T1 round B, with the
-    # OS-scoped coverage step): 1.8 min (setup 15 s, check 82 s, OS coverage
-    # 6 s); earlier runs 68 s and 78 s. p95 1.8 min; x 2 = 3.6, rounded up
-    # to 4. Static checks, unit and conformance only until the macOS gate
+    # K15: measured p95 x 2. With the OS-scoped coverage step (W7-T1): run
+    # 38984419589 1.8 min (setup 15 s, check 82 s, OS coverage 6 s), run
+    # 38989536648 2.0 min (13 s, 94 s, 7 s); earlier runs 68 s and 78 s.
+    # p95 2.0 min; x 2 = 4.0. Static checks, unit and conformance only until the macOS gate
     # passes (K15).
     timeout-minutes: 4
     permissions:

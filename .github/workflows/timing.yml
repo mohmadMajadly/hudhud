@@ -45,9 +45,10 @@ jobs:
   measure:
     name: measure (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Measured (run 38984419523, 15 runs): windows-2025 15.2 min (setup 71 s,
-    # addon 22 s, build 48 s, runs 755 s, 50 s each), ubuntu-24.04 9.4 min
-    # (runs 492 s, 33 s each). Sized for the 30-run maximum on the slower
+    # Measured (15 runs each): run 38984419523 windows-2025 15.2 min (setup
+    # 71 s, addon 22 s, build 48 s, runs 755 s, 50 s each), ubuntu-24.04
+    # 9.4 min (runs 492 s, 33 s each); run 38989537233 windows-2025 13.0 min
+    # (runs 564 s, 38 s each), ubuntu-24.04 9.3 min (runs 484 s). Sized for the 30-run maximum on the slower
     # platform: 30 x 50 s + about 2.5 min of setup = 27.5 min; x 2 = 55,
     # rounded up to 56.
     timeout-minutes: 56
