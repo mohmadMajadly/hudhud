@@ -230,7 +230,7 @@ export class Fanout<E> {
     constructor(deps: FanoutDeps<E>);
     close(): void;
     get closed(): boolean;
-    publish(event: E, bytes: number): Promise<void> | undefined;
+    publish(event: E, bytes: number, shared?: SharedBytes): Promise<void> | undefined;
     get publishPending(): boolean;
     subscribe(selection?: Selection<E>, options?: FanoutSubscriberOptions): AsyncIterableIterator<E, undefined, undefined>;
     get subscriberCount(): number;
@@ -239,7 +239,8 @@ export class Fanout<E> {
 // @beta
 export interface FanoutDeps<E> {
     readonly abortError: (reason: unknown) => Error;
-    readonly gapMarker: (dropped: number) => E;
+    readonly count?: (event: E) => number;
+    readonly gapMarker: (dropped: number, first: E) => E;
     readonly overflowError: (info: OverflowInfo) => Error;
 }
 
@@ -607,6 +608,18 @@ export interface LadderTiming {
     readonly interruptWaitMs: number;
     readonly taskkillGraceMs: number;
     readonly termGraceMs: number;
+}
+
+// @beta
+export class LinkedSignal implements AbortSignalLike {
+    constructor(parents: readonly (AbortSignal | undefined)[], onRelease?: () => void);
+    abort(reason: unknown): void;
+    aborted: boolean;
+    addEventListener(_type: 'abort', listener: () => void): void;
+    poll(): void;
+    reason: unknown;
+    removeEventListener(_type: 'abort', listener: () => void): void;
+    unlink(): void;
 }
 
 // @public
@@ -999,6 +1012,7 @@ export interface SecurityPostureEntry {
 export interface Selection<E> {
     readonly endAfter?: (event: E) => boolean;
     readonly match?: (event: E) => boolean;
+    readonly onClose?: () => void;
     readonly replay?: readonly SizedEvent<E>[];
 }
 
@@ -1136,6 +1150,12 @@ export interface SessionInfoData {
 
 // @public
 export type SessionOutcome = 'closed' | 'aborted' | 'failed' | 'crashed' | 'killed-externally' | 'unknown';
+
+// @beta
+export interface SharedBytes {
+    readonly key: object;
+    readonly siblingBytes: number;
+}
 
 // @public
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';

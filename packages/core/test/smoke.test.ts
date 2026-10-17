@@ -95,6 +95,7 @@ const ENTRY_NAMES = {
     'HUDHUD_ERROR_CODES',
     'HarnessBase',
     'HostExitHook',
+    'LinkedSignal',
     'LoopbackTransport',
     'LoopbackViolation',
     'ManualClock',

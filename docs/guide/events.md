@@ -2,7 +2,7 @@
 
 Everything a session observes is published as a `HudhudEvent`. You can read events in two ways:
 
-- **A turn's events:** iterate the `Turn` returned by `session.send()`. You get the events of that turn only; the iterator ends after its `turn.completed`, and rejects with the turn's error if the turn fails.
+- **A turn's events:** iterate the `Turn` returned by `session.send()`. You get the events of that turn only; the iterator ends after its `turn.completed`, rejects with the turn's error if the turn fails, and with `ABORTED` when the `signal` of `send()` aborts.
 - **A session's events:** `session.events(options)`. You get every event of the session from the moment you subscribe, after a replay of what happened before the session was handed to you (below). The iterator ends after the session's last event, `session.terminated`.
 
 Subscribing is optional. `ask()` and `turn.done` never depend on a subscriber, and hudhud keeps reading Claude Code's output whether or not anyone reads events ([ADR-0007](../adr/0007-event-delivery-backpressure-timeouts.md)).
@@ -78,7 +78,7 @@ Every event has `seq` (a gapless number per session, starting at 0), `ts` (an IS
 | `background.tasks`     | Claude Code's background tasks changed                                                  | (only `raw`)                                                                                                                                                                      |
 | `stalled`              | No output for `idleStallMs` while a turn runs ([Sessions](sessions.md#watchdogs))       | `silentForMs`, `turnId`, `pendingPermissions`                                                                                                                                     |
 | `diagnostic`           | hudhud reports something about itself ([Diagnostics](diagnostics.md#diagnostic-events)) | `code`, `message`, `data`                                                                                                                                                         |
-| `gap`                  | Events were dropped for this subscriber (below)                                         | `dropped`                                                                                                                                                                         |
+| `gap`                  | Events were dropped for this subscriber (below)                                         | `dropped`; its `seq` is that of the first event dropped                                                                                                                           |
 | `session.terminated`   | The session ended; always the last event                                                | `intent`, `outcome`, `exitCode`, `signal` ([Sessions](sessions.md#abort-and-dispose))                                                                                             |
 | `harness.frame`        | A Claude Code frame that maps to none of the types above                                | `frameType`, `subtype`                                                                                                                                                            |
 
@@ -98,20 +98,20 @@ Events published after the session was returned and before you subscribed are no
 
 Each subscriber, and each `Turn` iterator, has its own queue, bounded by count and by bytes. You set the limits per subscriber, or for a session's subscribers in the session option `events`:
 
-| Option      | Default             | Meaning                                                                                           |
-| ----------- | ------------------- | ------------------------------------------------------------------------------------------------- |
-| `maxEvents` | 10 000              | Events the queue holds                                                                            |
-| `maxBytes`  | 67 108 864 (64 MiB) | Bytes the queue holds: an event counts the size of the Claude Code frame it carries, or 256 bytes |
-| `overflow`  | `'error'`           | What happens when the queue is full (below)                                                       |
-| `signal`    | none                | Aborting it ends this subscription with `ABORTED`                                                 |
+| Option      | Default             | Meaning                                                                                                                                                                                                  |
+| ----------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxEvents` | 10 000              | Events the queue holds                                                                                                                                                                                   |
+| `maxBytes`  | 67 108 864 (64 MiB) | Bytes the queue holds: the first event a subscriber takes from a Claude Code frame counts the frame's size; every other event (more events from the same frame, events without a frame) counts 256 bytes |
+| `overflow`  | `'error'`           | What happens when the queue is full (below)                                                                                                                                                              |
+| `signal`    | none                | Aborting it ends this subscription with `ABORTED`. Set in the session option `events`, it ends every subscription of the session (each one's own `signal` works as well)                                 |
 
-| `overflow`                      | When the queue is full                                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `'error'` (default)             | This subscriber's iterator rejects with `SUBSCRIBER_OVERFLOW`. The session and every other subscriber go on. |
-| `'drop-oldest-with-gap-marker'` | The oldest events are dropped; the subscriber receives a `gap` event with the number dropped.                |
-| `'block'`                       | hudhud waits for the subscriber before it reads more output.                                                 |
+| `overflow`                      | When the queue is full                                                                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `'error'` (default)             | This subscriber's iterator rejects with `SUBSCRIBER_OVERFLOW`. The session and every other subscriber go on.                             |
+| `'drop-oldest-with-gap-marker'` | The oldest events are dropped; the subscriber receives a `gap` event with the number dropped (`dropped`) and the `seq` of the first one. |
+| `'block'`                       | hudhud waits for the subscriber before it reads more output.                                                                             |
 
-`'block'` is dangerous: while it waits, Claude Code's control requests (including permission questions) and hudhud's own timers wait too, so one slow subscriber can stall the session. Results of turns already settled are not held, and disposing or aborting the session always cuts through (a waiting `'block'` subscriber then rejects with `SESSION_CLOSED`). Use it only when losing an event is worse than a stall ([ADR-0007](../adr/0007-event-delivery-backpressure-timeouts.md#subscribers)).
+`'block'` is dangerous: while it waits, Claude Code's control requests (including permission questions) and hudhud's own timers wait too, so one slow subscriber can stall the session. Results of turns already settled are not held, and disposing or aborting the session always cuts through (a waiting `'block'` subscriber then rejects with `SESSION_CLOSED`). `close()` does not cut through: a full `'block'` subscriber that is never read keeps `close()` and `session.closed` pending, even after Claude Code exited, until it reads, returns (`break`) or the session is aborted. Use it only when losing an event is worse than a stall ([ADR-0007](../adr/0007-event-delivery-backpressure-timeouts.md#subscribers)).
 
 ```ts
 async function watch(session: Session): Promise<void> {

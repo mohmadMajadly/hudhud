@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { Fanout, resolveSubscriberOptions } from '../../../src/binding/fanout.js';
+import { Fanout, LinkedSignal, resolveSubscriberOptions } from '../../../src/binding/fanout.js';
 import type { AbortSignalLike, Selection, SubscriberOptions } from '../../../src/binding/fanout.js';
 import type { OverflowPolicy } from '../../../src/binding/queue.js';
 import {
@@ -408,5 +408,37 @@ describe('Fanout cleanup and cancellation', () => {
     }
     expect(fanout.subscriberCount).toBe(0);
     expect(signal.listeners.size).toBe(0);
+  });
+});
+
+describe('LinkedSignal (R4-5)', () => {
+  it('follows its parents until unlinked; poll still sees a later abort', () => {
+    const parent = new AbortController();
+    const linked = new LinkedSignal([undefined, parent.signal]);
+    let fired = 0;
+    const listener = (): void => {
+      fired += 1;
+    };
+    linked.addEventListener('abort', listener);
+    linked.unlink();
+    parent.abort('late');
+    expect(linked.aborted).toBe(false);
+    linked.poll();
+    expect(linked).toMatchObject({ aborted: true, reason: 'late' });
+    expect(fired).toBe(1);
+    // Once aborted, nothing fires again.
+    linked.abort('again');
+    linked.poll();
+    expect(fired).toBe(1);
+    linked.removeEventListener('abort', listener);
+  });
+
+  it('starts aborted when a parent is aborted; poll without an abort does nothing', () => {
+    const linked = new LinkedSignal([AbortSignal.abort('early')]);
+    expect(linked).toMatchObject({ aborted: true, reason: 'early' });
+    const live = new LinkedSignal([new AbortController().signal]);
+    live.poll();
+    expect(live.aborted).toBe(false);
+    live.unlink();
   });
 });
