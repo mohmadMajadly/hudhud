@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  PS_ARGS as CORE_PS_ARGS,
+  PS_ENV as CORE_PS_ENV,
+  PS_PATH as CORE_PS_PATH,
+} from '../../../packages/core/src/process/os/darwin.js';
+import {
   commandName,
   identityLabel,
   liveIdentity,
@@ -33,8 +38,10 @@ describe('psSnapshot', () => {
       args: PS_ARGS,
       options: { env: PS_ENV, timeoutMs: 15_000 },
     });
-    expect(PS_ARGS).toEqual(['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']);
+    expect(PS_ARGS).toEqual(['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']);
     expect(PS_ENV).toEqual({ LC_ALL: 'C', TZ: 'UTC0' });
+    // The gate confirms the core's contract, so it runs exactly the core's ps.
+    expect([PS_PATH, PS_ARGS, PS_ENV]).toEqual([CORE_PS_PATH, CORE_PS_ARGS, CORE_PS_ENV]);
     expect(snapshot.source).toBe('darwin-ps');
     expect(snapshot.rejected).toBe(0);
     expect(snapshot.records).toHaveLength(6);

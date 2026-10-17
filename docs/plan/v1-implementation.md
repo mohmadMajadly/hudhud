@@ -1421,6 +1421,10 @@ FX-C (binding and lifecycle correctness; findings R4, R5-2, R5-U1, R6-1, R8-2, R
 - R8-3: raw `'block'` with a concurrent second publisher, end to end and on the channel alone (read path).
 - R8-4: `host.test.ts` pins `binaryPath` and `configDir`; the unit project's setup file installs `tooling/test-support/src/unit-guard.ts`: every `node:child_process` launcher refuses a command named `claude` outside the temp directory (recorded and failing the test even when caught), and `CLAUDE_CONFIG_DIR` points at a directory that never exists.
 
+FX-M (merge of the four branches, in the order FX-D, FX-A, FX-B, FX-C), as built:
+
+- The macOS gate's `ps` runs with `-ww` like the core's (R3-U2); `ps.test.ts` pins that the gate's path, arguments and environment equal the core's contract, which gate item 2 confirms.
+
 ### 5.10 Summary table
 
 | Wave | Tasks (parallel) | Model mix | Ends with |
