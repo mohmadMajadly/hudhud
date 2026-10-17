@@ -411,22 +411,36 @@ describe('resolveInside and checkSourceMap', () => {
   const map = (sources: unknown, extra: object = {}): string =>
     JSON.stringify({ version: 3, sources, ...extra });
 
-  it('accepts relative sources inside the package', () => {
-    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts']))).toEqual([]);
-    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts'], { sourceRoot: '' }))).toEqual([]);
+  const packed = new Set(['src/a.ts', 'dist/a.js', 'dist/a.js.map']);
+
+  it('accepts relative sources inside the package that are packed', () => {
+    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts']), packed)).toEqual([]);
+    expect(
+      checkSourceMap('dist/a.js.map', map(['../src/a.ts'], { sourceRoot: '' }), packed),
+    ).toEqual([]);
+  });
+
+  it('flags a source that is not in the tarball (R7-6: src dropped from files)', () => {
+    expect(checkSourceMap('dist/index.js.map', map(['../src/absent.ts']), packed)).toEqual([
+      'dist/index.js.map: source "../src/absent.ts" (src/absent.ts) is not in the tarball',
+    ]);
+    expect(
+      checkSourceMap('dist/a.js.map', map(['../src/a.ts']), new Set(['dist/a.js.map'])),
+    ).toEqual(['dist/a.js.map: source "../src/a.ts" (src/a.ts) is not in the tarball']);
   });
 
   it('flags unreadable maps and unsafe sources', () => {
-    expect(checkSourceMap('m.map', 'nope')).toEqual(['m.map: not valid JSON']);
-    expect(checkSourceMap('m.map', 'null')).toEqual(['m.map: not a source map']);
-    expect(checkSourceMap('m.map', '{}')).toEqual(['m.map: no sources list']);
-    expect(checkSourceMap('dist/m.map', map(['../src/a.ts'], { sourceRoot: '/x' }))).toEqual([
-      'dist/m.map: has a sourceRoot',
-    ]);
+    expect(checkSourceMap('m.map', 'nope', packed)).toEqual(['m.map: not valid JSON']);
+    expect(checkSourceMap('m.map', 'null', packed)).toEqual(['m.map: not a source map']);
+    expect(checkSourceMap('m.map', '{}', packed)).toEqual(['m.map: no sources list']);
+    expect(
+      checkSourceMap('dist/m.map', map(['../src/a.ts'], { sourceRoot: '/x' }), packed),
+    ).toEqual(['dist/m.map: has a sourceRoot']);
     expect(
       checkSourceMap(
         'dist/m.map',
         map([1, 'C:\\x\\a.ts', '/srv/u/a.ts', 'file:///a.ts', '..\\a.ts', '../../../a.ts']),
+        packed,
       ),
     ).toEqual([
       'dist/m.map: a source is not a string',
@@ -653,7 +667,7 @@ describe('checkTarball', () => {
   const source: PackageJson = {
     name: 'p',
     version: '1.0.0',
-    files: ['dist'],
+    files: ['dist', 'src'],
     exports: { '.': { types: './dist/index.d.ts', default: './dist/index.js' } },
   };
   const packed = JSON.stringify(source);
@@ -665,6 +679,7 @@ describe('checkTarball', () => {
     file('dist/index.js', 'export {}'),
     file('dist/index.d.ts', 'export {}'),
     file('dist/index.js.map', JSON.stringify({ sources: ['../src/index.ts'] })),
+    file('src/index.ts', 'export {};'),
   ];
 
   it('passes a clean tarball and lists its entry points', () => {
@@ -674,6 +689,13 @@ describe('checkTarball', () => {
     expect(report.paths).toContain('dist/index.js');
     expect(report.entryPoints).toEqual([
       { specifier: 'p', kind: 'js', runtime: 'dist/index.js', types: 'dist/index.d.ts' },
+    ]);
+  });
+
+  it('reports a source map whose source is not packed (R7-6)', () => {
+    const withoutSrc = clean.filter((item) => item.name !== 'package/src/index.ts');
+    expect(checkTarball({ ...source, files: ['dist'] }, gz(withoutSrc), []).problems).toEqual([
+      'dist/index.js.map: source "../src/index.ts" (src/index.ts) is not in the tarball',
     ]);
   });
 

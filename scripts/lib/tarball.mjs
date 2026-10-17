@@ -441,13 +441,17 @@ export function resolveInside(from, relative) {
 
 /**
  * Checks the `sources` of a source map: relative, inside the package, no
- * machine path.
+ * machine path, and packed. The packages ship their maps and their `src`
+ * (go-to-definition and stack traces point at the TypeScript sources), so a
+ * map whose source is not in the tarball is broken for every user, for
+ * example when `src` drops out of `files` (review finding R7-6).
  *
  * @param {string} mapPath Package-relative path of the `.map` file.
  * @param {string} text Its content.
+ * @param {ReadonlySet<string>} packed Every package-relative path in the tarball.
  * @returns {string[]} problems
  */
-export function checkSourceMap(mapPath, text) {
+export function checkSourceMap(mapPath, text, packed) {
   /** @type {unknown} */
   let map;
   try {
@@ -469,8 +473,15 @@ export function checkSourceMap(mapPath, text) {
       problems.push(`${mapPath}: a source is not a string`);
     } else if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/|\\)/u.test(source) || source.includes('\\')) {
       problems.push(`${mapPath}: absolute or non-portable source ${JSON.stringify(source)}`);
-    } else if (resolveInside(mapPath, source) === null) {
-      problems.push(`${mapPath}: source ${JSON.stringify(source)} lies outside the package`);
+    } else {
+      const resolved = resolveInside(mapPath, source);
+      if (resolved === null) {
+        problems.push(`${mapPath}: source ${JSON.stringify(source)} lies outside the package`);
+      } else if (!packed.has(resolved)) {
+        problems.push(
+          `${mapPath}: source ${JSON.stringify(source)} (${resolved}) is not in the tarball`,
+        );
+      }
     }
   }
   return problems;
@@ -711,9 +722,10 @@ export function checkTarball(source, gz, forbidden, legal = []) {
     }
   }
   if (packed !== undefined) problems.push(...checkPackedManifest(source, packed));
+  const packedPaths = new Set(paths);
   for (const entry of entries) {
     if (entry.path.endsWith('.map')) {
-      problems.push(...checkSourceMap(entry.path, entry.data.toString('utf8')));
+      problems.push(...checkSourceMap(entry.path, entry.data.toString('utf8'), packedPaths));
     }
   }
   problems.push(...scanEntries(entries, forbidden));
