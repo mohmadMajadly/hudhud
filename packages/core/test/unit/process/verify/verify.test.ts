@@ -1,6 +1,7 @@
 // Binary verification (ADR-0011, K8, K9, plan §1.7, §1.8, §4.2): advisory
 // is the digest table only; strict runs the OS check first; the digest is
-// bound to the file identity; the cache is keyed by realpath, size, mtime.
+// bound to the file identity; the cache is keyed by realpath, size, mtime
+// and ctime (nanoseconds).
 
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { resolveExecutable, type ResolvedExecutable } from '../../../../src/process/binary-path.js';
-import type { FileIdentity } from '../../../../src/process/cwd.js';
+import type { ExecutableIdentity } from '../../../../src/process/cwd.js';
 import type { FileDigest } from '../../../../src/process/hash.js';
 import type { BoundedCommand, CommandOutcome } from '../../../../src/process/verify/command.js';
 import {
@@ -34,24 +35,57 @@ const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
 const BIN = '/opt/claude/versions/2.1.296';
 
+/** A whole-millisecond time in nanoseconds, decimal. */
+function ns(ms: number | bigint): string {
+  return String(BigInt(ms) * 1_000_000n);
+}
+
+/** `mtimeNs` and `ctimeNs` of a fake file last changed at `mtimeMs`. */
+const NS_1000 = ns(1000);
+
 function resolved(overrides: Partial<ResolvedExecutable> = {}): ResolvedExecutable {
-  return { requested: BIN, path: BIN, size: 10, mtimeMs: 1000, ...overrides };
+  const mtimeMs = overrides.mtimeMs ?? 1000;
+  return {
+    requested: BIN,
+    path: BIN,
+    size: 10,
+    mtimeMs,
+    mtimeNs: ns(mtimeMs),
+    ctimeNs: ns(mtimeMs),
+    ...overrides,
+  };
 }
 
 function digestOf(overrides: Partial<FileDigest> = {}): FileDigest {
-  return { sha256: SHA_A, size: 10, mtimeMs: 1000, fileId: '1:2', ...overrides };
+  const mtimeMs = overrides.mtimeMs ?? 1000;
+  return {
+    sha256: SHA_A,
+    size: 10,
+    mtimeMs,
+    mtimeNs: ns(mtimeMs),
+    ctimeNs: ns(mtimeMs),
+    fileId: '1:2',
+    ...overrides,
+  };
 }
 
+/** A file identity; the times follow `mtimeMs` unless given (a write moves both). */
 function fileIdentity(
-  overrides: Partial<Record<'dev' | 'ino' | 'size' | 'mtimeMs', bigint>> = {},
-): FileIdentity {
+  overrides: Partial<
+    Record<'dev' | 'ino' | 'size' | 'mtimeMs' | 'mtimeNs' | 'ctimeNs', bigint>
+  > = {},
+): ExecutableIdentity {
+  const mtimeMs = overrides.mtimeMs ?? 1000n;
+  const mtimeNs = overrides.mtimeNs ?? mtimeMs * 1_000_000n;
   return {
     isFile: () => true,
     isDirectory: () => false,
     dev: 1n,
     ino: 2n,
     size: 10n,
-    mtimeMs: 1000n,
+    mtimeMs,
+    mtimeNs,
+    ctimeNs: mtimeNs,
     ...overrides,
   };
 }
@@ -65,7 +99,7 @@ interface Recorded {
 function fakeOptions(
   options: Partial<VerifyBinaryOptions> & {
     readonly digest?: FileDigest | Error;
-    readonly stats?: (FileIdentity | Error)[];
+    readonly stats?: (ExecutableIdentity | Error)[];
     /** The checker's outcome; a list is consumed in order, its last entry repeating. */
     readonly signature?: CommandOutcome | readonly CommandOutcome[];
     readonly realpath?: string | Error;
@@ -166,6 +200,8 @@ describe('advisory verification', () => {
       sha256: SHA_A,
       size: 10,
       mtimeMs: 1000,
+      mtimeNs: NS_1000,
+      ctimeNs: NS_1000,
       fileId: '1:2',
       matchedVersion: '2.1.296',
       verification: {
@@ -254,6 +290,8 @@ describe('strict verification', () => {
       fileId: '1:2',
       size: 10,
       mtimeMs: 1000,
+      mtimeNs: NS_1000,
+      ctimeNs: NS_1000,
       verification: {
         status: 'failed',
         method: 'os-signature',
@@ -623,6 +661,8 @@ describe('settleProbedVersion', () => {
     sha256: SHA_A,
     size: 10,
     mtimeMs: 1000,
+    mtimeNs: NS_1000,
+    ctimeNs: NS_1000,
     fileId: '1:2',
     matchedVersion: '2.1.296',
     verification: { status: 'verified', method: 'sha256-manifest', mode: 'advisory' },
@@ -652,6 +692,8 @@ describe('settleProbedVersion', () => {
       sha256: SHA_B,
       size: 10,
       mtimeMs: 1000,
+      mtimeNs: NS_1000,
+      ctimeNs: NS_1000,
       fileId: '1:2',
       verification: unverified.verification,
     };
@@ -679,11 +721,13 @@ describe('recheckBinary and assertSpawnable', () => {
     sha256: SHA_A,
     size: 10,
     mtimeMs: 1000,
+    mtimeNs: NS_1000,
+    ctimeNs: NS_1000,
     fileId: '1:2',
     verification: { status: 'verified', method: 'sha256-manifest', mode: 'strict' },
   };
 
-  function fs(realpathValue: string | Error, identity: FileIdentity | Error): IdentityFs {
+  function fs(realpathValue: string | Error, identity: ExecutableIdentity | Error): IdentityFs {
     return {
       realpath: () =>
         realpathValue instanceof Error
@@ -707,6 +751,11 @@ describe('recheckBinary and assertSpawnable', () => {
     ['other device', fs(BIN, fileIdentity({ dev: 9n }))],
     ['other size', fs(BIN, fileIdentity({ size: 11n }))],
     ['other mtime', fs(BIN, fileIdentity({ mtimeMs: 1n }))],
+    // Within the same millisecond: the identity compares nanoseconds.
+    ['other mtime in the same ms', fs(BIN, fileIdentity({ mtimeNs: 1_000_000_001n }))],
+    // A same-size rewrite whose mtime was set back (utimes): only the ctime,
+    // which an unprivileged process cannot set back on POSIX, moved.
+    ['other ctime, mtime restored', fs(BIN, fileIdentity({ ctimeNs: 5_000_000_000n }))],
   ])('throws BinaryChangedError when %s', async (_name, identityFs) => {
     await expect(recheckBinary(verified, identityFs)).rejects.toThrow(BinaryChangedError);
     await expect(assertSpawnable(verified, identityFs)).rejects.toThrow(BinaryChangedError);
@@ -758,14 +807,23 @@ describe('assertSpawnableOrReverify (ruling 9)', () => {
     sha256: SHA_A,
     size: 10,
     mtimeMs: 1000,
+    mtimeNs: NS_1000,
+    ctimeNs: NS_1000,
     fileId: '1:2',
     matchedVersion: '2.1.296',
     verification: { status: 'verified', method: 'sha256-manifest', mode: 'strict' },
   };
-  const updated: VerifiedBinary = { ...first, sha256: SHA_B, fileId: '1:3', mtimeMs: 2000 };
+  const updated: VerifiedBinary = {
+    ...first,
+    sha256: SHA_B,
+    fileId: '1:3',
+    mtimeMs: 2000,
+    mtimeNs: ns(2000),
+    ctimeNs: ns(2000),
+  };
 
   /** An identity fs whose stat answers from a queue (the last answer repeats). */
-  function queuedFs(...identities: FileIdentity[]): IdentityFs {
+  function queuedFs(...identities: ExecutableIdentity[]): IdentityFs {
     const queue = [...identities];
     return {
       realpath: (value) => Promise.resolve(value),
@@ -932,16 +990,57 @@ describe('verification of a real file with the host defaults', () => {
     await expect(recheckBinary(result)).rejects.toThrow(BinaryChangedError);
   });
 
+  // A same-size rewrite in place with the mtime set back to the verified
+  // value keeps the file id, the size and mtimeMs (the identity before
+  // W7-T5); the status change time moves with the write and with utimes, so
+  // the recheck refuses it. On POSIX that is the security property (only
+  // root can set ctime back); on win32 the change time moves the same way
+  // here, but a writer could set it back explicitly.
+  it('detects a same-size rewrite whose mtime was restored', async () => {
+    const target = path.join(root, process.platform === 'win32' ? 'rewrite.exe' : 'rewrite');
+    await writeFile(target, 'original bytes', { mode: 0o755 });
+    const verifiedAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+    await utimes(target, verifiedAt, verifiedAt);
+    const binary = await resolveExecutable(target);
+    const result = await verifyBinary(binary, { mode: 'advisory', digests: [] });
+    await expect(recheckBinary(result)).resolves.toBeUndefined();
+    const before = await stat(target, { bigint: true });
+    // The file system clock may be coarse (a kernel tick): wait until a
+    // change made now gets a later ctime than the verified one.
+    const tick = path.join(root, 'tick');
+    for (let tries = 0; ; tries += 1) {
+      await writeFile(tick, String(tries));
+      if ((await stat(tick, { bigint: true })).ctimeNs > before.ctimeNs) break;
+      expect(tries).toBeLessThan(1000);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    await writeFile(target, 'tampered bytes');
+    await utimes(target, verifiedAt, verifiedAt);
+    const after = await stat(target, { bigint: true });
+    expect([after.dev, after.ino, after.size, after.mtimeNs]).toEqual([
+      before.dev,
+      before.ino,
+      before.size,
+      before.mtimeNs,
+    ]);
+    expect(after.ctimeNs).not.toBe(before.ctimeNs);
+    await expect(recheckBinary(result)).rejects.toThrow(BinaryChangedError);
+  });
+
   it('refuses a resolution that no longer matches the file', async () => {
     const binary = await resolveExecutable(file);
-    await expect(
-      verifyBinary({ ...binary, mtimeMs: binary.mtimeMs - 1 }, { mode: 'advisory', digests: [] }),
-    ).rejects.toThrow(BinaryChangedError);
-    await expect(
-      verifyBinary(
-        { ...binary, mtimeMs: binary.mtimeMs - 1 },
-        { mode: 'strict', digests: [], platform: 'other' },
-      ),
-    ).rejects.toThrow(BinaryChangedError);
+    const stale = (field: 'mtimeNs' | 'ctimeNs'): ResolvedExecutable => ({
+      ...binary,
+      [field]: String(BigInt(binary[field]) - 1n),
+    });
+    for (const field of ['mtimeNs', 'ctimeNs'] as const) {
+      await expect(verifyBinary(stale(field), { mode: 'advisory', digests: [] })).rejects.toThrow(
+        BinaryChangedError,
+      );
+      await expect(
+        verifyBinary(stale(field), { mode: 'strict', digests: [], platform: 'other' }),
+      ).rejects.toThrow(BinaryChangedError);
+    }
   });
 });

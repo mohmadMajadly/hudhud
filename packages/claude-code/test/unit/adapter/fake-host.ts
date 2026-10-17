@@ -13,6 +13,7 @@ import {
   JobAddonError,
   type BoundedCommand,
   type CommandOutcome,
+  type ExecutableIdentity,
   type FileIdentity,
   type HarnessProcess,
   type JobAddon,
@@ -45,10 +46,21 @@ export interface FakeBinary {
   realpath: string;
   size: number;
   mtimeMs: number;
+  /**
+   * The status change time in nanoseconds; when absent it follows `mtimeMs`
+   * (a real write moves both). Set it to simulate a change that keeps mtime.
+   */
+  ctimeNs?: bigint;
   ino: number;
   sha256: string;
   /** What `--version` prints. */
   version: string;
+}
+
+/** The nanosecond times of a fake binary, as strings (`mtimeNs`, `ctimeNs`). */
+export function fakeTimes(binary: FakeBinary): { mtimeNs: string; ctimeNs: string } {
+  const mtimeNs = BigInt(binary.mtimeMs) * 1_000_000n;
+  return { mtimeNs: String(mtimeNs), ctimeNs: String(binary.ctimeNs ?? mtimeNs) };
 }
 
 // ---- the fake CLI -------------------------------------------------------------------------
@@ -399,6 +411,7 @@ export class FakeHost {
       path: target,
       size: this.binary.size,
       mtimeMs: this.binary.mtimeMs,
+      ...fakeTimes(this.binary),
     });
   }
 
@@ -406,6 +419,8 @@ export class FakeHost {
     sha256: string;
     size: number;
     mtimeMs: number;
+    mtimeNs: string;
+    ctimeNs: string;
     fileId: string;
   } {
     if (file !== this.binary.realpath) throw fsError('ENOENT');
@@ -413,13 +428,14 @@ export class FakeHost {
       sha256: this.binary.sha256,
       size: this.binary.size,
       mtimeMs: this.binary.mtimeMs,
+      ...fakeTimes(this.binary),
       fileId: `1:${String(this.binary.ino)}`,
     };
   }
 
   identityFs(): {
     realpath(path: string): Promise<string>;
-    stat(path: string): Promise<FileIdentity>;
+    stat(path: string): Promise<ExecutableIdentity>;
   } {
     return {
       realpath: (file) => {
@@ -437,6 +453,8 @@ export class FakeHost {
               ino: BigInt(this.binary.ino),
               size: BigInt(this.binary.size),
               mtimeMs: BigInt(this.binary.mtimeMs),
+              mtimeNs: BigInt(fakeTimes(this.binary).mtimeNs),
+              ctimeNs: BigInt(fakeTimes(this.binary).ctimeNs),
             })
           : Promise.reject(fsError('ENOENT')),
     };

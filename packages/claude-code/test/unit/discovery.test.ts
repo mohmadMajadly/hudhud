@@ -25,7 +25,7 @@ import {
 type Resolution = string | ExecutableResolutionError | Error;
 
 function executable(requested: string, real = requested): ResolvedExecutable {
-  return { requested, path: real, size: 1, mtimeMs: 1 };
+  return { requested, path: real, size: 1, mtimeMs: 1, mtimeNs: '1000000', ctimeNs: '1000000' };
 }
 
 const notFound = (value: string): ExecutableResolutionError =>

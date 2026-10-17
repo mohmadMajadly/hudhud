@@ -449,7 +449,10 @@ describe('object form { preset, add, remove }', () => {
     expect(result.env).not.toHaveProperty('HTTPS_PROXY');
     expect(result.added).toEqual(['ANTHROPIC_BASE_URL', 'HOME', 'NODE_OPTIONS']);
     expect(result.removed).toEqual(['HTTPS_PROXY', 'NOT_THERE']);
-    expect(result.dropped).toContain('NODE_OPTIONS');
+    // The preset filtered NODE_OPTIONS out, env.add set it again: the child
+    // holds it, so it is added, not dropped.
+    expect(result.dropped).not.toContain('NODE_OPTIONS');
+    expect(result.dropped).toContain('CLAUDECODE');
   });
 
   it('removes and replaces case-insensitively on win32', () => {
@@ -559,6 +562,37 @@ describe('pinned and removed variables (plan §2.5)', () => {
     }
   });
 
+  // env.dropped names parent variables absent from the child (W7-T5 item 1):
+  // the 'harness' preset filters DISABLE_AUTOUPDATER (and TRACEPARENT and
+  // TRACESTATE) out, and hudhud's pin sets it again, so the child holds it.
+  it('never reports a variable a pin sets again as dropped', () => {
+    const traceparent = '00-11111111111111111111111111111111-2222222222222222-01';
+    const parent = {
+      PATH: '/usr/bin',
+      DISABLE_AUTOUPDATER: '0',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '0',
+      TRACEPARENT: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+      TRACESTATE: 'a=b',
+    };
+    const result = child({ trace: { traceparent, tracestate: 'k=v' } }, parent, 'posix');
+    expect(result.env).toMatchObject({
+      DISABLE_AUTOUPDATER: '1',
+      TRACEPARENT: traceparent,
+      TRACESTATE: 'k=v',
+    });
+    expect(result.dropped).toEqual([]);
+
+    const win = child(undefined, { Path: 'C:\\bin', disable_autoupdater: '0' }, 'win32');
+    expect(win.env).toMatchObject({ DISABLE_AUTOUPDATER: '1' });
+    expect(win.env).not.toHaveProperty('disable_autoupdater');
+    expect(win.dropped).toEqual([]);
+
+    // Without the pin the preset's drop stands: the child lacks the variable.
+    const unpinned = child({ autoUpdate: 'harness-default' }, parent, 'posix');
+    expect(unpinned.env).not.toHaveProperty('DISABLE_AUTOUPDATER');
+    expect(unpinned.dropped).toEqual(['DISABLE_AUTOUPDATER', 'TRACEPARENT', 'TRACESTATE']);
+  });
+
   it('returns names sorted and the env sorted by name', () => {
     const result = child({ env: 'inherit' }, { b: '1', a: '2', C: '3' }, 'posix');
     expect(Object.keys(result.env)).toEqual([...Object.keys(result.env)].sort());
@@ -652,6 +686,30 @@ describe('properties', () => {
           const folded = Object.keys(result.env).map((k) => k.toUpperCase());
           expect(new Set(folded).size).toBe(folded.length);
         }
+      }),
+    );
+  });
+
+  it('reports as dropped exactly the parent variables the child lacks', () => {
+    const fold = (key: string, platform: ProcessPlatform): string =>
+      platform === 'win32' ? key.toUpperCase() : key;
+    const pinnedArb = fc.dictionary(fc.constantFrom(...PINNED_ENV_NAMES), value, { maxKeys: 4 });
+    const envArb = fc.oneof(
+      fc.constantFrom<unknown>('harness', 'inherit'),
+      fc.record({
+        preset: fc.constantFrom('harness', 'inherit'),
+        add: fc.dictionary(fc.constantFrom('NODE_OPTIONS', 'EDITOR', 'PATH', 'X1'), value, {
+          maxKeys: 2,
+        }),
+      }),
+    );
+    fc.assert(
+      fc.property(parentArb, pinnedArb, platformArb, envArb, (extra, pinned, platform, env) => {
+        const parent = { ...extra, ...pinned };
+        const result = child({ env }, parent, platform);
+        const inChild = new Set(Object.keys(result.env).map((k) => fold(k, platform)));
+        const expected = Object.keys(parent).filter((k) => !inChild.has(fold(k, platform)));
+        expect(result.dropped).toEqual([...new Set(expected)].sort());
       }),
     );
   });

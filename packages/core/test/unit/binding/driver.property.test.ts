@@ -248,6 +248,7 @@ describe('driver interleavings', () => {
       unhandled.push(reason);
     };
     process.on('unhandledRejection', onUnhandled);
+    const seen = new Set<string>();
     try {
       await fc.assert(
         fc.asyncProperty(fc.array(action, { maxLength: 80, size: 'max' }), async (actions) => {
@@ -279,6 +280,12 @@ describe('driver interleavings', () => {
             .filter((op) => op['op'] === 'answer')
             .map((op) => text(op['rid']));
           expect(new Set(answers).size).toBe(answers.length);
+          // No application path produces the internal cmd.permission-abort
+          // (W7-T5 item 2): answers, failures, withdrawals, close and dispose
+          // reach the machine in other inputs.
+          const inputs = world.r.machine.stats.inputs;
+          expect(inputs).not.toContain('cmd.permission-abort');
+          for (const type of inputs) seen.add(type);
           // A gapless stream, ending with session.terminated.
           expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1));
           expect(events.at(-1)?.type).toBe('session.terminated');
@@ -296,6 +303,9 @@ describe('driver interleavings', () => {
         { numRuns: 1000, seed },
       );
       expect(unhandled).toEqual([]);
+      // The runs did reach every other way an ask ends.
+      for (const type of ['cmd.permission', 'cmd.permission-error', 'cmd.close', 'cmd.abort'])
+        expect(seen).toContain(type);
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }

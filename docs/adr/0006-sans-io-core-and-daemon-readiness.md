@@ -25,6 +25,8 @@ Ordinary async code: the process layer ([ADR-0009](0009-process-layer-windows.md
 
 Callbacks into the application (permission handlers, later hooks and tools) are modelled in the core as id-correlated request/response messages with an optional deadline and a cancel message. The core emits an effect "ask the application X with id N"; the binding layer turns it into a closure call and feeds the answer, a timeout or a cancel back as an input.
 
+As built (W7-T5): for permissions the binding feeds `cmd.permission` (the handler's decision) or `cmd.permission-error` (no valid decision; the machine answers fail-closed); a withdrawal by the harness, on close or on abort is the machine's own `permission.cancel` effect, which aborts the handler's signal. The contract's third answer input, `cmd.permission-abort`, is internal: no application call produces it, and it exists so that the conformance replay can feed a recorded answer hudhud never writes (a control error for a permission request) through `SessionDriver.command`. A machine must still end the ask when it arrives, never with an allow.
+
 ### JSON-only boundary
 
 Everything crossing the core boundary is JSON:

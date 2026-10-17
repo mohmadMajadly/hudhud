@@ -8,7 +8,7 @@ import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 
 import { resolveExecutable } from '../../../../src/process/binary-path.js';
-import { hostPlatform, type FileIdentity } from '../../../../src/process/cwd.js';
+import { hostPlatform, type ExecutableIdentity } from '../../../../src/process/cwd.js';
 import type { BoundedCommand, CommandOutcome } from '../../../../src/process/verify/command.js';
 import {
   BinaryChangedError,
@@ -42,6 +42,8 @@ async function nodeBinary(): Promise<VerifiedBinary> {
     fileId: `${String(stats.dev)}:${String(stats.ino)}`,
     size: binary.size,
     mtimeMs: binary.mtimeMs,
+    mtimeNs: binary.mtimeNs,
+    ctimeNs: binary.ctimeNs,
     verification: { status: 'unverified', method: 'none', mode: 'advisory' },
   };
 }
@@ -54,6 +56,8 @@ const FAKE: VerifiedBinary = {
   path: '/opt/claude',
   size: 1,
   mtimeMs: 1,
+  mtimeNs: '1000000',
+  ctimeNs: '1000000',
   fileId: '1:1',
   sha256: 'a'.repeat(64),
   verification: { status: 'verified', method: 'sha256-manifest', mode: 'strict' },
@@ -61,7 +65,7 @@ const FAKE: VerifiedBinary = {
 
 const SAME_FILE: IdentityFs = {
   realpath: (value) => Promise.resolve(value),
-  stat: (): Promise<FileIdentity> =>
+  stat: (): Promise<ExecutableIdentity> =>
     Promise.resolve({
       isFile: () => true,
       isDirectory: () => false,
@@ -69,6 +73,8 @@ const SAME_FILE: IdentityFs = {
       ino: 1n,
       size: 1n,
       mtimeMs: 1n,
+      mtimeNs: 1_000_000n,
+      ctimeNs: 1_000_000n,
     }),
 };
 

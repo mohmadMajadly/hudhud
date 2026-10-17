@@ -203,6 +203,22 @@ export interface FileIdentity {
 }
 
 /**
+ * {@link FileIdentity} with the timestamps an executable's identity compares
+ * in nanoseconds (`stat(path, { bigint: true })` returns them): the
+ * modification time and the status change time (`ctime`). On POSIX the
+ * kernel sets `ctime` on every data, mode, link or timestamp change, and an
+ * unprivileged process cannot set it back; on win32 Node reports the NTFS
+ * change time, which a writer can set, so it is compared but is not a
+ * security property there.
+ *
+ * @public
+ */
+export interface ExecutableIdentity extends FileIdentity {
+  readonly mtimeNs: bigint;
+  readonly ctimeNs: bigint;
+}
+
+/**
  * Filesystem calls used by {@link validateCwd}; injectable for tests.
  *
  * @public

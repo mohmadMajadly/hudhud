@@ -12,13 +12,14 @@
  *   the digest table. A signature that is not valid is `failed` and the
  *   digest is not computed.
  * - The digest is bound to the identity of the file it was computed from
- *   (`sha256File`: device and inode or volume and file index, size, mtime,
- *   from the same handle). That identity must equal the one of the resolved
+ *   (`sha256File`: device and inode or volume and file index, size, and
+ *   the modification and change times in nanoseconds, from the same handle). That identity must equal the one of the resolved
  *   executable (and, in strict mode, the one read before the signature
  *   check); otherwise the file changed during verification and
  *   {@link BinaryChangedError} is thrown, so a verdict is never reported for
  *   other bytes than the ones checked.
- * - Results are cached per realpath, size, mtime, mode and digest table in a
+ * - Results are cached per realpath, size, mtime and ctime (nanoseconds),
+ *   mode and digest table in a
  *   {@link VerificationCache} (one per Harness, plan §1.8); a hit is used only
  *   after the file identity was read again and still matches.
  * - Only definitive verdicts are cached: `verified`, a digest that matches
@@ -37,11 +38,29 @@
  * strict result that is not `verified` and re-reads the identity (realpath
  * and `stat`) against the verified one ({@link recheckBinary}).
  *
+ * Identity, everywhere it is compared: file id, size, and the modification
+ * and status change times in nanoseconds (`mtimeNs`, `ctimeNs`).
+ *
  * Residual (TOCTOU, documented): Node cannot spawn from an open handle, so
- * the path is opened again by the OS at spawn. A replacement between the
- * last identity check and the spawn, or a same-size rewrite within one mtime
- * tick that keeps the file id, is not detected. Writing the binary's
- * directory requires the rights of the user who installed it.
+ * the path is opened again by the OS at spawn, and a replacement between the
+ * last identity check and the spawn is not detected. Between checks, a
+ * change that keeps the identity is not detected:
+ *
+ * - POSIX: the kernel sets `ctime` on every write, `utimes`, `chmod`,
+ *   link or rename, and an unprivileged process cannot set it back. Only
+ *   root (which can set the clock) or a filesystem whose attributes are
+ *   cached (NFS, some FUSE mounts) can present a changed file with the old
+ *   identity.
+ * - win32: Node reports the NTFS change time as `ctime`, but a writer can
+ *   set it, and the write time, back (`SetFileInformationByHandle`), so a
+ *   same-size rewrite in place with restored timestamps keeps the identity.
+ *   What bounds that risk today is the fresh hash at each `connect` (each
+ *   Harness verifies with a new cache); closing it needs a handle that denies
+ *   writes while the file is in use, which Node cannot open (an addon-held
+ *   handle is planned after v1).
+ *
+ * Writing the binary or its directory requires the rights of the user who
+ * installed it.
  *
  * @packageDocumentation
  */
@@ -50,7 +69,7 @@ import { realpath, stat } from 'node:fs/promises';
 import process from 'node:process';
 
 import type { ResolvedExecutable } from '../binary-path.js';
-import type { FileIdentity } from '../cwd.js';
+import type { ExecutableIdentity } from '../cwd.js';
 import { sha256File, type FileDigest } from '../hash.js';
 import {
   checkOsSignature,
@@ -117,7 +136,12 @@ export interface BinaryIdentity {
   /** `<dev>:<ino>` (POSIX) or `<volume serial>:<file index>` (win32). */
   readonly fileId: string;
   readonly size: number;
+  /** Modification time in whole milliseconds (informational; compared as `mtimeNs`). */
   readonly mtimeMs: number;
+  /** Modification time in nanoseconds, decimal. */
+  readonly mtimeNs: string;
+  /** Status change time (`ctime`) in nanoseconds, decimal; see the module remarks per OS. */
+  readonly ctimeNs: string;
 }
 
 /**
@@ -182,7 +206,7 @@ export class BinaryNotVerifiedError extends Error {
  */
 export interface IdentityFs {
   realpath(path: string): Promise<string>;
-  stat(path: string): Promise<FileIdentity>;
+  stat(path: string): Promise<ExecutableIdentity>;
 }
 
 const nodeIdentityFs: IdentityFs = {
@@ -271,20 +295,25 @@ export function checkKnownDigests(digests: readonly KnownDigest[]): void {
   });
 }
 
-function identityOf(stats: FileIdentity): BinaryIdentity {
+type TimedSize = Pick<BinaryIdentity, 'size' | 'mtimeNs' | 'ctimeNs'>;
+
+function identityOf(stats: ExecutableIdentity): BinaryIdentity {
   return {
     fileId: `${String(stats.dev)}:${String(stats.ino)}`,
     size: Number(stats.size),
     mtimeMs: Number(stats.mtimeMs),
+    mtimeNs: String(stats.mtimeNs),
+    ctimeNs: String(stats.ctimeNs),
   };
 }
 
 function sameIdentity(a: BinaryIdentity, b: BinaryIdentity): boolean {
-  return a.fileId === b.fileId && a.size === b.size && a.mtimeMs === b.mtimeMs;
+  return a.fileId === b.fileId && sameSizeAndTime(a, b);
 }
 
-function sameSizeAndTime(a: ResolvedExecutable, b: BinaryIdentity): boolean {
-  return a.size === b.size && a.mtimeMs === b.mtimeMs;
+/** Size, mtime and ctime in nanoseconds (the identity without the file id). */
+function sameSizeAndTime(a: TimedSize, b: TimedSize): boolean {
+  return a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
 }
 
 function cacheKey(binary: ResolvedExecutable, options: VerifyBinaryOptions): string {
@@ -295,7 +324,8 @@ function cacheKey(binary: ResolvedExecutable, options: VerifyBinaryOptions): str
     options.mode,
     binary.path,
     binary.size,
-    binary.mtimeMs,
+    binary.mtimeNs,
+    binary.ctimeNs,
     options.platform ?? '',
     options.publisher?.windowsSubject ?? null,
     table,
@@ -417,6 +447,8 @@ function bound(filePath: string, digest: FileDigest): Omit<VerifiedBinary, 'veri
     sha256: digest.sha256,
     size: digest.size,
     mtimeMs: digest.mtimeMs,
+    mtimeNs: digest.mtimeNs,
+    ctimeNs: digest.ctimeNs,
     fileId: digest.fileId,
   };
 }
@@ -501,7 +533,8 @@ export function settleProbedVersion(
 
 /**
  * Reads the identity of the verified file again: the realpath of its path
- * must still be that path and its file id, size and mtime unchanged.
+ * must still be that path and its file id, size, mtime and ctime (in
+ * nanoseconds) unchanged.
  *
  * @throws {@link BinaryChangedError}
  * @public
@@ -568,7 +601,7 @@ export interface SpawnableBinary {
  *   strict mode refuses anything but `verified`; advisory mode returns the
  *   new verdict, which the caller reports.
  * - `reverify` reads the file again; the {@link VerificationCache} is keyed
- *   by realpath, size and mtime and re-checks the identity on a hit, so a
+ *   by realpath, size, mtime and ctime and re-checks the identity on a hit, so a
  *   replaced file never reuses the old verdict.
  *
  * @throws {@link BinaryNotVerifiedError}; whatever `reverify` throws other
