@@ -55,7 +55,7 @@ afterEach(
 );
 
 describe('createDarwinPsTableCalls', () => {
-  it('runs exactly /bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm= with LC_ALL=C and TZ=UTC0 only', async () => {
+  it('runs exactly /bin/ps -A -ww -o pid=,ppid=,pgid=,stat=,lstart=,comm= with LC_ALL=C and TZ=UTC0 only', async () => {
     const calls: unknown[] = [];
     const table = createDarwinPsTableCalls((file, args, env) => {
       calls.push({ file, args, env });
@@ -66,7 +66,7 @@ describe('createDarwinPsTableCalls', () => {
     expect(calls).toEqual([
       {
         file: '/bin/ps',
-        args: ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm='],
+        args: ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm='],
         env: { LC_ALL: 'C', TZ: 'UTC0' },
       },
     ]);

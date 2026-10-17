@@ -4,7 +4,7 @@
  *
  * @remarks
  * Runs exactly the command documented on {@link DarwinPsTableCalls}:
- * `/bin/ps -A -o pid=,ppid=,pgid=,stat=,lstart=,comm=`, `shell: false`, with an
+ * `/bin/ps -A -ww -o pid=,ppid=,pgid=,stat=,lstart=,comm=`, `shell: false`, with an
  * environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`, stdin and stderr
  * ignored, a 30 s timeout and a 64 MiB output cap. No logic: parsing is
  * `tree/ps.ts`.
@@ -23,9 +23,18 @@ import type { DarwinPsTableCalls } from './types.js';
 /** Absolute path of `ps`; never looked up through `PATH`. */
 export const PS_PATH = '/bin/ps';
 
-/** The `ps` argv of the contract. */
+/**
+ * The `ps` argv of the contract. `-ww` (review R3-U2): "If the -w option is
+ * specified more than once, ps will use as many columns as necessary without
+ * regard for your window size" (macOS ps(1)), so the last column (`comm`)
+ * is never cut to a terminal or default width, whatever stdout is. Names are
+ * informational (no decision reads them); the parser is unaffected. The
+ * test-support leak table runs the same layout with `-ww` on the macOS CI
+ * runners.
+ */
 export const PS_ARGS: readonly string[] = Object.freeze([
   '-A',
+  '-ww',
   '-o',
   'pid=,ppid=,pgid=,stat=,lstart=,comm=',
 ]);

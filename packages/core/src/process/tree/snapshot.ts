@@ -21,6 +21,21 @@ export function buildSnapshot(
   return { source, records: [...byPid.values()], rejected: table.rejected + duplicates };
 }
 
+/**
+ * `readStat` errors that mean "this entry is not readable by the host", not
+ * a failed table: `/proc` mounted with `hidepid=1` (`noaccess`, proc(5))
+ * lists other users' processes but refuses their `stat` with `EPERM`
+ * (review R3-2); `EACCES` is the same refusal. Such a process can never be
+ * a verified descendant, and an unprivileged host cannot signal it anyway.
+ */
+const UNREADABLE = new Set(['EPERM', 'EACCES']);
+
+function isUnreadable(error: unknown): boolean {
+  const code: unknown =
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  return typeof code === 'string' && UNREADABLE.has(code);
+}
+
 async function readLinuxTable(
   calls: Extract<ProcessTableCalls, { source: 'linux-proc' }>,
 ): Promise<ParsedProcessTable> {
@@ -32,7 +47,15 @@ async function readLinuxTable(
       rejected += 1;
       continue;
     }
-    const stat = await calls.readStat(pid);
+    let stat: Uint8Array | null;
+    try {
+      stat = await calls.readStat(pid);
+    } catch (error) {
+      // Skipped and counted, like an unparseable entry; any other error fails the table.
+      if (!isUnreadable(error)) throw error;
+      rejected += 1;
+      continue;
+    }
     if (stat === null) continue; // exited between the listing and the read
     const record = parseProcStat(stat, pid);
     if (record === null) rejected += 1;

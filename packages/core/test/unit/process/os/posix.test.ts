@@ -10,9 +10,11 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import {
   createLinuxProcTableCalls,
   createPosixSignalCalls,
+  ForeignProcError,
 } from '../../../../src/process/os/posix.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { parseProcStat } from '../../../../src/process/tree/proc-stat.js';
+import { takeSnapshot } from '../../../../src/process/tree/snapshot.js';
 import {
   ChildTracker,
   hangGuard,
@@ -69,19 +71,27 @@ describe('createLinuxProcTableCalls', () => {
 
   it('reads exactly /proc and /proc/<pid>/stat, keeping only pid entries', async () => {
     const read: string[] = [];
-    const table = createLinuxProcTableCalls({
-      readdir: (path) => {
-        read.push(path);
-        return Promise.resolve(['1', '01', 'self', '23', 'net', '4194304', '-3']);
+    const table = createLinuxProcTableCalls(
+      {
+        readdir: (path) => {
+          read.push(path);
+          return Promise.resolve(['1', '01', 'self', '23', 'net', '4194304', '-3']);
+        },
+        readFile: (path) => {
+          read.push(path);
+          return Promise.resolve(new Uint8Array([1]));
+        },
+        readlink: (path) => {
+          read.push(path);
+          return Promise.resolve('77');
+        },
       },
-      readFile: (path) => {
-        read.push(path);
-        return Promise.resolve(new Uint8Array([1]));
-      },
-    });
+      77,
+    );
     await expect(table.listPids()).resolves.toEqual([1, 23, 4194304]);
     await expect(table.readStat(23)).resolves.toEqual(new Uint8Array([1]));
-    expect(read).toEqual(['/proc', '/proc/23/stat']);
+    // The namespace check reads /proc/self once.
+    expect(read).toEqual(['/proc/self', '/proc', '/proc/23/stat']);
   });
 
   it('maps a vanished process to null and rethrows anything else', async () => {
@@ -89,6 +99,7 @@ describe('createLinuxProcTableCalls', () => {
       createLinuxProcTableCalls({
         readdir: () => Promise.resolve([]),
         readFile: () => Promise.reject(errno(code)),
+        readlink: () => Promise.resolve(String(process.pid)),
       });
     await expect(failing('ENOENT').readStat(5)).resolves.toBeNull();
     await expect(failing('ESRCH').readStat(5)).resolves.toBeNull();
@@ -96,8 +107,108 @@ describe('createLinuxProcTableCalls', () => {
     const odd = createLinuxProcTableCalls({
       readdir: () => Promise.resolve([]),
       readFile: () => Promise.reject(new Error('no code')),
+      readlink: () => Promise.resolve(String(process.pid)),
     });
     await expect(odd.readStat(5)).rejects.toThrow('no code');
+  });
+
+  // Review R3-U1 (confirmed in a Docker pid namespace, plan §5.9 review
+  // fixes): with the parent namespace's /proc, pid 8 of this namespace is
+  // another process there. The table refuses to read anything.
+  it('refuses a /proc of another pid namespace, for good, and checks it once', async () => {
+    let links = 0;
+    const read: string[] = [];
+    const table = createLinuxProcTableCalls(
+      {
+        readdir: (path) => {
+          read.push(path);
+          return Promise.resolve(['1', '8']);
+        },
+        readFile: (path) => {
+          read.push(path);
+          return Promise.resolve(new Uint8Array([1]));
+        },
+        readlink: () => {
+          links += 1;
+          return Promise.resolve('54');
+        },
+      },
+      1,
+    );
+    await expect(table.listPids()).rejects.toBeInstanceOf(ForeignProcError);
+    await expect(table.readStat(8)).rejects.toMatchObject({ code: 'EPIDNS' });
+    expect(read).toEqual([]);
+    expect(links).toBe(1);
+  });
+
+  it('retries a failed namespace check, and checks nothing without a /proc', async () => {
+    let fail: string | null = 'EMFILE';
+    const table = createLinuxProcTableCalls(
+      {
+        readdir: () => Promise.resolve(['3']),
+        readFile: () => Promise.resolve(new Uint8Array([1])),
+        readlink: () => (fail === null ? Promise.resolve('3') : Promise.reject(errno(fail))),
+      },
+      3,
+    );
+    await expect(table.listPids()).rejects.toMatchObject({ code: 'EMFILE' });
+    fail = null;
+    await expect(table.listPids()).resolves.toEqual([3]);
+    const none = createLinuxProcTableCalls(
+      {
+        readdir: () => Promise.reject(errno('ENOENT')),
+        readFile: () => Promise.reject(errno('ENOENT')),
+        readlink: () => Promise.reject(errno('ENOENT')),
+      },
+      3,
+    );
+    await expect(none.listPids()).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(none.readStat(3)).resolves.toBeNull();
+  });
+
+  // Review R3-2: under `hidepid=1` other users' entries are listed but their
+  // stat is refused (EPERM). The snapshot skips and counts them instead of
+  // failing as a whole (it rejected before the fix).
+  it('a snapshot skips entries whose stat is refused (hidepid=1) and counts them', async () => {
+    const stat = (pid: number, ppid: number): Uint8Array =>
+      new TextEncoder().encode(
+        `${String(pid)} (p) S ${String(ppid)} ${String(pid)} 0 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(pid * 10)} 0 0\n`,
+      );
+    for (const code of ['EPERM', 'EACCES']) {
+      const table = createLinuxProcTableCalls(
+        {
+          readdir: () => Promise.resolve(['1', '7', '9']),
+          readFile: (path) =>
+            path === '/proc/7/stat' ? Promise.resolve(stat(7, 1)) : Promise.reject(errno(code)),
+          readlink: () => Promise.resolve('7'),
+        },
+        7,
+      );
+      const snapshot = await takeSnapshot(table);
+      expect(snapshot.records.map((record) => record.pid)).toEqual([7]);
+      expect(snapshot.rejected).toBe(2);
+    }
+    // Any other failure still fails the snapshot.
+    const broken = createLinuxProcTableCalls(
+      {
+        readdir: () => Promise.resolve(['1']),
+        readFile: () => Promise.reject(errno('EIO')),
+        readlink: () => Promise.resolve('7'),
+      },
+      7,
+    );
+    await expect(takeSnapshot(broken)).rejects.toMatchObject({ code: 'EIO' });
+    // ... also a failure without an errno code.
+    const odd = createLinuxProcTableCalls(
+      {
+        readdir: () => Promise.resolve(['1']),
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- a non-Error rejection on purpose
+        readFile: () => Promise.reject('no code'),
+        readlink: () => Promise.resolve('7'),
+      },
+      7,
+    );
+    await expect(takeSnapshot(odd)).rejects.toBe('no code');
   });
 
   it('refuses a pid that is not a positive safe integer', async () => {

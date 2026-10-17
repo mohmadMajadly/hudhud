@@ -37,7 +37,7 @@ export interface LinuxProcTableCalls {
  *
  * @remarks
  * Contract of `runPs`: run `/bin/ps` with argv
- * `['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']`, `shell: false`, and
+ * `['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']`, `shell: false`, and
  * an environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`. `LC_ALL=C` fixes
  * the `lstart` format (`Mon Oct 12 17:02:31 2026`); `TZ=UTC0` makes `lstart`
  * unambiguous across DST changes (plan decision of W1-T9, additive to the
