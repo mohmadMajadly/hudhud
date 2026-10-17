@@ -15,7 +15,7 @@ describe('observability sources', () => {
   const files = readdirSync(dir).filter((file) => file.endsWith('.ts'));
 
   it('exist', () => {
-    expect(files.sort()).toEqual(['redact.ts', 'stderr-tail.ts', 'usage.ts', 'utf8.ts']);
+    expect(files.sort()).toEqual(['redact.ts', 'stderr-tail.ts', 'utf8.ts']);
   });
 
   it.each(files)('%s uses no ambient time, randomness or I/O', (file) => {

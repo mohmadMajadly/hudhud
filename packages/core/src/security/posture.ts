@@ -26,7 +26,7 @@ import { isJsonObject, isJsonValue, nestingExceeds, type JsonValue } from '../pr
 /**
  * One setting as an adapter lists it; {@link buildPosture} adds `deviates`.
  *
- * @public
+ * @beta
  */
 export interface PostureEntryInput {
   /** Dotted option path or a fixed name, for example `claudeCode.bare`. */
@@ -129,7 +129,7 @@ function build(entries: readonly PostureEntryInput[]): BuildResult {
  * @throws `TypeError` for an empty or duplicate `setting` or a value that is
  *   not JSON (an adapter bug, not a user error)
  *
- * @public
+ * @beta
  */
 export function buildPosture(entries: readonly PostureEntryInput[]): SecurityPosture {
   const result = build(entries);

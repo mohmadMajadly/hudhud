@@ -95,7 +95,7 @@ export class BinaryVerificationError extends HudhudError {
     static readonly errorName = "BinaryVerificationError";
 }
 
-// @public
+// @beta
 export function buildPosture(entries: readonly PostureEntryInput[]): SecurityPosture;
 
 // @public
@@ -172,14 +172,6 @@ export interface ErrorData {
     // (undocumented)
     readonly retryable: boolean;
 }
-
-// @public
-export type EstimatedUsage = UsageTotals & {
-    readonly estimate: true;
-};
-
-// @public
-export function estimateUsageDelta(previous: UsageTotals | undefined, current: UsageTotals): EstimatedUsage;
 
 // @public
 export interface EventBase {
@@ -550,7 +542,7 @@ export function postureDeviations(posture: SecurityPosture): readonly SecurityPo
 // @public
 export function postureEntry(posture: SecurityPosture, setting: string): SecurityPostureEntry | undefined;
 
-// @public
+// @beta
 export interface PostureEntryInput {
     readonly defaultValue: JsonValue;
     readonly setting: string;
@@ -615,9 +607,6 @@ export function redactJson(value: RedactableJson, policy: RedactionPolicy): Reda
 
 // @public
 export function redactText(text: string, secrets: readonly string[]): string;
-
-// @public
-export function sanitizeUsage(usage: UsageTotals): UsageTotals;
 
 // @public
 export function secretsFromEnv(env: EnvMap): readonly string[];
@@ -727,26 +716,6 @@ export class SpawnError extends HudhudError {
 }
 
 // @public
-export class StderrTail {
-    constructor(options?: StderrTailOptions);
-    end(): void;
-    push(chunk: Uint8Array | string): void;
-    read(): string;
-    get receivedBytes(): number;
-    get retainedBound(): number;
-    get retainedCodeUnits(): number;
-    get truncated(): boolean;
-}
-
-// @public
-export interface StderrTailOptions {
-    readonly maxChars?: number;
-    readonly maxLineChars?: number;
-    readonly maxLines?: number;
-    readonly secrets?: readonly string[];
-}
-
-// @public
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | (string & {});
 
 // @public
@@ -767,9 +736,6 @@ export class SubscriberOverflowError extends HudhudError {
 
 // @public
 export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
-
-// @public
-export const TRUNCATED = "<truncated>";
 
 // @public
 export interface Turn extends AsyncIterable<HudhudEvent> {
@@ -821,20 +787,6 @@ export interface TurnResult {
     readonly turnId: string;
     // (undocumented)
     readonly usage?: UsageTotals;
-}
-
-// @public
-export class UsageEstimator {
-    observe(report: UsageTotals): UsageObservation;
-    get reported(): UsageTotals | undefined;
-}
-
-// @public
-export interface UsageObservation {
-    // (undocumented)
-    readonly estimatedDelta: EstimatedUsage;
-    // (undocumented)
-    readonly reported: UsageTotals;
 }
 
 // @public

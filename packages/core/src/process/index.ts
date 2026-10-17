@@ -154,7 +154,7 @@ export {
   TaskkillUnavailableError,
   WIN32_DEFAULT_SYSTEM_ROOT,
 } from './taskkill.js';
-// The stderr tail of a spawned process (also on the root entry).
+// The bounded, redacted stderr tail of a spawned process.
 export type { StderrTailOptions } from '../observability/stderr-tail.js';
 export { StderrTail, TRUNCATED } from '../observability/stderr-tail.js';
 

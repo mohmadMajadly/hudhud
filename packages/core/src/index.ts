@@ -1,11 +1,16 @@
 /**
- * Harness-neutral core of hudhud: public types, error classes, subscriber
- * options and the observability primitives (redaction, stderr tail, usage).
+ * Harness-neutral core of hudhud: the application types (`Harness`,
+ * `Session`, `Turn`, events, results, capabilities), the error classes and
+ * codes, subscriber options, the security posture helpers and the redaction
+ * helpers.
  *
  * @remarks
- * Pre-alpha: the harness-neutral handles (`Harness`, `Session`, `Turn`) and
- * adapter registration are here; adapters reach the session driver behind
- * them through the beta entry `@hudhudjs/core/binding`. The design is described in docs/architecture.md
+ * The stable application tier (ADR-0003, ADR-0004): every export without a
+ * `@beta` tag follows semver. The adapter-author pieces here
+ * (`defineAdapter`, `AdapterDefinition`, `buildPosture`, `PostureEntryInput`)
+ * are `@beta`, as are the subpaths `@hudhudjs/core/binding` and
+ * `@hudhudjs/core/process` and the adapter-author part of
+ * `@hudhudjs/core/protocol`. The design is described in docs/architecture.md
  * and the ADRs under docs/adr/.
  *
  * @packageDocumentation
@@ -126,7 +131,3 @@ export {
   redactText,
   secretsFromEnv,
 } from './observability/redact.js';
-export type { StderrTailOptions } from './observability/stderr-tail.js';
-export { StderrTail, TRUNCATED } from './observability/stderr-tail.js';
-export type { EstimatedUsage, UsageObservation } from './observability/usage.js';
-export { estimateUsageDelta, sanitizeUsage, UsageEstimator } from './observability/usage.js';
