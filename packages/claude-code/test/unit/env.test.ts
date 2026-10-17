@@ -208,6 +208,20 @@ describe("'harness' preset (allowlist by rule)", () => {
     expect(isHarnessAllowed('CLAUDE_CODE_ENTRYPOINT', 'posix')).toBe(false);
   });
 
+  it("passes PowerShell's module path and analysis cache path on win32 (R2-6)", () => {
+    for (const name of ['PSModulePath', 'PSMODULEPATH', 'PSModuleAnalysisCachePath']) {
+      expect(isHarnessAllowed(name, 'win32')).toBe(true);
+      expect(isHarnessAllowed(name, 'posix')).toBe(false);
+    }
+    const result = child(
+      {},
+      { SystemRoot: 'C:\\Windows', PSModulePath: 'C:\\Modules;C:\\Program Files\\M' },
+      'win32',
+    );
+    expect(result.env['PSModulePath']).toBe('C:\\Modules;C:\\Program Files\\M');
+    expect(result.dropped).not.toContain('PSModulePath');
+  });
+
   it('passes provider families only when the switch is on', () => {
     const parent = {
       AWS_REGION: 'us-east-1',

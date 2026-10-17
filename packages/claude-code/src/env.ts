@@ -134,6 +134,11 @@ const WIN32_EXACT = new Set(
     'APPDATA',
     'LOCALAPPDATA',
     'PROGRAMDATA',
+    // PowerShell's module search path and its analysis cache file: paths,
+    // not credentials, so the CLI's PowerShell tools see the modules the user
+    // installed outside the default directories (review R2-6, ADR-0012 §4).
+    'PSMODULEPATH',
+    'PSMODULEANALYSISCACHEPATH',
   ].map((name) => name.toUpperCase()),
 );
 const WIN32_PREFIXES = [...COMMON_PREFIXES, 'PROGRAMFILES'];
