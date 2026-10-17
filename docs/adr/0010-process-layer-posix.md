@@ -1,6 +1,6 @@
 # ADR-0010: Process layer on POSIX (Linux, macOS)
 
-- Status: Accepted — pending macOS gate. macOS behaviour is untested; the macOS gate (see [ADR-0014](0014-ci-strategy.md) and [ADR-0018](0018-scope-and-roadmap.md)) must pass before v1.
+- Status: Accepted. The macOS gate passed on 2026-10-16 ([research 11](../research/11-macos-gate-run3.md); runs 1 and 2: research 09, 10): the `ps` contract `pid=,ppid=,pgid=,stat=,lstart=,comm=`, the process groups of the Bash tool, SIGTERM, SIGINT and the sweep were confirmed on darwin-arm64 and darwin-x64.
 - Date: 2026-10-12
 - Negotiation log items: A12 (REPLACED), E1 as amended in F, D8, G3 (06 §A, §D, §E, §F, §G)
 - Related: [ADR-0008](0008-turn-and-lifecycle-semantics.md), [ADR-0009](0009-process-layer-windows.md), [ADR-0011](0011-spawn-hygiene-and-binary-provenance.md)

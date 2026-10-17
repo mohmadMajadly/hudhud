@@ -141,19 +141,28 @@ export interface ChildProbe {
   readonly pid: number;
   /**
    * Linux: the CLI's own argv (`/proc/<pid>/cmdline`, binary first).
-   * Windows: `undefined`, see {@link ChildProbe.commandLine}.
+   * Windows and macOS: `undefined`, see {@link ChildProbe.commandLine}.
    */
   readonly argv: readonly string[] | undefined;
-  /** Windows: the CLI's command line (`Win32_Process.CommandLine`). */
+  /**
+   * Windows: the CLI's command line (`Win32_Process.CommandLine`, quoted
+   * as libuv quotes it). macOS: its argv joined by single spaces, unquoted
+   * (`ps -ww -o args=`; macOS has no `/proc`).
+   */
   readonly commandLine: string | undefined;
   /**
    * Linux: the CLI's own environment (`/proc/<pid>/environ`, exact).
    * Windows: the Bash tool's environment, which is the CLI's plus what the
-   * CLI and Git Bash add for tools (names folded to upper case).
+   * CLI and Git Bash add for tools (names folded to upper case). macOS: the
+   * Bash tool's environment (`env`), the CLI's plus what the CLI and the
+   * shell add for tools: `ps -E` prints another process's environment
+   * only joined by spaces, which values with spaces make ambiguous.
    */
   readonly env: ReadonlyMap<string, string>;
   /** Whether {@link ChildProbe.env} is the CLI's exact environment. */
   readonly exactEnv: boolean;
+  /** Whether {@link ChildProbe.commandLine} quotes arguments with spaces (Windows). */
+  readonly quotedCommandLine: boolean;
 }
 
 const PROBE_FILES = ['probe-pid.txt', 'probe-argv.txt', 'probe-env.txt'] as const;
@@ -164,6 +173,15 @@ export function probeCommand(platform: NodeJS.Platform): string {
     return [
       'echo "$CLAUDE_PID" > probe-pid.txt',
       'powershell.exe -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=$CLAUDE_PID\\").CommandLine" > probe-argv.txt',
+      'env > probe-env.txt',
+    ].join('; ');
+  }
+  if (platform === 'darwin') {
+    // No /proc on macOS (integration evidence run 38967893191, research 11):
+    // the redirection from /proc failed, so the tool wrote no argv file.
+    return [
+      'echo "$CLAUDE_PID" > probe-pid.txt',
+      '/bin/ps -ww -o args= -p "$CLAUDE_PID" > probe-argv.txt',
       'env > probe-env.txt',
     ].join('; ');
   }
@@ -201,12 +219,14 @@ export async function probeChild(
     const name = line.slice(0, eq);
     env.set(platform === 'win32' ? name.toUpperCase() : name, line.slice(eq + 1));
   }
+  const exact = platform !== 'win32' && platform !== 'darwin';
   return {
     pid: Number(pidText.trim()),
-    argv: platform === 'win32' ? undefined : lines(argvText),
-    commandLine: platform === 'win32' ? argvText.trim() : undefined,
+    argv: exact ? lines(argvText) : undefined,
+    commandLine: exact ? undefined : argvText.trim(),
     env,
-    exactEnv: platform !== 'win32',
+    exactEnv: exact,
+    quotedCommandLine: platform === 'win32',
   };
 }
 
@@ -217,15 +237,17 @@ function quoteSimple(arg: string): string {
 
 /**
  * The argv the probe observed, as one comparable list: Linux the real argv,
- * Windows the command line split back (every element hudhud passes is
- * `--flag=value` without quotes; the binary path is quoted when it holds a
- * space).
+ * Windows and macOS the command line split back (every element hudhud
+ * passes is `--flag=value` without spaces; on Windows the binary path is
+ * quoted when it holds a space, on macOS nothing is quoted, so the binary
+ * path must be the exact prefix).
  */
 export function observedArgv(probe: ChildProbe, binaryPath: string): readonly string[] {
   if (probe.argv !== undefined) return probe.argv;
   const line = probe.commandLine ?? '';
-  const head = quoteSimple(binaryPath);
-  if (!line.toLowerCase().startsWith(`${head.toLowerCase()} `)) {
+  const head = probe.quotedCommandLine ? quoteSimple(binaryPath) : binaryPath;
+  const fold = (text: string): string => (probe.quotedCommandLine ? text.toLowerCase() : text);
+  if (!fold(line).startsWith(`${fold(head)} `)) {
     throw new Error(`the command line does not start with the pinned binary: ${line}`);
   }
   return [binaryPath, ...line.slice(head.length + 1).split(' ')];

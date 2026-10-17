@@ -9,9 +9,8 @@
  * keeps the table equal to `tooling/cli-pin.json`. Nothing is fetched at run
  * time.
  *
- * darwin entries are absent until the macOS gate (M1) has recorded them: a
- * darwin binary is `unverified` in advisory mode and refused in strict mode
- * unless the application passes `claudeCode.binaryDigests`.
+ * The darwin entries come from the macOS gate (M1; research 10 §5,
+ * research 11).
  *
  * @packageDocumentation
  */

@@ -95,6 +95,9 @@ interface Recorded {
   readonly options: VerifyBinaryOptions;
 }
 
+/** The publisher the fakes pin unless a test passes its own: a Team ID for the darwin default. */
+const DEFAULT_PUBLISHER = { darwinTeamId: 'ABCDE12345' } as const;
+
 /** Fake deps that record the order of hash, stat and signature-check calls. */
 function fakeOptions(
   options: Partial<VerifyBinaryOptions> & {
@@ -132,7 +135,7 @@ function fakeOptions(
       digests: options.digests ?? [],
       platform: options.platform ?? 'darwin',
       hostEnv: {},
-      ...(options.publisher === undefined ? {} : { publisher: options.publisher }),
+      publisher: options.publisher ?? DEFAULT_PUBLISHER,
       ...(options.cache === undefined ? {} : { cache: options.cache }),
       deps: {
         fs,
@@ -273,7 +276,7 @@ describe('strict verification', () => {
         status: 'verified',
         method: 'sha256-manifest',
         mode: 'strict',
-        detail: 'codesign valid; sha256 matches 2.1.296',
+        detail: 'codesign valid, pinned Team ID ABCDE12345; sha256 matches 2.1.296',
       },
     });
     expect(calls).toEqual([`stat ${BIN}`, 'run /usr/bin/codesign', `hash ${BIN}`]);
@@ -343,6 +346,54 @@ describe('strict verification', () => {
     await expect(verifyBinary(resolved(), other.options)).resolves.toMatchObject({
       verification: { status: 'failed', method: 'os-signature' },
     });
+  });
+
+  it('requires the pinned Team ID of the macOS signature', async () => {
+    const digests = [{ version: '2.1.296', sha256: SHA_A }];
+    const unpinned = fakeOptions({ mode: 'strict', platform: 'darwin', digests, publisher: {} });
+    await expect(verifyBinary(resolved(), unpinned.options)).resolves.toMatchObject({
+      verification: {
+        status: 'failed',
+        method: 'os-signature',
+        detail: 'codesign not run: no publisher Team ID is pinned',
+      },
+    });
+    expect(unpinned.calls.some((call) => call.startsWith('run ') || call.startsWith('hash '))).toBe(
+      false,
+    );
+    // codesign's "requirement not satisfied" (another team): a verdict.
+    const other = fakeOptions({
+      mode: 'strict',
+      platform: 'darwin',
+      digests,
+      signature: { kind: 'exited', exitCode: 3, signal: null, stdout: '' },
+    });
+    await expect(verifyBinary(resolved(), other.options)).resolves.toMatchObject({
+      verification: { status: 'failed', method: 'os-signature', detail: 'codesign failed: exit 3' },
+    });
+  });
+
+  it('keys the cache by the pinned Team ID', async () => {
+    const cache = new VerificationCache();
+    const first = fakeOptions({
+      mode: 'strict',
+      platform: 'darwin',
+      cache,
+      publisher: { darwinTeamId: 'AAAAAAAAAA' },
+    });
+    await verifyBinary(resolved(), first.options);
+    const second = fakeOptions({
+      mode: 'strict',
+      platform: 'darwin',
+      cache,
+      signature: { kind: 'exited', exitCode: 3, signal: null, stdout: '' },
+      publisher: { darwinTeamId: 'BBBBBBBBBB' },
+    });
+    await expect(verifyBinary(resolved(), second.options)).resolves.toMatchObject({
+      verification: { status: 'failed', method: 'os-signature' },
+    });
+    expect(second.calls.some((call) => call.startsWith('run '))).toBe(true);
+    expect(cache.size).toBe(2);
   });
 
   it('keys the cache by the pinned publisher', async () => {
@@ -489,7 +540,7 @@ describe('the verification cache and transient failures', () => {
       digests: DIGESTS,
       cache,
       signature,
-      publisher: { windowsSubject: SUBJECT },
+      publisher: { windowsSubject: SUBJECT, darwinTeamId: 'ABCDE12345' },
     });
   }
 

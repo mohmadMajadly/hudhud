@@ -73,14 +73,28 @@
  *   its jurisdiction and registration number, which the CA validates before
  *   issuing.
  *
- * macOS: `/usr/bin/codesign --verify --strict <path>` by absolute path
- * (realpath-checked, SIP-protected), environment `LC_ALL=C` only. Exit code 0
- * is a pass; a non-zero exit code is `invalid`; a timeout, a spawn failure,
- * an exit by signal or too much output is `inconclusive`. Pending the macOS gate (ADR-0014): the
- * Team ID pin. Until the gate has recorded the Team ID of the pinned darwin
- * builds, codesign's verdict is not bound to a publisher; strict mode on
- * darwin still needs a digest-table match, and the committed table has no
- * darwin entries before the gate.
+ * macOS: `/usr/bin/codesign --verify --strict -R <requirement> <path>` by
+ * absolute path (realpath-checked, SIP-protected), environment `LC_ALL=C`
+ * only. Exit code 0 is a pass; a non-zero exit code is `invalid` (codesign
+ * exits 1 for a signature that does not verify and 3 for a valid signature
+ * that does not satisfy the requirement); a timeout, a spawn failure, an exit
+ * by signal or too much output is `inconclusive`.
+ *
+ * - Publisher pinning (macOS gate, research 11): the requirement
+ *   ({@link codesignRequirement}) is the form of a Developer ID designated
+ *   requirement: the chain ends in Apple's root (`anchor apple generic`),
+ *   the intermediate is a Developer ID CA (OID 1.2.840.113635.100.6.2.6), the
+ *   leaf is a Developer ID Application certificate (OID
+ *   1.2.840.113635.100.6.1.13), and the leaf's organizational unit is the
+ *   pinned Team ID ({@link PublisherPin.darwinTeamId}). Apple issues a Team
+ *   ID to one developer account and writes it into every certificate of that
+ *   team, so a valid signature by anyone else fails the requirement, as a
+ *   different signer subject does on Windows. Without a pin the check fails
+ *   without running codesign. The Team ID is pinned, not the leaf
+ *   certificate, for the reason given for the Windows subject above.
+ * - The requirement text is built only from a Team ID that is exactly 10
+ *   upper-case letters or digits (Apple's format), so nothing of the pin can
+ *   change the requirement's structure; any other value fails the check.
  *
  * Other platforms have no OS signature check (`unsupported`); strict
  * verification then relies on the digest table alone (ADR-0011: the
@@ -189,7 +203,12 @@ export interface PublisherPin {
    * Windows.
    */
   readonly windowsSubject?: string;
-  // darwin: the Team ID pin is added after the macOS gate (ADR-0014).
+  /**
+   * The Apple Developer Team ID of the signer (10 upper-case letters or
+   * digits, the leaf certificate's organizational unit). Required for a
+   * passing check on macOS.
+   */
+  readonly darwinTeamId?: string;
 }
 
 /**
@@ -216,7 +235,10 @@ export interface SignatureDeps {
   readonly run: (command: BoundedCommand) => Promise<CommandOutcome>;
   /** Defaults to {@link DEFAULT_SIGNATURE_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
-  /** The publisher to require; without a Windows subject the Windows check fails. */
+  /**
+   * The publisher to require; without a Windows subject the Windows check
+   * fails, without a Team ID the macOS check fails.
+   */
   readonly publisher?: PublisherPin;
 }
 
@@ -365,12 +387,42 @@ async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<Os
  */
 export const CODESIGN_PATH = '/usr/bin/codesign';
 
+/** Apple's Team ID format: 10 upper-case letters or digits. */
+const TEAM_ID = /^[A-Z0-9]{10}$/;
+
+/**
+ * The code requirement the macOS check passes to codesign for `teamId`
+ * (see the module remarks).
+ *
+ * @throws RangeError when `teamId` is not 10 upper-case letters or digits
+ * @public
+ */
+export function codesignRequirement(teamId: string): string {
+  if (!TEAM_ID.test(teamId)) {
+    throw new RangeError('a Team ID is 10 upper-case letters or digits');
+  }
+  return [
+    'anchor apple generic',
+    'certificate 1[field.1.2.840.113635.100.6.2.6] exists',
+    'certificate leaf[field.1.2.840.113635.100.6.1.13] exists',
+    `certificate leaf[subject.OU] = "${teamId}"`,
+  ].join(' and ');
+}
+
 async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsSignatureResult> {
+  const teamId = deps.publisher?.darwinTeamId;
+  if (teamId === undefined) {
+    return { kind: 'invalid', detail: 'codesign not run: no publisher Team ID is pinned' };
+  }
+  if (!TEAM_ID.test(teamId)) {
+    return { kind: 'invalid', detail: 'codesign not run: the pinned Team ID is malformed' };
+  }
   const refusal = await checkedExecutable(deps.fs, CODESIGN_PATH, false);
   if (refusal !== undefined) return { kind: 'invalid', detail: `codesign unavailable: ${refusal}` };
   const outcome = await deps.run({
     file: CODESIGN_PATH,
-    args: ['--verify', '--strict', binaryPath],
+    // `-R` with a leading `=`: the argument is requirement text, not a file.
+    args: ['--verify', '--strict', '-R', `=${codesignRequirement(teamId)}`, binaryPath],
     env: { LC_ALL: 'C' },
     cwd: '/',
     platform: 'posix',
@@ -378,7 +430,7 @@ async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsS
     maxStdoutBytes: MAX_SIGNATURE_OUTPUT_BYTES,
   });
   if (outcome.kind === 'exited' && outcome.exitCode === 0) {
-    return { kind: 'valid', detail: 'codesign valid' };
+    return { kind: 'valid', detail: `codesign valid, pinned Team ID ${teamId}` };
   }
   // A non-zero exit code is codesign's verdict; anything else is no verdict.
   const verdict = outcome.kind === 'exited' && outcome.exitCode !== null;

@@ -262,7 +262,8 @@ export interface VerifyBinaryOptions {
   /**
    * The publisher strict mode requires of the OS signature (W3-Z ruling 9);
    * on Windows a strict check without {@link PublisherPin.windowsSubject}
-   * fails. Ignored in advisory mode.
+   * fails, on macOS one without {@link PublisherPin.darwinTeamId}. Ignored in
+   * advisory mode.
    */
   readonly publisher?: PublisherPin;
   /** The host environment, read only for `SystemRoot` by the Windows check; `process.env` by default. */
@@ -328,6 +329,7 @@ function cacheKey(binary: ResolvedExecutable, options: VerifyBinaryOptions): str
     binary.ctimeNs,
     options.platform ?? '',
     options.publisher?.windowsSubject ?? null,
+    options.publisher?.darwinTeamId ?? null,
     table,
   ]);
 }

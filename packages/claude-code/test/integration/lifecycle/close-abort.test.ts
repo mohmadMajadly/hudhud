@@ -12,6 +12,7 @@ import { isHudhudError, type Session } from '@hudhudjs/core';
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
+import { recordTimingSample } from '../support/timing-samples.js';
 import { b64, diagnostics, ofType, record, terminatedOf, turnRequests } from './events.js';
 
 const suite = integrationSuite();
@@ -134,6 +135,9 @@ test('close with a deadline: a turn that never ends is cut at the deadline', asy
   const started = performance.now();
   await session.close();
   const elapsed = performance.now() - started;
+  // The overrun past the deadline, recorded before any assertion so a
+  // measurement run keeps the samples that break the bound (off by default).
+  recordTimingSample('close-abort/close-deadline-overrun', elapsed - closeTimeoutMs);
   const result = await turn.done;
   expect(result.outcome).toBe('cancelled');
   const events = await recording.done;

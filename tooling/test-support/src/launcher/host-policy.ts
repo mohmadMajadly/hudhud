@@ -22,6 +22,31 @@ import { SandboxRefusedError } from './errors.js';
 export const LOCAL_MACOS_OPT_IN = 'HUDHUD_ALLOW_LOCAL_MACOS_REAL_CLI';
 
 /**
+ * Every variable {@link realCliHostRefusal} reads. A helper process that
+ * resolves the pinned CLI itself (the crash host of the containment suites)
+ * gets exactly these from its parent, so it reaches the parent's decision:
+ * neither stricter (the first macOS integration run refused the crash host
+ * on a GitHub-hosted runner, research 11) nor looser.
+ */
+export const HOST_POLICY_VARIABLES: readonly string[] = Object.freeze([
+  'CI',
+  'RUNNER_ENVIRONMENT',
+  LOCAL_MACOS_OPT_IN,
+]);
+
+/** The {@link HOST_POLICY_VARIABLES} that `env` sets, for a helper process's environment. */
+export function hostPolicyEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const name of HOST_POLICY_VARIABLES) {
+    const value = env[name];
+    if (value !== undefined) picked[name] = value;
+  }
+  return picked;
+}
+
+/**
  * Why a real-CLI run is refused on this host, or `undefined` when it may
  * run.
  *

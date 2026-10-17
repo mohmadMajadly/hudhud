@@ -199,9 +199,10 @@ export type PinnedCliProbe =
 /**
  * Like {@link resolvePinnedCli}, but reports a missing or unverifiable cache
  * entry, and a platform whose pin entry is pending its gate (the darwin
- * entries until the macOS gate passes, ADR-0014), instead of throwing, for
- * tests that run only when the pinned CLI was already fetched: they skip
- * with the reason. Other failures (an invalid pin) still throw.
+ * entries were, until the macOS gate pinned them, research 11), instead of
+ * throwing, for tests that run only when the pinned CLI was already
+ * fetched: they skip with the reason. Other failures (an invalid pin) still
+ * throw.
  */
 export async function probePinnedCli(options: PinnedCliOptions): Promise<PinnedCliProbe> {
   const platform = options.platformKey ?? hostPlatformKey(options.env);

@@ -8,7 +8,10 @@
  * with a simulated host.
  */
 
+import type { ExecutableFs } from '../../../packages/core/src/process/binary-path.js';
 import type { CwdFs } from '../../../packages/core/src/process/cwd.js';
+import type { SignatureDeps } from '../../../packages/core/src/process/verify/os-signature.js';
+import type { VerifyBinaryOptions } from '../../../packages/core/src/process/verify/verify.js';
 import type { RegistryOptions } from '../../test-support/src/cli/registry.js';
 import type { MockServer } from '../../test-support/src/mock/server.js';
 
@@ -82,6 +85,20 @@ export interface GateFs {
   rm(value: string): Promise<void>;
 }
 
+/**
+ * The seams of the product's binary verification (core `process/verify`),
+ * run by item 1 on the real binary. Production passes the core's own
+ * (`nodeSignatureDeps`, and the defaults of `resolveExecutable` and
+ * `verifyBinary`), so the gate runs exactly the code a user runs.
+ */
+export interface ProductSeams {
+  readonly signature: Pick<SignatureDeps, 'fs' | 'run'>;
+  /** `resolveExecutable`'s filesystem; the host's when absent. */
+  readonly executableFs?: ExecutableFs;
+  /** `verifyBinary`'s hash and identity calls; the host's when absent. */
+  readonly verify?: Omit<NonNullable<VerifyBinaryOptions['deps']>, 'signature'>;
+}
+
 /** Everything the harness needs from the machine it runs on. */
 export interface GateHost {
   readonly platform: NodeJS.Platform;
@@ -118,6 +135,8 @@ export interface GateHost {
   readonly fs: GateFs;
   /** The calls `validateCwd` uses (core, plan §1.7). */
   readonly cwdFs: CwdFs;
+  /** The product's verification seams (item 1). */
+  readonly product: ProductSeams;
   /** Starts the in-process mock Messages API with its egress trap (test-support). */
   startMock(): Promise<MockServer>;
   /** The npm registry client options of the pinned-CLI fetch (test-support). */
