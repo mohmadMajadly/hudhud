@@ -37,7 +37,7 @@
     "cli:bump": "tsc --build tooling/test-support && node tooling/test-support/bin/bump-cli.mjs",
     "fixtures:record": "tsc --build && node packages/claude-code/test/record/record-fixtures.mjs",
     "check": "pnpm run format:check && pnpm run schema:check && pnpm run schema:diff && pnpm run build && pnpm run check:no-ajv && pnpm run lint && pnpm run lint:md && pnpm run depcruise && pnpm run test:coverage && pnpm run api:check && pnpm run privacy:tree",
-    "check:full": "pnpm run check && pnpm run cli:fetch && pnpm run test:integration"
+    "check:full": "pnpm run check && pnpm run check:tarball && pnpm run cli:fetch && pnpm run test:integration"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",

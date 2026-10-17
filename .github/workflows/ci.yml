@@ -147,10 +147,15 @@ jobs:
           node-version: ${{ matrix.node }}
           integration: 'true'
 
-      # `pnpm check:full` is check, cli:fetch (in the setup action) and
-      # test:integration; split into steps so a failure names its phase.
+      # `pnpm check:full` is check, check:tarball, cli:fetch (in the setup
+      # action) and test:integration; split into steps so a failure names its
+      # phase. check:tarball packs and installs the published packages offline
+      # (7 s on the W7-Z Windows host); it leaves HUDHUD_TEST_ROOT empty.
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: Tarball install check of every published package (plan §4.1)
+        run: pnpm run check:tarball
 
       - name: OS-scoped coverage of the syscall adapters (plan §4.8)
         run: pnpm exec vitest run --coverage --config vitest.os.config.ts
@@ -242,6 +247,9 @@ jobs:
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
 
+      - name: Tarball install check of every published package (plan §4.1)
+        run: pnpm run check:tarball
+
       - name: OS-scoped coverage of the syscall adapters (plan §4.8)
         run: pnpm exec vitest run --coverage --config vitest.os.config.ts
 
@@ -281,6 +289,9 @@ jobs:
       # `pnpm check:full` in steps, as on Linux and Windows.
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: Tarball install check of every published package (plan §4.1)
+        run: pnpm run check:tarball
 
       - name: OS-scoped coverage of the syscall adapters (plan §4.8)
         run: pnpm exec vitest run --coverage --config vitest.os.config.ts
