@@ -15,8 +15,8 @@
  * path). The cross-check is mandatory here: a pin is a lasting trust anchor,
  * so a version no SDK release describes cannot be pinned (name the SDK
  * release with `--sdk` when the SDK's `latest` already moved on). Entries
- * pending their gate (the darwin entries until the macOS gate, ADR-0014)
- * are left exactly as they are.
+ * pending their gate (`pendingGate`; the darwin entries had one until the
+ * macOS gate passed, research 11) are left exactly as they are.
  *
  * Only `tooling/cli-pin.json` is written, and only after every platform
  * verified; it keeps its key order and comment, so the diff is the version
@@ -24,7 +24,8 @@
  * the record (reproducible with the printed command line) and the exact
  * follow-up steps, each a reviewable diff of its own: the committed digest
  * table and the tested window, the fixtures, the request-shape snapshots on
- * Linux and Windows, the Windows publisher check and `pnpm check:full`.
+ * Linux and Windows, the Windows publisher check, the macOS gate run (darwin
+ * pins, Team ID and darwin snapshots) and `pnpm check:full`.
  *
  * Exit codes: 0 pin updated, 1 fetch, verification or cross-check failure,
  * 2 usage error.
@@ -171,7 +172,12 @@ export function bumpReport(
     '6. On Linux and on Windows (HUDHUD_TEST_ROOT outside the user profile):',
     '   HUDHUD_REQUEST_SHAPE_UPDATE=1 pnpm vitest run --project integration packages/claude-code/test/integration/request-shape',
     '   then review the snapshots/*.<platform>.shape diffs.',
-    '7. pnpm check:full on Linux and on Windows; then a changeset and the PR.',
+    '7. macOS: push the branch and dispatch .github/workflows/macos-gate.yml on it. Gate item 1',
+    '   must verify both darwin binaries against the new pin and the Team ID',
+    '   (CLAUDE_CODE_PUBLISHER.darwinTeamId); the integration evidence job writes the darwin',
+    '   request-shape snapshots (artifact integration-evidence, request-shape/): review and commit.',
+    '8. pnpm check:full on Linux and on Windows; then a changeset and the PR (its FULL CI',
+    '   run covers macOS).',
     '',
   ].join('\n');
 }

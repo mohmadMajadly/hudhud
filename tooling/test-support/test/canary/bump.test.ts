@@ -264,6 +264,8 @@ describe('bumpReport', () => {
     expect(report).toContain(
       'HUDHUD_REQUEST_SHAPE_UPDATE=1 pnpm vitest run --project integration packages/claude-code/test/integration/request-shape',
     );
+    expect(report).toContain('dispatch .github/workflows/macos-gate.yml on it');
+    expect(report).toContain('CLAUDE_CODE_PUBLISHER.darwinTeamId');
     expect(report).toContain('pnpm check:full on Linux and on Windows');
     expect(bumpReport('2.1.296', [], 'x')).toContain('cli:bump 2.1.296 -> 2.1.296');
   });
