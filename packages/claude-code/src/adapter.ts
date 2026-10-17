@@ -423,6 +423,7 @@ function checkVersionPolicy(ctx: BinaryContext, version: string): void {
 export async function probeBinary(
   ctx: BinaryContext,
   binary: VerifiedBinary,
+  signal?: AbortSignal,
 ): Promise<ProbedBinary> {
   const { host } = ctx;
   let stdout: string;
@@ -432,6 +433,8 @@ export async function probeBinary(
       env: ctx.probeEnv,
       platform: ctx.platform,
       timeoutMs: CLAUDE_VERSION_PROBE_TIMEOUT_MS,
+      // An abort kills the probe at once (R5-U1); the caller reports ABORTED.
+      ...(signal === undefined ? {} : { signal }),
       deps: {
         ...host.probe,
         ...(host.identityFs === undefined ? {} : { fs: host.identityFs }),

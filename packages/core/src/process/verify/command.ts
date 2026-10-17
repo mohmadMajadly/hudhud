@@ -13,7 +13,7 @@
  *   `command.cwd`.
  * - Bounded: the child is killed through its own handle (`SIGKILL`, on
  *   Windows `TerminateProcess`) and the stdout pipe destroyed when the
- *   timeout fires or stdout exceeds `maxStdoutBytes`, so a descendant that
+ *   timeout fires, its `signal` aborts or stdout exceeds `maxStdoutBytes`, so a descendant that
  *   keeps the pipe open cannot hold the runner.
  * - Never rejects: every way the command can end is one {@link CommandOutcome}.
  *
@@ -45,6 +45,12 @@ export interface BoundedCommand {
   readonly timeoutMs: number;
   /** Bytes of stdout kept; one more byte kills the child. */
   readonly maxStdoutBytes: number;
+  /**
+   * Aborting it ends the command at once as the timeout does: the child is
+   * killed through its handle and the outcome is `aborted`. Already aborted:
+   * nothing is spawned.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -63,7 +69,8 @@ export type CommandOutcome =
     }
   | { readonly kind: 'spawn-error'; readonly errno: string | undefined }
   | { readonly kind: 'timeout' }
-  | { readonly kind: 'output-too-large' };
+  | { readonly kind: 'output-too-large' }
+  | { readonly kind: 'aborted' };
 
 /**
  * `child_process.spawn` as used by {@link runBoundedCommand}; injectable for
@@ -98,6 +105,11 @@ export function runBoundedCommand(
   spawnFn: BoundedSpawn = nodeSpawn,
 ): Promise<CommandOutcome> {
   return new Promise((resolve) => {
+    const { signal } = command;
+    if (signal?.aborted === true) {
+      resolve({ kind: 'aborted' });
+      return;
+    }
     let child: ChildProcessByStdio<null, Readable, null>;
     try {
       child = spawnFn(command.file, command.args, {
@@ -117,14 +129,18 @@ export function runBoundedCommand(
     const chunks: Buffer[] = [];
     let bytes = 0;
     let settled = false;
-    let stopped: 'timeout' | 'output-too-large' | undefined;
+    let stopped: 'timeout' | 'output-too-large' | 'aborted' | undefined;
+    const onAbort = (): void => {
+      stop('aborted');
+    };
     const settle = (outcome: CommandOutcome): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       resolve(outcome);
     };
-    const stop = (reason: 'timeout' | 'output-too-large'): void => {
+    const stop = (reason: 'timeout' | 'output-too-large' | 'aborted'): void => {
       stopped ??= reason;
       child.kill('SIGKILL');
       child.stdout.destroy();
@@ -133,6 +149,7 @@ export function runBoundedCommand(
     const timer = setTimeout(() => {
       stop('timeout');
     }, command.timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout.on('data', (chunk: Buffer) => {
       if (stopped !== undefined) return;
       bytes += chunk.length;

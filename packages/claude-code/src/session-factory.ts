@@ -353,13 +353,18 @@ async function reverify(harness: SessionHost): Promise<VerifiedBinary> {
 /** The binary to spawn, with the diagnostics the gate produced. */
 async function gate(
   harness: SessionHost,
+  signal: AbortSignal | undefined,
 ): Promise<{ readonly probed: ProbedBinary; readonly diagnostics: BindingDiagnostic[] }> {
   const ctx = harness.binaryContext;
   const previous = harness.current;
   const checked = await spawnableBinary(ctx, previous.binary, () => reverify(harness));
   if (!checked.reverified) return { probed: previous, diagnostics: [] };
-  // New bytes: probe them (K4), then check the identity once more before the spawn.
-  const probed = await probeBinary(ctx, checked.binary);
+  // New bytes: probe them (K4), then check the identity once more before the
+  // spawn. An abort stops the probe at once and is reported as the abort.
+  const probed = await probeBinary(ctx, checked.binary, signal).catch((error: unknown) => {
+    checkpoint(harness, signal);
+    throw error;
+  });
   try {
     await assertSpawnable(probed.binary, harness.host.identityFs);
   } catch (error) {
@@ -568,7 +573,7 @@ async function openSteps(harness: SessionHost, request: SessionRequest): Promise
   checkpoint(harness, signal);
 
   // 4. The spawn gate (TOCTOU between verification and spawn).
-  const { probed, diagnostics: gateDiagnostics } = await gate(harness);
+  const { probed, diagnostics: gateDiagnostics } = await gate(harness, signal);
   const binary = probed.binary;
   checkCommandLine(binary.path, argv, platform);
   checkpoint(harness, signal);

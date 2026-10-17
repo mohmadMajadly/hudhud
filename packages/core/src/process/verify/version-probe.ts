@@ -57,7 +57,7 @@ export const DEFAULT_VERSION_PROBE_MAX_BYTES = 4096;
  * @public
  */
 export type VersionProbeFailure =
-  'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code';
+  'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code' | 'aborted';
 
 /**
  * Thrown by {@link runVersionProbe}. The adapter maps it to the public
@@ -94,6 +94,8 @@ export interface VersionProbeOptions {
   readonly timeoutMs?: number;
   /** Defaults to {@link DEFAULT_VERSION_PROBE_MAX_BYTES}. */
   readonly maxStdoutBytes?: number;
+  /** Aborting it stops the probe at once (the child is killed): `aborted`. */
+  readonly signal?: AbortSignal;
   /** Seams for tests; the host's by default. */
   readonly deps?: {
     readonly fs?: IdentityFs;
@@ -173,6 +175,7 @@ export async function runVersionProbe(
       platform: options.platform,
       timeoutMs: options.timeoutMs ?? DEFAULT_VERSION_PROBE_TIMEOUT_MS,
       maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_VERSION_PROBE_MAX_BYTES,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
   } finally {
     await workDir.remove(cwd);

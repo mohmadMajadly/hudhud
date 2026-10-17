@@ -23,6 +23,8 @@ import {
   ProcessSpawnError,
   SpawnSpecError,
   VersionProbeError,
+  type BoundedCommand,
+  type CommandOutcome,
 } from '@hudhudjs/core/process';
 
 import {
@@ -436,6 +438,55 @@ describe('an abort or a dispose that lands as the handshake completes', () => {
       await harness[Symbol.asyncDispose]();
     },
   );
+});
+
+describe('an abort during the version probe (R5-U1)', () => {
+  /** A probe that runs until its signal aborts, then reports it as the runner does. */
+  function hangingProbe(fake: FakeHost): { readonly started: () => boolean } {
+    let started = false;
+    const seam = fake.host.probe;
+    if (seam === undefined) throw new Error('the fake host has a probe seam');
+    Object.assign(seam, {
+      run: (command: BoundedCommand) => {
+        started = true;
+        return new Promise<CommandOutcome>((resolve) => {
+          command.signal?.addEventListener('abort', () => {
+            resolve({ kind: 'aborted' });
+          });
+        });
+      },
+    });
+    return { started: () => started };
+  }
+
+  it('connect stops the probe and rejects with ABORTED at once', async () => {
+    const fake = new FakeHost();
+    const probe = hangingProbe(fake);
+    const controller = new AbortController();
+    const connecting = rejection(
+      connectWith({ binaryPath: BINARY, signal: controller.signal }, fake.make),
+    );
+    await settle();
+    expect(probe.started()).toBe(true);
+    controller.abort('stop');
+    expect(await connecting).toBeInstanceOf(AbortError);
+  });
+
+  it('a session start that probes a changed binary stops the probe the same way', async () => {
+    const fake = new FakeHost();
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    // The file changed after connect: the start verifies and probes it again.
+    fake.binary = { ...fake.binary, mtimeMs: 2000 };
+    const probe = hangingProbe(fake);
+    const controller = new AbortController();
+    const creating = rejection(harness.sessions.create({ signal: controller.signal }));
+    await settle();
+    expect(probe.started()).toBe(true);
+    controller.abort('stop');
+    expect(await creating).toBeInstanceOf(AbortError);
+    expect(fake.log).not.toContain('spawn');
+    await harness[Symbol.asyncDispose]();
+  });
 });
 
 describe('the connect gate', () => {

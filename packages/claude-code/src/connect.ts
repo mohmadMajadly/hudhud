@@ -182,7 +182,13 @@ async function establish(
     const again = await discoverBinary(discovered.requestedPath, host.discovery);
     return verifyExecutable(binaryContext, again.executable);
   });
-  const probed = await probeBinary(binaryContext, spawnable.binary);
+  const probed = await probeBinary(binaryContext, spawnable.binary, signal).catch(
+    (error: unknown) => {
+      // A probe stopped by the abort is reported as the abort.
+      throwIfAborted(signal);
+      throw error;
+    },
+  );
   throwIfAborted(signal);
 
   // The posture and the capabilities.

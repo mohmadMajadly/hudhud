@@ -219,6 +219,21 @@ describe('runVersionProbe gates', () => {
     expect(DEFAULT_VERSION_PROBE_TIMEOUT_MS).toBe(15_000);
   });
 
+  it('passes its signal to the command and reports an abort (R5-U1)', async () => {
+    const { commands, run } = fakeRun({ kind: 'aborted' });
+    const controller = new AbortController();
+    const error = await runVersionProbe(FAKE, {
+      args: ['--version'],
+      env: {},
+      platform: 'posix',
+      signal: controller.signal,
+      deps: { fs: SAME_FILE, run, workDir: fakeWorkDir() },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(VersionProbeError);
+    expect((error as VersionProbeError).reason).toBe('aborted');
+    expect(commands[0]?.signal).toBe(controller.signal);
+  });
+
   it('never runs a strict binary that is not verified', async () => {
     const { commands, run } = fakeRun({ kind: 'exited', exitCode: 0, signal: null, stdout: '' });
     for (const status of ['unverified', 'failed'] as const) {
