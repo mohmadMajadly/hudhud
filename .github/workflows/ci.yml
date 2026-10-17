@@ -16,12 +16,6 @@ on:
         description: Run the FULL tier (Linux, Windows, macOS)
         type: boolean
         default: false
-  workflow_call:
-    inputs:
-      full:
-        description: Run the FULL tier (Linux, Windows, macOS)
-        type: boolean
-        default: true
 
 permissions: {}
 
