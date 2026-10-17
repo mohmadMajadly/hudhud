@@ -38,6 +38,7 @@ import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhudjs
 import { WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhudjs/core/process';
 
 import type { EffectiveConnectOptions, EffectiveSessionOptions } from './options-types.js';
+import { isProjectCredentialEnvName } from './settings-guard.js';
 
 /**
  * Variables hudhud sets or removes itself. Options can neither add nor
@@ -206,14 +207,17 @@ const ROUTING_PREFIXES = [
  * explicit map) is listed in `securityPosture` (K19): credentials, API
  * routing (`ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, provider families, proxies,
  * CA and TLS settings), runtime injection (`NODE_OPTIONS`) and nesting
- * markers, and every name the redaction treats as a secret. Any case.
+ * markers, every name the redaction treats as a secret, and every name the
+ * project credential guard refuses ({@link isProjectCredentialEnvName}), so
+ * the two lists cannot drift apart. Any case.
  */
 export function isCredentialOrRoutingEnvName(name: string): boolean {
   const key = name.toUpperCase();
   return (
     ROUTING_EXACT.has(key) ||
     ROUTING_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
-    isCredentialEnvName(name)
+    isCredentialEnvName(name) ||
+    isProjectCredentialEnvName(name)
   );
 }
 

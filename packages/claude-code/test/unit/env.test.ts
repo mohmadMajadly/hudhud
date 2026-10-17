@@ -633,6 +633,12 @@ describe('name classifiers', () => {
     ['CLAUDE_CODE_ENTRYPOINT', true],
     ['GITHUB_TOKEN', true],
     ['CLAUDE_CODE_OAUTH_TOKEN', true],
+    // R1-1: whatever the project credential guard refuses is listed too
+    ['VERTEX_REGION_CLAUDE_HAIKU_4_5', true],
+    ['GCLOUD_PROJECT', true],
+    ['CLAUDE_CODE_API_BASE_URL', true],
+    ['CLAUDE_CODE_PROXY_URL', true],
+    ['SSLKEYLOGFILE', true],
     ['PATH', false],
     ['HOME', false],
     ['CLAUDE_CODE_MAX_RETRIES', false],

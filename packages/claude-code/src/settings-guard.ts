@@ -115,47 +115,128 @@ export const SETTINGS_FILE_NAMES: readonly string[] = ['settings.json', 'setting
 const NAME_OUTPUT_MAX = 256;
 
 /**
- * Credential, routing or TLS-trust variables: each lets a repository redirect
- * or intercept the CLI's API traffic and the credentials it carries (C3,
- * 07 §9). `NO_PROXY` is not listed: it only narrows proxying.
+ * Provider and API families, refused whole (rule 1 of
+ * {@link isProjectCredentialEnvName}): the first-party API (`ANTHROPIC_*`),
+ * the cloud providers Claude Code routes through (Bedrock and Anthropic on
+ * AWS: `AWS_*`; Vertex and Anthropic on Google Cloud: `GOOGLE_*`,
+ * `GCLOUD_*`, `CLOUDSDK_*`, `CLOUD_ML_*`, `VERTEX_*`; Foundry: `AZURE_*`),
+ * the remote-session family (`CCR_*`) and the provider switches
+ * (`CLAUDE_CODE_USE_*`). The pinned CLI builds provider hosts from several
+ * of them (`https://${CLOUD_ML_REGION}-aiplatform.googleapis.com`,
+ * `https://bedrock-runtime.${AWS_REGION}.amazonaws.com`,
+ * `https://${ANTHROPIC_FOUNDRY_RESOURCE}.services.ai.azure.com`; review
+ * R1-1, static reading of 2.1.296), and each family carries credentials.
  */
-const CREDENTIAL_EXACT = new Set([
-  // credential and routing
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  // traffic interception: proxies
-  'HTTPS_PROXY',
-  'HTTP_PROXY',
-  'ALL_PROXY',
-  // traffic interception: TLS trust
-  'NODE_TLS_REJECT_UNAUTHORIZED',
-  'NODE_EXTRA_CA_CERTS',
-  'SSL_CERT_FILE',
-  'SSL_CERT_DIR',
-  'REQUESTS_CA_BUNDLE',
-  'CURL_CA_BUNDLE',
+const REFUSED_FAMILIES: readonly string[] = [
+  'ANTHROPIC_',
+  'AWS_',
+  'GOOGLE_',
+  'GCLOUD_',
+  'CLOUDSDK_',
+  'CLOUD_ML_',
+  'VERTEX_',
+  'AZURE_',
+  'CCR_',
+  'CLAUDE_CODE_USE_',
+];
+
+/**
+ * The one exception to the families: model selection (which model, and its
+ * display name, description and capabilities in the picker). These name a
+ * model, never a host or a credential; the top-level `model` setting, which
+ * the guard does not read, selects a model the same way.
+ */
+const FAMILY_ALLOWED =
+  /^ANTHROPIC_(?:MODEL|SMALL_FAST_MODEL|DEFAULT_MODEL|DEFAULT_[A-Z0-9]+_MODEL(?:_NAME|_DESCRIPTION|_SUPPORTED_CAPABILITIES)?|CUSTOM_MODEL_OPTION(?:_NAME|_DESCRIPTION|_SUPPORTED_CAPABILITIES)?)$/;
+
+/**
+ * Name segments that mark a credential or a route in the CLI's own
+ * namespace, `CLAUDE_*` (rule 2): `CLAUDE_CODE_OAUTH_TOKEN`,
+ * `CLAUDE_CODE_API_BASE_URL`, `CLAUDE_CODE_CLIENT_CERT`,
+ * `CLAUDE_CODE_SKIP_BEDROCK_AUTH`, `CLAUDE_CONFIG_DIR` (another config
+ * directory holds another stored login), `CLAUDE_CODE_MANAGED_SETTINGS_PATH`
+ * and the like. Whole segments only, so `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
+ * (`TOKENS`) is not refused.
+ */
+const CLAUDE_ROUTE_SEGMENTS = new Set([
+  'TOKEN',
+  'KEY',
+  'SECRET',
+  'PASSWORD',
+  'PASSPHRASE',
+  'CRED',
+  'CREDS',
+  'CREDENTIAL',
+  'CREDENTIALS',
+  'AUTH',
+  'OAUTH',
+  'AUTHENTICATE',
+  'AUTHORIZATION',
+  'BEARER',
+  'CERT',
+  'URL',
+  'URI',
+  'HOST',
+  'HOSTS',
+  'ENDPOINT',
+  'SOCKET',
+  'GATEWAY',
+  'PORT',
+  'REGION',
+  'HEADER',
+  'HEADERS',
+  // where the CLI reads its configuration and stored login from
+  'CONFIG',
+  'SETTINGS',
 ]);
-const ANTHROPIC_ANY_BASE_URL = /^ANTHROPIC_[\s\S]*_BASE_URL$/;
+
+/** Segments of the TLS-trust family (rule 4), in any name. */
+const TLS_SEGMENTS = new Set(['SSL', 'TLS', 'CA', 'CERT', 'CERTS', 'CAINFO', 'CAPATH']);
+
+/** TLS-trust names with no segment of their own (rule 4). */
+const TLS_EXACT = new Set(['SSLKEYLOGFILE']);
 
 function matchesCredentialPattern(name: string): boolean {
   const key = name.toUpperCase();
-  return (
-    CREDENTIAL_EXACT.has(key) ||
-    ANTHROPIC_ANY_BASE_URL.test(key) ||
-    key.startsWith('CLAUDE_CODE_USE_')
-  );
+  const segments = key.split('_');
+  // 1. Provider and API families, with the model-selection exception.
+  if (REFUSED_FAMILIES.some((family) => key.startsWith(family))) return !FAMILY_ALLOWED.test(key);
+  // 2. The CLI's own namespace: a credential or routing segment.
+  if (key.startsWith('CLAUDE_') && segments.some((s) => CLAUDE_ROUTE_SEGMENTS.has(s))) return true;
+  // 3. Proxies, in any name; a `NO_PROXY` form only narrows proxying.
+  if (segments.some((s, i) => s === 'PROXY' && segments[i - 1] !== 'NO')) return true;
+  // 4. TLS trust, in any name.
+  return TLS_EXACT.has(key) || segments.some((s) => TLS_SEGMENTS.has(s));
 }
 
 /**
- * Whether a project settings `env` key sets a credential, routing or
- * TLS-trust variable: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`,
- * `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_*_BASE_URL`, `CLAUDE_CODE_USE_*`
- * (ADR-0012 §2), and the interception variables `HTTPS_PROXY`,
- * `HTTP_PROXY`, `ALL_PROXY`, `NODE_TLS_REJECT_UNAUTHORIZED`,
- * `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`,
- * `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` (lead ruling: the same class as
- * C3). `NO_PROXY` is not refused. `projectCredentialEnv: 'allow'` lifts all.
+ * Whether a project settings `env` key sets a credential, routing,
+ * interception or TLS-trust variable (ADR-0012 §2, review R1-1). Four rules,
+ * refusing by family so that a variable a newer CLI adds to a family is
+ * refused without a change here:
+ *
+ * 1. Provider and API families, whole: `ANTHROPIC_*`, `AWS_*`, `GOOGLE_*`,
+ *    `GCLOUD_*`, `CLOUDSDK_*`, `CLOUD_ML_*`, `VERTEX_*`, `AZURE_*`, `CCR_*`,
+ *    `CLAUDE_CODE_USE_*`; except model selection: `ANTHROPIC_MODEL`,
+ *    `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_MODEL`,
+ *    `ANTHROPIC_DEFAULT_<FAMILY>_MODEL` and
+ *    `ANTHROPIC_CUSTOM_MODEL_OPTION`, with their `_NAME`, `_DESCRIPTION` and
+ *    `_SUPPORTED_CAPABILITIES` companions.
+ * 2. `CLAUDE_*` names with a credential, routing or configuration-location
+ *    segment (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `PASSPHRASE`, `CRED`,
+ *    `CREDS`, `CREDENTIAL(S)`, `AUTH`, `OAUTH`, `AUTHENTICATE`,
+ *    `AUTHORIZATION`, `BEARER`, `CERT`, `URL`, `URI`, `HOST(S)`,
+ *    `ENDPOINT`, `SOCKET`, `GATEWAY`, `PORT`, `REGION`, `HEADER(S)`,
+ *    `CONFIG`, `SETTINGS`).
+ * 3. Proxies: any name with a `PROXY` segment (`HTTPS_PROXY`, `ALL_PROXY`,
+ *    `CLAUDE_CODE_PROXY_URL`, `GLOBAL_AGENT_HTTPS_PROXY`), except the
+ *    `NO_PROXY` forms, which only narrow proxying.
+ * 4. TLS trust: any name with an `SSL`, `TLS`, `CA`, `CERT`, `CERTS`,
+ *    `CAINFO` or `CAPATH` segment (`NODE_TLS_REJECT_UNAUTHORIZED`,
+ *    `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`), and
+ *    `SSLKEYLOGFILE`.
+ *
+ * `projectCredentialEnv: 'allow'` lifts all.
  *
  * @remarks
  * Any case, on every OS (win32 names are case-insensitive; elsewhere this
