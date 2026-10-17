@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkFileList,
   checkImports,
+  bundledPackages,
   checkLegalFiles,
   checkPackedManifest,
   checkRequiredFiles,
@@ -710,21 +711,47 @@ describe('checkRequiredFiles and checkLegalFiles', () => {
     expect(checkLegalFiles([entry('README.md', 'x')], LEGAL)).toEqual([]);
   });
 
-  it('names every LICENSE or NOTICE file, of any accepted spelling, that differs', () => {
+  it('names every LICENSE that differs and every NOTICE that does not begin with the root file', () => {
     expect(
       checkLegalFiles(
         [
           entry('LICENSE', LICENSE_TEXT),
           entry('LICENCE.md', 'other'),
           entry('NOTICE', `${NOTICE_TEXT} `),
+          entry('NOTICE.md', `x${NOTICE_TEXT}`),
+          entry('NOTICE.txt', NOTICE_TEXT.slice(1)),
           entry('dist/NOTICE', 'not at the root'),
         ],
         LEGAL,
       ),
     ).toEqual([
       "LICENCE.md differs from the repository's LICENSE",
-      "NOTICE differs from the repository's NOTICE",
+      "NOTICE.md does not begin with the repository's NOTICE",
+      "NOTICE.txt does not begin with the repository's NOTICE",
     ]);
+  });
+
+  it('accepts a NOTICE that adds third-party notices after the root text (R6-2)', () => {
+    expect(
+      checkLegalFiles([entry('NOTICE', `${NOTICE_TEXT}\n--- ajv ---\n\nMIT\n`)], LEGAL),
+    ).toEqual([]);
+  });
+
+  it("finds the packages a bundle includes by esbuild's node_modules markers", () => {
+    expect(
+      bundledPackages(
+        [
+          '// node_modules/ajv/dist/runtime/ucs2length.js',
+          'var a = require_ucs2length();',
+          '// node_modules/fast-deep-equal/index.js',
+          '// node_modules/ajv/dist/runtime/equal.js',
+          '// node_modules/@scope/pkg/index.js',
+          '  "node_modules/ajv/dist/runtime/equal.js"(exports) {',
+          'const s = "// node_modules/not-a-marker/x.js";',
+        ].join('\n'),
+      ),
+    ).toEqual(['@scope/pkg', 'ajv', 'fast-deep-equal']);
+    expect(bundledPackages('export {};')).toEqual([]);
   });
 
   it('refuses a label that is not a legal file', () => {
@@ -775,8 +802,26 @@ describe('checkTarball', () => {
       item.name === 'package/NOTICE' ? file('NOTICE', 'Copyright someone else') : item,
     );
     expect(checkTarball(source, gz(drifted), [], LEGAL).problems).toEqual([
-      "NOTICE differs from the repository's NOTICE",
+      "NOTICE does not begin with the repository's NOTICE",
     ]);
+  });
+
+  it('reports bundled third-party code that NOTICE does not list (R6-2)', () => {
+    const bundle = '// node_modules/ajv/dist/runtime/equal.js\nvar x;\n';
+    const bundled = [
+      ...clean,
+      file('src/generated/v.gen.ts', bundle),
+      file('dist/generated/v.gen.js', bundle),
+    ];
+    expect(checkTarball(source, gz(bundled), [], LEGAL).problems).toEqual([
+      'src/generated/v.gen.ts bundles code of ajv, which NOTICE does not list (--- ajv --- and its license)',
+    ]);
+    const listed = bundled.map((item) =>
+      item.name === 'package/NOTICE'
+        ? file('NOTICE', `${NOTICE_TEXT}\n--- ajv ---\n\nMIT\n`)
+        : item,
+    );
+    expect(checkTarball(source, gz(listed), [], LEGAL).problems).toEqual([]);
   });
 
   it('collects the problems of every stage', () => {

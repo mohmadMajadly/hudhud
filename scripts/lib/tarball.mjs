@@ -397,8 +397,11 @@ export function checkRequiredFiles(paths) {
 /**
  * Compares every LICENSE and NOTICE file of a tarball (any spelling the
  * required-files check accepts) with the repository's bytes, so a package's
- * copy cannot drift from the root file. A missing file is reported by
- * {@link checkRequiredFiles}, not here.
+ * copy cannot drift from the root file: a LICENSE must equal the root file,
+ * a NOTICE must begin with it. After the root text, a package's NOTICE lists
+ * the third-party code that package includes, with its license notice
+ * (review finding R6-2; {@link checkBundledNotices}). A missing file is
+ * reported by {@link checkRequiredFiles}, not here.
  *
  * @param {readonly TarEntry[]} entries
  * @param {readonly LegalFile[]} legal
@@ -411,12 +414,62 @@ export function checkLegalFiles(entries, legal) {
     const required = REQUIRED_FILES.find((file) => file.label === label);
     if (required === undefined) throw new Error(`not a legal file: ${label}`);
     for (const entry of entries.filter(({ path }) => required.pattern.test(path))) {
-      if (!entry.data.equals(data)) {
+      if (label === 'LICENSE' && !entry.data.equals(data)) {
         problems.push(`${entry.path} differs from the repository's ${label}`);
+      }
+      if (label === 'NOTICE' && !entry.data.subarray(0, data.length).equals(data)) {
+        problems.push(`${entry.path} does not begin with the repository's ${label}`);
       }
     }
   }
   return problems;
+}
+
+/**
+ * The marker esbuild writes above each module it bundles from a dependency
+ * (`// node_modules/<package>/<file>`), as the generated validators carry
+ * it; group 1 is the package name, scoped or not.
+ */
+const BUNDLED_MODULE = /^\/\/ node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gmu;
+
+/**
+ * The third-party packages whose code a text bundles, by esbuild's
+ * `// node_modules/<package>/` markers, sorted and unique.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function bundledPackages(text) {
+  return [...new Set([...text.matchAll(BUNDLED_MODULE)].map((match) => String(match[1])))].sort();
+}
+
+/**
+ * Requires the package's NOTICE to list every third-party package whose
+ * code its JavaScript or TypeScript files bundle, under a `--- <package> ---`
+ * heading followed by that package's license text (review finding R6-2: the
+ * MIT License asks for its notice in all copies or substantial portions).
+ * `scripts/test/package-legal.test.ts` compares the license texts with the
+ * installed packages' own.
+ *
+ * @param {readonly TarEntry[]} entries
+ * @returns {string[]} problems
+ */
+export function checkBundledNotices(entries) {
+  const notice = entries.find((entry) => entry.path === 'NOTICE')?.data.toString('utf8') ?? '';
+  /** @type {Map<string, string>} */
+  const firstFile = new Map();
+  for (const entry of entries) {
+    if (!/\.(?:[cm]?js|[cm]?ts)$/u.test(entry.path) || !looksLikeText(entry.data)) continue;
+    for (const name of bundledPackages(entry.data.toString('utf8'))) {
+      if (!firstFile.has(name)) firstFile.set(name, entry.path);
+    }
+  }
+  return [...firstFile]
+    .filter(([name]) => !notice.includes(`\n--- ${name} ---\n`))
+    .map(
+      ([name, path]) =>
+        `${path} bundles code of ${name}, which NOTICE does not list (--- ${name} --- and its license)`,
+    );
 }
 
 /** Root files npm always packs, whatever `files` says. */
@@ -787,7 +840,11 @@ export function checkTarball(source, gz, forbidden, legal = []) {
   }
   const paths = entries.map((entry) => entry.path);
   /** @type {string[]} */
-  const problems = [...checkFileList(source, paths), ...checkLegalFiles(entries, legal)];
+  const problems = [
+    ...checkFileList(source, paths),
+    ...checkLegalFiles(entries, legal),
+    ...checkBundledNotices(entries),
+  ];
   const manifestEntry = entries.find((entry) => entry.path === 'package.json');
   /** @type {PackageJson | undefined} */
   let packed;

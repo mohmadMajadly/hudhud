@@ -3,8 +3,9 @@
 //
 // For every publishable package under packages/ (a `publishConfig` or not
 // private): `pnpm pack` it, check the tarball (files list with a README, a
-// LICENSE and a NOTICE, the latter two byte-equal to the repository's,
-// manifest, source maps, privacy scan, entry points;
+// LICENSE byte-equal to the repository's and a NOTICE that begins with the
+// repository's and lists the third-party code the package bundles,
+// manifest, source maps and their packed sources, privacy scan, entry points;
 // scripts/lib/tarball.mjs), install all tarballs into a fresh project
 // outside the repository with `npm install --omit=dev --ignore-scripts`,
 // import every JS entry point with Node's own ESM resolver, parse every JSON
@@ -269,7 +270,9 @@ function main() {
   try {
     const forbidden = [REPO, os.homedir(), root].filter((entry) => entry.length >= 4);
     // Every package ships the repository's LICENSE and NOTICE (Apache-2.0
-    // §4(a), §4(d)); a package's copy must equal the root file byte for byte.
+    // §4(a), §4(d)); a package's LICENSE must equal the root file byte for
+    // byte, its NOTICE must begin with the root file and list after it every
+    // third-party package its code bundles (R6-2).
     /** @type {import('./lib/tarball.mjs').LegalFile[]} */
     const legal = [
       { label: 'LICENSE', data: readFileSync(path.join(REPO, 'LICENSE')) },
