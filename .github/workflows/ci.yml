@@ -253,12 +253,17 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: macos-15
-    # K15: measured p95 x 2. With the OS-scoped coverage step (W7-T1): run
-    # 38984419589 1.8 min (setup 15 s, check 82 s, OS coverage 6 s), run
-    # 38989536648 2.0 min (13 s, 94 s, 7 s); earlier runs 68 s and 78 s.
-    # p95 2.0 min; x 2 = 4.0. Static checks, unit and conformance only until the macOS gate
-    # passes (K15).
-    timeout-minutes: 4
+    # K15: p95 x 2 (research 11 §8). Integration on macOS since the macOS
+    # gate passed (W7-T4, runs 38967893191 and 38977497768; ADR-0014
+    # amendment 6), so the job runs what the Linux and Windows jobs run.
+    # Parts, maxima of the measured runs: setup 15 s (W7-T1 runs 38984419589
+    # and 38989536648), check 94 s and OS coverage 7 s (same runs), the CLI
+    # fetch with the build 45 s and the integration project 142 s (the macOS
+    # gate's integration evidence job, the two runs above). About 5 min;
+    # research 11 §8 took the check as 3 min (the pre-gate estimate), about
+    # 6 min, times 2 = 12. The first FULL run with integration replaces the
+    # estimate parts.
+    timeout-minutes: 12
     permissions:
       contents: read
     steps:
@@ -267,16 +272,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Set up the toolchain, the pinned CLI and the test root
         uses: ./.github/actions/setup
         with:
           node-version: '22'
+          integration: 'true'
 
+      # `pnpm check:full` in steps, as on Linux and Windows.
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
 
       - name: OS-scoped coverage of the syscall adapters (plan §4.8)
         run: pnpm exec vitest run --coverage --config vitest.os.config.ts
+
+      - name: Integration tests against the pinned CLI
+        run: pnpm run test:integration
 
   ci-gate:
     name: ci-gate

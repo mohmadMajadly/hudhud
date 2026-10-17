@@ -130,9 +130,15 @@ test('close while a turn streams: the turn completes, then the session closes', 
  *   `node:22-bookworm` on the W7-T1 host, 3 samples, 22.7 to 47.7 ms.
  * - Windows: GitHub windows-2025, timing run 38984419523, 15 samples,
  *   50.1 to 210.4 ms; the W7-T1 host, 3 samples, 42.9 to 53.0 ms.
- * Bound: 3x the largest measurement per platform, 47.7 ms and 210.4 ms.
+ * - macOS: GitHub macos-15 (darwin-arm64), the macOS gate's integration
+ *   evidence job, runs 38967893191 and 38977497768, 20 samples each, 14.6
+ *   to 39.241 ms and 15.4 to 37.7 ms (research 11 §6); the maximum
+ *   rounded up to a whole 10 ms, 40 ms.
+ * Bound: 3x the largest measurement per platform: 47.7 ms (Linux), 210.4 ms
+ * (Windows) and 40 ms (macOS).
  */
-const CLOSE_OVERRUN_BOUND_MS = process.platform === 'win32' ? 3 * 210.4 : 3 * 47.7;
+const CLOSE_OVERRUN_BOUND_MS =
+  process.platform === 'win32' ? 3 * 210.4 : process.platform === 'darwin' ? 3 * 40 : 3 * 47.7;
 
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;
