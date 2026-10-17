@@ -15,6 +15,20 @@
 # each). Measured on CI (run 38984419523, 15 runs): ubuntu-24.04 9.4 min,
 # windows-2025 15.2 min, billed as 10 + 2 x 16 = 42 Linux-equivalent minutes
 # (planning multipliers of 04 §1).
+#
+# macOS (review R8-6) is measured on demand only: dispatch with `platforms:
+# macos` (or `all`), or push a `ci-timing/macos-**` branch, which measures
+# macOS alone. Estimated cost of one 15-run macOS measurement: the bounded
+# tests take about as long as on Linux (33 s per run; the macOS gate's
+# integration project took 142 s against Linux's 120-150 s), so about 9 min
+# of runs plus 2 min of setup, 11 min at the macOS multiplier of 10 = about
+# 110 Linux-equivalent minutes. Replace the estimate with the first run's
+# measurement.
+#
+# The `probe` job (review R2-2, R2-4; FX-B) runs Windows experiments
+# instead of the measurement: dispatch with `probe: true`, or push a
+# `ci-timing/probe-**` branch (the measurement does not run then). Measured
+# locally (Windows 11, 3 trials): about 1 to 4 min; at most 30 min.
 name: Integration timing
 
 # Triggers: a dispatch (once this file is on the default branch, which
@@ -28,6 +42,15 @@ on:
         description: Runs of the bounded tests per platform (15 to 30)
         type: number
         default: 15
+      platforms:
+        description: Platforms to measure (macOS on demand only, R8-6)
+        type: choice
+        options: [linux-windows, macos, all]
+        default: linux-windows
+      probe:
+        description: Run the Windows probes (R2-2, R2-4) instead of the measurement
+        type: boolean
+        default: false
   push:
     branches: ['ci-timing/**']
 
@@ -44,6 +67,7 @@ defaults:
 jobs:
   measure:
     name: measure (${{ matrix.os }})
+    if: ${{ !startsWith(github.ref_name, 'ci-timing/probe-') && inputs.probe != true }}
     runs-on: ${{ matrix.os }}
     # Measured (15 runs each): run 38984419523 windows-2025 15.2 min (setup
     # 71 s, addon 22 s, build 48 s, runs 755 s, 50 s each), ubuntu-24.04
@@ -57,7 +81,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025]
+        # A `ci-timing/macos-**` push or `platforms: macos` measures macOS alone;
+        # `platforms: all` measures the three; otherwise Linux and Windows.
+        os: >-
+          ${{ fromJSON(
+            (inputs.platforms == 'macos' || startsWith(github.ref_name, 'ci-timing/macos-'))
+              && '["macos-15"]'
+              || (inputs.platforms == 'all'
+                && '["ubuntu-24.04","windows-2025","macos-15"]'
+                || '["ubuntu-24.04","windows-2025"]')
+          ) }}
     steps:
       - name: Check the run count
         env:
@@ -141,3 +174,36 @@ jobs:
         run: |
           echo "::error::${FAILED} of the runs failed; see the errors above and the artifact"
           exit 1
+
+  probe:
+    name: probe (windows-2025)
+    if: ${{ startsWith(github.ref_name, 'ci-timing/probe-') || inputs.probe == true }}
+    runs-on: windows-2025
+    # Bounded: the stale-pid search tries at most 20000 holders per trial
+    # (Windows 11: 1295, 2582 and 4745 tries, about 4 ms each, 19 s for a
+    # whole trial), so at most a few minutes; the PowerShell probe runs 9 PowerShells,
+    # about 6 x 60 s if each cold sandbox lookup costs what checklist 1.11
+    # saw (57-62 s), each capped at 300 s. Expected under 15 min.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      # R2-2 / R2-U2: does `taskkill /T` follow a stale parent pid on Server 2025?
+      - name: taskkill /T and a stale parent pid
+        run: node scripts/probe/taskkill-stale-ppid.mjs 3
+
+      # R2-4 / R2-U1: the cold module-analysis cost behind checklist 1.11.
+      - name: PowerShell cmdlet lookup in a cold profile
+        if: always()
+        run: node scripts/probe/powershell-module-cache.mjs "$(cygpath -w "$RUNNER_TEMP")\ps-probe"
