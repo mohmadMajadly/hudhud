@@ -14,7 +14,7 @@ import {
 } from '../../../../src/process/os/posix.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { parseProcStat } from '../../../../src/process/tree/proc-stat.js';
-import { takeSnapshot } from '../../../../src/process/tree/snapshot.js';
+import { PROC_READ_CONCURRENCY, takeSnapshot } from '../../../../src/process/tree/snapshot.js';
 import {
   ChildTracker,
   hangGuard,
@@ -164,6 +164,43 @@ describe('createLinuxProcTableCalls', () => {
     );
     await expect(none.listPids()).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(none.readStat(3)).resolves.toBeNull();
+  });
+
+  it('reads the stat files at most PROC_READ_CONCURRENCY at a time, in listing order, and stops at a failure', async () => {
+    const stat = (pid: number): Uint8Array =>
+      new TextEncoder().encode(
+        `${String(pid)} (p) S 1 ${String(pid)} 0 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(pid)} 0 0
+`,
+      );
+    const pids = Array.from({ length: 100 }, (_, i) => 1000 - i);
+    let inFlight = 0;
+    let most = 0;
+    let started = 0;
+    const table = (failAt: number | null) =>
+      createLinuxProcTableCalls(
+        {
+          readdir: () => Promise.resolve(pids.map(String)),
+          readFile: async (path) => {
+            started += 1;
+            inFlight += 1;
+            most = Math.max(most, inFlight);
+            await new Promise((resolve) => setImmediate(resolve));
+            inFlight -= 1;
+            const pid = Number(path.split('/')[2]);
+            if (pid === failAt) throw errno('EIO');
+            return stat(pid);
+          },
+          readlink: () => Promise.resolve('7'),
+        },
+        7,
+      );
+    const snapshot = await takeSnapshot(table(null));
+    expect(snapshot.records.map((record) => record.pid)).toEqual(pids);
+    expect(most).toBe(PROC_READ_CONCURRENCY);
+    started = 0;
+    await expect(takeSnapshot(table(pids[20] ?? 0))).rejects.toMatchObject({ code: 'EIO' });
+    // The readers stop taking entries once one failed.
+    expect(started).toBeLessThan(pids.length);
   });
 
   // Review R3-2: under `hidepid=1` other users' entries are listed but their

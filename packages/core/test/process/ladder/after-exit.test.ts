@@ -226,10 +226,13 @@ describe('sweepAfterExit on POSIX', () => {
     const leaf = new FakeWorld([INIT, HOST, CLI], identity(CLI), CLI.pid);
     const lone = await eofOf(leaf);
     leaf.remove(CLI.pid);
+    const reads = leaf.reads;
     expect(await sweepAfterExit(lone, { os: leaf.os })).toEqual({
       status: 'skipped',
       reason: 'no-descendants',
     });
+    // Nothing to find on POSIX without a recorded descendant: no fresh table read.
+    expect(leaf.reads).toBe(reads);
     const eof = await eofOf(w);
     w.remove(CLI.pid);
     w.failingReads.add(w.reads);

@@ -333,6 +333,15 @@ export async function sweepAfterExit(
 ): Promise<AfterExitSweepReport> {
   if (eof === null) return { status: 'skipped', reason: 'no-snapshot' };
   const { os } = deps;
+  // POSIX finds nothing without a recorded descendant (the live groups it
+  // follows are led by one), so it skips the fresh table read: the close
+  // path waits for this sweep.
+  if (
+    os.platform !== 'win32' &&
+    descendantsOf(eof.snapshot.records, eof.root).descendants.length === 0
+  ) {
+    return { status: 'skipped', reason: 'no-descendants' };
+  }
   let latest: ProcessSnapshot;
   try {
     latest = await takeSnapshot(os.processTable);
@@ -349,7 +358,6 @@ export async function sweepAfterExit(
       descendants,
       new Set([os.hostPid, eof.root.pid, deps.signalTarget?.pid ?? eof.root.pid]),
     );
-    if (descendants.length === 0) return { status: 'skipped', reason: 'no-descendants' };
     const result = await sweep(
       { spawned: eof.root, signalTarget: deps.signalTarget ?? eof.root, recorded: [eof.snapshot] },
       { hostPid: os.hostPid, processTable: os.processTable, signals: os.signals },
