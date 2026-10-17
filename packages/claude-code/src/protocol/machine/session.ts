@@ -234,6 +234,12 @@ export interface ClaudeSessionState {
   /** Whether the last observed `result` frame was an error result. */
   readonly lastResultIsError: boolean | null;
   /**
+   * The baseline of the next `usage.update` cost delta: the last reported
+   * `total_cost_usd`; 0 in a new session, `'unknown'` before the first report
+   * of a resumed or forked one (R4-7).
+   */
+  readonly costBaseline: number | 'unknown';
+  /**
    * Every `can_use_tool` request id this session has seen. The binding keys
    * permission handlers by request id, so a reused id is never asked again
    * (W3-Z ruling 7). Grows by one short id per permission request.
@@ -346,6 +352,7 @@ export function initialSessionState(config: ClaudeSessionConfig): ClaudeSessionS
     tokenSource: null,
     observedSessionId: null,
     lastResultIsError: null,
+    costBaseline: config.mode === 'create' ? 0 : 'unknown',
     permissionRequestIds: [],
     control: initialControlState(),
     permission: initialPermissionState({
@@ -1181,8 +1188,12 @@ function onLine(d: Draft, text: string, bytes: number): void {
 
 function emitNormalized(d: Draft, frame: JsonObject): void {
   const turnId = d.currentTurn();
-  for (const event of normalizeFrame(frame, turnId === undefined ? {} : { turnId })) {
-    d.event(event);
+  const ctx = { costBaseline: d.s.costBaseline, ...(turnId === undefined ? {} : { turnId }) };
+  for (const event of normalizeFrame(frame, ctx)) d.event(event);
+  // The next cost delta counts from this report (R4-7).
+  if (ownString(frame, 'type') === 'result') {
+    const cost = ownNumber(frame, 'total_cost_usd');
+    if (cost !== undefined && cost >= 0) d.s.costBaseline = cost;
   }
 }
 

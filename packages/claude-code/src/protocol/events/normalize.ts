@@ -69,6 +69,13 @@ export interface NormalizeContext {
    * scoped events omit `turnId` when it is absent.
    */
   readonly turnId?: string;
+  /**
+   * Claude Code's running cost (`total_cost_usd`) at the previous report of
+   * this session: the baseline of the next cost delta. `'unknown'` before
+   * the first report of a resumed or forked session, whose running totals
+   * continue from earlier processes. Default 0 (a new session).
+   */
+  readonly costBaseline?: number | 'unknown';
 }
 
 /**
@@ -371,10 +378,34 @@ function result(frame: JsonObject, ctx: NormalizeContext): ClaudeEventData[] {
       type: 'usage.update',
       ...turnField(ctx),
       reported,
-      estimatedDelta: { estimate: true },
+      estimatedDelta: estimatedDeltaOf(reported, ctx.costBaseline ?? 0),
       raw: frame,
     },
   ];
+}
+
+/** Cost deltas are rounded to nano-dollars, so float noise stays out of reports. */
+const COST_SCALE = 1e9;
+
+/**
+ * hudhud's estimate of what one `result` adds (ADR-0016 §3, as built after
+ * R4-7). Claude Code reports the turn's own main-loop tokens in `usage`
+ * (the recorded `two-turns` conformance suite reports 100/20 for each turn while
+ * `modelUsage` grows 100/20, 200/40), so the token fields are taken as they
+ * are; `total_cost_usd` is a running total, so the cost is its change since
+ * the previous report (a smaller total counts as a reset: the new total),
+ * left out when the baseline is unknown.
+ *
+ * @internal
+ */
+export function estimatedDeltaOf(
+  reported: UsageTotals,
+  costBaseline: number | 'unknown',
+): UsageTotals & { readonly estimate: true } {
+  const { costUsd, ...tokens } = reported;
+  if (costUsd === undefined || costBaseline === 'unknown') return { ...tokens, estimate: true };
+  const delta = costUsd >= costBaseline ? costUsd - costBaseline : costUsd;
+  return { ...tokens, costUsd: Math.round(delta * COST_SCALE) / COST_SCALE, estimate: true };
 }
 
 // ---- control frames --------------------------------------------------------
