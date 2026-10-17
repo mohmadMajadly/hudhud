@@ -17,7 +17,6 @@ import {
   settingsOpenFlags,
   type SettingsGuardReport,
   type SettingsReadHandle,
-  userConfigDirOf,
 } from '../../src/settings-guard.js';
 import { FakeFs } from './settings-guard-fake-fs.js';
 
@@ -817,15 +816,9 @@ describe("the ancestor fallback skips the user's config directory (lead ruling Q
     expect(details(error)['skipped']).toEqual([]);
   });
 
-  it('resolves the effective config dir', () => {
-    const env = { CLAUDE_CONFIG_DIR: '/env/cfg' };
-    expect(userConfigDirOf('/opt/cfg', env, '/hm/u', 'posix')).toBe('/opt/cfg');
-    expect(userConfigDirOf(null, env, '/hm/u', 'posix')).toBe('/env/cfg');
-    expect(userConfigDirOf(null, { CLAUDE_CONFIG_DIR: '' }, '/hm/u', 'posix')).toBe(
-      '/hm/u/.claude',
-    );
-    expect(userConfigDirOf(null, {}, 'C:\\Profiles\\u', 'win32')).toBe('C:\\Profiles\\u\\.claude');
-  });
+  // The config directory itself is resolved by `userConfigDir` of
+  // posture.ts, the posture's own resolution (review R1-4; posture.test.ts),
+  // from the child environment (adapter/session.test.ts).
 });
 
 describe('parsing (CLI 2.1.296: UTF-8 or UTF-16LE with BOM, one U+FEFF removed, JSON.parse)', () => {

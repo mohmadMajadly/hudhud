@@ -36,8 +36,9 @@
  * `commondir`, or a link to another host), the guard falls back to the K5
  * superset, the cwd and every ancestor, and reports diagnostic
  * `settings-guard.git-root-unresolved`. The fallback skips the user's config
- * directory (the effective `CLAUDE_CONFIG_DIR`, else `~/.claude`, compared by
- * physical path): its settings are user settings, the user's own choice. The
+ * directory (the `configDir` option, else `CLAUDE_CONFIG_DIR` of the CLI's own
+ * environment, else `~/.claude`, compared by physical path; review R1-4):
+ * its settings are user settings, the user's own choice. The
  * skip is recorded (`skipped`, reason `'user-config-dir'`) and the directory
  * is never read.
  *
@@ -94,11 +95,12 @@ import { lstat, open, readlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { ProjectCredentialEnvError, type JsonObject } from '@hudhudjs/core';
+import { ProjectCredentialEnvError, type EnvMap, type JsonObject } from '@hudhudjs/core';
 import { hostPlatform, type ProcessPlatform } from '@hudhudjs/core/process';
 import { isJsonObject, parseJsonLine } from '@hudhudjs/core/protocol';
 
 import type { EffectiveSessionOptions } from './options-types.js';
+import { userConfigDir } from './posture.js';
 
 /** Largest settings file the guard reads, in bytes (the CLI's cap, 2 MiB). */
 export const SETTINGS_MAX_BYTES: number = 2 * 1024 * 1024;
@@ -297,27 +299,13 @@ export interface SettingsGuardDeps {
   /** The host's working directory, used when the cwd option is not set. */
   readonly processCwd: string;
   /**
-   * The user's config directory ({@link userConfigDirOf}). Its settings are
-   * user settings, the user's own choice: the ancestor fallback never reads
-   * them. `null` when there is none to skip.
+   * The user's config directory as the CLI resolves it from its own (child)
+   * environment: `userConfigDir` of `posture.ts`, the one resolution the
+   * posture uses too (review R1-4). Its settings are user settings, the
+   * user's own choice: the ancestor fallback never reads them. `null` when
+   * there is none to skip.
    */
   readonly userConfigDir: string | null;
-}
-
-/**
- * The user's config directory: the `configDir` option, else a non-empty
- * `CLAUDE_CONFIG_DIR` in `env`, else `<home>/.claude`.
- */
-export function userConfigDirOf(
-  configDir: string | null,
-  env: Readonly<Record<string, string | undefined>>,
-  home: string,
-  platform: ProcessPlatform,
-): string {
-  if (configDir !== null) return configDir;
-  const fromEnv = env['CLAUDE_CONFIG_DIR'];
-  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
-  return (platform === 'win32' ? path.win32 : path.posix).join(home, '.claude');
 }
 
 interface StatsLike {
@@ -421,14 +409,21 @@ export function nodeSettingsGuardFs(): SettingsGuardFs {
   };
 }
 
-/** Host dependencies: Node's `fs`, the host platform and `process.cwd()`. */
-export function nodeSettingsGuardDeps(configDir: string | null): SettingsGuardDeps {
+/**
+ * Host dependencies: Node's `fs`, the host platform and `process.cwd()`; the
+ * user's config directory from `configDir` and the child environment `env`
+ * (the host environment by default).
+ */
+export function nodeSettingsGuardDeps(
+  configDir: string | null,
+  env: EnvMap = process.env,
+): SettingsGuardDeps {
   const platform = hostPlatform();
   return {
     fs: nodeSettingsGuardFs(),
     platform,
     processCwd: process.cwd(),
-    userConfigDir: userConfigDirOf(configDir, process.env, homedir(), platform),
+    userConfigDir: userConfigDir({ configDir, env, homedir: homedir(), platform }),
   };
 }
 
