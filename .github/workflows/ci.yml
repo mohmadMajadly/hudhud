@@ -171,17 +171,17 @@ jobs:
   # 22.12.0 through vitest directly: the unit, conformance and scripts
   # projects and the integration project (the product, its children and the
   # test harness all on the floor). Cost: one more Linux job on STANDARD and
-  # FULL, estimated from the Linux jobs above without the check's format,
-  # lint, depcruise, API and coverage steps: about 6-8 min (Linux 1x), so
-  # about +10 of about 140 Linux-equivalent minutes per FULL run; re-size
-  # from its first runs (K15).
+  # FULL, measured 5.6 min in its first run (FULL run 39065841901; Linux
+  # 1x), so about +6 of about 140 Linux-equivalent minutes per FULL run.
   node-floor:
     name: linux (node 22.12.0, engines floor)
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    # Estimate x 2 until measured (see above): 8 x 2 = 16.
-    timeout-minutes: 16
+    # K15: p95 x 2 from one sample, FULL run 39065841901: 5.6 min (the p95
+    # of one sample is that sample); x 2 = 11.2, rounded up to 12. Re-size
+    # as runs accumulate.
+    timeout-minutes: 12
     permissions:
       contents: read
     steps:
