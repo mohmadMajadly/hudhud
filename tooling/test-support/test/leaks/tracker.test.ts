@@ -372,7 +372,13 @@ describe('killVerified', () => {
     const table = new FakeTable();
     const kills: number[] = [];
     const host = { table, selfPid: 500, kill: (pid: number) => kills.push(pid), sleep: noSleep };
+    // Itself, listed with exactly the identity asked for (review R8-5: with
+    // an empty table this case passed whether the self guard existed or not).
+    table.rows = [row(500, 1, 7)];
     expect(await killVerified(identity, host)).toBe('gone');
+    expect(table.reads).toBe(0);
+    table.rows = [];
+    expect(await killVerified(identity, { ...host, selfPid: SELF })).toBe('gone');
     table.rows = [row(500, 1, 8)];
     expect(await killVerified(identity, { ...host, selfPid: SELF })).toBe('gone');
     expect(kills).toEqual([]);
