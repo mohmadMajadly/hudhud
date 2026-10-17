@@ -90,11 +90,12 @@ jobs:
     needs: check
     if: needs.check.outputs.run == 'true'
     runs-on: ubuntu-24.04
-    # Estimate, not yet a CI measurement (K15: p95 x 2): setup 1.5 min, build
-    # 1 min, CLI fetch 0.5 min, integration 163.9 s locally (W6, Docker) x
-    # 2.6 (CI Linux vs the local host, ci.yml) = 7.1 min; job about 10.5 min,
-    # x 2 = 21, rounded up to 25. Re-size from the first dispatched runs.
-    timeout-minutes: 25
+    # K15: measured p95 x 2. The first dispatched runs (W7-T2): dry run
+    # 38981732871 (pinned 2.1.296, green) 4 min 45 s; canary run 38981735322
+    # (2.1.302, the whole suite ran, red only on the 4 request-shape tests)
+    # 3 min 36 s. p95 of the two (the maximum) 4.75 min; x 2 = 9.5, rounded
+    # up to 10. The earlier estimate was 25 min. Re-size as runs accumulate.
+    timeout-minutes: 10
     permissions:
       contents: read
     env:
