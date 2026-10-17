@@ -222,6 +222,26 @@ describe("'harness' preset (allowlist by rule)", () => {
     expect(result.dropped).not.toContain('PSModulePath');
   });
 
+  it("passes Vertex's companion variables with its switch: VERTEX_* and GCLOUD_* (Q3)", () => {
+    const parent = {
+      VERTEX_REGION_CLAUDE_HAIKU_4_5: 'europe-west1',
+      VERTEX_REGION_CLAUDE_5_SONNET: 'us-east5',
+      GCLOUD_PROJECT: 'proj',
+      CLOUD_ML_REGION: 'us-east5',
+    };
+    const vertex = child(undefined, { ...parent, CLAUDE_CODE_USE_VERTEX: '1' }, 'posix');
+    expect(vertex.env).toMatchObject(parent);
+    expect(vertex.dropped).toEqual([]);
+    const winVertex = child(undefined, { ...parent, Claude_Code_Use_Vertex: '1' }, 'win32');
+    expect(winVertex.env).toMatchObject(parent);
+    // Off, or another provider's switch: none of them passes.
+    for (const flag of ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_FOUNDRY']) {
+      const other = child(undefined, { ...parent, [flag]: '1' }, 'posix');
+      expect(other.dropped).toEqual(Object.keys(parent).sort());
+    }
+    expect(child(undefined, parent, 'posix').dropped).toEqual(Object.keys(parent).sort());
+  });
+
   it('passes provider families only when the switch is on', () => {
     const parent = {
       AWS_REGION: 'us-east-1',

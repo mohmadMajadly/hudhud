@@ -145,14 +145,23 @@ const WIN32_PREFIXES = [...COMMON_PREFIXES, 'PROGRAMFILES'];
 
 /**
  * Provider families, passed on only when the provider switch is on in the
- * child environment (ADR-0012 §4).
+ * child environment (ADR-0012 §4). Each family holds the companion variables
+ * the pinned CLI (2.1.296, static strings) reads for that provider beyond
+ * `ANTHROPIC_*` (which `'harness'` passes anyway): Bedrock the AWS SDK's
+ * `AWS_*`; Vertex the Google auth library's `GOOGLE_*` and `GCLOUD_*`
+ * (`GCLOUD_PROJECT` next to `GOOGLE_CLOUD_PROJECT` in the project lookup),
+ * `CLOUD_ML_*` (`CLOUD_ML_REGION`) and the CLI's own `VERTEX_*`
+ * (`VERTEX_REGION_CLAUDE_*` per-model regions, `VERTEX_AUTH_HOSTS`,
+ * `VERTEX_OAUTH_CREDENTIAL_KIND`); Foundry the Azure identity library's
+ * `AZURE_*`. These are the user's own parent environment, not repository
+ * input (review FX-A follow-up, lead ruling on Q3).
  */
 const PROVIDER_FAMILIES: readonly {
   readonly flag: string;
   readonly prefixes: readonly string[];
 }[] = [
   { flag: 'CLAUDE_CODE_USE_BEDROCK', prefixes: ['AWS_'] },
-  { flag: 'CLAUDE_CODE_USE_VERTEX', prefixes: ['GOOGLE_', 'CLOUD_ML_'] },
+  { flag: 'CLAUDE_CODE_USE_VERTEX', prefixes: ['GOOGLE_', 'GCLOUD_', 'CLOUD_ML_', 'VERTEX_'] },
   { flag: 'CLAUDE_CODE_USE_FOUNDRY', prefixes: ['AZURE_'] },
 ];
 
