@@ -35,6 +35,10 @@
 # The only install on a runner is the Visual Studio installer step in
 # `build`, which adds the toolset-of-record components the image lacks
 # (exact ids from the record) and verifies them with vswhere afterwards.
+# Besides it, `build` downloads the CMake of record (the record's
+# `cmakeVersion`, Kitware's release zip checked against Kitware's SHA-256
+# list) into the runner's temporary directory and passes it to the build
+# through HUDHUD_CMAKE; nothing is installed for it (R7-4).
 # Inputs reach scripts through the environment, never by interpolation.
 #
 # Timeouts (K15): measured duration x 2, rounded up, from the first phase 1
@@ -43,6 +47,9 @@
 # - build job: 7 min 11 s (x64) and 6 min 58 s (arm64), so 15 minutes;
 # - build step: not measured on its own; under 1 min of the job (5 s and
 #   4 s locally), 5 minutes as a hang guard;
+# - CMake download and unpack steps: not measured yet (a zip of about 50
+#   MB and its unpacking); 5 minutes each as hang guards, inside the job's
+#   15, to be re-sized from the first run (FX-D);
 # - test-x64: 4 min 13 s, so 10 minutes;
 # - manifest: under 1 min, 5 minutes.
 # release-verify has not run yet (it runs on tags only): estimated about
@@ -179,6 +186,67 @@ jobs:
           $still = Get-Missing
           if ($still.Count -gt 0) { Write-Output "::error::still not installed in ${install} after the installer: $($still -join ', ')"; exit 1 }
           Write-Output "installed and verified with vswhere: $($missing -join ', ')"
+
+      # The CMake of record (review finding R7-4): `cmakeVersion` is a field
+      # that can change the bytes, so `check-toolchain` and `verify` require
+      # it exactly, while the image's CMake moves with image updates. The
+      # release build therefore uses exactly the record's version, downloaded
+      # from Kitware's GitHub release of that version and checked against
+      # the SHA-256 list Kitware publishes with it (same TLS origin: it
+      # catches a corrupt or substituted download, not a compromised
+      # release; what the build produces is held to the record's sha256 by
+      # the verify steps, and the record to an independent local build).
+      - name: Download the CMake of record and check its sha256
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          version="$(node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { DIGESTS_MODULE, parseDigestsModule, parseManifest } from "./scripts/lib/addon-digests.mjs";
+            const table = parseDigestsModule(readFileSync(DIGESTS_MODULE, "utf8"));
+            const record = parseManifest(readFileSync(table.manifest, "utf8"));
+            process.stdout.write(record.arches[process.env.ARCH].toolchain.cmakeVersion);
+          ')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the record's cmakeVersion ${version@Q} is not x.y.z"
+            exit 1
+          fi
+          zip="cmake-${version}-windows-x86_64.zip"
+          base="https://github.com/Kitware/CMake/releases/download/v${version}"
+          mkdir -p "$RUNNER_TEMP/cmake"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/cmake/$zip" "$base/$zip"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/cmake/SHA-256.txt" "$base/cmake-${version}-SHA-256.txt"
+          expected="$(awk -v name="$zip" '$2 == name { print $1 }' "$RUNNER_TEMP/cmake/SHA-256.txt")"
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Kitware's SHA-256 list of CMake ${version} names no sha256 for ${zip}"
+            exit 1
+          fi
+          actual="$(sha256sum "$RUNNER_TEMP/cmake/$zip" | cut -d ' ' -f 1)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::${zip} is sha256 ${actual}, Kitware's list names ${expected}"
+            exit 1
+          fi
+          echo "CMake ${version}: ${zip} sha256 ${actual} (matches Kitware's list)"
+          echo "CMAKE_OF_RECORD=${version}" >> "$GITHUB_ENV"
+
+      - name: Unpack the CMake of record and point the build at it
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:CMAKE_OF_RECORD
+          $dir = Join-Path $env:RUNNER_TEMP 'cmake'
+          Expand-Archive -Path (Join-Path $dir "cmake-$version-windows-x86_64.zip") -DestinationPath $dir
+          $cmake = Join-Path $dir "cmake-$version-windows-x86_64\bin\cmake.exe"
+          $banner = @(& $cmake --version)[0]
+          if ($LASTEXITCODE -ne 0 -or $banner -ne "cmake version $version") {
+            Write-Output "::error::$cmake reports '$banner', the record requires cmake version $version"
+            exit 1
+          }
+          Write-Output "$banner at $cmake"
+          "HUDHUD_CMAKE=$cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build with the toolset of record
         timeout-minutes: 5

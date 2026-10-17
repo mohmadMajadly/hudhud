@@ -33,7 +33,7 @@ TypeBox (major pinned), Ajv (standalone generation), esbuild (bundling generated
 
 ### Native build
 
-CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)). ARM64 is cross-compiled on the x64 runner and is not first-class until tested on a real arm64 runner (K17).
+CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)). ARM64 is cross-compiled on the x64 runner and is not first-class until tested on a real arm64 runner (K17). Release builds (`addon-prebuild.yml`) pin every toolchain field of the release record that can change the bytes: the MSVC toolset and Windows SDK through exact Visual Studio components, and, since the pre-release review (R7-4, FX-D, 2026-10-17), CMake through the record's exact version from Kitware's release, checked against Kitware's SHA-256 list. Before that the image's CMake was used, and an image update between the record and the tag would have failed `check-toolchain` (`cmakeVersion` differs) and blocked the release. Whether a CMake version change alone can change the bytes was not shown either way (both recorded builds used CMake 4.4.4, and no second version was available offline), so the field stays a byte field and is pinned instead of being ruled informational.
 
 ## Alternatives considered
 
