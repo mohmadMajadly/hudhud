@@ -31,11 +31,25 @@ const suite = integrationSuite();
 
 /**
  * 3 x the 0.6 s first retry delay of 05 §9 run 58: the failure must land
- * before the CLI's second attempt could start. It also holds the flake
- * margin: measured on CI (W7-T1, 15 samples per credential and run) at
- * most 179.9 ms on GitHub ubuntu-24.04 (timing runs 38980331321 and
- * 38984419523) and 419.7 ms on windows-2025 (run 38984419523), so 3x the
- * largest measurement (1260 ms) is below it.
+ * before the CLI's second attempt could start. A semantic bound, not a 3x
+ * one. The decision point itself is asserted structurally below (exactly
+ * one `api.retry`: hudhud decided at the first retry notice, not after the
+ * retry ladder), so this time is a guard against waiting.
+ *
+ * Measured on CI, 15 samples per credential and run, maxima in ms:
+ * - W7-T1: ubuntu-24.04 179.9 (runs 38980331321, 38984419523), windows-2025
+ *   419.7 (run 38984419523);
+ * - review fixes (plan §5.9): runs 39061775002 and 39066057911, ubuntu-24.04
+ *   106.0 and 98.4, windows-2025 337.9 and 671.8 (api-key; medians 167.9 and
+ *   170.0); macos-15 runs 39061774851 and 39066057814: 72.7 and 76.1 (R8-6).
+ *
+ * The 3x margin holds on Linux and macOS. On windows-2025 the largest sample
+ * (671.8 ms, a lone outlier: the median did not move) leaves 2.7x, not 3x,
+ * below the semantic ceiling. Raising the ceiling would no longer test "before
+ * the second attempt". The product path did not get slower: an A/B on the
+ * FX-B Windows 11 host, 10 runs each, gave api-key medians of 110.1 ms
+ * (base 313b68b) and 112.5 ms (with the fixes). The thinner Windows margin
+ * is accepted and recorded here (plan §5.9 review fixes).
  */
 const FAIL_FAST_BOUND_MS = 1800;
 

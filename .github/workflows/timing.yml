@@ -18,12 +18,10 @@
 #
 # macOS (review R8-6) is measured on demand only: dispatch with `platforms:
 # macos` (or `all`), or push a `ci-timing/macos-**` branch, which measures
-# macOS alone. Estimated cost of one 15-run macOS measurement: the bounded
-# tests take about as long as on Linux (33 s per run; the macOS gate's
-# integration project took 142 s against Linux's 120-150 s), so about 9 min
-# of runs plus 2 min of setup, 11 min at the macOS multiplier of 10 = about
-# 110 Linux-equivalent minutes. Replace the estimate with the first run's
-# measurement.
+# macOS alone. Cost of one 15-run macOS measurement, measured: runs
+# 39061774851 and 39066057814 took 8.0 min each on macos-15, so about 80
+# Linux-equivalent minutes at the macOS multiplier of 10 (the estimate was
+# 11 min).
 #
 # The `probe` job (review R2-2, R2-4; FX-B) runs Windows experiments
 # instead of the measurement: dispatch with `probe: true`, or push a
