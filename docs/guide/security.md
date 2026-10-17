@@ -95,7 +95,7 @@ Never inherited by either preset: `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENT
 
 hudhud then sets its own variables in every form, and refuses options that name them: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (from `claudeCode.backgroundWaitCeilingMs`), `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless their options say `'harness-default'`), `CLAUDE_CONFIG_DIR` (only with `claudeCode.configDir`), `TRACEPARENT` and `TRACESTATE` (only with `trace`, else removed). `CLAUDE_CODE_SDK_READS_SESSION_STATE` is always removed.
 
-Diagnostics report names, never values: `env.dropped` (parent variables the preset did not pass on), `env.added` and `env.removed`. Credential and routing variables you set explicitly are listed in the posture (`env.credentialAndRoutingVariables`). On Windows, variable names compare case-insensitively, and two names in your options that differ only in case are refused. An explicit map that leaves out a variable Windows needs to start a process fails with `INVALID_OPTIONS` (`details.rule: 'spawn-spec'`).
+Diagnostics report names, never values: `env.dropped` (variables of your process's environment that the preset filtered out or hudhud always removes and that are absent from Claude Code's final environment; a variable hudhud pins, such as `DISABLE_AUTOUPDATER`, or one you add back is not listed, because Claude Code has it), `env.added` and `env.removed`. Credential and routing variables you set explicitly are listed in the posture (`env.credentialAndRoutingVariables`). On Windows, variable names compare case-insensitively, and two names in your options that differ only in case are refused. An explicit map that leaves out a variable Windows needs to start a process fails with `INVALID_OPTIONS` (`details.rule: 'spawn-spec'`).
 
 If a tool needs a variable the allowlist drops, add it by name with `{ preset: 'harness', add: { ... } }` rather than switching to `'inherit'`.
 
@@ -112,14 +112,14 @@ By default Claude Code uses the user's own configuration directory, with their l
 
 `connect()` hashes the resolved binary (SHA-256) and compares it with a committed table of the Claude Code builds hudhud was tested with, plus any digests you add ([ADR-0011](../adr/0011-spawn-hygiene-and-binary-provenance.md#binary-provenance-a15-amended-by-f)):
 
-| `binaryVerification`   | Behaviour                                                                                                                                                                                                                                                  |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `'advisory'` (default) | The digest is compared and the result reported in `binary.verification`; nothing is refused and no other process is started                                                                                                                                |
-| `'strict'`             | The operating system's signature check runs first (Windows: Authenticode, and the signer must be Anthropic, PBC; macOS: `codesign --verify`; Linux has none), then the digest; anything not `'verified'` fails `connect` with `BINARY_VERIFICATION_FAILED` |
+| `binaryVerification`   | Behaviour                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'advisory'` (default) | The digest is compared and the result reported in `binary.verification`; nothing is refused and no other process is started                                                                                                                                                                                                                                 |
+| `'strict'`             | The operating system's signature check runs first (Windows: Authenticode, and the signer must be Anthropic, PBC; macOS: `codesign --verify --strict`, and the signature must be a Developer ID signature of Anthropic's Team ID `Q6L2SF6YDW`; Linux has none), then the digest; anything not `'verified'` fails `connect` with `BINARY_VERIFICATION_FAILED` |
 
 `binary.verification` has `status` (`'verified'`, `'unverified'`, `'failed'`), `method` (`'os-signature'`, `'sha256-manifest'`, `'none'`), `mode`, `detail`, and `transient: true` when a check could not complete (for example the signature checker timed out); a transient result is never cached, so the next attempt checks again.
 
-The committed table covers the tested version on Linux x64 and Windows x64 only. Any other version or platform is `'unverified'` (so `'strict'` refuses it) unless you supply its digest:
+The committed table covers the tested version on Linux x64, Windows x64, macOS arm64 and macOS x64 only. Any other version or platform is `'unverified'` (so `'strict'` refuses it) unless you supply its digest:
 
 ```text
 claudeCode.binaryDigests: { '<version>': { '<platform>-<arch>': '<sha256 hex>' } }
@@ -127,7 +127,7 @@ claudeCode.binaryDigests: { '<version>': { '<platform>-<arch>': '<sha256 hex>' }
 
 Platforms are written like `linux-x64`, `linux-arm64`, `darwin-arm64`, `win32-x64`. Take digests from a source you trust, such as the checksums Anthropic publishes for a release.
 
-Each session checks that the file is still the one that was verified before it starts it; a changed binary is verified and probed again once (a second change fails with `BINARY_VERIFICATION_FAILED`). The check cannot close every window: the operating system opens the file again by path at spawn, so a replacement between the last check and the spawn is not detected. Writing the binary's directory needs the rights of the user who installed it.
+Each session checks that the file is still the one that was verified before it starts it: the same file (device and inode, or volume and file index on Windows), the same size, and the same modification and status-change times to the nanosecond. A changed binary is verified and probed again once (a second change fails with `BINARY_VERIFICATION_FAILED`). On Linux and macOS an unprivileged process cannot set the status-change time back, so only root, or a file system that caches file attributes (NFS, some FUSE mounts), can present a changed file with the old identity. On Windows a writer can set both times back, so there the identity is not a security property; the fresh hash at every `connect()` bounds that case. The check cannot close every window: the operating system opens the file again by path at spawn, so a replacement between the last check and the spawn is not detected. Writing the binary's directory needs the rights of the user who installed it.
 
 ## Network traffic and managed policy
 

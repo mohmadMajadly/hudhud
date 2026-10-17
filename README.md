@@ -42,12 +42,13 @@ npm install hudhudjs
 
 ## Platforms
 
-| Platform                | Status                                | Process containment                        |
-| ----------------------- | ------------------------------------- | ------------------------------------------ |
-| Windows x64             | supported, tested                     | job object (best effort without the addon) |
-| Linux x64               | supported, tested                     | best effort                                |
-| macOS                   | not yet verified (macOS gate pending) | best effort                                |
-| Windows and Linux arm64 | not tested                            | best effort                                |
+| Platform                | Status                        | Process containment                        |
+| ----------------------- | ----------------------------- | ------------------------------------------ |
+| Windows x64             | supported, tested             | job object (best effort without the addon) |
+| Linux x64               | supported, tested             | best effort                                |
+| macOS arm64             | supported, tested             | best effort                                |
+| macOS x64               | supported (macOS gate passed) | best effort                                |
+| Windows and Linux arm64 | not tested                    | best effort                                |
 
 Details in [Platforms](docs/guide/platforms.md).
 
