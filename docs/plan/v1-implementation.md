@@ -1424,6 +1424,8 @@ FX-C (binding and lifecycle correctness; findings R4, R5-2, R5-U1, R6-1, R8-2, R
 FX-M (merge of the four branches, in the order FX-D, FX-A, FX-B, FX-C), as built:
 
 - The macOS gate's `ps` runs with `-ww` like the core's (R3-U2); `ps.test.ts` pins that the gate's path, arguments and environment equal the core's contract, which gate item 2 confirms.
+- Troubleshooting and diagnostics document the codes the review fixes added, with cause and fix: the ladder details `rejected-<n>` and `no-identity` (the degraded path, including the `EPIDNS` refusal of a foreign pid namespace's `/proc`), every `termination.sweep-after-exit` skip reason and `rejected` count, `BINARY_PROBE_FAILED`'s reasons (an abort during the probe is `ABORTED`; the core reports `'aborted'`), and `settings-guard.git-root-unresolved` and `settings-guard.symlink-followed`.
+- Merge reconciliations: platforms.md's PowerShell paragraph (FX-A's `PSModulePath` and `PSModuleAnalysisCachePath` pass-through with FX-B's `USERPROFILE` limitation) and sessions.md's resume sentence (FX-D's matrix with FX-C's macOS gate).
 
 ### 5.10 Summary table
 

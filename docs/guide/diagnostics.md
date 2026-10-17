@@ -66,11 +66,18 @@ for (const [capability, reason] of Object.entries(capabilities.reasons)) {
 
 ### End of a session
 
-| Code                           | Meaning                                                                                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `termination.ladder`           | The termination ladder ran (its steps and what each did), or failed                                                                               |
-| `termination.sweep-after-exit` | After Claude Code exited (by itself or through the ladder), hudhud ended the recorded descendants still running; with a Windows job, `job-closed` |
-| `binding.machine-error`        | An internal invariant broke; the session ends with `PROTOCOL_ERROR`. Please report it                                                             |
+| Code                           | Meaning                                                                                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `termination.ladder`           | The termination ladder ran (its steps and what each did), or failed                                                                                                                              |
+| `termination.sweep-after-exit` | After Claude Code exited (by itself or through the ladder), hudhud ended the recorded descendants still running (`status: 'done'`), or says why it swept nothing (`status: 'skipped'`, `reason`) |
+| `binding.machine-error`        | An internal invariant broke; the session ends with `PROTOCOL_ERROR`. Please report it                                                                                                            |
+
+`termination.ladder` lists the ladder's steps (`data.steps`: `name`, `outcome` `done`, `skipped` or `failed`, and a short `detail`). Details worth knowing:
+
+- `rejected-<n>` on a `snapshot-s1` or `snapshot-s2` step (Linux and macOS): the snapshot is complete except for `n` entries of the process table it could not read, typically other users' processes under `/proc` mounted `hidepid=1`. Such a process cannot be one of Claude Code's descendants, and hudhud never signals it. No action is needed.
+- `no-identity` on the snapshot and sweep steps: hudhud could not read Claude Code's own identity (pid plus start time) safely, so it took no snapshot, swept nothing and signalled only the process it spawned (the degraded path of [ADR-0010](../adr/0010-process-layer-posix.md)). On Linux the usual cause is a pid namespace whose `/proc` belongs to the parent namespace (`unshare -p -f` without `--mount-proc`): hudhud checks that `/proc/self` names your process and otherwise refuses every read of the table (internal code `EPIDNS`), because each pid there would name another process. Fix: give the namespace its own `/proc` (`--mount-proc`, or a container's own) ([Platforms](platforms.md#process-containment)).
+
+`termination.sweep-after-exit` with `status: 'done'` carries a `summary`, the `kills` (each with its `pid`, its `source` and its `outcome`) and, when not zero, `rejected`: entries of the fresh table that could not be read, as above. With `status: 'skipped'` the `reason` is one of `no-snapshot` (no snapshot was taken: no identity, as above, Claude Code was already gone, or the table could not be read), `no-descendants` (nothing to sweep), `table-failed` (the process table could not be read again), `root-alive` (Claude Code is still running), `job-closed` (Windows: closing the session's job ended the whole tree) and `job-close-failed` (Windows: closing the job failed; with a job no snapshot is taken, so nothing is swept).
 
 The codes `project.permissions-ignored` and `containment.addon-unavailable` are part of the `DiagnosticCode` type but are not published by this version.
 
