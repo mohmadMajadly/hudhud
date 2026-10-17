@@ -38,7 +38,7 @@ Measured behaviour of CLI 2.1.296 (05):
 
 ### First-frame and idle watchdogs
 
-- First-frame watchdog: armed when `initialize` is written; default 60 s (initial, tunable, to be validated by measurement; MCP startup can take up to `MCP_TIMEOUT` 30 s). If no response arrives it fails with a named cause (distinguishing, for example, spawn failure, early exit, silent hang; on macOS a headless Keychain prompt, see the macOS gate). The list of named causes is defined in the implementation.
+- First-frame watchdog: armed when `initialize` is written; default 60 s (initial, tunable, to be validated by measurement; MCP startup can take up to `MCP_TIMEOUT` 30 s). If no response arrives it fails with a named cause (distinguishing, for example, spawn failure, early exit, silent hang). The list of named causes is defined in the implementation. A darwin hint for a headless Keychain prompt was planned; it is not implemented (pre-release review R3-3): the macOS gate found the CLI's keychain lookups isolated under the sandbox home and saw no prompt (research 11), so the watchdog reports `no-response` there too, and the hint is a roadmap item ([ADR-0018](0018-scope-and-roadmap.md)).
 - Idle watchdog: emits a `stalled` event after 300 s without frames while a turn is running (initial, tunable, to be validated by measurement); it never auto-kills by default (A11). The CLI itself never times out, so this is the host's only protection (05 §15 item 6).
 
 ### Turns and interrupts

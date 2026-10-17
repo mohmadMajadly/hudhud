@@ -30,8 +30,10 @@ Claude Code runs tools as child processes: shells, their commands, MCP servers. 
 Measured gaps of `'best-effort'`:
 
 - **Windows:** commands that a Bash tool starts through Git Bash run with a parent process that has already exited, so no process-tree walk reaches them. Such a command can outlive the session, up to its own duration, after an abort, a close or a crash of your process. Only `'job'` closes this gap ([ADR-0009](../adr/0009-process-layer-windows.md#termination-ladder-abort-path)).
-- **Linux:** when your process dies, Claude Code sees the end of its input and finishes the tool or reply in flight, then exits without leaving processes behind; a long tool keeps running until it ends by itself. Descendants survive only if Claude Code itself is killed with `SIGKILL` and the sweep cannot run. A process that a tool started after the end of input and that was re-parented away from the tree cannot be identified safely and is not ended ([ADR-0010](../adr/0010-process-layer-posix.md#drain-path)).
-- **macOS:** the same mechanism as Linux. The macOS gate saw `SIGTERM` end the tool process groups and `SIGKILL` plus the sweep leave nothing, and the containment suites (orphan, host crash, termination ladder) pass on macOS arm64.
+- **Linux:** however a session ends (`close()`, `dispose()`, an aborted `close()`, the close deadline), hudhud records the descendants while Claude Code runs and, after Claude Code exits, ends every recorded process still running, a tool's daemon (`setsid`, `nohup … &`) included ([ADR-0010](../adr/0010-process-layer-posix.md#sweep-after-the-exit-both-platforms)). When your process dies, Claude Code sees the end of its input and finishes the tool or reply in flight, then exits without leaving processes behind; a long tool keeps running until it ends by itself, and nothing of hudhud runs to sweep after it. A process that a tool started after the snapshot and that was re-parented away from the tree cannot be identified safely and is not ended.
+  - With `/proc` mounted `hidepid=1`, other users' processes are skipped (they cannot be yours), and the count is in the `termination.ladder` and `termination.sweep-after-exit` diagnostics.
+  - If your process runs in a pid namespace whose `/proc` belongs to the parent namespace (`unshare -p -f` without `--mount-proc`), hudhud cannot read the process table safely: it signals only Claude Code itself and records and sweeps nothing. Mount a `/proc` of your namespace (`--mount-proc`, or a container's own).
+- **macOS:** the same mechanism as Linux (the process table comes from `/bin/ps`). The macOS gate saw `SIGTERM` end the tool process groups and `SIGKILL` plus the sweep leave nothing, and the containment suites (orphan, daemon, host crash, termination ladder) run on macOS arm64.
 
 hudhud never signals your own process group and never uses process-group kills on Claude Code's group, so it cannot hit your application's processes.
 
@@ -44,6 +46,12 @@ hudhud never signals your own process group and never uses process-group kills o
 If assigning a session's process to its job fails, the session continues with `'best-effort'` and publishes a `containment.fallback` diagnostic.
 
 Contributors who build hudhud from source need Visual Studio Build Tools and CMake to build the addon; see [CONTRIBUTING.md](../../CONTRIBUTING.md#the-job-object-addon-on-windows). Applications that install the packages from npm need no compiler.
+
+### PowerShell in tools under another profile
+
+Windows PowerShell 5.1 finds an auto-loaded cmdlet (such as `Get-CimInstance`) through its module analysis cache, which lives in the user profile that `USERPROFILE` names. A short-lived PowerShell never writes that cache, so with a fresh or redirected `USERPROFILE` every short PowerShell run analyses every installed module again. Measured: about 23 s per run on the GitHub windows-2025 image, which ships many large modules, against 0.25 s with the runner's own profile (timing runs 39059130622 and 39060521867), and about 0.3 s on a machine with few modules. Setting `PSModulePath` to fewer directories does not help.
+
+The `'harness'` environment preset passes your `USERPROFILE`, so tools use your own cache and this does not apply. It applies when you point `USERPROFILE` elsewhere for Claude Code (an `env` option, or a CI job that isolates the profile) and its tools run PowerShell. The remedy is a persistent cache file of your choice: `env: { preset: 'harness', add: { PSModuleAnalysisCachePath: 'D:\\cache\\ps-analysis' } }`. A PowerShell that runs long enough writes it (in the measurements, one that lived 30 s wrote 1.5 MB), and every later run reads it: 0.5 s instead of 23 s on the windows-2025 image.
 
 ### Long working directories
 

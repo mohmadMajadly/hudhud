@@ -266,6 +266,15 @@ export function buildSandboxEnv(input: SandboxEnvInput): Readonly<Record<string,
     env['USERNAME'] = SANDBOX_ACCOUNT;
     env['USERDOMAIN'] = SANDBOX_ACCOUNT;
     env['LOGONSERVER'] = `\\\\${SANDBOX_ACCOUNT}`;
+    // A fresh profile has a cold Windows PowerShell module analysis cache:
+    // its location follows USERPROFILE (not LOCALAPPDATA), and a short-lived
+    // PowerShell never writes it, so every short PowerShell in a tool here
+    // re-analyses every installed module (checklist 1.11, review R2-4: about
+    // 23 s per run on windows-2025, timing runs 39059130622, 39060521867).
+    // No test runs PowerShell inside a tool today, so nothing is warmed (a
+    // warm-up costs about 77 s per run there). A test that needs it passes a
+    // cache it warmed with `env.add: { PSModuleAnalysisCachePath }`;
+    // limiting PSModulePath does not help.
     env['USERPROFILE'] = dirs.home;
     env['APPDATA'] = dirs.appData;
     env['LOCALAPPDATA'] = dirs.localAppData;

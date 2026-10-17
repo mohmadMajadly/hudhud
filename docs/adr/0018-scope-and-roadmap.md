@@ -21,7 +21,7 @@ The `agent-sdk` backend and the SDK differential oracle ([ADR-0001](0001-foundat
 
 ### Later
 
-Session-file reading; prewarm; daemon with generated clients ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)); an ACP client adapter; an ACP facade (the core vocabulary already mirrors ACP where sound, [ADR-0003](0003-public-api.md)); a cgroup spawner (planned v1.x, `processContainment: 'cgroup'`, [ADR-0010](0010-process-layer-posix.md)); a possible darwin libproc addon; additional harness adapters (03 §7 lists Codex, opencode and a generic ACP client as candidates; none is committed by the log).
+Session-file reading; prewarm; daemon with generated clients ([ADR-0006](0006-sans-io-core-and-daemon-readiness.md)); an ACP client adapter; an ACP facade (the core vocabulary already mirrors ACP where sound, [ADR-0003](0003-public-api.md)); a cgroup spawner (planned v1.x, `processContainment: 'cgroup'`, [ADR-0010](0010-process-layer-posix.md)); a possible darwin libproc addon; process-layer follow-ups of the pre-release review (2026-10-17): handle-based termination on Windows (an addon export that opens the pid, compares its creation time and calls `TerminateProcess` on that same handle, for sweeps when the addon is loaded but the job path failed; it closes the measured window of R2-5, [ADR-0009](0009-process-layer-windows.md)), a named macOS Gatekeeper/quarantine spawn cause and a darwin `keychain-prompt-suspected` hint on the first-frame watchdog, both only if a macOS release makes them reachable (R3-3; the gate saw neither, research 11); additional harness adapters (03 §7 lists Codex, opencode and a generic ACP client as candidates; none is committed by the log).
 
 ### Pre-v1 spike list (G4)
 

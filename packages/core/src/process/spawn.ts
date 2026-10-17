@@ -133,9 +133,10 @@ export class SpawnSpecError extends Error {
 }
 
 /**
- * Cause of a failed spawn (plan §3.1 `SpawnError.details.cause`; the
- * `'gatekeeper'` cause needs the macOS gate's evidence and is mapped by the
- * adapter).
+ * Cause of a failed spawn (plan §3.1 `SpawnError.details.cause`). There is
+ * no Gatekeeper cause: the macOS gate found that quarantine does not stop a
+ * launch from a non-GUI parent (research 11 §77), so none is mapped
+ * (review R3-3; roadmap, ADR-0018).
  *
  * @public
  */
