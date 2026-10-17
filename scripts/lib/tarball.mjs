@@ -286,10 +286,59 @@ export function checkPackedManifest(source, packed) {
 
 // ---- files -----------------------------------------------------------------
 
+/**
+ * Files every package must carry. LICENSE and NOTICE are the repository's
+ * own (Apache-2.0 §4(a) and §4(d)); {@link checkLegalFiles} compares their
+ * bytes with the repository's.
+ */
 const REQUIRED_FILES = [
   { label: 'README', pattern: /^README(?:\.[A-Za-z]+)?$/u },
   { label: 'LICENSE', pattern: /^LICEN[CS]E(?:\.[A-Za-z]+)?$/u },
+  { label: 'NOTICE', pattern: /^NOTICE(?:\.[A-Za-z]+)?$/u },
 ];
+
+/**
+ * Reports each of README, LICENSE and NOTICE that no path names.
+ *
+ * @param {readonly string[]} paths Paths inside the package.
+ * @returns {string[]} problems
+ */
+export function checkRequiredFiles(paths) {
+  return REQUIRED_FILES.filter(({ pattern }) => !paths.some((path) => pattern.test(path))).map(
+    ({ label }) => `${label} is missing`,
+  );
+}
+
+/**
+ * @typedef {object} LegalFile
+ * @property {'LICENSE' | 'NOTICE'} label
+ * @property {Buffer} data The repository's own file.
+ */
+
+/**
+ * Compares every LICENSE and NOTICE file of a tarball (any spelling the
+ * required-files check accepts) with the repository's bytes, so a package's
+ * copy cannot drift from the root file. A missing file is reported by
+ * {@link checkRequiredFiles}, not here.
+ *
+ * @param {readonly TarEntry[]} entries
+ * @param {readonly LegalFile[]} legal
+ * @returns {string[]} problems
+ */
+export function checkLegalFiles(entries, legal) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const { label, data } of legal) {
+    const required = REQUIRED_FILES.find((file) => file.label === label);
+    if (required === undefined) throw new Error(`not a legal file: ${label}`);
+    for (const entry of entries.filter(({ path }) => required.pattern.test(path))) {
+      if (!entry.data.equals(data)) {
+        problems.push(`${entry.path} differs from the repository's ${label}`);
+      }
+    }
+  }
+  return problems;
+}
 
 /** Root files npm always packs, whatever `files` says. */
 const ALWAYS_TOP =
@@ -345,9 +394,7 @@ export function checkFileList(manifest, paths) {
   /** @type {string[]} */
   const problems = [];
   if (!paths.includes('package.json')) problems.push('package.json is missing');
-  for (const { label, pattern } of REQUIRED_FILES) {
-    if (!paths.some((path) => pattern.test(path))) problems.push(`${label} is missing`);
-  }
+  problems.push(...checkRequiredFiles(paths));
   const listed = (manifest.files ?? []).map(stripDot);
   const positive = listed.filter((entry) => !entry.startsWith('!'));
   const negative = listed.filter((entry) => entry.startsWith('!')).map((entry) => entry.slice(1));
@@ -632,9 +679,11 @@ export function checkSourceManifest(source) {
  * @param {PackageJson} source The package's own `package.json`.
  * @param {Buffer} gz The tarball.
  * @param {readonly string[]} forbidden Paths and strings of this machine.
+ * @param {readonly LegalFile[]} [legal] The repository's LICENSE and NOTICE,
+ *   which the tarball's copies must equal.
  * @returns {TarballReport}
  */
-export function checkTarball(source, gz, forbidden) {
+export function checkTarball(source, gz, forbidden, legal = []) {
   /** @type {TarEntry[]} */
   let entries;
   try {
@@ -648,7 +697,7 @@ export function checkTarball(source, gz, forbidden) {
   }
   const paths = entries.map((entry) => entry.path);
   /** @type {string[]} */
-  const problems = [...checkFileList(source, paths)];
+  const problems = [...checkFileList(source, paths), ...checkLegalFiles(entries, legal)];
   const manifestEntry = entries.find((entry) => entry.path === 'package.json');
   /** @type {PackageJson | undefined} */
   let packed;

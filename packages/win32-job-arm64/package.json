@@ -16,7 +16,8 @@
   },
   "files": [
     "hudhud_win32_job.node",
-    "SHA256SUMS"
+    "SHA256SUMS",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=22.12.0"

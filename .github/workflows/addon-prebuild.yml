@@ -404,7 +404,7 @@ jobs:
         run: node scripts/check-tarball.mjs --release-record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
 
       # The full check of every published package (plan §4.1): files, manifest,
-      # README and LICENSE, entry points, an offline install of the
+      # README, LICENSE and NOTICE, entry points, an offline install of the
       # tarballs, imports and a type-check; the x64 package with the staged
       # build above (W6-Z ruling 8, lead ruling on A3).
       - name: Full tarball check of every published package

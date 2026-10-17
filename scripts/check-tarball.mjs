@@ -2,17 +2,19 @@
 // Tarball check (plan §4.1 "Tarball install", §4.8; run: node scripts/check-tarball.mjs).
 //
 // For every publishable package under packages/ (a `publishConfig` or not
-// private): `pnpm pack` it, check the tarball (files list, manifest, source
-// maps, privacy scan, entry points; scripts/lib/tarball.mjs), install all
-// tarballs into a fresh project outside the repository with `npm install
-// --omit=dev --ignore-scripts`, import every JS entry point with Node's own
-// ESM resolver, parse every JSON entry point, and type-check an import of
-// every entry point with tsc against the installed packages (NodeNext,
-// strict, declarations checked). Needs a built tree (`pnpm build`) and pnpm
-// on PATH. A native platform package whose `os` excludes this host (the
-// Windows job addon on Linux and macOS) cannot be built here: it is reported
-// as `skipped (native, built on win32 only)` and not checked; on its own
-// platform it must be built and pass like any other package.
+// private): `pnpm pack` it, check the tarball (files list with a README, a
+// LICENSE and a NOTICE, the latter two byte-equal to the repository's,
+// manifest, source maps, privacy scan, entry points;
+// scripts/lib/tarball.mjs), install all tarballs into a fresh project
+// outside the repository with `npm install --omit=dev --ignore-scripts`,
+// import every JS entry point with Node's own ESM resolver, parse every JSON
+// entry point, and type-check an import of every entry point with tsc
+// against the installed packages (NodeNext, strict, declarations checked).
+// Needs a built tree (`pnpm build`) and pnpm on PATH. A native platform
+// package whose `os` excludes this host (the Windows job addon on Linux and
+// macOS) cannot be built here: it is reported as `skipped (native, built on
+// win32 only)`, and only its README, LICENSE and NOTICE are checked; on its
+// own platform it must be built and pass like any other package.
 //
 // Safety: nothing is published and no registry is written or authenticated
 // to: the install runs with empty npm configuration files, a clean
@@ -56,7 +58,9 @@ import { pathToFileURL } from 'node:url';
 import { ARCHES, parseManifest, releaseOf } from './lib/addon-digests.mjs';
 import {
   checkImports,
+  checkLegalFiles,
   checkReleaseRecord,
+  checkRequiredFiles,
   checkSourceManifest,
   checkTarball,
   cleanEnv,
@@ -264,6 +268,13 @@ function main() {
   const problems = [];
   try {
     const forbidden = [REPO, os.homedir(), root].filter((entry) => entry.length >= 4);
+    // Every package ships the repository's LICENSE and NOTICE (Apache-2.0
+    // §4(a), §4(d)); a package's copy must equal the root file byte for byte.
+    /** @type {import('./lib/tarball.mjs').LegalFile[]} */
+    const legal = [
+      { label: 'LICENSE', data: readFileSync(path.join(REPO, 'LICENSE')) },
+      { label: 'NOTICE', data: readFileSync(path.join(REPO, 'NOTICE')) },
+    ];
     const tarballs = path.join(root, 'tarballs');
     mkdirSync(tarballs);
 
@@ -279,13 +290,22 @@ function main() {
       const file = pack(dir, name, tarballs);
       const skipped = nativeSkipReason(manifest, process.platform);
       if (skipped !== null) {
-        // Not built on this host, so nothing in it can be checked here; the
-        // tarball only satisfies optional dependencies on it, offline.
+        // Not built on this host, so its contents cannot be checked here,
+        // only that it carries the README, LICENSE and NOTICE (which need no
+        // build); the tarball only satisfies optional dependencies on it,
+        // offline.
+        const entries = readTarGz(readFileSync(file));
+        const paths = entries.map((entry) => entry.path);
+        problems.push(
+          ...[...checkRequiredFiles(paths), ...checkLegalFiles(entries, legal)].map(
+            (problem) => `${name}: ${problem}`,
+          ),
+        );
         packed.push({ manifest, file, entryPoints: [], installable: false });
-        process.stdout.write(`skipped ${name} (${skipped})\n`);
+        process.stdout.write(`skipped ${name} (${skipped}; README, LICENSE and NOTICE checked)\n`);
         continue;
       }
-      const result = checkTarball(manifest, readFileSync(file), forbidden);
+      const result = checkTarball(manifest, readFileSync(file), forbidden, legal);
       problems.push(...result.problems.map((problem) => `${name}: ${problem}`));
       const installable = supportsPlatform(manifest, process.platform, process.arch);
       packed.push({ manifest, file, entryPoints: result.entryPoints, installable });
