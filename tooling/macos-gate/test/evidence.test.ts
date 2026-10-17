@@ -158,9 +158,9 @@ describe('checkShapeUpdate', () => {
 });
 
 describe('summarizeSamples', () => {
-  const line = (name: string, valueMs: number): string =>
-    JSON.stringify({ name, valueMs, platform: 'darwin', arch: 'arm64', node: 'v22.23.2' });
-  const NAME = 'close-abort/close-deadline-overrun';
+  const line = (sample: string, ms: number): string =>
+    JSON.stringify({ sample, ms, platform: 'darwin' });
+  const NAME = 'close-abort.overrun';
 
   it('summarizes the samples of one name and reports 3x the maximum', () => {
     const text = [line(NAME, 40), line('other', 9999), line(NAME, 10), line(NAME, 25.5), ''].join(
@@ -182,10 +182,10 @@ describe('summarizeSamples', () => {
 
   it('refuses too few samples, a malformed line and a minimum that is not a positive integer', () => {
     expect(() => summarizeSamples(line(NAME, 1), NAME, 20)).toThrow(
-      '1 samples of close-abort/close-deadline-overrun, at least 20 required',
+      '1 samples of close-abort.overrun, at least 20 required',
     );
-    expect(() => summarizeSamples('{"name":"x"}', NAME, 1)).toThrow(
-      /lacks a name or a finite valueMs/,
+    expect(() => summarizeSamples('{"sample":"x"}', NAME, 1)).toThrow(
+      /lacks a sample name or a finite ms/,
     );
     expect(() => summarizeSamples('[]', NAME, 1)).toThrow(/lacks/);
     expect(() => summarizeSamples('null', NAME, 1)).toThrow(/not an object/);

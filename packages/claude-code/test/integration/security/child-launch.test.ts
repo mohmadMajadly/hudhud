@@ -4,7 +4,8 @@
 // run its Bash tool; the tool writes the CLI's pid, argv and environment into
 // files in the sandbox work directory (Linux: `/proc/<pid>/cmdline` and
 // `/proc/<pid>/environ`, the CLI's exact launch; Windows: the CLI's command
-// line from `Win32_Process` and the Bash tool's environment, which is the
+// line from `Win32_Process`, read by the test from the host process table
+// while the session is open, and the Bash tool's environment, which is the
 // CLI's plus what the CLI and Git Bash add for tools; 05 §3, §11 runs 78-80
 // show the Bash tool and its environment on both OSes; macOS: the argv from
 // `ps -ww -o args=` and the Bash tool's environment, research 11).

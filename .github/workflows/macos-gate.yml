@@ -141,7 +141,7 @@ jobs:
   # 3. 20 runs of the close-deadline test of lifecycle/close-abort.test.ts,
   #    one process each (as the Windows and Linux bounds were measured,
   #    W6-Z), recording the overrun past the deadline before any assertion
-  #    (HUDHUD_IT_TIMING_SAMPLES); the step fails with fewer than 20
+  #    (HUDHUD_TIMING_LOG, support/timing.ts); the step fails with fewer than 20
   #    samples. A run that breaks the current (Linux-sized) bound still
   #    yields its sample; part 1 reports the bound itself.
   #
@@ -248,7 +248,7 @@ jobs:
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.bundle.outcome == 'success' }}
         timeout-minutes: 20
         env:
-          HUDHUD_IT_TIMING_SAMPLES: ${{ runner.temp }}/integration-evidence/close-abort-samples.jsonl
+          HUDHUD_TIMING_LOG: ${{ runner.temp }}/integration-evidence/close-abort-samples.jsonl
         run: |
           set +e
           for run in $(seq 1 20); do
@@ -257,8 +257,8 @@ jobs:
               -t 'close with a deadline' > "$EVIDENCE/close-abort-run-$run.log" 2>&1
             echo "run $run: vitest exit code $?" | tee -a "$EVIDENCE/close-abort-runs.txt"
           done
-          node "$RUNNER_TEMP/integration-evidence.mjs" samples "$HUDHUD_IT_TIMING_SAMPLES" \
-            close-abort/close-deadline-overrun 20 | tee -a "$GITHUB_STEP_SUMMARY"
+          node "$RUNNER_TEMP/integration-evidence.mjs" samples "$HUDHUD_TIMING_LOG" \
+            close-abort.overrun 20 | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
 
       - name: Upload the evidence

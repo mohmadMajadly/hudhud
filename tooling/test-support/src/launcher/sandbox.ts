@@ -4,8 +4,8 @@
  *
  * @remarks
  * {@link createSandbox} makes a fresh run directory under the test root
- * (`HUDHUD_TEST_ROOT`, else `RUNNER_TEMP`, else the OS temp directory; on
- * macOS `HUDHUD_TEST_ROOT`, else `/private/tmp`, see {@link testTempBase})
+ * (`HUDHUD_TEST_ROOT`, else on Windows `RUNNER_TEMP`, else the OS temp
+ * directory, on macOS `/private/tmp`; see {@link resolveTestRoot})
  * after refusing any root with a forbidden ancestor (`ancestors.ts`), and creates
  * the redirected config, home, app-data, temp and work directories. Each
  * {@link Sandbox.launch} re-checks the verified pinned binary and spawns it
@@ -88,18 +88,20 @@ export function testTempBase(platform: NodeJS.Platform, tmpdir: string): string 
 }
 
 /**
- * The test root: `HUDHUD_TEST_ROOT`, else `RUNNER_TEMP` (CI), else
- * `tmpdir` (plan §4.4). On macOS `HUDHUD_TEST_ROOT`, else
- * {@link DARWIN_TEST_TEMP_BASE}: `RUNNER_TEMP` lies under the runner's home
- * there (`/Users/runner/work/_temp`, refused by the forbidden-ancestor
- * rule) and `$TMPDIR` is too long for the CLI socket (see {@link testTempBase}).
+ * The test root: `HUDHUD_TEST_ROOT`, else on Windows `RUNNER_TEMP` (CI),
+ * else {@link testTempBase} (plan §4.4). `RUNNER_TEMP` is never the default
+ * on POSIX: GitHub's hosted runners put it under the runner's home
+ * (`/home/runner/work/_temp` on Linux, `/Users/runner/work/_temp` on macOS),
+ * which the forbidden-ancestor rule refuses (W7-T1: CI sets
+ * `HUDHUD_TEST_ROOT` explicitly), and on macOS `$TMPDIR` is too long for
+ * the CLI socket (see {@link testTempBase}).
  */
 export function resolveTestRoot(
   env: Readonly<Record<string, string | undefined>>,
   tmpdir: string,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  const names = platform === 'darwin' ? ['HUDHUD_TEST_ROOT'] : ['HUDHUD_TEST_ROOT', 'RUNNER_TEMP'];
+  const names = platform === 'win32' ? ['HUDHUD_TEST_ROOT', 'RUNNER_TEMP'] : ['HUDHUD_TEST_ROOT'];
   for (const name of names) {
     const value = env[name];
     if (value !== undefined && value !== '') return value;

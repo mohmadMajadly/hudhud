@@ -11,13 +11,20 @@
 // Timing: in the W6-T4 measurements the first attempts were recorded before
 // the first turn had finished (four within 0.2 s of it, seven after 15 s);
 // both tests watch the same window, the first turn plus OBSERVE_MS, more
-// than 3x the 0.2 s it took the first attempts to appear.
+// than 3x the 0.2 s it took the first attempts to appear. Re-measured
+// (W7-T1): the first attempt was recorded at most 3.9 ms after the turn
+// ended on CI (timing runs 38980331321 and 38984419523, 15 samples each:
+// GitHub ubuntu-24.04 at most 3.9 ms, windows-2025 at most 2.8 ms).
+// The window is not shortened to 3x that: for the "off" test it is how long
+// silence is observed, and longer is stronger.
 
+import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { expect, test } from 'vitest';
 
 import { integrationSuite } from '../support/harness.js';
+import { recordTiming } from '../support/timing.js';
 import { requestsWith } from './support.js';
 
 const suite = integrationSuite();
@@ -31,8 +38,17 @@ test('nonessential traffic on: the trap records and refuses every attempt (05 §
   const harness = await suite.testConnect();
   const session = await harness.sessions.create({ nonessentialTraffic: 'harness-default' });
   const result = await session.ask('[[mock:text]] egress-on');
+  const turnEnded = performance.now();
   expect(result).toMatchObject({ outcome: 'completed', isError: false });
-  await delay(OBSERVE_MS);
+  // The same window as below; when the first attempt appears inside it, its
+  // delay after the turn is a K15 timing sample (W7-T1).
+  while (mock.violations.length === 0 && performance.now() - turnEnded < OBSERVE_MS) {
+    await delay(10);
+  }
+  if (mock.violations.length > 0) {
+    recordTiming('egress.first-attempt-after-turn', performance.now() - turnEnded);
+  }
+  await delay(Math.max(0, OBSERVE_MS - (performance.now() - turnEnded)));
   // Closed (the CLI has exited) before the record is read: nothing can add
   // to it afterwards.
   await session.close();

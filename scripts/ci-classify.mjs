@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // CI tier classifier entry point (ADR-0014). Reads the GitHub Actions
-// context, computes the changed files for pull requests and pushes to main
-// (the workflow fetches the push's `before` commit at depth 1) and writes `tier`
-// and `linux-node` to $GITHUB_OUTPUT. Any error yields FULL.
+// context, computes the changed files (scripts/lib/ci-diff.mjs: a pull
+// request from the merge commit GitHub tests, checked out at depth 2; a push
+// to main from `before..after`, the workflow fetches `before` at depth 1) and
+// writes `tier` and `linux-node` to $GITHUB_OUTPUT. A change set that cannot
+// be computed is reported as a warning naming its cause; any error yields
+// FULL.
 //
 // Local use: node scripts/ci-classify.mjs --files <path>...
 
@@ -10,13 +13,8 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 
-import {
-  LINUX_NODE_VERSIONS,
-  classify,
-  classifyPaths,
-  isDiffableSha,
-  parseNameList,
-} from './lib/ci-classify.mjs';
+import { LINUX_NODE_VERSIONS, classify, classifyPaths } from './lib/ci-classify.mjs';
+import { pullRequestChanges, pushChanges } from './lib/ci-diff.mjs';
 
 /**
  * @param {unknown} value
@@ -40,25 +38,24 @@ function dig(root, keys) {
   return node;
 }
 
+/** @type {import('./lib/ci-diff.mjs').Git} */
+function git(args) {
+  return execFileSync('git', [...args], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
 /**
- * Changed paths between two commits; null when git cannot compute the diff
- * (for example a commit that was never fetched).
- *
- * @param {string} range `base...head` (pull request: since the merge base)
- *   or `before..after` (push: exactly what the push changed).
+ * @param {import('./lib/ci-diff.mjs').ChangeSet} changes
  * @returns {string[] | null}
  */
-function changedFiles(range) {
-  try {
-    const output = execFileSync(
-      'git',
-      ['-c', 'core.quotePath=false', 'diff', '--name-only', '-z', '--no-renames', range],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] },
-    );
-    return parseNameList(output);
-  } catch {
-    return null;
+function filesOf(changes) {
+  if (changes.problem !== undefined) {
+    process.stdout.write(`::warning::changed files unknown: ${changes.problem}\n`);
   }
+  return changes.files;
 }
 
 /** @returns {import('./lib/ci-classify.mjs').Classification} */
@@ -69,25 +66,24 @@ function classifyFromGitHub() {
   const payload = eventPath === undefined ? {} : JSON.parse(readFileSync(eventPath, 'utf8'));
   const fullRequested = process.env['CI_FULL_REQUESTED'] === 'true';
   const ref = process.env['GITHUB_REF'] ?? '';
+  const sha = process.env['GITHUB_SHA'];
 
   if (event === 'push') {
-    // New branch (all-zero `before`), missing or malformed ids, and a
-    // `before` that could not be fetched (force push) all yield null: FULL.
-    const before = dig(payload, ['before']);
-    const after = process.env['GITHUB_SHA'] ?? dig(payload, ['after']);
+    // Only a push to main is classified by its change set; tags and any
+    // other ref are FULL whatever they change.
     const files =
-      isDiffableSha(before) && isDiffableSha(after) ? changedFiles(`${before}..${after}`) : null;
+      ref === 'refs/heads/main'
+        ? filesOf(pushChanges(git, dig(payload, ['before']), sha ?? dig(payload, ['after'])))
+        : null;
     return classify({ event, files, ref, fullRequested });
   }
   if (event !== 'pull_request') {
     return classify({ event, files: null, ref, fullRequested });
   }
-  const base = dig(payload, ['pull_request', 'base', 'sha']);
-  const head = dig(payload, ['pull_request', 'head', 'sha']);
   const draft = dig(payload, ['pull_request', 'draft']);
   const labels = dig(payload, ['pull_request', 'labels']);
-  const files =
-    typeof base === 'string' && typeof head === 'string' ? changedFiles(`${base}...${head}`) : null;
+  const head = dig(payload, ['pull_request', 'head', 'sha']);
+  const files = filesOf(pullRequestChanges(git, sha, head));
   return classify({
     event,
     files,

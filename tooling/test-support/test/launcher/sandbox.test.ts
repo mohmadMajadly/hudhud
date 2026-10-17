@@ -61,16 +61,25 @@ async function refusal(promise: Promise<unknown>): Promise<SandboxRefusedError> 
 }
 
 describe('resolveTestRoot', () => {
-  it('prefers HUDHUD_TEST_ROOT, then RUNNER_TEMP, then the temp directory', () => {
-    for (const platform of ['linux', 'win32'] as const) {
-      expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '/a', RUNNER_TEMP: '/b' }, '/c', platform)).toBe(
-        '/a',
-      );
-      expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '', RUNNER_TEMP: '/b' }, '/c', platform)).toBe(
-        '/b',
-      );
-      expect(resolveTestRoot({}, '/c', platform)).toBe('/c');
-    }
+  it('on Windows prefers HUDHUD_TEST_ROOT, then RUNNER_TEMP, then the temp directory', () => {
+    expect(
+      resolveTestRoot({ HUDHUD_TEST_ROOT: 'C:\\a', RUNNER_TEMP: 'D:\\b' }, 'C:\\c', 'win32'),
+    ).toBe('C:\\a');
+    expect(resolveTestRoot({ HUDHUD_TEST_ROOT: '', RUNNER_TEMP: 'D:\\b' }, 'C:\\c', 'win32')).toBe(
+      'D:\\b',
+    );
+    expect(resolveTestRoot({}, 'C:\\c', 'win32')).toBe('C:\\c');
+  });
+
+  // W7-T1 (lead ruling): GitHub's Linux runners put RUNNER_TEMP under the
+  // home (/home/runner/work/_temp), which the forbidden-ancestor rule
+  // refuses; the root must be explicit, as on macOS.
+  it('on Linux prefers HUDHUD_TEST_ROOT, then the temp directory: never RUNNER_TEMP', () => {
+    const ci = { RUNNER_TEMP: '/home/runner/work/_temp' };
+    expect(resolveTestRoot({ ...ci, HUDHUD_TEST_ROOT: '/a' }, '/tmp', 'linux')).toBe('/a');
+    expect(resolveTestRoot({ ...ci, HUDHUD_TEST_ROOT: '' }, '/tmp', 'linux')).toBe('/tmp');
+    expect(resolveTestRoot(ci, '/tmp', 'linux')).toBe('/tmp');
+    expect(resolveTestRoot({}, '/tmp', 'linux')).toBe('/tmp');
   });
 
   it('on macOS prefers HUDHUD_TEST_ROOT, then /private/tmp: never RUNNER_TEMP or $TMPDIR', () => {

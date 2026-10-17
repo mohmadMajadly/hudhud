@@ -12,7 +12,8 @@
  *   for exactly that reason and one darwin snapshot exists per scenario that
  *   has a committed Linux snapshot.
  * - {@link summarizeSamples}: the close-abort overrun samples
- *   (`HUDHUD_IT_TIMING_SAMPLES`), at least the required number, with their
+ *   (`HUDHUD_TIMING_LOG`, written by the integration suites' recorder
+ *   `support/timing.ts`), at least the required number, with their
  *   minimum, median and maximum and the bound 3x the maximum would give
  *   (plan §4.4); the closer sizes the bound, this only reports it.
  */
@@ -158,7 +159,7 @@ export function checkShapeUpdate(
   return problems;
 }
 
-/** One `HUDHUD_IT_TIMING_SAMPLES` line. */
+/** One `HUDHUD_TIMING_LOG` line (`{ sample, ms, platform }`), as read here. */
 interface Sample {
   readonly name: string;
   readonly valueMs: number;
@@ -169,10 +170,10 @@ function parseSample(line: string, index: number): Sample {
   if (typeof value !== 'object' || value === null) {
     throw new Error(`sample line ${String(index + 1)} is not an object`);
   }
-  const name: unknown = Reflect.get(value, 'name');
-  const valueMs: unknown = Reflect.get(value, 'valueMs');
+  const name: unknown = Reflect.get(value, 'sample');
+  const valueMs: unknown = Reflect.get(value, 'ms');
   if (typeof name !== 'string' || typeof valueMs !== 'number' || !Number.isFinite(valueMs)) {
-    throw new Error(`sample line ${String(index + 1)} lacks a name or a finite valueMs`);
+    throw new Error(`sample line ${String(index + 1)} lacks a sample name or a finite ms`);
   }
   return { name, valueMs };
 }

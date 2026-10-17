@@ -46,11 +46,16 @@ jobs:
       tier: ${{ steps.classify.outputs.tier }}
       linux-node: ${{ steps.classify.outputs.linux-node }}
     steps:
+      # A pull request is classified from the merge commit GitHub tests
+      # (`refs/pull/<n>/merge`) against its first parent, so depth 2 (the
+      # merge commit and both parents) is all the diff needs. The previous
+      # `&& 0 || 1` always gave 1 (0 is falsy in expressions): the PR diff
+      # failed and every pull request ran FULL (W7-T1).
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
 
       - name: Install Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -117,7 +122,13 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # K15 (ADR-0014 amendment 7): measured p95 x 2. Nine jobs with
+    # integration (W7-T1), node 22/24/26: run 38980330927 8.5/9.4/9.2 min,
+    # run 38984419589 8.6/10.0/8.7 min, run 38989536648 10.3/6.8/7.3 min;
+    # per job 30-44 s setup with the CLI fetch, 3.0-5.0 min check, 30-47 s OS
+    # coverage, 2.7-4.0 min integration. p95 (nearest rank of 9: the
+    # maximum) 10.3 min; x 2 = 20.7, rounded up to 21.
+    timeout-minutes: 21
     permissions:
       contents: read
     strategy:
@@ -130,30 +141,37 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Set up the toolchain, the pinned CLI and the test root
         uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
+          integration: 'true'
 
+      # `pnpm check:full` is check, cli:fetch (in the setup action) and
+      # test:integration; split into steps so a failure names its phase.
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
+
+      - name: Integration tests against the pinned CLI
+        run: pnpm run test:integration
 
   windows:
     name: windows (node 22)
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: windows-2025
-    # K15 (ADR-0014 amendment 4): estimated p95 x 2, from measurements of
-    # 2026-10-13. Run 38378992857 reached `vitest` 3 min 20 s after the job
-    # started (setup 65 s, static checks with a clean build 136 s). The test
-    # step takes 28 s on a local Windows 11 host; Linux CI runs the suite
-    # 2.6x slower than that host, so about 75 s here, plus about 40 s for the
-    # API reports, the privacy scan and the post steps. Job about 5.5 min,
-    # p95 taken as 7 min. Estimate, not yet a measured CI p95: re-size from
-    # the first green runs. Provisional 20 until then (lead): the 27 s CIM
-    # query cause is inferred, and a cancelled run loses the test output that
-    # would show whether it was right.
-    timeout-minutes: 20
+    # K15 (ADR-0014 amendment 7): measured p95 x 2, two samples. Run
+    # 38984419589 (W7-T1 round B): 24.9 min (setup with the CLI fetch 77 s,
+    # addon build 21 s, check 532 s, OS coverage 113 s, integration 731 s,
+    # including about 105 s the child-launch probe lost to PowerShell in the
+    # sandbox, removed since, and one 60 s hang-guard expiry). Run
+    # 38989536648 (round C): 22.5 min (78 s, 23 s, 503 s, 98 s, 618 s).
+    # p95 (the maximum of 2) 24.9 min; x 2 = 49.8, rounded up to 50.
+    # Re-size as runs accumulate.
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:
@@ -162,10 +180,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up the toolchain
+      - name: Set up the toolchain, the pinned CLI and the test root
         uses: ./.github/actions/setup
         with:
           node-version: '22'
+          integration: 'true'
 
       # Windows checks exercise the real job addon (plan §6.2, lead rulings on
       # A2): it is built here with the image's default toolset and staged; the
@@ -223,16 +242,23 @@ jobs:
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
 
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
+
+      - name: Integration tests against the pinned CLI
+        run: pnpm run test:integration
+
   macos:
     name: macos (darwin-arm64, node 22)
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: macos-15
-    # K15: estimated p95 x 2. The last two runs took 68 s (green) and 78 s
-    # (tests failed after 21 s); the launcher and leak tests that now run in
-    # full add about 25 s. Job about 2 min, p95 taken as 3 min. Static checks,
-    # unit and conformance only until the macOS gate passes (K15).
-    timeout-minutes: 6
+    # K15: measured p95 x 2. With the OS-scoped coverage step (W7-T1): run
+    # 38984419589 1.8 min (setup 15 s, check 82 s, OS coverage 6 s), run
+    # 38989536648 2.0 min (13 s, 94 s, 7 s); earlier runs 68 s and 78 s.
+    # p95 2.0 min; x 2 = 4.0. Static checks, unit and conformance only until the macOS gate
+    # passes (K15).
+    timeout-minutes: 4
     permissions:
       contents: read
     steps:
@@ -248,6 +274,9 @@ jobs:
 
       - name: Check (format, build, lint, depcruise, tests with coverage, API reports, privacy)
         run: pnpm run check
+
+      - name: OS-scoped coverage of the syscall adapters (plan §4.8)
+        run: pnpm exec vitest run --coverage --config vitest.os.config.ts
 
   ci-gate:
     name: ci-gate
