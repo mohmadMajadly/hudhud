@@ -10,7 +10,7 @@
 // Opt-in real check of the pin against the registry (downloads ~170 MB):
 //   node tooling/test-support/bin/fetch-cli.mjs --platform linux-x64 --platform win32-x64
 
-import { appendFile } from 'node:fs/promises';
+import { appendFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -28,4 +28,6 @@ process.exitCode = await runFetchCli({
   stdout: (text) => process.stdout.write(text),
   stderr: (text) => process.stderr.write(text),
   appendFile: (file, text) => appendFile(file, text, 'utf8'),
+  writeFile: (file, text) => writeFile(file, text, { encoding: 'utf8', mode: 0o600 }),
+  removeFile: (file) => rm(file, { force: true }),
 });

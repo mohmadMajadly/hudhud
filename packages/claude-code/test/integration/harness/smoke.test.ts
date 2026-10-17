@@ -17,7 +17,7 @@ test('connect, create a session, run one text turn against the mock, close', asy
   const harness = await suite.testConnect();
   expect(harness.binary.path).toBe(suite.cli.binaryPath);
   expect(harness.binary.version).toBe(suite.cli.version);
-  expect(harness.compat.status).toBe('tested');
+  expect(harness.compat.status).toBe(suite.expectedCompatStatus);
 
   const session = await harness.sessions.create();
   const sandbox = await suite.sandbox();

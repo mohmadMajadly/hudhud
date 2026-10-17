@@ -11,6 +11,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { cliChannel } from '../../../../../tooling/test-support/src/launcher/pinned-cli.js';
 import type { ClaudeIntegrationSuite, JobAddonMode } from '../support/harness.js';
 
 import { hostPolicyEnv } from '../../../../../tooling/test-support/src/launcher/host-policy.js';
@@ -89,6 +90,9 @@ export async function startCrashHost(
     JSON.stringify({
       repoRoot: REPO_ROOT,
       cacheRoot: suite.cli.cacheRoot,
+      // The host verifies the CLI against the same pin: the canary's run pin
+      // on the newest channel (K16), the repository pin otherwise.
+      cliChannel: cliChannel(process.env),
       binaryPath: suite.cli.binaryPath,
       sandbox: {
         dirs: sandbox.dirs,

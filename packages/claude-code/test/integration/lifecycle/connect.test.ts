@@ -20,6 +20,8 @@ function entry(entries: readonly SecurityPostureEntry[], setting: string): Secur
 
 // 05 §1 (the pinned binary and its sha256), K4 (one probe), K8/K9 (advisory
 // verification against the digest table), ADR-0004 §4 (the tested window).
+// The pinned CLI is verified and tested; the canary's newer CLI (K16) is
+// neither, and connect says so without refusing it.
 test('connect: binary info, compat, capabilities and posture of the pinned CLI', async () => {
   const harness = await suite.testConnect();
 
@@ -27,12 +29,7 @@ test('connect: binary info, compat, capabilities and posture of the pinned CLI',
     path: suite.cli.binaryPath,
     version: suite.cli.version,
     source: 'option',
-    verification: {
-      status: 'verified',
-      method: 'sha256-manifest',
-      mode: 'advisory',
-      detail: `sha256 matches ${suite.cli.version}`,
-    },
+    verification: suite.expectedVerification,
   });
 
   // The pin is the tested window (K16: the bump moves both together).
@@ -42,7 +39,7 @@ test('connect: binary info, compat, capabilities and posture of the pinned CLI',
     minTested: CLAUDE_CODE_COMPAT.minTested,
     maxTested: CLAUDE_CODE_COMPAT.maxTested,
     knownBroken: [...CLAUDE_CODE_COMPAT.knownBroken],
-    status: 'tested',
+    status: suite.expectedCompatStatus,
   });
 
   const { capabilities } = harness;
@@ -150,7 +147,7 @@ test('version drift reporting: no drift between the probe and the running CLI', 
     const events = await recording.done;
     expect(diagnostics(events, 'binary.version-changed')).toEqual([]);
     expect(ofType(events, 'session.started')[0]?.version).toBe(harness.binary.version);
-    expect(ofType(events, 'compat')[0]?.compat.status).toBe('tested');
+    expect(ofType(events, 'compat')[0]?.compat.status).toBe(suite.expectedCompatStatus);
     const turnStarted = ofType(events, 'turn.started')[0];
     expect(JSON.stringify(turnStarted?.raw)).toContain(
       `"claude_code_version":"${harness.binary.version}"`,

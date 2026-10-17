@@ -285,7 +285,10 @@ test('session(): one call opens a session on the pinned CLI; it closes and nothi
   expect(result).toMatchObject({ outcome: 'completed', text: reply });
   await session.close();
   const events = await recording.done;
-  expect(events[0]).toMatchObject({ type: 'compat', compat: { status: 'tested' } });
+  expect(events[0]).toMatchObject({
+    type: 'compat',
+    compat: { status: suite.expectedCompatStatus },
+  });
   expect(ofType(events, 'message.delta').length).toBeGreaterThan(0);
   expect(terminatedOf(events)).toMatchObject({ intent: 'close', outcome: 'closed' });
 });

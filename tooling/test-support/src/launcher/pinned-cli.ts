@@ -9,6 +9,11 @@
  * binary is hashed once per {@link resolvePinnedCli}; every launch re-checks
  * its file identity, size and mtime against that verification (§4.6 step 5)
  * and that it still lies under the cache root.
+ *
+ * The canary (K16, plan §4.1) runs the same suites with
+ * `HUDHUD_CLI_CHANNEL=newest`: the pin is then the run-local one that
+ * `fetch-cli --channel newest` recorded from the registry and wrote into the
+ * cache root, and the binary is verified against it in exactly the same way.
  */
 
 import type { BigIntStats } from 'node:fs';
@@ -18,6 +23,7 @@ import path from 'node:path';
 import { sha256File } from '@hudhudjs/core/process';
 
 import { CliFetchError } from '../cli/errors.js';
+import { runPinFile } from '../cli/newest.js';
 import { hostPlatform, libcFromReport, loadPin } from '../cli/pin.js';
 import type { CliPin } from '../cli/pin.js';
 import { verifyPinnedCli } from '../cli/pinned.js';
@@ -42,11 +48,14 @@ export interface VerifiedCli extends CliBinary {
 export interface PinnedCliOptions {
   /** Absolute repository root. */
   readonly repoRoot: string;
-  /** Environment for `HUDHUD_CLI_CACHE` and `HUDHUD_CLI_LIBC`. */
+  /** Environment for `HUDHUD_CLI_CACHE`, `HUDHUD_CLI_LIBC` and `HUDHUD_CLI_CHANNEL`. */
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Cache root; default `HUDHUD_CLI_CACHE`, else `<repoRoot>/.cache/claude-cli`. */
   readonly cacheRoot?: string | undefined;
-  /** Pin file; default `<repoRoot>/tooling/cli-pin.json`. */
+  /**
+   * Pin file; default `<repoRoot>/tooling/cli-pin.json`, or the run-local
+   * `<cacheRoot>/run-pin.json` when `HUDHUD_CLI_CHANNEL` is `newest`.
+   */
   readonly pinFile?: string | undefined;
   /** Pin platform key; default the host's (`win32-x64`, `linux-x64`, ...). */
   readonly platformKey?: string | undefined;
@@ -108,9 +117,41 @@ export function isInside(root: string, file: string): boolean {
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-/** The pin file of the options: the repository pin unless another is named. */
-function pinFileOf(options: PinnedCliOptions): string {
-  return options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json');
+/** The CLI channel of a run (`HUDHUD_CLI_CHANNEL`, plan §4.1): `pinned` unless set. */
+export function cliChannel(env: Readonly<Record<string, string | undefined>>): 'pinned' | 'newest' {
+  const channel = env['HUDHUD_CLI_CHANNEL'];
+  if (channel === undefined || channel === '' || channel === 'pinned') return 'pinned';
+  if (channel === 'newest') return 'newest';
+  throw new CliFetchError(
+    'pin-invalid',
+    `HUDHUD_CLI_CHANNEL must be pinned or newest, got ${JSON.stringify(channel)}`,
+  );
+}
+
+/**
+ * The pin file of the options: the one named, else on the `newest` channel
+ * the canary's run-local pin in the cache root (written by `fetch-cli
+ * --channel newest`, K16), else the repository pin.
+ */
+async function loadPinOf(
+  options: PinnedCliOptions,
+): Promise<{ readonly pin: CliPin; readonly cacheRoot: string }> {
+  const cacheRoot = options.cacheRoot ?? defaultCacheRoot(options.repoRoot, options.env);
+  if (options.pinFile !== undefined || cliChannel(options.env) === 'pinned') {
+    const file = options.pinFile ?? path.join(options.repoRoot, 'tooling', 'cli-pin.json');
+    return { pin: await loadPin(file), cacheRoot };
+  }
+  const file = runPinFile(cacheRoot);
+  try {
+    return { pin: await loadPin(file), cacheRoot };
+  } catch (error) {
+    if (error instanceof CliFetchError) throw error;
+    throw new CliFetchError(
+      'cache-invalid',
+      `HUDHUD_CLI_CHANNEL=newest but no run-local pin at ${file}; run \`node tooling/test-support/bin/fetch-cli.mjs --channel newest\` first`,
+      { cause: error },
+    );
+  }
 }
 
 /** sha256 of the running Node.js binary, read once per process. */
@@ -156,8 +197,7 @@ const ISSUED = new WeakSet<VerifiedCli>();
  *   a verifying copy (run `pnpm cli:fetch`).
  */
 export async function resolvePinnedCli(options: PinnedCliOptions): Promise<VerifiedCli> {
-  const cacheRoot = options.cacheRoot ?? defaultCacheRoot(options.repoRoot, options.env);
-  const pin = await loadPin(pinFileOf(options));
+  const { pin, cacheRoot } = await loadPinOf(options);
   const platform = options.platformKey ?? hostPlatformKey(options.env);
   const hostPlatformName = options.hostPlatform ?? process.platform;
   await refuseRealCliHost(pin, platform, hostPlatformName);
@@ -201,12 +241,13 @@ export type PinnedCliProbe =
  * entry, and a platform whose pin entry is pending its gate (the darwin
  * entries were, until the macOS gate pinned them, research 11), instead of
  * throwing, for tests that run only when the pinned CLI was already
- * fetched: they skip with the reason. Other failures (an invalid pin) still
- * throw.
+ * fetched: they skip with the reason. Other failures (an invalid pin, and on
+ * the `newest` channel a missing run-local pin: the canary never skips)
+ * still throw.
  */
 export async function probePinnedCli(options: PinnedCliOptions): Promise<PinnedCliProbe> {
   const platform = options.platformKey ?? hostPlatformKey(options.env);
-  const pin = await loadPin(pinFileOf(options));
+  const { pin } = await loadPinOf(options);
   const entry = pin.platforms.get(platform);
   if (entry !== undefined && 'pendingGate' in entry) {
     return {
