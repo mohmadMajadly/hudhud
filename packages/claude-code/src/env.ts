@@ -38,6 +38,7 @@ import { InvalidOptionsError, isCredentialEnvName, type EnvMap } from '@hudhudjs
 import { WIN32_REQUIRED_ENV_NAMES, type ProcessPlatform } from '@hudhudjs/core/process';
 
 import type { EffectiveConnectOptions, EffectiveSessionOptions } from './options-types.js';
+import { isProjectCredentialEnvName } from './settings-guard.js';
 
 /**
  * Variables hudhud sets or removes itself. Options can neither add nor
@@ -133,22 +134,70 @@ const WIN32_EXACT = new Set(
     'APPDATA',
     'LOCALAPPDATA',
     'PROGRAMDATA',
+    // PowerShell's module search path and its analysis cache file: paths,
+    // not credentials, so the CLI's PowerShell tools see the modules the user
+    // installed outside the default directories (review R2-6, ADR-0012 §4).
+    'PSMODULEPATH',
+    'PSMODULEANALYSISCACHEPATH',
   ].map((name) => name.toUpperCase()),
 );
 const WIN32_PREFIXES = [...COMMON_PREFIXES, 'PROGRAMFILES'];
 
 /**
  * Provider families, passed on only when the provider switch is on in the
- * child environment (ADR-0012 §4).
+ * child environment (ADR-0012 §4). Each family holds the companion variables
+ * the pinned CLI (2.1.296, static strings) reads for that provider beyond
+ * `ANTHROPIC_*` (which `'harness'` passes anyway): Bedrock the AWS SDK's
+ * `AWS_*`; Vertex the Google auth library's `GOOGLE_*` and `GCLOUD_*`
+ * (`GCLOUD_PROJECT` next to `GOOGLE_CLOUD_PROJECT` in the project lookup),
+ * `CLOUD_ML_*` (`CLOUD_ML_REGION`) and the CLI's own `VERTEX_*`
+ * (`VERTEX_REGION_CLAUDE_*` per-model regions, `VERTEX_AUTH_HOSTS`,
+ * `VERTEX_OAUTH_CREDENTIAL_KIND`); Foundry the Azure identity library's
+ * `AZURE_*`. These are the user's own parent environment, not repository
+ * input (review FX-A follow-up, lead ruling on Q3).
+ *
+ * The three further switches of 2.1.296 map the same way, from their client
+ * construction code: Claude Platform on AWS (`CLAUDE_CODE_USE_ANTHROPIC_AWS`,
+ * the `AnthropicAws` client: the AWS credential chain, `AWS_REGION` /
+ * `AWS_DEFAULT_REGION`, a profile from `~/.aws/config`) and Bedrock Mantle
+ * (`CLAUDE_CODE_USE_MANTLE`, the `AnthropicBedrockMantle` client:
+ * `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_BEARER_TOKEN_BEDROCK` and the
+ * same credential chain) read `AWS_*`; the CLI itself groups both with
+ * Bedrock as its AWS providers. Claude Platform on Google Cloud
+ * (`CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD`, the `AnthropicGoogleCloud`
+ * client) reads `GCLOUD_PROJECT`, `GOOGLE_CLOUD_PROJECT` and Google auth's
+ * `GOOGLE_*`, not `CLOUD_ML_*` or `VERTEX_*`. Both Google providers also read
+ * the lower-case `gcloud_project` and `google_cloud_project` (exact names).
  */
 const PROVIDER_FAMILIES: readonly {
   readonly flag: string;
   readonly prefixes: readonly string[];
+  /** Exact names, compared as the OS compares names. */
+  readonly names: readonly string[];
 }[] = [
-  { flag: 'CLAUDE_CODE_USE_BEDROCK', prefixes: ['AWS_'] },
-  { flag: 'CLAUDE_CODE_USE_VERTEX', prefixes: ['GOOGLE_', 'CLOUD_ML_'] },
-  { flag: 'CLAUDE_CODE_USE_FOUNDRY', prefixes: ['AZURE_'] },
+  { flag: 'CLAUDE_CODE_USE_BEDROCK', prefixes: ['AWS_'], names: [] },
+  { flag: 'CLAUDE_CODE_USE_ANTHROPIC_AWS', prefixes: ['AWS_'], names: [] },
+  { flag: 'CLAUDE_CODE_USE_MANTLE', prefixes: ['AWS_'], names: [] },
+  {
+    flag: 'CLAUDE_CODE_USE_VERTEX',
+    prefixes: ['GOOGLE_', 'GCLOUD_', 'CLOUD_ML_', 'VERTEX_'],
+    names: ['gcloud_project', 'google_cloud_project'],
+  },
+  {
+    flag: 'CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD',
+    prefixes: ['GOOGLE_', 'GCLOUD_'],
+    names: ['gcloud_project', 'google_cloud_project'],
+  },
+  { flag: 'CLAUDE_CODE_USE_FOUNDRY', prefixes: ['AZURE_'], names: [] },
 ];
+
+/** The provider variables the switches that are on let through. */
+export interface ActiveProviders {
+  readonly prefixes: readonly string[];
+  readonly names: readonly string[];
+}
+
+const NO_PROVIDERS: ActiveProviders = { prefixes: [], names: [] };
 
 /** The CLI's reading of a boolean switch. */
 function isTruthy(value: string | undefined): boolean {
@@ -158,12 +207,12 @@ function isTruthy(value: string | undefined): boolean {
 /**
  * Whether the `'harness'` preset passes the parent variable `name` on: OS
  * essentials, `CLAUDE_*`, `ANTHROPIC_*`, proxy and CA variables, and the
- * provider families whose switch is on (`activeProviderPrefixes`).
+ * provider families whose switch is on (`active`).
  */
 export function isHarnessAllowed(
   name: string,
   platform: ProcessPlatform,
-  activeProviderPrefixes: readonly string[] = [],
+  active: ActiveProviders = NO_PROVIDERS,
 ): boolean {
   if (isNeverInherited(name, platform)) return false;
   const key = fold(name, platform);
@@ -172,7 +221,8 @@ export function isHarnessAllowed(
   return (
     exact.has(key) ||
     prefixes.some((prefix) => key.startsWith(prefix)) ||
-    activeProviderPrefixes.some((prefix) => key.startsWith(prefix))
+    active.prefixes.some((prefix) => key.startsWith(fold(prefix, platform))) ||
+    active.names.some((known) => key === fold(known, platform))
   );
 }
 
@@ -206,14 +256,17 @@ const ROUTING_PREFIXES = [
  * explicit map) is listed in `securityPosture` (K19): credentials, API
  * routing (`ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, provider families, proxies,
  * CA and TLS settings), runtime injection (`NODE_OPTIONS`) and nesting
- * markers, and every name the redaction treats as a secret. Any case.
+ * markers, every name the redaction treats as a secret, and every name the
+ * project credential guard refuses ({@link isProjectCredentialEnvName}), so
+ * the two lists cannot drift apart. Any case.
  */
 export function isCredentialOrRoutingEnvName(name: string): boolean {
   const key = name.toUpperCase();
   return (
     ROUTING_EXACT.has(key) ||
     ROUTING_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
-    isCredentialEnvName(name)
+    isCredentialEnvName(name) ||
+    isProjectCredentialEnvName(name)
   );
 }
 
@@ -380,13 +433,13 @@ export function buildChildEnv(
   };
 }
 
-/** Prefixes of the provider families whose switch is on in the child environment. */
+/** The provider variables of the families whose switch is on in the child environment. */
 function activeProviders(
   parentEntries: readonly (readonly [string, string])[],
   add: Readonly<Record<string, string>>,
   remove: readonly string[],
   platform: ProcessPlatform,
-): string[] {
+): ActiveProviders {
   const lookup = (flag: string): string | undefined => {
     for (const [name, value] of Object.entries(add)) {
       if (fold(name, platform) === flag) return value;
@@ -394,9 +447,11 @@ function activeProviders(
     if (remove.some((name) => fold(name, platform) === flag)) return undefined;
     return parentEntries.find(([name]) => fold(name, platform) === flag)?.[1];
   };
-  return PROVIDER_FAMILIES.filter((family) => isTruthy(lookup(family.flag))).flatMap(
-    (family) => family.prefixes,
-  );
+  const on = PROVIDER_FAMILIES.filter((family) => isTruthy(lookup(family.flag)));
+  return {
+    prefixes: on.flatMap((family) => family.prefixes),
+    names: on.flatMap((family) => family.names),
+  };
 }
 
 /**

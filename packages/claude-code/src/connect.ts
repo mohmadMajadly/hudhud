@@ -332,7 +332,7 @@ export async function sessionWith(
   // Validation, then the guard and the cwd, before anything is spawned.
   const validated = validateSession(host, connect, { effective, launch });
   throwIfAborted(signal);
-  const prepared = await prepareSession(host, connect, effective);
+  const prepared = await prepareSession(host, connect, effective, validated.env);
   throwIfAborted(signal);
   const harness = new ClaudeHarness(await establish(host, connect, signal));
   let session: Session;

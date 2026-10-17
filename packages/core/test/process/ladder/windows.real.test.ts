@@ -20,6 +20,7 @@ import {
   createTaskkillCalls,
   DEFAULT_TASKKILL_TIMEOUT_MS,
   nodeTaskkillDeps,
+  resolveSystem32PowerShell,
   resolveTaskkillPath,
   type TaskkillExecFile,
   type TaskkillExecOptions,
@@ -38,7 +39,9 @@ const WINDOWS = process.platform === 'win32';
  * without a product bound to size their hang guards from.
  */
 function cimTable(): Win32CimTableCalls {
-  return createWin32CimTableCalls();
+  return createWin32CimTableCalls({
+    powershell: () => resolveSystem32PowerShell({ env: process.env, ...nodeTaskkillDeps }),
+  });
 }
 
 // Hang guards (vitest.config.ts HANG_GUARD_MS, W3-Z ruling 4): each test's

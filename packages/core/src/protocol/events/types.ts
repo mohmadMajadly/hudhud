@@ -140,6 +140,8 @@ export type DiagnosticCode =
   | 'events.pre-handshake-truncated'
   | 'security.posture'
   | 'settings-guard.allowed'
+  | 'settings-guard.git-root-unresolved'
+  | 'settings-guard.symlink-followed'
   | 'session.id-in-use'
   | (string & {});
 

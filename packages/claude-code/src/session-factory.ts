@@ -125,7 +125,6 @@ import type { SessionClaim, SessionRegistry } from './registry.js';
 import {
   checkProjectCredentialEnv,
   scanProjectSettings,
-  userConfigDirOf,
   type SettingsGuardDeps,
 } from './settings-guard.js';
 import { RawChannel } from './raw-channel.js';
@@ -236,13 +235,28 @@ function withExtraEnv(
   return Object.fromEntries([...kept, ...Object.entries(extra)]);
 }
 
-function guardDeps(host: ClaudeHost, connect: EffectiveConnectOptions): SettingsGuardDeps {
+/**
+ * The guard's host dependencies. The user's config directory is resolved
+ * from the child environment `env`, the one the CLI runs with, exactly as
+ * the posture resolves it (review R1-4): with an explicit env map the
+ * parent's `CLAUDE_CONFIG_DIR` does not reach the CLI.
+ */
+function guardDeps(
+  host: ClaudeHost,
+  connect: EffectiveConnectOptions,
+  env: Readonly<Record<string, string>>,
+): SettingsGuardDeps {
   const platform = platformOf(host);
   return {
     fs: host.guardFs,
     platform,
     processCwd: host.cwd(),
-    userConfigDir: userConfigDirOf(connect.configDir, host.env, host.homedir, platform),
+    userConfigDir: userConfigDir({
+      configDir: connect.configDir,
+      env,
+      homedir: host.homedir,
+      platform,
+    }),
   };
 }
 
@@ -286,6 +300,7 @@ export function validateSession(
 /**
  * The project credential guard, then the cwd (step 2 of the module remarks).
  *
+ * @param env - the child environment of step 1 ({@link ValidatedSession.env})
  * @throws `ProjectCredentialEnvError`, `CwdInvalidError`, `CwdTooLongError`
  * @internal
  */
@@ -293,8 +308,9 @@ export async function prepareSession(
   host: ClaudeHost,
   connect: EffectiveConnectOptions,
   effective: EffectiveSessionOptions,
+  env: Readonly<Record<string, string>>,
 ): Promise<PreparedSession> {
-  const deps = guardDeps(host, connect);
+  const deps = guardDeps(host, connect, env);
   const diagnostics: BindingDiagnostic[] = [];
   let projectSettings: ProjectSettingsEnvFlags | undefined;
   if (effective.projectCredentialEnv === 'allow') {
@@ -512,7 +528,7 @@ export async function openSession(harness: SessionHost, request: SessionRequest)
   throwIfAborted(signal);
 
   // 2. The guard, then the cwd.
-  const prepared = request.prepared ?? (await prepareSession(host, connect, effective));
+  const prepared = request.prepared ?? (await prepareSession(host, connect, effective, env));
   throwIfAborted(signal);
 
   // 3. The session's posture (K19, K23).

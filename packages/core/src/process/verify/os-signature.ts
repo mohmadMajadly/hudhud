@@ -9,9 +9,11 @@
  * -NoProfile -NonInteractive -Command <script> <path>`.
  *
  * - The executable is taken by absolute path under a validated
- *   `%SystemRoot%` (`systemRootFrom`, as for `taskkill.exe`), and its
- *   realpath must equal that path: a junction or link that redirects
- *   `System32` is refused, as is anything but a regular file.
+ *   `%SystemRoot%`, and its realpath must equal that path: a junction or
+ *   link that redirects `System32` is refused, as is anything but a regular
+ *   file. The resolution is `resolveSystem32PowerShell` of `taskkill.ts`,
+ *   shared with `taskkill.exe` and the CIM process table; the working
+ *   directory is `System32`.
  * - The binary path is never interpolated into script text. The script is a
  *   constant; the path is a separate argv entry. PowerShell appends the argv
  *   entries after `-Command <script>` to the command text, so the script ends
@@ -109,7 +111,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 
 import { system32Layout } from '../os/win32.js';
-import { systemRootFrom } from '../taskkill.js';
+import { checkExecutablePath, resolveSystem32PowerShell } from '../taskkill.js';
 import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './command.js';
 
 /**
@@ -299,33 +301,6 @@ export function authenticodeArgv(binaryPath: string): readonly string[] {
   return [...POWERSHELL_ARGS, AUTHENTICODE_SCRIPT, binaryPath];
 }
 
-/**
- * Checks the checker's executable: its realpath must be `expected` itself
- * and a regular file.
- *
- * @returns `undefined` when it may run, else why it is refused
- */
-async function checkedExecutable(
-  fs: SignatureFs,
-  expected: string,
-  caseInsensitive: boolean,
-): Promise<string | undefined> {
-  let resolved: string;
-  let regular: boolean;
-  try {
-    resolved = await fs.realpath(expected);
-    const stats = await fs.lstat(resolved);
-    regular = stats.isFile() && !stats.isSymbolicLink();
-  } catch {
-    return 'not-found';
-  }
-  const same = caseInsensitive
-    ? resolved.toLowerCase() === expected.toLowerCase()
-    : resolved === expected;
-  if (!same) return 'redirected';
-  return regular ? undefined : 'not-regular-file';
-}
-
 function describeFailure(outcome: CommandOutcome): string {
   if (outcome.kind === 'exited') {
     return `exit ${outcome.exitCode === null ? (outcome.signal ?? 'unknown') : String(outcome.exitCode)}`;
@@ -336,17 +311,16 @@ function describeFailure(outcome: CommandOutcome): string {
 
 async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<OsSignatureResult> {
   const args = authenticodeArgv(binaryPath);
-  const root = systemRootFrom(deps.hostEnv);
-  if (!root.ok) return { kind: 'invalid', detail: `powershell unavailable: ${root.reason}` };
-  const layout = system32Layout(root.root);
-  const refusal = await checkedExecutable(deps.fs, layout.powershell, true);
-  if (refusal !== undefined)
-    return { kind: 'invalid', detail: `powershell unavailable: ${refusal}` };
+  const powershell = await resolveSystem32PowerShell({ env: deps.hostEnv, fs: deps.fs });
+  if (!powershell.ok) {
+    return { kind: 'invalid', detail: `powershell unavailable: ${powershell.reason}` };
+  }
+  const layout = system32Layout(powershell.systemRoot);
   const outcome = await deps.run({
     file: layout.powershell,
     args,
     env: layout.env,
-    cwd: `${root.root}\\System32`,
+    cwd: `${powershell.systemRoot}\\System32`,
     platform: 'win32',
     timeoutMs: deps.timeoutMs ?? DEFAULT_SIGNATURE_TIMEOUT_MS,
     maxStdoutBytes: MAX_SIGNATURE_OUTPUT_BYTES,
@@ -417,8 +391,10 @@ async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsS
   if (!TEAM_ID.test(teamId)) {
     return { kind: 'invalid', detail: 'codesign not run: the pinned Team ID is malformed' };
   }
-  const refusal = await checkedExecutable(deps.fs, CODESIGN_PATH, false);
-  if (refusal !== undefined) return { kind: 'invalid', detail: `codesign unavailable: ${refusal}` };
+  const codesign = await checkExecutablePath(deps.fs, CODESIGN_PATH, false);
+  if (!codesign.ok) {
+    return { kind: 'invalid', detail: `codesign unavailable: ${codesign.reason}` };
+  }
   const outcome = await deps.run({
     file: CODESIGN_PATH,
     // `-R` with a leading `=`: the argument is requirement text, not a file.

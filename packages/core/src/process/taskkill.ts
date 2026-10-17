@@ -34,6 +34,13 @@
  * the spawn; replacing `System32` requires administrator rights, which is
  * outside the threat model.
  *
+ * The resolution (`SystemRoot`, then the realpath check) is
+ * {@link resolveSystem32Executable}, shared with the other System32 tool
+ * hudhud runs, Windows PowerShell (the Authenticode check in
+ * `verify/os-signature.ts` and the CIM process table of `os/win32.ts`, wired
+ * in `spawn.ts`), so every call site applies the same checks and the same
+ * `System32` working directory (review R1-3).
+ *
  * @packageDocumentation
  */
 
@@ -41,6 +48,7 @@ import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 
 import { pathProblem } from './cwd.js';
+import { POWERSHELL_BELOW_SYSTEM32 } from './os/win32.js';
 import { childEnv } from './win32-env.js';
 import type { TaskkillResult, Win32TerminateCalls } from './os/types.js';
 
@@ -199,6 +207,88 @@ function isPlainDrivePath(value: string): boolean {
 }
 
 /**
+ * Why an executable fails {@link checkExecutablePath}.
+ *
+ * @internal
+ */
+export type ExecutableRefusal = Extract<
+  TaskkillRefusal,
+  'not-found' | 'redirected' | 'not-regular-file'
+>;
+
+/**
+ * Checks an executable named by absolute path before it is run: its realpath
+ * must be `expected` itself (case-insensitively on Windows) and a regular
+ * file, so a junction or link that redirects a directory on the way is
+ * refused. The one check of every OS tool hudhud runs by absolute path
+ * (`taskkill.exe`, PowerShell for the Authenticode check and the CIM process
+ * table, `codesign`).
+ *
+ * @internal
+ */
+export async function checkExecutablePath(
+  fs: TaskkillFs,
+  expected: string,
+  caseInsensitive: boolean,
+): Promise<
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly reason: ExecutableRefusal; readonly cause?: unknown }
+> {
+  let resolved: string;
+  let regular: boolean;
+  try {
+    resolved = await fs.realpath(expected);
+    const stats = await fs.lstat(resolved);
+    regular = stats.isFile() && !stats.isSymbolicLink();
+  } catch (error) {
+    return { ok: false, reason: 'not-found', cause: error };
+  }
+  const same = caseInsensitive
+    ? resolved.toLowerCase() === expected.toLowerCase()
+    : resolved === expected;
+  if (!same) return { ok: false, reason: 'redirected' };
+  return regular ? { ok: true, path: resolved } : { ok: false, reason: 'not-regular-file' };
+}
+
+/**
+ * Resolves `%SystemRoot%\System32\<below>` for running: `SystemRoot` through
+ * {@link systemRootFrom} (validated, unambiguous), then
+ * {@link checkExecutablePath}. Every System32 tool hudhud runs goes through
+ * it (`taskkill.exe`, and `powershell.exe` through
+ * {@link resolveSystem32PowerShell}); the caller then runs it with the
+ * current directory `<SystemRoot>\System32`.
+ *
+ * @param below - the path below `System32`, backslash-separated
+ * @returns the realpath to execute and the validated `SystemRoot`, or the
+ *   refusal
+ * @internal
+ */
+export async function resolveSystem32Executable(
+  deps: Pick<TaskkillDeps, 'env' | 'fs'>,
+  below: string,
+): Promise<
+  | { readonly ok: true; readonly path: string; readonly systemRoot: string }
+  | { readonly ok: false; readonly reason: TaskkillRefusal; readonly cause?: unknown }
+> {
+  const root = systemRootFrom(deps.env);
+  if (!root.ok) return root;
+  const checked = await checkExecutablePath(deps.fs, `${root.root}\\System32\\${below}`, true);
+  return checked.ok ? { ok: true, path: checked.path, systemRoot: root.root } : checked;
+}
+
+/**
+ * {@link resolveSystem32Executable} for Windows PowerShell 5.1, which the
+ * Authenticode check and the CIM process table run.
+ *
+ * @internal
+ */
+export function resolveSystem32PowerShell(
+  deps: Pick<TaskkillDeps, 'env' | 'fs'>,
+): ReturnType<typeof resolveSystem32Executable> {
+  return resolveSystem32Executable(deps, POWERSHELL_BELOW_SYSTEM32);
+}
+
+/**
  * Resolves `%SystemRoot%\System32\taskkill.exe` (see the module remarks).
  *
  * @returns the realpath to execute and the validated `SystemRoot`
@@ -208,23 +298,14 @@ function isPlainDrivePath(value: string): boolean {
 export async function resolveTaskkillPath(
   deps: Pick<TaskkillDeps, 'env' | 'fs'>,
 ): Promise<{ readonly path: string; readonly systemRoot: string }> {
-  const root = systemRootFrom(deps.env);
-  if (!root.ok) throw new TaskkillUnavailableError(root.reason);
-  const expected = `${root.root}\\System32\\taskkill.exe`;
-  let resolved: string;
-  let isRegular: boolean;
-  try {
-    resolved = await deps.fs.realpath(expected);
-    const stats = await deps.fs.lstat(resolved);
-    isRegular = stats.isFile() && !stats.isSymbolicLink();
-  } catch (error) {
-    throw new TaskkillUnavailableError('not-found', { cause: error });
+  const resolved = await resolveSystem32Executable(deps, 'taskkill.exe');
+  if (!resolved.ok) {
+    throw new TaskkillUnavailableError(
+      resolved.reason,
+      resolved.cause === undefined ? undefined : { cause: resolved.cause },
+    );
   }
-  if (resolved.toLowerCase() !== expected.toLowerCase()) {
-    throw new TaskkillUnavailableError('redirected');
-  }
-  if (!isRegular) throw new TaskkillUnavailableError('not-regular-file');
-  return { path: resolved, systemRoot: root.root };
+  return { path: resolved.path, systemRoot: resolved.systemRoot };
 }
 
 /** Refuses pids that must never be passed to `taskkill`. */

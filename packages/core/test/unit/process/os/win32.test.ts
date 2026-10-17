@@ -13,15 +13,22 @@ import {
   DEFAULT_LIMITS,
   createWin32CimTableCalls,
   POWERSHELL_ARGS,
+  POWERSHELL_BELOW_SYSTEM32,
   runCommand,
   system32Layout,
-  systemRootOf,
   type CommandRunner,
+  type Win32AdapterOptions,
 } from '../../../../src/process/os/win32.js';
 import { osCallsFor } from '../../../../src/process/spawn.js';
-import { DEFAULT_TASKKILL_TIMEOUT_MS } from '../../../../src/process/taskkill.js';
+import {
+  DEFAULT_TASKKILL_TIMEOUT_MS,
+  resolveSystem32PowerShell,
+  systemRootFrom,
+  type TaskkillFs,
+} from '../../../../src/process/taskkill.js';
 import { findIdentity } from '../../../../src/process/tree/descendants.js';
 import { compareStartTime } from '../../../../src/process/tree/start-time.js';
+import type { Win32CimTableCalls } from '../../../../src/process/os/types.js';
 import type { ProcessRecord } from '../../../../src/process/tree/types.js';
 import { parseWin32ProcessJson } from '../../../../src/process/tree/win32.js';
 import {
@@ -72,38 +79,88 @@ function recorder(exitCode: number | null = 0): {
   const calls: unknown[] = [];
   return {
     calls,
-    run: (file, args, env) => {
-      calls.push({ file, args, env });
+    run: (file, args, env, cwd) => {
+      calls.push({ file, args, env, cwd });
       return Promise.resolve({ exitCode, stdout: new Uint8Array([0x5b, 0x5d]) });
     },
   };
 }
 
-describe('systemRootOf', () => {
-  it('accepts a plain absolute drive path under any case of the name', () => {
-    expect(systemRootOf({ SystemRoot: 'C:\\Windows' })).toBe('C:\\Windows');
-    expect(systemRootOf({ systemroot: 'c:\\WINDOWS' })).toBe('c:\\WINDOWS');
-    expect(systemRootOf({ SYSTEMROOT: 'E:\\OS\\Win dows' })).toBe('E:\\OS\\Win dows');
+/** A filesystem where every path is itself, a regular file, unless overridden. */
+function fakeFs(overrides: Partial<TaskkillFs> = {}): TaskkillFs & { readonly seen: string[] } {
+  const seen: string[] = [];
+  return {
+    seen,
+    realpath: (file) => {
+      seen.push(`realpath:${file}`);
+      return Promise.resolve(file);
+    },
+    lstat: () => Promise.resolve({ isFile: () => true, isSymbolicLink: () => false }),
+    ...overrides,
+  };
+}
+
+/** The host's process table as production wires it (`osCallsFor`, spawn.ts). */
+function hostCimTable(): Win32CimTableCalls {
+  const calls = osCallsFor('win32', process.pid);
+  if (calls.platform !== 'win32') throw new Error('osCallsFor(win32) returned another platform');
+  return calls.processTable;
+}
+
+/** The production resolution (spawn.ts) over a fake host. */
+function resolver(
+  env: Readonly<Record<string, string | undefined>>,
+  fs: TaskkillFs = fakeFs(),
+): Win32AdapterOptions['powershell'] {
+  return () => resolveSystem32PowerShell({ env, fs });
+}
+
+describe('resolveSystem32PowerShell (shared with taskkill.exe and the Authenticode check)', () => {
+  it('resolves powershell.exe under a validated SystemRoot, by realpath', async () => {
+    const fs = fakeFs();
+    await expect(resolveSystem32PowerShell({ env: HOST_ENV, fs })).resolves.toEqual({
+      ok: true,
+      path: 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      systemRoot: 'D:\\Win',
+    });
+    expect(fs.seen).toEqual([
+      'realpath:D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    ]);
+    expect(system32Layout('D:\\Win').powershell).toBe(
+      `D:\\Win\\System32\\${POWERSHELL_BELOW_SYSTEM32}`,
+    );
   });
 
   it.each([
-    [{}],
-    [{ SystemRoot: undefined }],
-    [{ SystemRoot: '' }],
-    [{ SystemRoot: 'Windows' }],
-    [{ SystemRoot: 'C:' }],
-    [{ SystemRoot: 'C:\\' }],
-    [{ SystemRoot: 'C:\\Windows\\' }],
-    [{ SystemRoot: 'C:Windows' }],
-    [{ SystemRoot: '\\\\server\\share\\Windows' }],
-    [{ SystemRoot: '\\\\?\\C:\\Windows' }],
-    [{ SystemRoot: 'C:\\Windows\\..\\Users\\x' }],
-    [{ SystemRoot: 'C:\\.\\Windows' }],
-    [{ SystemRoot: 'C:/Windows' }],
-    [{ SystemRoot: 'C:\\Win\ndows' }],
-    [{ SystemRoot: 'C:\\Win:dows' }],
-  ])('refuses %j', (env) => {
-    expect(() => systemRootOf(env)).toThrow(/SystemRoot/);
+    [{ SystemRoot: 'C:\\Windows', SYSTEMROOT: 'D:\\Evil' }, 'system-root-ambiguous'],
+    [{ SystemRoot: 'C:\\Windows\\..\\Users\\x' }, 'system-root-invalid'],
+    [{ SystemRoot: '\\\\server\\share\\Windows' }, 'system-root-invalid'],
+    [{ SystemRoot: 'C:\\Win\ndows' }, 'system-root-invalid'],
+  ])('refuses SystemRoot %j (%s)', async (env, reason) => {
+    await expect(resolveSystem32PowerShell({ env, fs: fakeFs() })).resolves.toMatchObject({
+      ok: false,
+      reason,
+    });
+  });
+
+  it('refuses a System32 redirected by a junction, a link and a missing file', async () => {
+    const redirected = fakeFs({ realpath: () => Promise.resolve('E:\\planted\\powershell.exe') });
+    await expect(resolveSystem32PowerShell({ env: HOST_ENV, fs: redirected })).resolves.toEqual({
+      ok: false,
+      reason: 'redirected',
+    });
+    const link = fakeFs({
+      lstat: () => Promise.resolve({ isFile: () => false, isSymbolicLink: () => true }),
+    });
+    await expect(resolveSystem32PowerShell({ env: HOST_ENV, fs: link })).resolves.toEqual({
+      ok: false,
+      reason: 'not-regular-file',
+    });
+    const missing = fakeFs({ realpath: () => Promise.reject(new Error('ENOENT')) });
+    await expect(resolveSystem32PowerShell({ env: HOST_ENV, fs: missing })).resolves.toMatchObject({
+      ok: false,
+      reason: 'not-found',
+    });
   });
 });
 
@@ -131,9 +188,10 @@ describe('system32Layout', () => {
 });
 
 describe('createWin32CimTableCalls', () => {
-  it('runs exactly powershell.exe -NoProfile -NonInteractive -Command <script> by absolute path', async () => {
+  it('runs exactly powershell.exe -NoProfile -NonInteractive -Command <script> by absolute path, in System32', async () => {
     const { run, calls } = recorder();
-    const table = createWin32CimTableCalls({ hostEnv: HOST_ENV, run });
+    const fs = fakeFs();
+    const table = createWin32CimTableCalls({ powershell: resolver(HOST_ENV, fs), run });
     expect(table.source).toBe('win32-cim');
     await expect(table.queryProcesses()).resolves.toEqual(new Uint8Array([0x5b, 0x5d]));
     expect(calls).toEqual([
@@ -141,7 +199,13 @@ describe('createWin32CimTableCalls', () => {
         file: 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
         args: ['-NoProfile', '-NonInteractive', '-Command', CIM_SCRIPT],
         env: system32Layout('D:\\Win').env,
+        // Review R1-3: never the host's current directory.
+        cwd: 'D:\\Win\\System32',
       },
+    ]);
+    // The realpath check ran at the query, as for taskkill.exe.
+    expect(fs.seen).toEqual([
+      'realpath:D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
     ]);
     expect(POWERSHELL_ARGS).toEqual(['-NoProfile', '-NonInteractive', '-Command']);
     expect(CIM_SCRIPT).toContain(
@@ -154,22 +218,66 @@ describe('createWin32CimTableCalls', () => {
     expect(CIM_SCRIPT).not.toContain('"');
   });
 
-  it('rejects on a non-zero exit, and before running anything without a valid SystemRoot', async () => {
+  it('rejects on a non-zero exit, and before running anything when PowerShell is refused', async () => {
     const failing = recorder(1);
     await expect(
-      createWin32CimTableCalls({ hostEnv: HOST_ENV, run: failing.run }).queryProcesses(),
+      createWin32CimTableCalls({
+        powershell: resolver(HOST_ENV),
+        run: failing.run,
+      }).queryProcesses(),
     ).rejects.toThrow(/exited with 1/);
-    const unset = recorder();
-    await expect(
-      createWin32CimTableCalls({ hostEnv: {}, run: unset.run }).queryProcesses(),
-    ).rejects.toThrow(/SystemRoot/);
-    expect(unset.calls).toEqual([]);
+    // Review R1-3: the ambiguity and redirect refusals of the other call sites.
+    for (const [env, fs, reason] of [
+      [{ SystemRoot: 'C:\\Windows', SYSTEMROOT: 'D:\\Evil' }, fakeFs(), 'system-root-ambiguous'],
+      [{ SystemRoot: 'C:\\Windows\\..\\x' }, fakeFs(), 'system-root-invalid'],
+      [
+        HOST_ENV,
+        fakeFs({ realpath: () => Promise.resolve('E:\\planted\\powershell.exe') }),
+        'redirected',
+      ],
+    ] as const) {
+      const refused = recorder();
+      await expect(
+        createWin32CimTableCalls({
+          powershell: resolver(env, fs),
+          run: refused.run,
+        }).queryProcesses(),
+      ).rejects.toThrow(`powershell.exe is unavailable: ${reason}`);
+      expect(refused.calls).toEqual([]);
+    }
   });
 
-  it.runIf(WIN32)(
-    'queries the real process table, which lists this process with its parent',
+  it.runIf(!WIN32)(
+    'the production wiring checks PowerShell first: off Windows it is not found and nothing runs',
     async () => {
-      const table = parseWin32ProcessJson(await createWin32CimTableCalls().queryProcesses());
+      // osCallsFor wires resolveSystem32PowerShell over the host environment;
+      // here there is no %SystemRoot%\System32\...\powershell.exe to resolve.
+      await expect(hostCimTable().queryProcesses()).rejects.toThrow(
+        'powershell.exe is unavailable: not-found',
+      );
+    },
+    TIMEOUT,
+  );
+
+  it.runIf(WIN32)(
+    'runs the default command runner in the directory it is given',
+    async () => {
+      const ran = await runCommand(
+        process.execPath,
+        ['-e', 'process.stdout.write(process.cwd())'],
+        { SystemRoot: process.env['SystemRoot'] ?? '' },
+        DEFAULT_LIMITS,
+        scratch,
+      );
+      expect(Buffer.from(ran.stdout).toString('utf8').toLowerCase()).toBe(scratch.toLowerCase());
+    },
+    hangGuard(DEFAULT_LIMITS.timeoutMs),
+  );
+
+  it.runIf(WIN32)(
+    'queries the real process table through the production wiring, which lists this process with its parent',
+    async () => {
+      const table = parseWin32ProcessJson(await hostCimTable().queryProcesses());
       expect(table.records.find((record) => record.pid === process.pid)?.ppid).toBe(process.ppid);
       expect(table.records.length).toBeGreaterThan(10);
     },
@@ -187,7 +295,9 @@ describe('createWin32CimTableCalls', () => {
         '  [pscustomobject]@{ p = [int64]$_.ProcessId; pp = [int64]$_.ParentProcessId; t = $t; n = $_.Name } })',
         'ConvertTo-Json -Compress -InputObject $rows',
       ].join('\n');
-      const layout = system32Layout(systemRootOf(process.env));
+      const root = systemRootFrom(process.env);
+      if (!root.ok) throw new Error(`SystemRoot refused: ${root.reason}`);
+      const layout = system32Layout(root.root);
       const hostEnv = Object.fromEntries(
         Object.entries(process.env).filter(
           (entry): entry is [string, string] => entry[1] !== undefined,
@@ -198,7 +308,7 @@ describe('createWin32CimTableCalls', () => {
       // cannot have been reused, the reuser would have started later).
       const before = (BigInt(Date.now()) + 11_644_473_600_000n) * 1000n;
       const [ours, theirs] = await Promise.all([
-        createWin32CimTableCalls().queryProcesses(),
+        hostCimTable().queryProcesses(),
         runCommand(layout.powershell, [...POWERSHELL_ARGS, reference], hostEnv),
       ]);
       expect(theirs.exitCode).toBe(0);
