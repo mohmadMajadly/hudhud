@@ -85,6 +85,8 @@ The refused variables are defined by family, in any letter case, so that a varia
 
 A repository that sets an unrelated variable of a refused family (an `AWS_PROFILE` for its own scripts, say) is refused as well. If your application needs such a variable, set it itself with `env: { preset: 'harness', add: { ... } }`, or opt in with `projectCredentialEnv: 'allow'`.
 
+The guard stops configured redirection only; it does not keep your credentials from the repository. Under `'full'` the repository's hooks, MCP servers and helper commands (`awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`, `statusLine` and the like; only `apiKeyHelper` is refused) run as you, with Claude Code's environment, including your API key or provider credentials, and can read the files you can read. A repository that passes the guard can still send your key elsewhere from a `SessionStart` hook. Use `'full'` only for repositories you trust to run code on your machine.
+
 `projectCredentialEnv: 'allow'` lets such a repository run; a `settings-guard.allowed` diagnostic then names what was let through. The guard is a check before start: a file changed between the check and Claude Code's own read is not caught. Setting `projectCredentialEnv` while no project source is loaded is an `INVALID_OPTIONS` error.
 
 ## The environment

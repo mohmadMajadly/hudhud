@@ -132,6 +132,7 @@ Text fields from the harness (`decision_reason`, `matched_ask_rule`, plugin meta
 - Because `'harness'` env is an allowlist, tools that rely on inherited variables fail until the application adds them; dropped-name diagnostics make this visible.
 - Test and production configurations are aligned on egress (the variable is set in both; G1 is complete).
 - `'full'` refuses repositories whose settings set credential or routing variables, unless the application opts into `projectCredentialEnv: 'allow'`. The guard is best-effort (TOCTOU) and its limits are documented.
+- The guard stops configured redirection only; it is not a boundary between the repository and the credentials (review R1-2). Under `'full'` the repository's hooks, MCP servers and helper commands (`awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`, `statusLine` and the like; only `apiKeyHelper` is refused) run as the user, with Claude Code's environment, including the API key or provider credentials, and can read the credential files. `'full'` is for repositories the user trusts to run code, and the security guide says so where it presents the guard.
 - `securityPosture` also reports the managed-policy state when a custom base URL is configured.
 - `securityPosture` becomes API surface that must be kept additive ([ADR-0005](0005-schema-and-validation.md)).
 
