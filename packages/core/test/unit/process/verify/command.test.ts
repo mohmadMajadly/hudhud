@@ -1,7 +1,7 @@
 // The bounded command runner of verify/ (ADR-0011, plan §1.7): real node
 // children for the paths a host can produce, a fake child for the rest.
 
-import { EventEmitter } from 'node:events';
+import { EventEmitter, getEventListeners } from 'node:events';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import process from 'node:process';
@@ -197,6 +197,33 @@ describe('runBoundedCommand with a fake child', () => {
     child.emit('close', null, 'SIGKILL');
     await expect(pending).resolves.toEqual({ kind: 'output-too-large' });
     expect(child.kills).toEqual(['SIGKILL']);
+  });
+
+  it('an aborted signal kills the child at once; an aborted one spawns nothing (R5-U1)', async () => {
+    const child = new FakeChild(7);
+    const controller = new AbortController();
+    const running = runBoundedCommand(
+      nodeCommand('', { signal: controller.signal }),
+      fakeSpawn(child),
+    );
+    controller.abort();
+    expect(await running).toEqual({ kind: 'aborted' });
+    expect(child.kills).toEqual(['SIGKILL']);
+    const calls: unknown[] = [];
+    expect(
+      await runBoundedCommand(
+        nodeCommand('', { signal: AbortSignal.abort() }),
+        fakeSpawn(new FakeChild(8), calls),
+      ),
+    ).toEqual({ kind: 'aborted' });
+    expect(calls).toEqual([]);
+    // A command that ends by itself lets go of its signal.
+    const quiet = new AbortController();
+    const done = new FakeChild(9);
+    const exited = runBoundedCommand(nodeCommand('', { signal: quiet.signal }), fakeSpawn(done));
+    done.emit('close', 0, null);
+    expect(await exited).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(getEventListeners(quiet.signal, 'abort')).toHaveLength(0);
   });
 
   it('swallows stdout pipe errors (ENOTCONN after a failed spawn)', async () => {

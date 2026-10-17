@@ -156,6 +156,12 @@ export interface SessionHost {
   assertOpen(): void;
   /** Drivers whose handshake is running: dispose aborts them. */
   readonly starting: Set<ClaudeDriver>;
+  /**
+   * Every `openSession` in flight, settled (never rejecting): dispose waits
+   * for them, so it resolves only once nothing a start spawned still runs
+   * (R4-2).
+   */
+  readonly opening: Set<Promise<void>>;
   /** Tracks a started session until it closed (dispose disposes it). */
   track(session: Session): void;
 }
@@ -214,7 +220,13 @@ export function rawChannelOf(session: Session): RawChannel | undefined {
 
 // ---- small helpers -------------------------------------------------------------------
 
-function throwIfAborted(signal: AbortSignal | undefined): void {
+/**
+ * Between two steps: a start whose Harness was disposed or whose signal
+ * aborted goes no further (`HARNESS_DISPOSED` first, as `startSession` maps
+ * an end).
+ */
+function checkpoint(harness: SessionHost, signal: AbortSignal | undefined): void {
+  harness.assertOpen();
   if (signal?.aborted === true) throw AbortError.fromSignal(signal);
 }
 
@@ -357,13 +369,18 @@ async function reverify(harness: SessionHost): Promise<VerifiedBinary> {
 /** The binary to spawn, with the diagnostics the gate produced. */
 async function gate(
   harness: SessionHost,
+  signal: AbortSignal | undefined,
 ): Promise<{ readonly probed: ProbedBinary; readonly diagnostics: BindingDiagnostic[] }> {
   const ctx = harness.binaryContext;
   const previous = harness.current;
   const checked = await spawnableBinary(ctx, previous.binary, () => reverify(harness));
   if (!checked.reverified) return { probed: previous, diagnostics: [] };
-  // New bytes: probe them (K4), then check the identity once more before the spawn.
-  const probed = await probeBinary(ctx, checked.binary);
+  // New bytes: probe them (K4), then check the identity once more before the
+  // spawn. An abort stops the probe at once and is reported as the abort.
+  const probed = await probeBinary(ctx, checked.binary, signal).catch((error: unknown) => {
+    checkpoint(harness, signal);
+    throw error;
+  });
   try {
     await assertSpawnable(probed.binary, harness.host.identityFs);
   } catch (error) {
@@ -511,25 +528,39 @@ function machineConfig(
 }
 
 /**
- * Opens one session (see the module remarks).
+ * Opens one session (see the module remarks). The open is tracked in
+ * `harness.opening` until it settled, so a dispose that lands at any step
+ * waits for it: a start that has not spawned yet refuses at its next
+ * `assertOpen` (`HARNESS_DISPOSED`), one that spawned ends its CLI first.
  *
  * @throws every error of plan §3.1 that `create` and `resume` list
  * @internal
  */
 export async function openSession(harness: SessionHost, request: SessionRequest): Promise<Session> {
+  harness.assertOpen();
+  const opened = openSteps(harness, request);
+  const settled = opened.then(
+    () => undefined,
+    () => undefined,
+  );
+  harness.opening.add(settled);
+  void settled.then(() => harness.opening.delete(settled));
+  return opened;
+}
+
+async function openSteps(harness: SessionHost, request: SessionRequest): Promise<Session> {
   const { host, connect } = harness;
   const { effective, values, launch } = request;
   const signal = values.signal;
   const platform = platformOf(host);
-  harness.assertOpen();
 
   // 1. Validation: pure, no file system access.
   const { argv, child, env } = request.validated ?? validateSession(host, connect, request);
-  throwIfAborted(signal);
+  checkpoint(harness, signal);
 
   // 2. The guard, then the cwd.
   const prepared = request.prepared ?? (await prepareSession(host, connect, effective, env));
-  throwIfAborted(signal);
+  checkpoint(harness, signal);
 
   // 3. The session's posture (K19, K23).
   const userSettings = await scanUserSettingsEnv({
@@ -555,13 +586,13 @@ export async function openSession(harness: SessionHost, request: SessionRequest)
       platform,
     }),
   );
-  throwIfAborted(signal);
+  checkpoint(harness, signal);
 
   // 4. The spawn gate (TOCTOU between verification and spawn).
-  const { probed, diagnostics: gateDiagnostics } = await gate(harness);
+  const { probed, diagnostics: gateDiagnostics } = await gate(harness, signal);
   const binary = probed.binary;
   checkCommandLine(binary.path, argv, platform);
-  throwIfAborted(signal);
+  checkpoint(harness, signal);
 
   // 5. The registry claim.
   harness.assertOpen();
@@ -619,6 +650,7 @@ export async function openSession(harness: SessionHost, request: SessionRequest)
       allowConfigWrites: effective.dangerouslyAllowConfigWrites,
     },
     defaults: { ...effective.events },
+    ...(values.eventsSignal === undefined ? {} : { signal: values.eventsSignal }),
   });
   // A registry conflict aborts the session after the step (never inside it).
   const conflict = Promise.withResolvers<undefined>();
@@ -723,8 +755,10 @@ async function startSession(
     void driver.abort('abort');
   };
   harness.starting.add(driver);
-  // A signal that aborted while the CLI was spawned fires no event any more.
-  if (signal?.aborted === true) onAbort();
+  // A dispose or a signal abort that landed while the CLI was spawned fires
+  // nothing any more: this start ends its CLI itself (R4-2).
+  if (harness.disposed) void driver.abort('dispose');
+  else if (signal?.aborted === true) onAbort();
   else signal?.addEventListener('abort', onAbort, { once: true });
   try {
     await driver.start();

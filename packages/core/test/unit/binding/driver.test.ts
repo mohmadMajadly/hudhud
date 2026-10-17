@@ -22,6 +22,7 @@ import { LoopbackTransport } from '../../../src/binding/loopback.js';
 import type { HarnessMachine } from '../../../src/protocol/machine/contract.js';
 import {
   collect,
+  iteratorOf,
   collector,
   guardProcess,
   outcome,
@@ -268,27 +269,38 @@ describe('turns', () => {
     expect(r.ops().filter((op) => op['content'] === 'never')).toEqual([]);
   });
 
-  it('send with a signal: abort interrupts the turn and ends its iterator; done still settles', async () => {
+  it('send with a signal works as ask: abort interrupts, done and the iterator reject at once (R6-1)', async () => {
     const r = rig();
     await ready(r);
     const controller = new AbortController();
     const turn = r.session.send('x', { signal: controller.signal });
     const iterated = collector(turn);
     await settle();
-    controller.abort();
+    controller.abort(new Error('user'));
+    const done = await outcome(turn.done);
+    expect(done.error).toBeInstanceOf(AbortError);
+    expect((done.error as AbortError).cause).toEqual(new Error('user'));
+    expect((await iterated.result()).error).toBeInstanceOf(AbortError);
     await settle();
     expect(r.ops().at(-1)).toEqual({ op: 'interrupt', id: turn.id });
-    expect((await iterated.result()).error).toBeInstanceOf(AbortError);
+    // The turn still settles in the background.
     r.say({ t: 'result', id: turn.id });
-    expect(await turn.done).toMatchObject({ outcome: 'completed' });
-
-    const pre = new AbortController();
-    pre.abort();
-    const late = r.session.send('y', { signal: pre.signal });
     await settle();
-    expect(r.ops().at(-1)).toEqual({ op: 'interrupt', id: late.id });
-    r.say({ t: 'result', id: late.id });
-    await late.done;
+    expect(r.driver.pending.turns).toBe(0);
+  });
+
+  it('send with an already aborted signal sends nothing; done and the iterator reject (R4-6)', async () => {
+    const r = rig();
+    await ready(r);
+    const before = r.ops().length;
+    const late = r.session.send('y', { signal: AbortSignal.abort('early') });
+    const done = await outcome(late.done);
+    expect(done.error).toBeInstanceOf(AbortError);
+    expect((done.error as AbortError).cause).toBe('early');
+    expect((await outcome(iteratorOf(late).next())).error).toBeInstanceOf(AbortError);
+    await settle();
+    expect(r.ops().slice(before)).toEqual([]);
+    expect(r.driver.pending).toMatchObject({ turns: 0, queue: 0 });
   });
 
   it('turn.interrupt resolves on the control answer; ask has no iterator', async () => {

@@ -83,7 +83,7 @@ The codes `project.permissions-ignored` and `containment.addon-unavailable` are 
 
 ## Usage and cost
 
-`TurnResult.usage` and `usage.update` events carry Claude Code's figures: `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens` and `costUsd`. `usage.update.reported` is cumulative, as Claude Code reports it; `estimatedDelta` is hudhud's estimate of the change since the previous report and is marked `estimate: true`. Claude Code's cost figures are themselves client-side estimates.
+`TurnResult.usage` and `usage.update.reported` carry Claude Code's figures from its `result` frame, unchanged: `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens` are that turn's own tokens (the main conversation loop, as Claude Code reports them), and `costUsd` is Claude Code's running total for the session. `usage.update.estimatedDelta`, marked `estimate: true`, is hudhud's estimate of what the report adds: the turn's tokens as reported, and the change of the running cost since the previous report of this session. In a resumed or forked session the first report has no `costUsd` delta: Claude Code continues its per-model totals from the earlier processes (recorded), and whether its running cost does too was not measured, so hudhud takes no baseline. Claude Code's cost figures are themselves client-side estimates.
 
 ## Error output
 

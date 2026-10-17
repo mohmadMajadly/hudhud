@@ -68,9 +68,16 @@ describe('the public entry points on the real host', () => {
       .session({ binaryPath: process.execPath, cwd: configDir, claudeCode: { configDir } })
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(BinaryProbeError);
-    await expect(session({ permissionMode: 'bypassPermissions' })).rejects.toBeInstanceOf(
-      InvalidOptionsError,
-    );
+    // Pinned as the calls above: if the refusal ever moved, this would still
+    // never reach an installed claude or the real config directory (R8-4).
+    await expect(
+      session({
+        permissionMode: 'bypassPermissions',
+        binaryPath: process.execPath,
+        cwd: configDir,
+        claudeCode: { configDir },
+      }),
+    ).rejects.toBeInstanceOf(InvalidOptionsError);
     expect(hudhud.connect).toBe(connect);
     expect(Object.isFrozen(hudhud)).toBe(true);
   });

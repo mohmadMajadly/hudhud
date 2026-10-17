@@ -337,7 +337,15 @@ describe('result frames', () => {
           cacheReadInputTokens: 3,
           costUsd: 0.0123,
         },
-        estimatedDelta: { estimate: true },
+        // A new session's first report: the turn's tokens, the whole cost.
+        estimatedDelta: {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheCreationInputTokens: 2,
+          cacheReadInputTokens: 3,
+          costUsd: 0.0123,
+          estimate: true,
+        },
         raw: FRAMES.resultSuccess.frame,
       },
     ]);
@@ -369,6 +377,32 @@ describe('result frames', () => {
     expect(
       normalizeFrame({ type: 'result', usage: { input_tokens: -1 }, total_cost_usd: -1 }, CTX),
     ).toEqual([]);
+  });
+
+  it('estimates the change: the turn tokens as reported, the cost against its baseline (R4-7)', () => {
+    const frame = {
+      type: 'result',
+      usage: { input_tokens: 100, output_tokens: 20 },
+      total_cost_usd: 0.3,
+    };
+    const delta = (costBaseline: number | 'unknown'): unknown =>
+      (normalizeFrame(frame, { costBaseline })[0] as { estimatedDelta: unknown }).estimatedDelta;
+    // 0.3 - 0.1 in floating point, rounded to nano-dollars.
+    expect(delta(0.1)).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      costUsd: 0.2,
+      estimate: true,
+    });
+    // A running total that went down was reset: the new total counts.
+    expect(delta(0.5)).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      costUsd: 0.3,
+      estimate: true,
+    });
+    // No baseline (the first report of a resumed or forked session): no cost delta.
+    expect(delta('unknown')).toEqual({ inputTokens: 100, outputTokens: 20, estimate: true });
   });
 
   it('reports cost without usage', () => {

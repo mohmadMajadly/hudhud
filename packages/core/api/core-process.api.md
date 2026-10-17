@@ -137,6 +137,7 @@ export interface BoundedCommand {
     readonly file: string;
     readonly maxStdoutBytes: number;
     readonly platform: ProcessPlatform;
+    readonly signal?: AbortSignal;
     readonly timeoutMs: number;
 }
 
@@ -179,6 +180,8 @@ export type CommandOutcome = {
     readonly kind: 'timeout';
 } | {
     readonly kind: 'output-too-large';
+} | {
+    readonly kind: 'aborted';
 };
 
 // @public
@@ -1258,7 +1261,7 @@ export class VersionProbeError extends Error {
 }
 
 // @public
-export type VersionProbeFailure = 'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code';
+export type VersionProbeFailure = 'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code' | 'aborted';
 
 // @public
 export interface VersionProbeOptions {
@@ -1272,6 +1275,7 @@ export interface VersionProbeOptions {
     readonly maxStdoutBytes?: number;
     // (undocumented)
     readonly platform: ProcessPlatform;
+    readonly signal?: AbortSignal;
     readonly timeoutMs?: number;
 }
 

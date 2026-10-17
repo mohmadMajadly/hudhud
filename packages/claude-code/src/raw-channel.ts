@@ -10,7 +10,10 @@
  * - `frames()`: every JSON frame in both directions, in order, as
  *   {@link RawFrame}s, through the core's bounded fanout with the usual
  *   subscriber limits and overflow policies (`'block'` holds the stdout
- *   reader, as for events, ADR-0007). Frames are read-only copies. A drop
+ *   reader, as for events, and the outbound observations: both directions
+ *   publish through one serialized chain, ADR-0007, R4-1). The session's
+ *   `events.signal` ends every subscription too. Frames are read-only
+ *   copies. A drop
  *   under `'drop-oldest-with-gap-marker'` yields one {@link RawGap}.
  * - `controlRequest()` and `writeFrame()`: written to the CLI's stdin outside
  *   the session machine, so they carry the agent's full authority (ADR-0012
@@ -20,7 +23,9 @@
  *   (`rawControlRefusal`, `rawFrameRefusal`): never `initialize` (the only
  *   carrier of `workspaceTrust`, J3), no `update_settings` and no non-session
  *   permission destinations without `dangerouslyAllowConfigWrites` (R6). The
- *   outbound cap applies (`OUTBOUND_FRAME_TOO_LARGE`, nothing written).
+ *   outbound cap applies (`OUTBOUND_FRAME_TOO_LARGE`, nothing written). The
+ *   rules run on the caller's object and once more on the encoded line
+ *   parsed back, which is exactly what is written (R4-8).
  *
  * Why here and not under `src/raw/`: the session factory wraps every
  * session's transport with this channel, and `src/raw/` is a leaf no other
@@ -50,6 +55,7 @@ import {
 } from '@hudhudjs/core';
 import {
   Fanout,
+  LinkedSignal,
   TransportWriteError,
   type Clock,
   type HarnessTransport,
@@ -61,6 +67,7 @@ import {
   rawControlRefusal,
   rawControlRequest,
   rawFrameRefusal,
+  rawLineRefusal,
   type RawControlPolicy,
 } from './protocol/wire/outbound.js';
 
@@ -113,18 +120,31 @@ function cap(text: string): string {
 /** What travels through the fanout: frames, and the gap marker of a drop. */
 type RawItem = RawWireFrame | { readonly kind: 'gap'; readonly dropped: number };
 
+/** One fanout subscription's iterator (it has `return`). */
+type FanoutIterator = AsyncIterator<RawItem> & Required<Pick<AsyncIterator<RawItem>, 'return'>>;
+
 /**
  * One subscriber's frames: a gap marker gets its `seq` here, as the first
  * frame left out (the last delivered `seq` plus one, from the subscription
  * point when nothing was delivered yet).
  */
 async function* framesOf(
-  items: AsyncIterator<RawItem>,
+  items: FanoutIterator,
   startSeq: number,
   now: () => string,
+  signal: LinkedSignal,
 ): AsyncGenerator<RawFrame, void> {
   let lastSeq = startSeq;
-  for await (const item of { [Symbol.asyncIterator]: () => items }) {
+  // The signal is polled before each pull: it no longer listens to the
+  // application's signals once the subscription stopped (R4-5).
+  const polled: AsyncIterator<RawItem> = {
+    next: () => {
+      signal.poll();
+      return items.next();
+    },
+    return: () => items.return(),
+  };
+  for await (const item of { [Symbol.asyncIterator]: () => polled }) {
     if (item.kind === 'frame') {
       lastSeq = item.seq;
       yield item;
@@ -150,9 +170,12 @@ export class RawChannel {
   readonly #maxOutboundBytes: number;
   readonly #policy: RawControlPolicy;
   readonly #defaults: Omit<SubscriberOptions, 'signal'>;
+  readonly #sessionSignal: AbortSignal | undefined;
   readonly #fanout: Fanout<RawItem>;
   readonly #pending = new Map<string, PendingControl>();
   #transport: HarnessTransport | undefined;
+  /** The last observation; the next one starts after it (see `#observe`). */
+  #observing: Promise<void> = Promise.resolve();
   #seq = 1;
   #nextId = 1;
   #closed = false;
@@ -163,11 +186,14 @@ export class RawChannel {
     readonly policy: RawControlPolicy;
     /** The session's subscriber defaults (`SessionOptions.events`, without its signal). */
     readonly defaults: Omit<SubscriberOptions, 'signal'>;
+    /** The session's `events.signal`: it ends every subscription too. */
+    readonly signal?: AbortSignal;
   }) {
     this.#clock = options.clock;
     this.#maxOutboundBytes = options.maxOutboundBytes;
     this.#policy = options.policy;
     this.#defaults = options.defaults;
+    this.#sessionSignal = options.signal;
     this.#fanout = new Fanout<RawItem>({
       gapMarker: (dropped) => ({ kind: 'gap', dropped }),
       overflowError: (info) =>
@@ -208,8 +234,22 @@ export class RawChannel {
     }
   }
 
+  /**
+   * Observes one line of either direction, serialized: the inbound tap and
+   * every outbound write publish into one fanout, which takes one publish at
+   * a time. A line waits for the observations before it, so a full `'block'`
+   * subscriber stalls both directions (the documented hazard) and never makes
+   * a second publish collide with a pending one (R4-1). Never rejects: the
+   * observation runs only while the channel is open and the fanout accepts.
+   */
+  #observe(direction: 'in' | 'out', line: string): Promise<void> {
+    const observed = this.#observing.then(() => this.#observeNow(direction, line));
+    this.#observing = observed;
+    return observed;
+  }
+
   /** Publishes a frame and settles the raw control request it answers. */
-  async #observe(direction: 'in' | 'out', line: string): Promise<void> {
+  async #observeNow(direction: 'in' | 'out', line: string): Promise<void> {
     if (this.#closed || (this.#fanout.subscriberCount === 0 && this.#pending.size === 0)) return;
     const parsed = parseJsonLine(line.slice(0, -1));
     if (!parsed.ok) return;
@@ -249,12 +289,28 @@ export class RawChannel {
     );
   }
 
-  /** Raw frames in both directions (see the module remarks). */
+  /**
+   * Raw frames in both directions (see the module remarks). The subscription
+   * ends with `ABORTED` when its own `signal` or the session's
+   * `events.signal` aborts.
+   */
   frames(options: SubscriberOptions = {}): AsyncIterable<RawFrame> {
-    let items: AsyncIterator<RawItem>;
+    const { signal: own, ...limits } = options;
+    const signal = new LinkedSignal([own, this.#sessionSignal]);
+    let items: FanoutIterator;
     try {
-      items = this.#fanout.subscribe({}, { ...this.#defaults, ...options });
+      // A fanout subscription is a bounded queue's iterator, which always
+      // implements `return` (it releases the subscription).
+      items = this.#fanout.subscribe(
+        {
+          onClose: () => {
+            signal.unlink();
+          },
+        },
+        { ...this.#defaults, ...limits, signal },
+      ) as FanoutIterator;
     } catch (error) {
+      signal.unlink();
       // The fanout checks the limits and the policy before it subscribes.
       throw new InvalidOptionsError('Invalid subscriber options.', {
         details: { path: 'frames', rule: 'subscriber-options' },
@@ -262,7 +318,7 @@ export class RawChannel {
       });
     }
     // Frames published from now on start at the current seq.
-    const frames = framesOf(items, this.#seq - 1, () => this.#clock.nowIso());
+    const frames = framesOf(items, this.#seq - 1, () => this.#clock.nowIso(), signal);
     return { [Symbol.asyncIterator]: () => frames };
   }
 
@@ -348,9 +404,17 @@ export class RawChannel {
     if (failed !== null) throw failed;
   }
 
+  /**
+   * Encodes a frame and checks the encoded line itself (R4-8): the caller's
+   * object was checked already, but a getter or a proxy can return other
+   * values when it is serialized, so the rules run once more on the line
+   * parsed back, and exactly that line is written.
+   */
   #encode(frame: JsonObject): string {
     const encoded = encodeJsonLine(frame, this.#maxOutboundBytes);
     if (!encoded.ok) throw HudhudError.fromData(encoded.error);
+    const refusal = rawLineRefusal(encoded.line, this.#policy);
+    if (refusal !== undefined) throw HudhudError.fromData(refusal);
     return encoded.line;
   }
 

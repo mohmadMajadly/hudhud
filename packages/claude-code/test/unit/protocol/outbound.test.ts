@@ -15,6 +15,7 @@ import {
   rawControlRefusal,
   rawControlRequest,
   rawFrameRefusal,
+  rawLineRefusal,
   setPermissionModeRequest,
   userMessage,
   type RawControlPolicy,
@@ -387,6 +388,19 @@ const built: fc.Arbitrary<JsonObject> = fc.oneof(
   fc.tuple(id, decision).map(([requestId, d]) => permissionResponse(requestId, d)),
   fc.tuple(id, fc.string()).map(([requestId, message]) => controlErrorResponse(requestId, message)),
 );
+
+describe('rawLineRefusal (R4-8)', () => {
+  it('checks the encoded line parsed back, under the frame rules', () => {
+    expect(rawLineRefusal('{"type":"keep_alive"}\n', OPEN)).toBeUndefined();
+    expect(
+      rawLineRefusal(
+        '{"type":"control_request","request_id":"r","request":{"subtype":"update_settings"}}\n',
+        OPEN,
+      )?.details,
+    ).toEqual({ rule: 'raw-config-write' });
+    expect(rawLineRefusal('not json\n', OPEN)?.details).toEqual({ rule: 'raw-frame-not-json' });
+  });
+});
 
 describe('builders (property)', () => {
   it('always pass the strict validator and encode to exactly one LF', () => {

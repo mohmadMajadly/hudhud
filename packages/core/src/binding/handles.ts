@@ -13,8 +13,10 @@
  *   the turn still settles in the background.
  * - `send()` returns a {@link Turn} whose iterator buffers the turn's events
  *   from creation with the subscriber defaults (bounded, `'error'` scoped to
- *   that iterator). An aborted signal interrupts the turn and ends its
- *   iterator with `AbortError`.
+ *   that iterator). Its signal works as `ask()`'s (R6-1): an abort interrupts
+ *   the turn and rejects `done` and the iterator with `AbortError` at once;
+ *   the turn still settles in the background. A signal already aborted at the
+ *   call sends nothing (R4-6).
  * - `close()` drains (K13); an aborted signal turns the drain into an abort
  *   and rejects with `AbortError`. `Symbol.asyncDispose` aborts.
  * - `setPermissionMode()` rejects at once with `AbortError` when its signal
@@ -92,7 +94,8 @@ export interface Turn extends AsyncIterable<HudhudEvent> {
   readonly id: string;
   /**
    * Resolves with the result of the turn, error results included (K21);
-   * rejects only for session-level failures. Never waits on a subscriber.
+   * rejects for session-level failures, and with `ABORTED` as soon as the
+   * signal given to `send` aborts. Never waits on a subscriber.
    */
   readonly done: Promise<TurnResult>;
   /** Interrupts the turn (gated until it started, ADR-0008). */
@@ -109,9 +112,18 @@ export interface Session extends AsyncDisposable {
   readonly info: SessionInfo;
   /** Resolves once the session ended and its process tree was cleaned up. Never rejects. */
   readonly closed: Promise<void>;
-  /** Sends `prompt` and resolves with the turn's result (K21). */
+  /**
+   * Sends `prompt` and resolves with the turn's result (K21). An aborted
+   * `signal` interrupts the turn and rejects with `ABORTED` at once; one that
+   * is aborted already sends nothing.
+   */
   ask(prompt: UserInput, opts?: { readonly signal?: AbortSignal }): Promise<TurnResult>;
-  /** Sends `input` and returns the turn. */
+  /**
+   * Sends `input` and returns the turn. `signal` works as for `ask`: an
+   * abort interrupts the turn and rejects `done` and the turn's iterator
+   * with `ABORTED` at once (the turn still ends in the background); a signal
+   * aborted already sends nothing.
+   */
   send(
     input: UserInput,
     opts?: { readonly signal?: AbortSignal; readonly events?: SubscriberOptions },
@@ -176,7 +188,8 @@ export interface SessionCore {
   readonly closed: Promise<void>;
   /**
    * Starts a turn. With `iterate`, its events are buffered from now on;
-   * `signal` ends that buffer with `AbortError`.
+   * `signal` ends that buffer with `AbortError`. A `signal` aborted already
+   * sends nothing: the turn fails with `AbortError`.
    */
   sendTurn(
     input: UserInput,
@@ -373,25 +386,16 @@ class SessionHandle implements Session {
     opts: { readonly signal?: AbortSignal; readonly events?: SubscriberOptions } = {},
   ): Turn {
     const { signal } = opts;
+    // An already aborted signal: the core sends nothing and fails the turn
+    // (`done` and the iterator reject with AbortError, R4-6).
     const turn = this.#core.sendTurn(input, { iterate: true, events: opts.events, signal });
-    if (signal !== undefined) {
-      const interrupt = (): void => {
-        this.#core.interrupt(turn.id, false).catch(() => undefined);
-      };
-      if (signal.aborted) interrupt();
-      else {
-        signal.addEventListener('abort', interrupt, { once: true });
-        void turn.done.then(
-          () => {
-            signal.removeEventListener('abort', interrupt);
-          },
-          () => {
-            signal.removeEventListener('abort', interrupt);
-          },
-        );
-      }
-    }
-    return new TurnHandle(this.#core, turn);
+    if (signal === undefined || signal.aborted) return new TurnHandle(this.#core, turn);
+    // As ask(): an abort interrupts the turn (gated) and rejects `done` at
+    // once (R6-1); the turn still settles in the background.
+    const done = withSignal(handled(turn.done), signal, () => {
+      this.#core.interrupt(turn.id, false).catch(() => undefined);
+    });
+    return new TurnHandle(this.#core, { ...turn, done });
   }
 
   events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent> {

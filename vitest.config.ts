@@ -89,6 +89,9 @@ export default defineConfig({
           ...HANG_GUARD,
           name: 'unit',
           include: PROJECTS.unit.map((dir) => `${dir}/**/*.test.ts`),
+          // R8-4: no unit test can start Claude Code or read the user's
+          // Claude configuration (tooling/test-support/src/unit-guard.ts).
+          setupFiles: ['tooling/test-support/src/unit-setup.ts'],
           exclude: [
             ...configDefaults.exclude,
             ...PROJECTS.conformance.map((dir) => `${dir}/**`),

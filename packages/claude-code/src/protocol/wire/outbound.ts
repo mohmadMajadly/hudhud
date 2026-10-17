@@ -30,6 +30,7 @@ import {
   ownArray,
   ownObject,
   ownString,
+  parseJsonLine,
   type EncodeJsonLineResult,
   type JsonObject,
   type JsonValue,
@@ -328,4 +329,21 @@ export function rawFrameRefusal(
     return refused('raw-frame-no-subtype', 'A raw control_request needs request.subtype.');
   }
   return rawControlRefusal(subtype, undefined, policy);
+}
+
+/**
+ * {@link rawFrameRefusal} of the encoded line itself (R4-8): the line is
+ * parsed back and the rules run on that copy, so what is checked is exactly
+ * what is written, whatever the caller's object (getters, proxies) returned
+ * while it was checked and while it was serialized.
+ *
+ * @internal
+ */
+export function rawLineRefusal(line: string, policy: RawControlPolicy): KnownErrorData | undefined {
+  // `line` is an encoded line: one frame and its LF terminator.
+  const parsed = parseJsonLine(line.slice(0, -1));
+  if (!parsed.ok) {
+    return refused('raw-frame-not-json', 'The raw frame is not a plain JSON object.');
+  }
+  return rawFrameRefusal(parsed.value, policy);
 }
