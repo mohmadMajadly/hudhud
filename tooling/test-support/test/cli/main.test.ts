@@ -20,8 +20,9 @@ import {
 const LINUX = release('linux-x64', '9.9.9');
 const WIN = release('win32-x64', '9.9.9');
 // The fake host is win32 on Windows and linux elsewhere (arch x64), so the
-// default runs always target a pinned platform: macOS hosts would otherwise
-// derive darwin-*, which stays pendingGate until the macOS gate passes.
+// default runs always target a platform the fake registry serves: macOS hosts
+// would otherwise derive darwin-*, which this test's fake pin keeps
+// pendingGate (the real pin has pinned darwin since the macOS gate).
 const FAKE_PLATFORM = process.platform === 'win32' ? 'win32' : 'linux';
 const HOST_RELEASE = FAKE_PLATFORM === 'win32' ? WIN : LINUX;
 

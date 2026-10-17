@@ -361,6 +361,21 @@ describe('strict verification', () => {
     expect(unpinned.calls.some((call) => call.startsWith('run ') || call.startsWith('hash '))).toBe(
       false,
     );
+    // No publisher option at all: the same refusal, before any run.
+    const withoutPublisher: VerifyBinaryOptions = {
+      mode: unpinned.options.mode,
+      digests: unpinned.options.digests,
+      platform: 'darwin',
+      hostEnv: {},
+      ...(unpinned.options.deps === undefined ? {} : { deps: unpinned.options.deps }),
+    };
+    await expect(verifyBinary(resolved(), withoutPublisher)).resolves.toMatchObject({
+      verification: {
+        status: 'failed',
+        detail: 'codesign not run: no publisher Team ID is pinned',
+      },
+    });
+    expect(unpinned.calls.some((call) => call.startsWith('run '))).toBe(false);
     // codesign's "requirement not satisfied" (another team): a verdict.
     const other = fakeOptions({
       mode: 'strict',
@@ -457,13 +472,20 @@ describe('strict verification', () => {
 
   it('uses the host platform and environment by default', async () => {
     const { calls, options } = fakeOptions({ mode: 'strict' });
+    // Only the platform and the host environment are left to their defaults.
+    // The publisher pin stays: since the darwin Team ID pin (W7-T4), strict
+    // mode on macOS refuses before running codesign when no Team ID is
+    // pinned ('requires the pinned Team ID of the macOS signature' above).
     const rest: VerifyBinaryOptions = {
       mode: options.mode,
       digests: options.digests,
+      ...(options.publisher === undefined ? {} : { publisher: options.publisher }),
       ...(options.deps === undefined ? {} : { deps: options.deps }),
     };
     const result = await verifyBinary(resolved(), rest);
-    if (process.platform === 'win32' || process.platform === 'darwin') {
+    if (process.platform === 'darwin') {
+      expect(calls).toContain('run /usr/bin/codesign');
+    } else if (process.platform === 'win32') {
       expect(calls.some((call) => call.startsWith('run '))).toBe(true);
     } else {
       expect(result.verification.detail).toMatch(/^no OS signature check/);
