@@ -8,7 +8,11 @@ import { getEventListeners } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import { SYNTHESIZED_EVENT_BYTES } from '../../../src/binding/driver.js';
-import { AbortError, SubscriberOverflowError } from '../../../src/binding/errors.js';
+import {
+  AbortError,
+  SessionClosedError,
+  SubscriberOverflowError,
+} from '../../../src/binding/errors.js';
 import type { HudhudEvent } from '../../../src/protocol/events/types.js';
 import type { JsonObject } from '../../../src/protocol/json.js';
 import {
@@ -248,6 +252,23 @@ describe('gap numbering (R4-U1)', () => {
     r.say({ t: 'result', id: b.id });
     await a.done;
     await b.done;
+  });
+});
+
+describe('a turn refused at the send (R8-2 matrix)', () => {
+  it('its iterator rejects with the refusal, also after the session ended', async () => {
+    const r = rig();
+    await ready(r);
+    const disposed = r.session[Symbol.asyncDispose]();
+    await settle();
+    r.say({ t: 'interrupted' });
+    await disposed;
+    const turn = r.session.send('late');
+    expect((await outcome(turn.done)).error).toBeInstanceOf(SessionClosedError);
+    expect((await outcome(iteratorOf(turn).next())).error).toBeInstanceOf(SessionClosedError);
+    // An aborted signal wins, as for done.
+    const aborted = r.session.send('late', { signal: AbortSignal.abort() });
+    expect((await outcome(iteratorOf(aborted).next())).error).toBeInstanceOf(AbortError);
   });
 });
 

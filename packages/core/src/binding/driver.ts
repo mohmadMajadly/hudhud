@@ -524,10 +524,10 @@ export class SessionDriver<State, Config> implements SessionCore {
     const content = this.#encode(normalizeUserInput(input));
     const id = this.#ids.uuid();
     const record = new TurnRecord(id);
-    const events = options.iterate
-      ? this.#subscribeTurn(id, options.events, options.signal)
-      : undefined;
     const refusal = this.#refusal();
+    const events = options.iterate
+      ? this.#subscribeTurn(id, options.events, options.signal, refusal)
+      : undefined;
     if (options.signal?.aborted === true) {
       // Aborted before the call: nothing is sent (R4-6); the iterator above
       // was made with the aborted signal and rejects the same way.
@@ -1087,12 +1087,20 @@ export class SessionDriver<State, Config> implements SessionCore {
     }
   }
 
+  /**
+   * The events of one turn. A turn refused at the send (`refusal`) gets an
+   * iterator that rejects with that error, also after the session ended,
+   * when the fanout would only have ended it quietly; a signal aborted
+   * already wins (`ABORTED`), as for `turn.done`.
+   */
   #subscribeTurn(
     turnId: string,
     options: SubscriberOptions | undefined,
     parent: AbortSignal | undefined,
+    refusal: HudhudError | undefined,
   ): AsyncIterableIterator<HudhudEvent, undefined, undefined> {
     const signal = this.#signalFor(parent, options?.overflow ?? this.#defaults.overflow);
+    if (refusal !== undefined) signal.abort(new CutReason(refusal));
     const source = this.#fanout.subscribe(
       {
         match: (item) =>
