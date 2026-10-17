@@ -1,7 +1,7 @@
 {
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [["hudhudjs", "@hudhudjs/core", "@hudhudjs/claude-code"]],
   "linked": [],
   "access": "restricted",
   "baseBranch": "main",

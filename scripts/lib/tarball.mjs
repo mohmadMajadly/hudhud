@@ -1204,3 +1204,123 @@ export function checkReleaseRecord(manifest, manifestPath, packs) {
   }
   return problems;
 }
+
+// ---- release tag (ADR-0014 amendment 10, ADR-0004) ---------------------------
+
+/** The published addon package, versioned by its release record. */
+const X64_PACKAGE = '@hudhudjs/win32-job-x64';
+
+/** A release tag: `v` and a semver version without build metadata. */
+const RELEASE_TAG =
+  /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/u;
+
+/**
+ * The version a release tag names, or null when it is not `v<semver>`.
+ *
+ * @param {string} tag
+ * @returns {string | null}
+ */
+export function tagVersion(tag) {
+  return RELEASE_TAG.exec(tag)?.[1] ?? null;
+}
+
+/**
+ * The changesets `pnpm changeset version` has not consumed yet: every
+ * Markdown file in `.changeset/` except its README.
+ *
+ * @param {readonly string[]} names The file names in `.changeset/`.
+ * @returns {string[]}
+ */
+export function pendingChangesets(names) {
+  return names.filter((name) => name.endsWith('.md') && name !== 'README.md').sort();
+}
+
+/**
+ * @typedef {object} ReleaseTagInput
+ * @property {string} tag The pushed tag (`GITHUB_REF_NAME`).
+ * @property {string} recordRelease The `release` of the record the core's
+ *   digest table names: the version of `@hudhudjs/win32-job-x64`.
+ * @property {readonly string[]} fixed The changesets `fixed` group: the
+ *   packages released together at the tag's version.
+ * @property {readonly string[]} changesetFiles The file names in `.changeset/`.
+ * @property {readonly { directory: string, entries: readonly TarEntry[] }[]} packs
+ *   Every package under `packages/`, packed.
+ */
+
+/**
+ * The checks of a release tag before anything is published (review finding
+ * R7-2). The tag scheme (ADR-0014 amendment 10): one tag kind, `v<version>`,
+ * where `<version>` is the version of the `fixed` group (`hudhudjs`,
+ * `@hudhudjs/core`, `@hudhudjs/claude-code`). The addon package is versioned
+ * on its own by its release record: its version is the `release` of the
+ * record the core's digest table names, so a library release that does not
+ * change the addon re-publishes nothing of it.
+ *
+ * - The tag is `v<semver>`, and every package of the `fixed` group is packed
+ *   at exactly that version.
+ * - `@hudhudjs/win32-job-x64` is packed at the record's `release`.
+ * - Every package with `publishConfig` (the ones a publish takes) is not
+ *   `private`; every package without it is `private`, so a publish of the
+ *   workspace cannot take it (K17: the arm64 package).
+ * - No changeset is left unconsumed (`pnpm changeset version` ran).
+ *
+ * @param {ReleaseTagInput} input
+ * @returns {string[]} problems, each naming both values
+ */
+export function checkReleaseTag(input) {
+  /** @type {string[]} */
+  const problems = [];
+  const version = tagVersion(input.tag);
+  if (version === null) {
+    problems.push(`the tag ${JSON.stringify(input.tag)} is not v<semver> (for example v0.1.0)`);
+  }
+  if (input.fixed.length === 0) {
+    problems.push('.changeset/config.json has no fixed group: the tag names no package version');
+  }
+  /** @type {Map<string, PackageJson>} */
+  const byName = new Map();
+  for (const { directory, entries } of input.packs) {
+    const manifest = packedManifest(entries);
+    if (manifest === undefined || typeof manifest.name !== 'string') {
+      problems.push(`${directory}: the tarball has no readable package.json with a name`);
+      continue;
+    }
+    byName.set(manifest.name, manifest);
+    const published = manifest.publishConfig !== undefined;
+    if (published && manifest.private === true) {
+      problems.push(
+        `${manifest.name} is private but has publishConfig: lift "private" in the version PR (checklist 4.2)`,
+      );
+    }
+    if (!published && manifest.private !== true) {
+      problems.push(
+        `${manifest.name} has no publishConfig and is not private: a publish would take it`,
+      );
+    }
+  }
+  for (const name of input.fixed) {
+    const manifest = byName.get(name);
+    if (manifest === undefined) {
+      problems.push(`${name} (fixed group) was not packed`);
+    } else if (version !== null && manifest.version !== version) {
+      problems.push(
+        `${name} is packed at version ${String(manifest.version)}, the tag ${input.tag} names ${version}`,
+      );
+    }
+  }
+  const x64 = byName.get(X64_PACKAGE);
+  if (x64 === undefined) {
+    problems.push(`${X64_PACKAGE} was not packed`);
+  } else if (x64.version !== input.recordRelease) {
+    problems.push(
+      `${X64_PACKAGE} is packed at version ${String(x64.version)}, the release record the core's table names is ${input.recordRelease}`,
+    );
+  }
+  const pending = pendingChangesets(input.changesetFiles);
+  if (pending.length > 0) {
+    problems.push(
+      `unconsumed changesets (run pnpm changeset version in the version PR): ${pending.join(', ')}`,
+    );
+  }
+  return problems;
+}

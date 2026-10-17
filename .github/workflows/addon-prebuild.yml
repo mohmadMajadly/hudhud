@@ -12,11 +12,15 @@
 # builds locally with the same pin, compares (scripts/addon/manifest.mjs
 # compare), and only on a match commits the record and the table.
 #
-# Phase 2, verify (tag `v*`): the same builds must reproduce the committed
-# record of the tag's release, and `release-verify` packs the core and both
-# platform packages and hashes the packed bytes again
-# (scripts/check-tarball.mjs --release-record), then runs the full tarball
-# check of every published package (`pnpm check:tarball`, plan §4.1, §6.3).
+# Phase 2, verify (tag `v<version>`, ADR-0014 amendment 10): the same builds
+# must reproduce the committed record the core's digest table names (the
+# addon is versioned by its record: `@hudhudjs/win32-job-x64` carries the
+# record's `release`, the tag names the version of the library packages),
+# and `release-verify` packs every package and hashes the packed bytes
+# again, and checks the tag against the packed versions, the private flags,
+# the changesets and the source links (scripts/check-tarball.mjs
+# --release-tag), then runs the full tarball check of every published
+# package (`pnpm check:tarball`, plan §4.1, §6.3).
 # Publishing is not part of this workflow (it comes at open-sourcing, with
 # npm trusted publishing and provenance, ADR-0009): the platform package is
 # published first and the core second, so the core's exact optional
@@ -52,8 +56,9 @@ on:
     inputs:
       release:
         description: >-
-          Release the record is written for: the version the tag will carry,
-          without the `v` (for example 0.1.0). It names the record directory
+          Release the record is written for: the version
+          @hudhudjs/win32-job-x64 will carry (for example 0.1.0; ADR-0014
+          amendment 10). It names the record directory
           native/win32-job/release/<release>/.
         type: string
         required: true
@@ -192,11 +197,11 @@ jobs:
             echo "::warning::the ${ARCH} build does not reproduce the committed record (reason above)"
           fi
 
-      - name: Require the rebuild to reproduce the tag's release record (phase 2)
+      # The record the core's digest table names: the addon release this
+      # library release ships (ADR-0014 amendment 10).
+      - name: Require the rebuild to reproduce the release record (phase 2)
         if: github.event_name == 'push'
-        run: >-
-          node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
-          --record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+        run: node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
 
       - name: Upload the build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -285,9 +290,12 @@ jobs:
         if: ${{ !cancelled() && steps.cli.outcome == 'success' }}
         run: pnpm exec vitest run --project integration packages/claude-code/test/integration/containment
 
+  # Phase 1 only: on a tag the record is committed already, and the build
+  # job has verified the rebuild against it.
   manifest:
     name: manifest
     needs: build
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     # Under 1 min in run 38947897592 (no dependency install: the tool uses
     # Node built-ins only); 5 minutes.
@@ -325,8 +333,7 @@ jobs:
           RELEASE_INPUT: ${{ inputs.release }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then release="${GITHUB_REF_NAME#v}"; else release="$RELEASE_INPUT"; fi
-          node scripts/addon/manifest.mjs write --release "$release" --dir "$RUNNER_TEMP/addon" --out "$RUNNER_TEMP/record"
+          node scripts/addon/manifest.mjs write --release "$RELEASE_INPUT" --dir "$RUNNER_TEMP/addon" --out "$RUNNER_TEMP/record"
           for file in manifest.json SHA256SUMS toolchain.json; do
             echo "== ${file}"
             cat "$RUNNER_TEMP/record/${file}"
@@ -398,10 +405,13 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Pack and hash the bytes a release would publish
+      # The packed bytes against the record the core's table names, and the
+      # tag against the packed versions, private flags, changesets and source
+      # links (ADR-0014 amendment 10, review finding R7-2).
+      - name: Pack, hash the bytes a release would publish and check the tag
         env:
           HUDHUD_TEST_ROOT: ${{ runner.temp }}
-        run: node scripts/check-tarball.mjs --release-record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+        run: node scripts/check-tarball.mjs --release-tag "$GITHUB_REF_NAME"
 
       # The full check of every published package (plan §4.1): files, manifest,
       # README, LICENSE and NOTICE, entry points, an offline install of the

@@ -30,7 +30,7 @@ npm install @hudhudjs/core @hudhudjs/claude-code
 | `@hudhudjs/claude-code`   | The Claude Code adapter: `connect`, `session`, `hudhud`, the option types and `CLAUDE_CODE_COMPAT`. Subpath `/raw` is the unstable tier.   |
 | `@hudhudjs/win32-job-x64` | The Windows x64 job-object addon. An optional dependency of `@hudhudjs/core`: npm installs it on Windows x64 only. Never import it.        |
 
-The subpaths `@hudhudjs/core/protocol` and `@hudhudjs/claude-code/raw` are not re-exported by `hudhudjs`. To import them, add the package as a direct dependency at the same version as `hudhudjs`.
+The subpaths `@hudhudjs/core/protocol` and `@hudhudjs/claude-code/raw` are not re-exported by `hudhudjs`. To import them, add the package as a direct dependency at the same version as `hudhudjs`: the three packages are always released together, at one version ([ADR-0004](../adr/0004-packages-and-versioning.md#versioning-layers)).
 
 The packages are ES modules and ship no install scripts.
 
