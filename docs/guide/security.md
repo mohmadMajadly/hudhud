@@ -74,7 +74,11 @@ A repository can carry Claude Code configuration: `.claude/settings.json`, `.cla
 
 ### The project credential guard
 
-Whenever the setting sources include `project` or `local`, hudhud reads the repository's settings files before it starts Claude Code: `.claude/settings.json` and `.claude/settings.local.json` in the working directory, in the nearest git root and in the main worktree's root. If their `env` sets a credential, routing or TLS-trust variable, or if the file sets `apiKeyHelper`, or if a file cannot be parsed, the session is refused with `PROJECT_CREDENTIAL_ENV`. The error names the files and the variable names, never values.
+Whenever the setting sources include `project` or `local`, hudhud reads the repository's settings files before it starts Claude Code: `.claude/settings.json` and `.claude/settings.local.json` in the working directory, in the nearest git root and in the main worktree's root. If their `env` sets a credential, routing or TLS-trust variable, or if the file sets `apiKeyHelper`, or if a file cannot be evaluated, the session is refused with `PROJECT_CREDENTIAL_ENV`. The error names the files and the variable names, never values.
+
+When the git root cannot be resolved (a symlinked `.git`, an unreadable or malformed `.git` file, an unreadable `gitdir` or `commondir`, or one on another host), the guard reads the settings files of the working directory and of every directory above it instead, and reports a `settings-guard.git-root-unresolved` diagnostic. That wider scan never reads your own Claude Code config directory (`claudeCode.configDir`, else the `CLAUDE_CONFIG_DIR` Claude Code runs with, else `~/.claude`): its settings are user settings (when the guard refuses, `details.skipped` names it).
+
+A settings file or `.claude` directory that is a link is followed, as Claude Code follows it, and reported (`settings-guard.symlink-followed`, `details.symlinks`); a link to another host (a UNC path on Windows) is never followed. The guard fails closed: a file it cannot evaluate refuses the session just like a finding. `details.unparseable` names such files and `details.problems` gives the reason for each: `invalid-json`, `too-deep`, `not-object`, `env-not-object`, `prototype-key` (a `__proto__` key), `oversized` (above 2 MiB), `not-a-file`, `unreadable`, `dangling-symlink` (a link whose target does not exist), `symlink-loop`, `remote-link` or `unsupported-link`.
 
 The refused variables are defined by family, in any letter case, so that a variable a newer Claude Code adds to a family is refused too:
 

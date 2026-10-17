@@ -83,6 +83,8 @@ export const DiagnosticCode = openEnum([
   'events.pre-handshake-truncated',
   'security.posture',
   'settings-guard.allowed',
+  'settings-guard.git-root-unresolved',
+  'settings-guard.symlink-followed',
   'session.id-in-use',
 ] as const);
 
