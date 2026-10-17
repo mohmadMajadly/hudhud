@@ -66,11 +66,11 @@ for (const [capability, reason] of Object.entries(capabilities.reasons)) {
 
 ### End of a session
 
-| Code                           | Meaning                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------- |
-| `termination.ladder`           | The termination ladder ran (its steps and what each did), or failed                   |
-| `termination.sweep-after-exit` | After Claude Code exited by itself, hudhud ended the descendants it left behind       |
-| `binding.machine-error`        | An internal invariant broke; the session ends with `PROTOCOL_ERROR`. Please report it |
+| Code                           | Meaning                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `termination.ladder`           | The termination ladder ran (its steps and what each did), or failed                                                                               |
+| `termination.sweep-after-exit` | After Claude Code exited (by itself or through the ladder), hudhud ended the recorded descendants still running; with a Windows job, `job-closed` |
+| `binding.machine-error`        | An internal invariant broke; the session ends with `PROTOCOL_ERROR`. Please report it                                                             |
 
 The codes `project.permissions-ignored` and `containment.addon-unavailable` are part of the `DiagnosticCode` type but are not published by this version.
 

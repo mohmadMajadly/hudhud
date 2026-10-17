@@ -11,6 +11,7 @@ import type { Readable } from 'node:stream';
 export interface AfterExitDeps {
     // (undocumented)
     readonly os: OsCalls;
+    readonly rootExitObservedAt?: string;
     readonly signalTarget?: ProcessIdentity;
 }
 
@@ -32,7 +33,11 @@ export type AfterExitSkipReason =
 /** The fresh table could not be read. */
 | 'table-failed'
 /** The spawned process is still running. */
-| 'root-alive';
+| 'root-alive'
+/** Windows: the session's job was closed after the exit, which ended the whole tree. */
+| 'job-closed'
+/** Windows: closing the session's job failed; with a job no snapshot is taken, so nothing is swept. */
+| 'job-close-failed';
 
 // @public
 export type AfterExitSweepReport = {
@@ -43,6 +48,7 @@ export type AfterExitSweepReport = {
     readonly summary: LadderSweepSummary;
     readonly posix?: SweepResult;
     readonly kills: readonly AfterExitKill[];
+    readonly rejected?: number;
 };
 
 // @public

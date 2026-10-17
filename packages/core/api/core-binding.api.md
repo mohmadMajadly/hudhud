@@ -32,7 +32,11 @@ export type AfterExitSkipReason =
 /** The fresh table could not be read. */
 | 'table-failed'
 /** The spawned process is still running. */
-| 'root-alive';
+| 'root-alive'
+/** Windows: the session's job was closed after the exit, which ended the whole tree. */
+| 'job-closed'
+/** Windows: closing the session's job failed; with a job no snapshot is taken, so nothing is swept. */
+| 'job-close-failed';
 
 // @public
 export type AfterExitSweepReport = {
@@ -43,6 +47,7 @@ export type AfterExitSweepReport = {
     readonly summary: LadderSweepSummary;
     readonly posix?: SweepResult;
     readonly kills: readonly AfterExitKill[];
+    readonly rejected?: number;
 };
 
 // @public
@@ -971,10 +976,12 @@ export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 export interface ProcessTransportOptions {
     readonly clock?: Clock;
     readonly job?: JobHandle | null;
+    readonly jobReleased?: Promise<'closed' | 'close-failed' | 'no-job'>;
     readonly maxLineBytes?: number;
     readonly os: OsCalls;
     readonly process: HarnessProcess;
     readonly timing?: LadderTiming;
+    readonly wallClockMs?: () => number;
 }
 
 // @public

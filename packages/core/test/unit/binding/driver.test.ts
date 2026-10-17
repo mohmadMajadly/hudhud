@@ -407,7 +407,9 @@ describe('the end of a session', () => {
     expect(r.transport.inputEnd).toBeNull();
     r.clock.advance(TEST_CONFIG.interruptWaitMs);
     await r.session.closed;
-    expect(r.transport.inputEnd).toBe('immediate');
+    // Recorded (snapshot, then EOF) also while the ladder runs, so the tree
+    // is swept after the exit whichever step ends the CLI (review R3-1).
+    expect(r.transport.inputEnd).toBe('graceful');
     expect(await turn.done).toMatchObject({ outcome: 'cancelled', synthesized: true });
     expect(await r.driver.ended).toEqual({ outcome: 'aborted' });
   });

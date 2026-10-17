@@ -134,11 +134,26 @@ test('close while a turn streams: the turn completes, then the session closes', 
  *   evidence job, runs 38967893191 and 38977497768, 20 samples each, 14.6
  *   to 39.241 ms and 15.4 to 37.7 ms (research 11 §6); the maximum
  *   rounded up to a whole 10 ms, 40 ms.
- * Bound: 3x the largest measurement per platform: 47.7 ms (Linux), 210.4 ms
- * (Windows) and 40 ms (macOS).
+ * Re-measured after the review fixes (plan §5.9 review fixes, FX-B): on
+ * POSIX the ladder now snapshots the tree before EOF and sweeps after the
+ * exit. GitHub runners, 15 samples per platform and run, min / median /
+ * max in ms:
+ * - before the table-read speed-up (runs 39061774851 macos-15 and
+ *   39061775002 ubuntu-24.04 and windows-2025): Linux 70.5 / 77.3 / 91.1,
+ *   macOS 49.6 / 68.4 / 102.0, Windows 65.4 / 95.7 / 157.5;
+ * - with it, the code that ships (runs 39066057814 macos-15 and
+ *   39066057911): Linux 32.1 / 40.0 / 55.7, macOS 32.1 / 41.3 / 82.5,
+ *   Windows 98.7 / 118.1 / 319.1.
+ * Windows runs with the job, where the close path did not change: an A/B
+ * on the FX-B Windows 11 host (10 runs each, job addon staged) measured
+ * 40.2 / 50.7 / 60.7 at the base 313b68b and 39.4 / 52.3 / 63.8 with the
+ * fixes, so the 319.1 ms sample is runner variance (its p95 equals its max).
+ * Bound: 3x the largest measurement of the shipped code per platform (the
+ * Windows maximum over every run): 55.7 ms (Linux), 82.5 ms (macOS),
+ * 319.1 ms (Windows).
  */
 const CLOSE_OVERRUN_BOUND_MS =
-  process.platform === 'win32' ? 3 * 210.4 : process.platform === 'darwin' ? 3 * 40 : 3 * 47.7;
+  process.platform === 'win32' ? 3 * 319.1 : process.platform === 'darwin' ? 3 * 82.5 : 3 * 55.7;
 
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;

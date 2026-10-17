@@ -186,36 +186,6 @@ async function spawnTree(mode: 'ignore-eof' | 'exit-on-eof' = 'ignore-eof'): Pro
   return { child, exited, table, root, nodePids, identities };
 }
 
-/**
- * Asserts the ladder's `identity-foreign-child` refusal was justified: a
- * fresh read still lists a process outside the tree that names a tree
- * member's pid as its parent and started before that member (a stale
- * parent pid), and the steps are those of the refusal.
- */
-async function expectForeignChild(
-  tree: Awaited<ReturnType<typeof spawnTree>>,
-  report: LadderReport,
-): Promise<void> {
-  expect(summary(report).slice(0, 5), JSON.stringify(report.steps)).toEqual([
-    'intent:done',
-    'interrupt:skipped',
-    'snapshot-s1:done',
-    'eof:done',
-    'taskkill:skipped',
-  ]);
-  const ours = new Map(tree.identities.map((identity) => [identity.pid, identity]));
-  const after = await takeSnapshot(tree.table);
-  const foreign = after.records.filter((record) => {
-    const parent = ours.get(record.ppid);
-    return (
-      parent !== undefined &&
-      !ours.has(record.pid) &&
-      BigInt(record.startTime) < BigInt(parent.startTime)
-    );
-  });
-  expect(foreign.length, JSON.stringify(report.steps)).toBeGreaterThan(0);
-}
-
 function summary(report: LadderReport): string[] {
   return report.steps.map((step) => `${step.name}:${step.outcome}`);
 }
@@ -320,19 +290,11 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
       // The child ignores EOF: the grace only delays the tree kill under test.
       const { report, execCalls } = await runLadderOn(tree, 1000);
 
-      if (report.steps[4]?.detail === 'identity-foreign-child') {
-        // Host-dependent, and the product is right (W6-Z, 4 of 763 runs of
-        // this file): a process of the host whose dead parent's pid a tree
-        // member reused (seen: OneDrive.Sync.Service.exe, started an hour
-        // before the tree) names that member as its parent, so `taskkill /T`,
-        // which follows parent pids without start times, would end it too.
-        // The ladder refuses /T and ends the tree without it.
-        await expectForeignChild(tree, report);
-        expect(execCalls.some((call) => call.args.includes('/T'))).toBe(false);
-        expect(await survivorsOf(tree.table, tree.identities)).toEqual([]);
-        return;
-      }
-      // On a mismatch, name every step with its detail (why a step was skipped).
+      // No special branch for a host process whose stale ppid names a tree
+      // member (W6-Z saw it in 4 of 763 runs): `taskkill /T` applies the
+      // creation-time rule and leaves such a process alone (review R2-2,
+      // measured on Windows 11 and windows-2025), so the ladder no longer
+      // refuses /T for it. On a mismatch, name every step with its detail (why a step was skipped).
       expect(summary(report).slice(0, 5), JSON.stringify(report.steps)).toEqual([
         'intent:done',
         'interrupt:skipped',
@@ -356,8 +318,7 @@ describe.runIf(WINDOWS)('Windows best-effort ladder on a real node tree', () => 
 
       expect(await survivorsOf(tree.table, tree.identities)).toEqual([]);
     },
-    // The foreign-child branch reads the table once more.
-    hangGuard(TABLE_MS, ladderBound(1000), TABLE_MS, SURVIVOR_POLL_MS + TABLE_MS),
+    hangGuard(TABLE_MS, ladderBound(1000), SURVIVOR_POLL_MS + TABLE_MS),
   );
 
   it(

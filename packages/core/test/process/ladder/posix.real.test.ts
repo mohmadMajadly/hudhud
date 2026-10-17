@@ -221,7 +221,12 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
     ]);
     expect(only(run, 'cli-sigterm')['pid']).toBe(cliPid);
     expect(report.exitedAfter).toBe('sigterm');
-    expect(report.sweep).toBeNull();
+    // The sweep over S1 runs after every exit observed after S1 (review
+    // R3-1); the CLI had ended its own children, so it found every recorded
+    // process gone and signalled nothing (the signal list above holds only
+    // the SIGTERM).
+    expect(report.steps.at(-1)).toMatchObject({ name: 'sweep', outcome: 'done' });
+    expect(report.sweep).toMatchObject({ processesSignalled: 0, groupsSignalled: 0 });
     // The launcher was never signalled: it exited by itself when the CLI did.
     expect(only(run, 'launcher-exit')).toMatchObject({ code: 7, signal: null });
     expect(await survivors(tree)).toEqual([]);

@@ -58,19 +58,31 @@ const TOOL_SECONDS = WINDOWS ? 60 : 15;
  * (07 §2 L72). Re-measured on CI (W7-T1, plan §5.9): GitHub ubuntu-24.04
  * runner, timing runs 38980331321, 38984419523 and 38989537233, 15 samples
  * each, 16910 to 17767 ms, 17072 to 17967 ms and 17100 to 18010 ms (the
- * W7-T1 host in `node:22-bookworm`: 16990 to 17693 ms). Bound: 3x the
- * largest, with the margin of the flake policy (plan §4.4).
+ * W7-T1 host in `node:22-bookworm`: 16990 to 17693 ms). Review fixes (plan
+ * §5.9): runs 39061775002 and 39066057911, 15 samples each, 17120 to 18046
+ * ms and 17210 to 17931 ms. Bound: 3x the largest, with the margin of the
+ * flake policy (plan §4.4).
  */
-const LINUX_CLI_EXIT_BOUND_MS = 3 * 18_010;
+const LINUX_CLI_EXIT_BOUND_MS = 3 * 18_046;
+/**
+ * macOS (review R8-6: measured, not borrowed from Linux): host death is
+ * stdin EOF as on Linux, and the CLI finishes `sleep 15` before it exits.
+ * GitHub macos-15, timing runs 39061774851 and 39066057814, 15 samples
+ * each: 17182 to 18199 ms and 17093 to 18099 ms. Bound: 3x the largest.
+ */
+const MACOS_CLI_EXIT_BOUND_MS = 3 * 18_199;
 /**
  * Windows: the CLI is gone 32-35 ms after the host died (07 §2 W93-W96,
  * libuv's job; the addon's job closes with the host's handle table at the
  * same moment); the measured time includes observing it with table reads
  * (CIM queries). Measured (W7-T1, plan §5.9): GitHub windows-2025, timing
  * run 38984419523, 15 samples per mode, `job` 433 to 965 ms, best effort
- * 413 to 1092 ms (the W7-T1 host: 456 to 520 ms). Bound: 3x the largest.
+ * 413 to 1092 ms (the W7-T1 host: 456 to 520 ms); review fixes (plan §5.9),
+ * runs 39061775002 (`job` 440 to 1388 ms, best effort 432 to 935 ms) and
+ * 39066057911 (`job` 433 to 597 ms, best effort 430 to 626 ms). Bound: 3x
+ * the largest.
  */
-const WINDOWS_CLI_EXIT_BOUND_MS = 3 * 1092;
+const WINDOWS_CLI_EXIT_BOUND_MS = 3 * 1388;
 /**
  * Hang guard of the wait for the CLI's end, above both bounds and inside the
  * test's 180 s timeout; the bounds are asserted on the measured time.
@@ -121,7 +133,11 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     const cliGoneMs = Date.now() - crashed;
     recordTiming(`host-crash.cli-exit.${containment}`, cliGoneMs);
     expect(cliGoneMs).toBeLessThanOrEqual(
-      WINDOWS ? WINDOWS_CLI_EXIT_BOUND_MS : LINUX_CLI_EXIT_BOUND_MS,
+      WINDOWS
+        ? WINDOWS_CLI_EXIT_BOUND_MS
+        : process.platform === 'darwin'
+          ? MACOS_CLI_EXIT_BOUND_MS
+          : LINUX_CLI_EXIT_BOUND_MS,
     );
     // No report after the crash: the host is gone and nothing of the product ran.
     expect(

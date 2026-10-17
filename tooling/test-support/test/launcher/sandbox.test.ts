@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -503,6 +503,33 @@ describe('launching the pinned binary', () => {
     await sandbox.dispose();
     expect(existsSync(sandbox.dirs.root)).toBe(false);
   });
+
+  // Review R8-5: the re-check right before each spawn is the defence against
+  // the cached binary being replaced between createSandbox and a launch.
+  // Before this test, deleting that re-check failed no test.
+  it('refuses a launch when the binary changed after the sandbox was created', async () => {
+    const own = await makeFakeCli();
+    try {
+      const box = await createSandbox({
+        cli: own.cli,
+        mock: MOCK,
+        testRoot: root,
+        name: 'swap',
+        ancestorPolicy: scopedPolicy(root),
+      });
+      try {
+        const later = new Date(Date.now() + 60_000);
+        await utimes(own.cli.binaryPath, later, later);
+        const error = await refusal(box.launch({ args: [own.script] }));
+        expect(error.code).toBe('binary');
+        expect(error.message).toMatch(/changed since verification/u);
+      } finally {
+        await box.dispose();
+      }
+    } finally {
+      await own.dispose();
+    }
+  }, 120_000);
 });
 
 describe('sandbox defaults', () => {

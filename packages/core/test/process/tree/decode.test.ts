@@ -10,6 +10,7 @@ import {
 } from '../../../src/process/tree/decode.js';
 import {
   compareStartTime,
+  epochMsToWindowsStartTime,
   filetimeToMicroseconds,
   isCanonicalStartTime,
 } from '../../../src/process/tree/start-time.js';
@@ -143,5 +144,20 @@ describe('filetimeToMicroseconds', () => {
       }),
       fcParams(),
     );
+  });
+});
+
+describe('epochMsToWindowsStartTime', () => {
+  it('converts Unix epoch milliseconds to microseconds since 1601, truncating a fraction', () => {
+    expect(epochMsToWindowsStartTime(0)).toBe('11644473600000000');
+    expect(epochMsToWindowsStartTime(1000.9)).toBe('11644473601000000');
+    // A CIM creation time of 2026 compares with it as a canonical start time.
+    expect(isCanonicalStartTime(epochMsToWindowsStartTime(1_791_000_000_000))).toBe(true);
+  });
+
+  it('refuses a negative or non-finite instant', () => {
+    for (const ms of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => epochMsToWindowsStartTime(ms)).toThrow(RangeError);
+    }
   });
 });

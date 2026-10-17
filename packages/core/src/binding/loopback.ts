@@ -129,7 +129,7 @@ export interface LoopbackTransportOptions {
   readonly pid?: number;
   /** The ladder; {@link loopbackLadder} when absent. */
   readonly terminate?: LoopbackTerminate;
-  /** What {@link HarnessTransport.afterExit} reports after a graceful end; `null` when absent. */
+  /** What {@link HarnessTransport.afterExit} reports after a graceful end or a ladder; `null` when absent. */
   readonly afterExit?: AfterExitSweepReport | null;
   readonly stderrTail?: string;
 }
@@ -269,7 +269,11 @@ export class LoopbackTransport implements HarnessTransport {
   }
 
   afterExit(): Promise<AfterExitSweepReport | null> {
-    return Promise.resolve(this.inputEnd === 'graceful' ? this.#afterExit : null);
+    // As the process transport: a report once input ended through the
+    // recorded path or a ladder ran.
+    return Promise.resolve(
+      this.inputEnd === 'graceful' || this.#ladder !== undefined ? this.#afterExit : null,
+    );
   }
 
   stderrTail(): string {

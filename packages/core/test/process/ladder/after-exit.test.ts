@@ -176,6 +176,28 @@ describe('sweepAfterExit on POSIX', () => {
     });
   });
 
+  it('reports the entries the fresh table could not read (R3-2)', async () => {
+    const w = world();
+    const eof = await eofOf(w);
+    w.remove(CLI.pid);
+    const table = w.processTable;
+    const os = {
+      platform: 'linux' as const,
+      hostPid: w.hostPid,
+      signals: w.signals,
+      processTable: {
+        source: 'linux-proc' as const,
+        listPids: async () => [...(await table.listPids()), 999],
+        readStat: (pid: number) =>
+          pid === 999
+            ? Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }))
+            : table.readStat(pid),
+      },
+    };
+    expect(await sweepAfterExit(eof, { os })).toMatchObject({ status: 'done', rejected: 1 });
+    expect(w.calls.some((call) => call.id === 999)).toBe(false);
+  });
+
   it('signals nothing while the CLI still runs', async () => {
     const w = world();
     const eof = await eofOf(w);
@@ -204,10 +226,13 @@ describe('sweepAfterExit on POSIX', () => {
     const leaf = new FakeWorld([INIT, HOST, CLI], identity(CLI), CLI.pid);
     const lone = await eofOf(leaf);
     leaf.remove(CLI.pid);
+    const reads = leaf.reads;
     expect(await sweepAfterExit(lone, { os: leaf.os })).toEqual({
       status: 'skipped',
       reason: 'no-descendants',
     });
+    // Nothing to find on POSIX without a recorded descendant: no fresh table read.
+    expect(leaf.reads).toBe(reads);
     const eof = await eofOf(w);
     w.remove(CLI.pid);
     w.failingReads.add(w.reads);
@@ -278,13 +303,14 @@ describe('sweepAfterExit on Windows (best effort)', () => {
     let rows: CimRow[] = [HOST_ROW, CLI_ROW, SHELL_ROW];
     const { os, killed } = windows(() => rows, ok);
     const eof = await snapshotAtEof(201, rootIdentity, os);
+    // The host observed the CLI's exit at 55 (its handle held pid 201 until then).
     rows = [
       HOST_ROW,
       SHELL_ROW,
       // Started after EOF under the snapshot's shell, and its child.
       { pid: 303, ppid: 300, start: '40' },
       { pid: 307, ppid: 303, start: '41' },
-      // Started after EOF under the dead CLI (Windows keeps the ppid).
+      // Started after EOF under the dead CLI (Windows keeps the ppid), before its exit.
       { pid: 304, ppid: 201, start: '50' },
       // Older than the CLI: its ppid is stale, it is not the CLI's child.
       { pid: 305, ppid: 201, start: '10' },
@@ -292,7 +318,7 @@ describe('sweepAfterExit on Windows (best effort)', () => {
       { pid: 201, ppid: 4, start: '60' },
       { pid: 306, ppid: 201, start: '70' },
     ];
-    const report = await sweepAfterExit(eof, { os });
+    const report = await sweepAfterExit(eof, { os, rootExitObservedAt: '55' });
     expect(killed).toEqual([307, 303, 304, 300]);
     expect(report).toMatchObject({
       status: 'done',
@@ -315,11 +341,78 @@ describe('sweepAfterExit on Windows (best effort)', () => {
       reason: 'no-descendants',
     });
     rows = [HOST_ROW, { pid: 304, ppid: 201, start: '50' }];
-    expect(await sweepAfterExit(eof, { os })).toMatchObject({
+    expect(await sweepAfterExit(eof, { os, rootExitObservedAt: '55' })).toMatchObject({
       status: 'done',
       kills: [{ pid: 304, source: 'started-after-eof', outcome: 'done' }],
     });
     expect(killed).toEqual([304]);
+  });
+
+  // Review R2-1: a parent's pid names that parent only while the parent
+  // provably held it. These failed before the fix (the walk adopted the
+  // children below and taskkilled them).
+  it('never adopts the child of an unrelated process that briefly held a dead descendant pid', async () => {
+    let rows: CimRow[] = [HOST_ROW, CLI_ROW, SHELL_ROW];
+    const { os, killed } = windows(() => rows, ok);
+    const eof = await snapshotAtEof(201, rootIdentity, os);
+    // The reviewer's topology: the shell 300 exited; its pid went to a
+    // launcher that started 400 (an editor, say) and exited. 400 keeps
+    // ppid 300 and started after the shell, and no process holds pid 300 now.
+    rows = [HOST_ROW, { pid: 400, ppid: 300, start: '90' }];
+    const report = await sweepAfterExit(eof, { os, rootExitObservedAt: '95' });
+    expect(killed).toEqual([]);
+    expect(report).toEqual({
+      status: 'done',
+      summary: { processesSignalled: 0, groupsSignalled: 0, skipped: 1 },
+      kills: [{ pid: 300, source: 'eof-snapshot', outcome: 'skipped-exited' }],
+    });
+  });
+
+  it('adopts no child of the dead root started after the host observed its exit', async () => {
+    let rows: CimRow[] = [HOST_ROW, CLI_ROW];
+    const { os, killed } = windows(() => rows, ok);
+    const eof = await snapshotAtEof(201, rootIdentity, os);
+    // The CLI exited (observed at 55); its pid went to a launcher that
+    // started 401 at 80 and exited.
+    rows = [HOST_ROW, { pid: 401, ppid: 201, start: '80' }];
+    expect(await sweepAfterExit(eof, { os, rootExitObservedAt: '55' })).toEqual({
+      status: 'skipped',
+      reason: 'no-descendants',
+    });
+    // Without the observed exit time no child of the dead root is followed at all.
+    rows = [HOST_ROW, { pid: 304, ppid: 201, start: '50' }];
+    expect(await sweepAfterExit(eof, { os })).toEqual({
+      status: 'skipped',
+      reason: 'no-descendants',
+    });
+    expect(killed).toEqual([]);
+  });
+
+  it('follows a live descendant, and the children of what it finds, but no exited one', async () => {
+    let rows: CimRow[] = [HOST_ROW, CLI_ROW, SHELL_ROW, CHILD_ROW];
+    const { os, killed } = windows(() => rows, ok);
+    const eof = await snapshotAtEof(201, rootIdentity, os);
+    rows = [
+      HOST_ROW,
+      SHELL_ROW,
+      // 301 exited; a child naming it is not followed, whatever its start.
+      { pid: 310, ppid: 301, start: '40' },
+      // A child of the live shell, and its own child.
+      { pid: 311, ppid: 300, start: '41' },
+      { pid: 312, ppid: 311, start: '42' },
+      // Older than the shell: a stale ppid.
+      { pid: 313, ppid: 300, start: '29' },
+    ];
+    const report = await sweepAfterExit(eof, { os, rootExitObservedAt: '55' });
+    expect(killed).toEqual([312, 311, 300]);
+    expect(report).toMatchObject({
+      kills: [
+        { pid: 312, source: 'started-after-eof', outcome: 'done' },
+        { pid: 311, source: 'started-after-eof', outcome: 'done' },
+        { pid: 301, source: 'eof-snapshot', outcome: 'skipped-exited' },
+        { pid: 300, source: 'eof-snapshot', outcome: 'done' },
+      ],
+    });
   });
 
   it('spares the host, a reused pid, and records a failing taskkill', async () => {

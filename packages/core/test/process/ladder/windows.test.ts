@@ -538,7 +538,11 @@ describe('runWindowsLadder best-effort', () => {
     expect(h.taskkillPids).toEqual([]);
   });
 
-  it('skips taskkill /T when a foreign process names a tree member as its parent (stale ppid)', async () => {
+  // Review R2-2: `taskkill /T` applies the creation-time rule itself, so a
+  // process with a stale ppid naming a tree member is no reason to skip it
+  // (measured on Windows 11 26200 and windows-2025, timing run 39059130622).
+  // The fake's taskkill ends the tree only, as the real one was measured to.
+  it('runs taskkill /T even when a foreign process names a tree member as its parent (stale ppid)', async () => {
     for (const foreign of [
       // Started before the root: its ppid names an earlier holder of the pid.
       { pid: 800, ppid: ROOT.pid, start: '500' },
@@ -548,13 +552,13 @@ describe('runWindowsLadder best-effort', () => {
       const h = harness([HOST_ROW, ROOT, KID, foreign]);
       const report = await run(h, null);
       expect(summary(report).slice(4)).toEqual([
-        'taskkill@2000:skipped:identity-foreign-child',
-        'terminate-process@2000:done',
-        'sweep@2000:done:pid-600',
+        'taskkill@2000:done',
+        'sweep@2000:skipped:pid-600-exited',
       ]);
-      expect(h.taskkillPids).toEqual([]);
+      expect(report.exitedAfter).toBe('taskkill');
+      expect(h.taskkillPids).toEqual([ROOT.pid]);
       // The foreign process is not a verified descendant: never swept.
-      expect(h.sweptPids).toEqual([KID.pid]);
+      expect(h.sweptPids).toEqual([]);
     }
   });
 

@@ -12,11 +12,15 @@
  *   the pipe backpressures the child and nothing is buffered without bound;
  * - input: serialized writes; a failed write rejects with
  *   {@link TransportWriteError} carrying the errno name;
- * - graceful EOF (W3-Z ruling 5, ADR-0008, ADR-0009, ADR-0010): the
- *   descendants are snapshotted first ({@link snapshotAtEof}), then stdin is
- *   ended. The harness is idle and waiting for EOF at that moment, so the
+ * - recorded EOF (W3-Z ruling 5, ADR-0008, ADR-0009, ADR-0010; review
+ *   R3-1): the descendants are snapshotted first ({@link snapshotAtEof}),
+ *   then stdin is ended, for the graceful close and for every end of input
+ *   once a ladder runs (the snapshot then starts with the ladder, so it
+ *   overlaps the interrupt step). The harness is alive at that moment, so the
  *   snapshot cannot miss its root; after the exit {@link HarnessTransport.afterExit}
- *   sweeps the survivors of that snapshot ({@link sweepAfterExit});
+ *   sweeps the survivors of that snapshot ({@link sweepAfterExit}) whichever
+ *   way the harness ended. With a job there is no snapshot: closing the job
+ *   after the exit ends the tree, and `afterExit` reports that (review R2-1);
  * - termination: the platform's abort ladder (`runPosixLadder` with the K1
  *   signal target, `runWindowsLadder` with the session's job or best effort),
  *   with the driver's interrupt hook as its first step.
@@ -47,6 +51,7 @@ import { runWindowsLadder, type JobHandle } from '../process/ladder/windows.js';
 import type { OsCalls } from '../process/os/types.js';
 import type { HarnessProcess } from '../process/spawn.js';
 import { ProcessStreamError } from '../process/spawn.js';
+import { epochMsToWindowsStartTime } from '../process/tree/start-time.js';
 import type { TransportInput } from '../protocol/machine/contract.js';
 import type { ExitObservation, TerminationIntent } from '../protocol/machine/outcome.js';
 import { systemClock, type Clock } from './clock.js';
@@ -114,10 +119,10 @@ export interface HarnessTransport {
   /** Writes one line (it carries its own `\n`); rejects with {@link TransportWriteError}. */
   write(line: string): Promise<void>;
   /**
-   * Ends the harness's input; idempotent. `graceful` (the drain path, not the
-   * ladder) lets the transport record what it needs to clean up after the
-   * harness exits by itself; without it the end is immediate and synchronous
-   * (the ladder, the host-exit hook).
+   * Ends the harness's input; idempotent. `graceful` (every end the machine
+   * asks for) lets the transport record what it needs to clean up after the
+   * harness exits, first; without it the end is immediate and synchronous
+   * (the host-exit hook), also when a recorded end is still pending.
    */
   endInput(options: { readonly graceful: boolean }): void;
   /** Settles once with the exit. Never rejects. */
@@ -128,8 +133,8 @@ export interface HarnessTransport {
    */
   terminate(request: TerminateRequest): Promise<LadderReport<TerminationIntent> | null>;
   /**
-   * After the exit: the sweep of the graceful close (`null` when input was
-   * never ended gracefully). Never rejects.
+   * After the exit: the sweep of the recorded tree (`null` when input was
+   * never ended gracefully and no ladder ran). Never rejects.
    */
   afterExit(): Promise<AfterExitSweepReport | null>;
   /** The redacted, bounded stderr tail (`''` when there is none). */
@@ -148,6 +153,19 @@ export interface ProcessTransportOptions {
   readonly os: OsCalls;
   /** The session's job (`SessionContainmentResult.job`); `null` or absent for best effort. */
   readonly job?: JobHandle | null;
+  /**
+   * With a job: `SessionContainmentResult.released`, which settles once the
+   * job was closed after the exit. `afterExit` reports `job-closed` or
+   * `job-close-failed` from it (absent: `no-snapshot`).
+   */
+  readonly jobReleased?: Promise<'closed' | 'close-failed' | 'no-job'>;
+  /**
+   * The wall clock in epoch milliseconds (`Date.now` when absent), read on
+   * Windows when the exit is observed (`AfterExitDeps.rootExitObservedAt`).
+   * Not the ladder clock: it is compared with the kernel's process creation
+   * times.
+   */
+  readonly wallClockMs?: () => number;
   /** Ladder timing (`termination.*` options); the defaults of plan §1.7 when absent. */
   readonly timing?: LadderTiming;
   /** The clock of the ladders; the real clock when absent. */
@@ -184,8 +202,15 @@ class ProcessTransport implements HarnessTransport {
   readonly #timing: LadderTiming;
   readonly #clock: LadderClock;
   readonly #maxLineBytes: number;
+  readonly #jobReleased: Promise<'closed' | 'close-failed' | 'no-job'> | undefined;
+  /** Input end was asked for (recorded or immediate). */
   #ended = false;
+  /** An end of input went through the recorded path (graceful, or with a ladder running). */
+  #recorded = false;
+  /** The snapshot before EOF; never with a job. */
   #eof: Promise<EofSnapshot | null> | undefined;
+  /** Windows: the wall clock when the exit was observed, as a canonical start time. */
+  #exitObservedAt: string | undefined;
   #ladder: Promise<LadderReport<TerminationIntent>> | undefined;
 
   constructor(options: ProcessTransportOptions) {
@@ -194,10 +219,22 @@ class ProcessTransport implements HarnessTransport {
     this.pid = proc.pid;
     this.#os = options.os;
     this.#job = options.job ?? null;
+    this.#jobReleased = options.jobReleased;
     this.#timing = options.timing ?? DEFAULT_LADDER_TIMING;
     const clock = options.clock ?? systemClock;
     this.#clock = { now: () => clock.nowMs(), schedule: (ms, cb) => clock.schedule(ms, cb) };
     this.#maxLineBytes = options.maxLineBytes ?? DEFAULT_MAX_INBOUND_FRAME_BYTES;
+    const wallClockMs = options.wallClockMs ?? Date.now;
+    if (options.os.platform === 'win32' && proc.exitStatus === null) {
+      // Read in the exit's own turn, before libuv closes the process handle
+      // (the handle closes in its loop's close phase, after this callback),
+      // so no other process can have held the pid yet (review R2-1). Not
+      // when the exit was already seen before this transport existed: the
+      // reading would come too late to bound anything.
+      void proc.exited.then(() => {
+        this.#exitObservedAt = epochMsToWindowsStartTime(wallClockMs());
+      });
+    }
     this.exited = proc.exited.then((exit) => ({ code: exit.code, signal: exit.signal }));
   }
 
@@ -222,23 +259,55 @@ class ProcessTransport implements HarnessTransport {
   }
 
   endInput(options: { readonly graceful: boolean }): void {
-    if (this.#ended) return;
+    if (options.graceful) {
+      this.#endRecorded();
+      return;
+    }
+    // Immediate (the host-exit hook), also when a recorded end still waits
+    // for its snapshot; endStdin is idempotent.
     this.#ended = true;
-    if (!options.graceful) {
+    this.#proc.endStdin();
+  }
+
+  /**
+   * Starts the snapshot before EOF once, unless there is a job or input
+   * already ended. Never rejects.
+   */
+  #snapshotBeforeEof(): Promise<EofSnapshot | null> | undefined {
+    if (this.#job !== null || (this.#ended && this.#eof === undefined)) return this.#eof;
+    if (this.#eof === undefined) {
+      const identity = this.#proc.identity.then((read) => read.identity);
+      this.#eof = snapshotAtEof(this.#proc.pid, identity, this.#os);
+    }
+    return this.#eof;
+  }
+
+  /**
+   * Snapshot first, then EOF: the harness is alive until it sees EOF, so its
+   * root is still in the table (`snapshotAtEof` never rejects). With a job,
+   * EOF at once.
+   */
+  #endRecorded(): void {
+    if (this.#ended) return;
+    const eof = this.#snapshotBeforeEof();
+    this.#ended = true;
+    this.#recorded = true;
+    if (eof === undefined) {
       this.#proc.endStdin();
       return;
     }
-    // Snapshot first, then EOF: the harness is idle and waits for EOF, so its
-    // root is still in the table (snapshotAtEof never rejects).
-    const identity = this.#proc.identity.then((read) => read.identity);
-    this.#eof = snapshotAtEof(this.#proc.pid, identity, this.#os).then((eof) => {
+    void eof.then(() => {
       this.#proc.endStdin();
-      return eof;
     });
   }
 
   terminate(request: TerminateRequest): Promise<LadderReport<TerminationIntent>> {
-    this.#ladder ??= this.#runLadder(request);
+    if (this.#ladder === undefined) {
+      // The tree as the ladder starts, before any end of input (review R3-1);
+      // it overlaps the interrupt step.
+      void this.#snapshotBeforeEof();
+      this.#ladder = this.#runLadder(request);
+    }
     return this.#ladder;
   }
 
@@ -247,8 +316,7 @@ class ProcessTransport implements HarnessTransport {
     const identity = proc.identity.then((read) => read.identity);
     const hasExited = (): boolean => proc.exitStatus !== null;
     const endStdin = (): void => {
-      this.#ended = true;
-      proc.endStdin();
+      this.#endRecorded();
     };
     const hooks = { interrupt: () => request.interrupt() };
     const os = this.#os;
@@ -284,14 +352,23 @@ class ProcessTransport implements HarnessTransport {
   }
 
   async afterExit(): Promise<AfterExitSweepReport | null> {
-    if (this.#eof === undefined) return null;
-    const eof = await this.#eof;
+    if (!this.#recorded && this.#ladder === undefined) return null;
+    if (this.#job !== null) {
+      // The job's close after the exit ends the whole tree (no breakaway is
+      // allowed); a walk could only find processes that are not ours (R2-1).
+      const released = await this.#jobReleased;
+      if (released === 'closed') return { status: 'skipped', reason: 'job-closed' };
+      if (released === 'close-failed') return { status: 'skipped', reason: 'job-close-failed' };
+      return { status: 'skipped', reason: 'no-snapshot' };
+    }
+    const eof = this.#eof === undefined ? null : await this.#eof;
     const ladder = this.#ladder === undefined ? null : await this.#ladder;
     const target = ladder?.signalTarget ?? null;
-    return sweepAfterExit(
-      eof,
-      target === null ? { os: this.#os } : { os: this.#os, signalTarget: target },
-    );
+    return sweepAfterExit(eof, {
+      os: this.#os,
+      ...(target === null ? {} : { signalTarget: target }),
+      ...(this.#exitObservedAt === undefined ? {} : { rootExitObservedAt: this.#exitObservedAt }),
+    });
   }
 
   stderrTail(): string {

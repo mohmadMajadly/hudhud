@@ -740,7 +740,6 @@ export class SessionDriver<State, Config> implements SessionCore {
   // ---- effects --------------------------------------------------------------------------
 
   #execute(effects: readonly MachineEffect[], item: QueueItem): void {
-    const ladderInStep = effects.some((effect) => effect.type === 'ladder.start');
     const ended: TurnRecord[] = [];
     const current = item.send;
     for (const effect of effects) {
@@ -749,7 +748,9 @@ export class SessionDriver<State, Config> implements SessionCore {
           this.#write(effect.line);
           break;
         case 'stdin.end':
-          this.#endInput(!ladderInStep && this.#ladder === undefined);
+          // Recorded (snapshot, then EOF) also while a ladder runs, so the tree
+          // is swept after the exit whichever step ends the harness (R3-1).
+          this.#endInput(true);
           break;
         case 'timer.set':
           this.#armTimer(effect.name, effect.ms);
@@ -1257,7 +1258,7 @@ export class SessionDriver<State, Config> implements SessionCore {
     if (sweep !== null) {
       this.#diagnostic(
         'termination.sweep-after-exit',
-        'The graceful close swept the process tree.',
+        'The sweep after the exit ran over the process tree.',
         toJsonObject(sweep),
       );
     }
