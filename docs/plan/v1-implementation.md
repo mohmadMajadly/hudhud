@@ -1374,7 +1374,7 @@ FX-A (security; review findings R1-1 to R1-5, R6-6, R2-6), as built:
 - R1-5: `managedPolicy: 'unknown-raw-settings'` removed (unreachable: `/raw` refuses `--settings`).
 - R6-6: `settings-guard.git-root-unresolved` and `settings-guard.symlink-followed` are in `DiagnosticCode` and the events schema; the guides document the fallback, links and read-failure reasons.
 - R2-6: `'harness'` passes `PSModulePath` and `PSModuleAnalysisCachePath` on Windows (paths, not credentials; ADR-0012 §4 amendment).
-- Q3 (lead ruling): a provider family passes every companion variable the pinned CLI reads for it; the Vertex family is now `GOOGLE_*`, `GCLOUD_*`, `CLOUD_ML_*`, `VERTEX_*` (Bedrock and Foundry need nothing more). The 2.1.296 binary also names `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD` and `CLAUDE_CODE_USE_MANTLE`, which have no family yet (open for a lead ruling); `pnpm cli:bump` prints a follow-up step that compares a new binary's switches with `PROVIDER_FAMILIES`.
+- Q3 (lead ruling): a provider family passes every companion variable the pinned CLI reads for it; the Vertex family is now `GOOGLE_*`, `GCLOUD_*`, `CLOUD_ML_*`, `VERTEX_*` (Bedrock and Foundry need nothing more). The 2.1.296 switches `CLAUDE_CODE_USE_ANTHROPIC_AWS` and `CLAUDE_CODE_USE_MANTLE` pass `AWS_*`, and `CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD` passes `GOOGLE_*` and `GCLOUD_*`; both Google providers also pass the exact names `gcloud_project` and `google_cloud_project` (lead ruling on the three switches, mapped from their client code; ADR-0012 §4). `pnpm cli:bump` prints a follow-up step that compares a new binary's switches with `PROVIDER_FAMILIES`.
 
 ### 5.10 Summary table
 

@@ -204,7 +204,7 @@ describe("'harness' preset (allowlist by rule)", () => {
     expect(isHarnessAllowed('claude_x', 'posix')).toBe(false);
     expect(isHarnessAllowed('claude_x', 'win32')).toBe(true);
     expect(isHarnessAllowed('AWS_REGION', 'posix')).toBe(false);
-    expect(isHarnessAllowed('AWS_REGION', 'posix', ['AWS_'])).toBe(true);
+    expect(isHarnessAllowed('AWS_REGION', 'posix', { prefixes: ['AWS_'], names: [] })).toBe(true);
     expect(isHarnessAllowed('CLAUDE_CODE_ENTRYPOINT', 'posix')).toBe(false);
   });
 
@@ -240,6 +240,60 @@ describe("'harness' preset (allowlist by rule)", () => {
       expect(other.dropped).toEqual(Object.keys(parent).sort());
     }
     expect(child(undefined, parent, 'posix').dropped).toEqual(Object.keys(parent).sort());
+  });
+
+  // The 2.1.296 switches beyond Bedrock, Vertex and Foundry, mapped from
+  // their client construction code (AnthropicAws, AnthropicBedrockMantle,
+  // AnthropicGoogleCloud; lead ruling on the three switches).
+  it.each([
+    ['CLAUDE_CODE_USE_ANTHROPIC_AWS', ['AWS_REGION', 'AWS_PROFILE', 'AWS_ACCESS_KEY_ID']],
+    ['CLAUDE_CODE_USE_MANTLE', ['AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_BEARER_TOKEN_BEDROCK']],
+    [
+      'CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD',
+      [
+        'GOOGLE_CLOUD_PROJECT',
+        'GOOGLE_APPLICATION_CREDENTIALS',
+        'GCLOUD_PROJECT',
+        'gcloud_project',
+        'google_cloud_project',
+      ],
+    ],
+  ])('passes the companions of %s, and only them', (flag, companions) => {
+    const all = {
+      AWS_REGION: 'r',
+      AWS_PROFILE: 'p',
+      AWS_ACCESS_KEY_ID: 'a',
+      AWS_DEFAULT_REGION: 'r',
+      AWS_BEARER_TOKEN_BEDROCK: 'b',
+      GOOGLE_CLOUD_PROJECT: 'g',
+      GOOGLE_APPLICATION_CREDENTIALS: '/g.json',
+      GCLOUD_PROJECT: 'g',
+      gcloud_project: 'g',
+      google_cloud_project: 'g',
+      CLOUD_ML_REGION: 'us',
+      VERTEX_REGION_CLAUDE_5_SONNET: 'us',
+      AZURE_CLIENT_ID: 'az',
+    };
+    const result = child(undefined, { ...all, [flag]: '1' }, 'posix');
+    for (const name of companions) expect(result.env, name).toHaveProperty(name);
+    const family = flag.includes('GOOGLE') ? /^(GOOGLE_|GCLOUD_|gcloud_|google_)/ : /^AWS_/;
+    expect(result.dropped).toEqual(
+      Object.keys(all)
+        .filter((name) => !family.test(name))
+        .sort(),
+    );
+    // Off: none of them passes.
+    expect(child(undefined, all, 'posix').dropped).toEqual(Object.keys(all).sort());
+  });
+
+  it('passes the lower-case Google project names the CLI reads, exactly (posix)', () => {
+    const vertex = child(
+      undefined,
+      { CLAUDE_CODE_USE_VERTEX: '1', gcloud_project: 'g', gcloud_projectx: 'x' },
+      'posix',
+    );
+    expect(vertex.env).toHaveProperty('gcloud_project');
+    expect(vertex.dropped).toEqual(['gcloud_projectx']);
   });
 
   it('passes provider families only when the switch is on', () => {

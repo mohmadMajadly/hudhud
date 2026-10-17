@@ -744,6 +744,28 @@ describe('third-party provider routing and credentials (review R1-1)', () => {
     ]);
   });
 
+  it.each([
+    ['CLAUDE_CODE_USE_ANTHROPIC_AWS', ['AWS_REGION', 'AWS_PROFILE', 'ANTHROPIC_AWS_WORKSPACE_ID']],
+    ['CLAUDE_CODE_USE_MANTLE', ['AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_BEDROCK_MANTLE_BASE_URL']],
+    [
+      'CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD',
+      [
+        'GCLOUD_PROJECT',
+        'gcloud_project',
+        'google_cloud_project',
+        'ANTHROPIC_GOOGLE_CLOUD_PROJECT',
+      ],
+    ],
+  ])(
+    'refuses the switch %s and its companion variables in project settings',
+    async (flag, companions) => {
+      const env = Object.fromEntries([flag, ...companions].map((name) => [name, 'x']));
+      const fs = new FakeFs('posix').dir('/w/.git').json('/w/.claude/settings.json', { env });
+      const error = await refusal(guard(fs, '/w'));
+      expect(details(error)['variables']).toEqual([flag, ...companions].sort());
+    },
+  );
+
   it('passes model selection and ordinary CLI settings', async () => {
     const fs = new FakeFs('posix').dir('/w/.git').json('/w/.claude/settings.json', {
       env: {
