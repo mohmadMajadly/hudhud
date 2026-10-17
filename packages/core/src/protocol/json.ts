@@ -79,6 +79,8 @@ export function isJsonObject(value: unknown): value is JsonObject {
  * reachable twice is refused even without a cycle: shared references can
  * expand exponentially when serialized. Use it for values that did not come
  * from `JSON.parse`, for example application-supplied permission decisions.
+ * Never throws: a getter or a proxy trap that throws makes the value not
+ * JSON.
  *
  * @public
  */
@@ -86,6 +88,14 @@ export function isJsonValue(
   value: unknown,
   maxDepth: number = DEFAULT_MAX_JSON_DEPTH,
 ): value is JsonValue {
+  try {
+    return walksAsJson(value, maxDepth);
+  } catch {
+    return false;
+  }
+}
+
+function walksAsJson(value: unknown, maxDepth: number): boolean {
   const stack: { readonly value: unknown; readonly depth: number }[] = [{ value, depth: 0 }];
   const seen = new Set<object>();
   for (let item = stack.pop(); item !== undefined; item = stack.pop()) {

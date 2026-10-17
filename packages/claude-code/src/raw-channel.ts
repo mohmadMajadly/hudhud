@@ -23,7 +23,9 @@
  *   (`rawControlRefusal`, `rawFrameRefusal`): never `initialize` (the only
  *   carrier of `workspaceTrust`, J3), no `update_settings` and no non-session
  *   permission destinations without `dangerouslyAllowConfigWrites` (R6). The
- *   outbound cap applies (`OUTBOUND_FRAME_TOO_LARGE`, nothing written).
+ *   outbound cap applies (`OUTBOUND_FRAME_TOO_LARGE`, nothing written). The
+ *   rules run on the caller's object and once more on the encoded line
+ *   parsed back, which is exactly what is written (R4-8).
  *
  * Why here and not under `src/raw/`: the session factory wraps every
  * session's transport with this channel, and `src/raw/` is a leaf no other
@@ -65,6 +67,7 @@ import {
   rawControlRefusal,
   rawControlRequest,
   rawFrameRefusal,
+  rawLineRefusal,
   type RawControlPolicy,
 } from './protocol/wire/outbound.js';
 
@@ -401,9 +404,17 @@ export class RawChannel {
     if (failed !== null) throw failed;
   }
 
+  /**
+   * Encodes a frame and checks the encoded line itself (R4-8): the caller's
+   * object was checked already, but a getter or a proxy can return other
+   * values when it is serialized, so the rules run once more on the line
+   * parsed back, and exactly that line is written.
+   */
   #encode(frame: JsonObject): string {
     const encoded = encodeJsonLine(frame, this.#maxOutboundBytes);
     if (!encoded.ok) throw HudhudError.fromData(encoded.error);
+    const refusal = rawLineRefusal(encoded.line, this.#policy);
+    if (refusal !== undefined) throw HudhudError.fromData(refusal);
     return encoded.line;
   }
 

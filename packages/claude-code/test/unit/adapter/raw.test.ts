@@ -321,6 +321,58 @@ describe('raw control (ADR-0012 §8)', () => {
     await harness[Symbol.asyncDispose]();
   });
 
+  it('checks the bytes it writes, not only the object it was given (R4-8)', async () => {
+    const fake = new FakeHost();
+    const harness = await harnessWith(fake, true);
+    const session = await harness.sessions.create();
+    const rawSession = raw(session);
+    const count = fake.cli.written.length;
+    /** True while JSON.stringify reads the value (the check reads it outside). */
+    const serializing = (): boolean => new Error().stack?.includes('JSON.stringify') === true;
+    const update = {};
+    Object.defineProperty(update, 'destination', {
+      enumerable: true,
+      get: () => (serializing() ? 'userSettings' : 'session'),
+    });
+    await expect(
+      rawSession.writeFrame({
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: 'x',
+          response: { behavior: 'allow', updatedPermissions: [update] },
+        },
+      }),
+    ).rejects.toMatchObject({ details: { rule: 'raw-config-write-permissions' } });
+    const request = {};
+    Object.defineProperty(request, 'subtype', {
+      enumerable: true,
+      get: () => (serializing() ? 'update_settings' : 'mcp_status'),
+    });
+    await expect(
+      rawSession.writeFrame({ type: 'control_request', request_id: 'r', request }),
+    ).rejects.toMatchObject({ details: { rule: 'raw-config-write' } });
+    // A getter that throws is refused as not JSON, never escapes as a plain Error.
+    const throwing = {};
+    Object.defineProperty(throwing, 'boom', {
+      enumerable: true,
+      get: () => {
+        throw new Error('getter');
+      },
+    });
+    await expect(rawSession.writeFrame({ type: 'x', throwing })).rejects.toMatchObject({
+      code: 'INVALID_OPTIONS',
+      details: { rule: 'raw-frame-not-json' },
+    });
+    await expect(rawSession.controlRequest('mcp_status', { throwing })).rejects.toMatchObject({
+      code: 'INVALID_OPTIONS',
+      details: { rule: 'raw-body-not-json' },
+    });
+    expect(fake.cli.written).toHaveLength(count);
+    await session.close();
+    await harness[Symbol.asyncDispose]();
+  });
+
   it('the outbound cap applies: nothing is written', async () => {
     const fake = new FakeHost();
     const harness = await harnessWith(fake, true);

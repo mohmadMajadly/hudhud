@@ -230,6 +230,26 @@ describe('encodeJsonLine', () => {
       };
       expect(encodeJsonLine(untyped(throwing), 64)).toEqual(protocolError('not-serializable'));
     });
+
+    it('refuses a throwing getter or proxy trap instead of throwing (R4-8)', () => {
+      const getter = {};
+      Object.defineProperty(getter, 'boom', {
+        enumerable: true,
+        get: () => {
+          throw new Error('getter');
+        },
+      });
+      expect(encodeJsonLine(untyped(getter), 64)).toEqual(protocolError('not-serializable'));
+      const proxy = new Proxy(
+        {},
+        {
+          ownKeys: () => {
+            throw new Error('trap');
+          },
+        },
+      );
+      expect(encodeJsonLine(untyped(proxy), 64)).toEqual(protocolError('not-serializable'));
+    });
   });
 
   describe('properties', () => {
