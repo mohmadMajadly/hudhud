@@ -25,7 +25,8 @@
  * follow-up steps, each a reviewable diff of its own: the committed digest
  * table and the tested window, the fixtures, the request-shape snapshots on
  * Linux and Windows, the Windows publisher check, the macOS gate run (darwin
- * pins, Team ID and darwin snapshots) and `pnpm check:full`.
+ * pins, Team ID and darwin snapshots), the provider switches against the
+ * `'harness'` provider families, and `pnpm check:full`.
  *
  * Exit codes: 0 pin updated, 1 fetch, verification or cross-check failure,
  * 2 usage error.
@@ -176,7 +177,12 @@ export function bumpReport(
     '   must verify both darwin binaries against the new pin and the Team ID',
     '   (CLAUDE_CODE_PUBLISHER.darwinTeamId); the integration evidence job writes the darwin',
     '   request-shape snapshots (artifact integration-evidence, request-shape/): review and commit.',
-    '8. pnpm check:full on Linux and on Windows; then a changeset and the PR (its FULL CI',
+    "8. Provider switches (ADR-0012 §4): list the CLAUDE_CODE_USE_* names in the new binary's",
+    '   strings (read, never run) and compare them with PROVIDER_FAMILIES in',
+    '   packages/claude-code/src/env.ts; a switch without a family (2.1.296 already names',
+    '   CLAUDE_CODE_USE_ANTHROPIC_AWS, CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD and',
+    "   CLAUDE_CODE_USE_MANTLE) needs a lead ruling on the 'harness' companions it passes.",
+    '9. pnpm check:full on Linux and on Windows; then a changeset and the PR (its FULL CI',
     '   run covers macOS).',
     '',
   ].join('\n');
