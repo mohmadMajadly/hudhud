@@ -181,9 +181,11 @@ jobs:
     runs-on: windows-2025
     # Bounded: the stale-pid search tries at most 20000 holders per trial
     # (Windows 11: 1295, 2582 and 4745 tries, about 4 ms each, 19 s for a
-    # whole trial), so at most a few minutes; the PowerShell probe runs 9 PowerShells,
-    # about 6 x 60 s if each cold sandbox lookup costs what checklist 1.11
-    # saw (57-62 s), each capped at 300 s. Expected under 15 min.
+    # whole trial; windows-2025, run 39059130622: 506 to 775 tries, the job
+    # 3 min with the first PowerShell probe). The PowerShell probe runs one
+    # 30 s warming PowerShell and 18 short ones, each capped at 300 s: about
+    # 15 x 20-30 s if the cold runs cost what run 39059130622 measured.
+    # Expected under 15 min.
     timeout-minutes: 30
     permissions:
       contents: read

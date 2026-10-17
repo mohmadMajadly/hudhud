@@ -1,16 +1,25 @@
 #!/usr/bin/env node
-// Windows probe (review R2-4 / R2-U1, FX-B; checklist 1.11): how long does a
-// short Windows PowerShell 5.1 run take to resolve an auto-loaded cmdlet
-// (`Get-CimInstance`) in an environment shaped like the integration sandbox
-// (fresh `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`; no `PSModulePath`), and
-// with the integration harness's remedy (`PSModulePath` set to `$PSHOME\Modules`
-// only)? Run on demand by `.github/workflows/timing.yml` (job `probe`).
+// Windows probe (review R2-4 / R2-U1, FX-B; checklist 1.11): why does a
+// short Windows PowerShell 5.1 run that calls an auto-loaded cmdlet
+// (`Get-CimInstance`) take tens of seconds in an environment shaped like the
+// integration sandbox (fresh `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`; no
+// `PSModulePath`) on the windows-2025 image? Run on demand by
+// `.github/workflows/timing.yml` (job `probe`).
 //
-// Each variant runs RUNS times in its own fresh profile directories:
-// - `sandbox`: the sandbox shape as is (PowerShell builds its default module
-//   path: Documents, Program Files, $PSHOME);
-// - `pshome-only`: the same plus `PSModulePath=<SystemRoot>\System32\WindowsPowerShell\v1.0\Modules`;
-// - `host`: the runner's own environment (its warm or cold cache), for reference.
+// Every run reports, besides its wall time, three phases measured inside
+// PowerShell: `ready` (process start to the first statement: the engine's
+// own start-up), `lookup` (`Get-Command Get-CimInstance`: command discovery,
+// the module analysis) and `call` (the CIM query itself). Variants, each run
+// in its own fresh profile directories:
+// - `sandbox`: the sandbox shape as is;
+// - `pshome-only`: plus `PSModulePath=<PSHOME>\Modules`;
+// - `import`: the sandbox shape, `Import-Module CimCmdlets` instead of the
+//   lookup (no command discovery);
+// - `host-localappdata`: the sandbox shape with the runner's own
+//   `LOCALAPPDATA` (its analysis cache) and nothing else of its profile;
+// - `warm-cache`: the sandbox shape plus `PSModuleAnalysisCachePath` naming a
+//   cache file one long-lived PowerShell wrote first (in its own fresh profile);
+// - `host`: the runner's own environment, for reference.
 // It also lists the module directories of `<ProgramFiles>\WindowsPowerShell\Modules`.
 //
 //   node scripts/probe/powershell-module-cache.mjs <scratch-dir>
@@ -21,7 +30,7 @@
 // by a timeout.
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -30,7 +39,27 @@ const SYSTEM_ROOT = process.env['SystemRoot'] ?? 'C:\\Windows';
 const SYSTEM32 = path.win32.join(SYSTEM_ROOT, 'System32');
 const PSHOME = path.win32.join(SYSTEM32, 'WindowsPowerShell', 'v1.0');
 const POWERSHELL = path.win32.join(PSHOME, 'powershell.exe');
-const COMMAND = 'Get-CimInstance Win32_Process -Filter "ProcessId=$PID" | Out-Null; \'ok\'';
+/** How long the warming PowerShell lives (the reviewer saw a cache written after 20 s). */
+const WARM_SECONDS = 30;
+
+/** The PowerShell script of a run: phases in milliseconds, then `ok`. */
+function script(/** @type {'lookup' | 'import'} */ mode, /** @type {number} */ linger = 0) {
+  const discover =
+    mode === 'lookup' ? '$null = Get-Command Get-CimInstance' : 'Import-Module CimCmdlets';
+  return [
+    '$ready = [int]([DateTime]::Now - [Diagnostics.Process]::GetCurrentProcess().StartTime).TotalMilliseconds',
+    '$sw = [Diagnostics.Stopwatch]::StartNew()',
+    discover,
+    '$lookup = $sw.ElapsedMilliseconds',
+    '$sw.Restart()',
+    '$null = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"',
+    '$call = $sw.ElapsedMilliseconds',
+    linger > 0 ? `Start-Sleep -Seconds ${String(linger)}` : '',
+    '"ok|$ready|$lookup|$call"',
+  ]
+    .filter((line) => line !== '')
+    .join('; ');
+}
 
 /** The sandbox-shaped environment (tooling/test-support/src/launcher/env.ts) over fresh dirs. */
 function sandboxEnv(/** @type {string} */ scratch) {
@@ -62,18 +91,27 @@ function sandboxEnv(/** @type {string} */ scratch) {
  *
  * @param {string} variant
  * @param {Readonly<Record<string, string | undefined>>} env
+ * @param {string} command
  */
-function run(variant, env) {
+function run(variant, env, command) {
   const started = performance.now();
-  const result = spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', COMMAND], {
+  const result = spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', command], {
     env,
     encoding: 'utf8',
     windowsHide: true,
     timeout: 300_000,
   });
   const ms = Math.round(performance.now() - started);
-  const ok = result.status === 0 && result.stdout.trim() === 'ok';
-  return { variant, ms, ok, status: result.status, signal: result.signal };
+  const [ok, ready, lookup, call] = result.stdout.trim().split('|');
+  return {
+    variant,
+    ms,
+    ready: Number(ready),
+    lookup: Number(lookup),
+    call: Number(call),
+    ok: result.status === 0 && ok === 'ok',
+    status: result.status,
+  };
 }
 
 function main() {
@@ -96,38 +134,63 @@ function main() {
     modules = [];
   }
   process.stdout.write(`${JSON.stringify({ programFilesModules: modules })}\n`);
+
+  // The warm cache: one PowerShell that lives WARM_SECONDS in its own fresh profile.
+  const cacheFile = path.win32.join(mkdtempSync(path.win32.join(scratch, 'cache-')), 'analysis');
+  const warm = run(
+    'warming',
+    { ...sandboxEnv(scratch), PSModuleAnalysisCachePath: cacheFile },
+    script('lookup', WARM_SECONDS),
+  );
+  const cacheBytes = existsSync(cacheFile) ? statSync(cacheFile).size : 0;
+  process.stdout.write(`${JSON.stringify({ ...warm, cacheBytes })}\n`);
+
+  const hostLocal = process.env['LOCALAPPDATA'] ?? '';
+  /** @type {Record<string, () => [Readonly<Record<string, string | undefined>>, string]>} */
   const variants = {
-    sandbox: () => sandboxEnv(scratch),
-    'pshome-only': () => ({
-      ...sandboxEnv(scratch),
-      PSModulePath: path.win32.join(PSHOME, 'Modules'),
-    }),
-    host: () => process.env,
+    sandbox: () => [sandboxEnv(scratch), script('lookup')],
+    'pshome-only': () => [
+      { ...sandboxEnv(scratch), PSModulePath: path.win32.join(PSHOME, 'Modules') },
+      script('lookup'),
+    ],
+    import: () => [sandboxEnv(scratch), script('import')],
+    'host-localappdata': () => [
+      { ...sandboxEnv(scratch), LOCALAPPDATA: hostLocal },
+      script('lookup'),
+    ],
+    'warm-cache': () => [
+      { ...sandboxEnv(scratch), PSModuleAnalysisCachePath: cacheFile },
+      script('lookup'),
+    ],
+    host: () => [process.env, script('lookup')],
   };
   /** @type {ReturnType<typeof run>[]} */
-  const results = [];
-  for (const [variant, env] of Object.entries(variants)) {
+  const results = [warm];
+  for (const [variant, make] of Object.entries(variants)) {
     for (let i = 0; i < RUNS; i++) {
-      const result = run(variant, env());
+      const [env, command] = make();
+      const result = run(variant, env, command);
       process.stdout.write(`${JSON.stringify(result)}\n`);
       results.push(result);
     }
   }
-  const rows = Object.keys(variants).map((variant) => {
-    const ms = results.filter((result) => result.variant === variant).map((result) => result.ms);
-    return `| ${variant} | ${ms.join(', ')} |`;
+  const rows = ['warming', ...Object.keys(variants)].map((variant) => {
+    const of = results.filter((result) => result.variant === variant);
+    const cell = (/** @type {'ms' | 'ready' | 'lookup' | 'call'} */ key) =>
+      of.map((result) => String(result[key])).join(', ');
+    return `| ${variant} | ${cell('ms')} | ${cell('ready')} | ${cell('lookup')} | ${cell('call')} |`;
   });
   const table = [
-    '| variant | ms per run (a fresh profile each, sandbox variants) |',
-    '| --- | --- |',
+    '| variant | wall ms | ready ms | lookup ms | call ms |',
+    '| --- | --- | --- | --- | --- |',
     ...rows,
   ].join('\n');
-  process.stdout.write(`${table}\n`);
+  process.stdout.write(`${table}\nwarm cache bytes: ${String(cacheBytes)}\n`);
   const summary = process.env['GITHUB_STEP_SUMMARY'];
   if (summary !== undefined && summary !== '') {
     appendFileSync(
       summary,
-      `## Windows PowerShell cmdlet lookup, cold profile (R2-4)\n\n${table}\n\nModules in Program Files: ${modules.join(', ')}\n`,
+      `## Windows PowerShell cmdlet lookup, cold profile (R2-4)\n\n${table}\n\nWarm cache bytes: ${String(cacheBytes)}\n\nModules in Program Files: ${modules.join(', ')}\n`,
       'utf8',
     );
   }
