@@ -38,6 +38,13 @@ describe('check-tarball.mjs', () => {
     expect(absent.stdout).toBe('');
   });
 
+  it('release tag mode needs the tag as its one argument', () => {
+    const result = spawnSync(process.execPath, [script, '--release-tag'], { encoding: 'utf8' });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--release-tag v<version>]');
+    expect(result.stdout).toBe('');
+  });
+
   it('never publishes and never talks to a registry itself', () => {
     const source = readFileSync(script, 'utf8');
     // It packs and installs tarballs only: no publish command, no registry URL,

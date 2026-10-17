@@ -16,6 +16,7 @@ import process from 'node:process';
 
 import {
   formatFindings,
+  packageSourceLinkLines,
   parseAddedLines,
   parseDenylist,
   scanAddedLines,
@@ -85,9 +86,19 @@ function scanStaged(denylist) {
   const newFiles = splitNul(
     git(['diff', '--cached', '--name-only', '-z', '--no-renames', '--diff-filter=A']),
   );
+  const added = parseAddedLines(diff);
+  // The source links of a published package manifest are recognised from
+  // the whole staged file, not from the added lines alone (owner ruling on
+  // R6-4; scripts/lib/privacy.mjs packageSourceLinkLines).
+  /** @type {Map<string, Set<number>>} */
+  const sourceLinks = new Map();
+  for (const file of new Set(added.map((line) => line.path))) {
+    if (!/^packages\/[^/]+\/package\.json$/u.test(file)) continue;
+    sourceLinks.set(file, packageSourceLinkLines(file, git(['show', `:${file}`])));
+  }
   return [
     ...newFiles.flatMap((file) => scanPathName(file, denylist)),
-    ...scanAddedLines(parseAddedLines(diff), denylist),
+    ...scanAddedLines(added, denylist, sourceLinks),
   ];
 }
 

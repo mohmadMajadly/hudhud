@@ -248,6 +248,7 @@ describe('ci-gate.mjs', () => {
         classify: 'success',
         docs: 'skipped',
         linux: 'success',
+        'node-floor': 'success',
         windows: 'success',
         macos: 'success',
       }),

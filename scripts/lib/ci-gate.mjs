@@ -12,8 +12,8 @@
  */
 export const REQUIRED_JOBS = Object.freeze({
   LIGHT: Object.freeze(['classify', 'docs']),
-  STANDARD: Object.freeze(['classify', 'linux']),
-  FULL: Object.freeze(['classify', 'linux', 'windows', 'macos']),
+  STANDARD: Object.freeze(['classify', 'linux', 'node-floor']),
+  FULL: Object.freeze(['classify', 'linux', 'node-floor', 'windows', 'macos']),
 });
 
 /**

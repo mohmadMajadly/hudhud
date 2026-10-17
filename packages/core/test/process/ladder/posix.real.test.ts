@@ -31,19 +31,38 @@ const HOST_SOURCE = fileURLToPath(new URL('./posix-real-host.ts', import.meta.ur
  * erasable syntax only). This resolve hook maps a missing relative `.js`
  * specifier to its `.ts` source, as TypeScript's `nodenext` resolution does.
  */
-const REGISTER_HOOKS = `import { registerHooks } from 'node:module';
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    try {
-      return nextResolve(specifier, context);
-    } catch (error) {
-      if (error?.code === 'ERR_MODULE_NOT_FOUND' && /^\\.\\.?\\//.test(specifier) && specifier.endsWith('.js')) {
-        return nextResolve(specifier.slice(0, -3) + '.ts', context);
+const REGISTER_HOOKS = `import * as nodeModule from 'node:module';
+const isSource = (error, specifier) =>
+  error?.code === 'ERR_MODULE_NOT_FOUND' && /^\\.\\.?\\//.test(specifier) && specifier.endsWith('.js');
+if (typeof nodeModule.registerHooks === 'function') {
+  nodeModule.registerHooks({
+    resolve(specifier, context, nextResolve) {
+      try {
+        return nextResolve(specifier, context);
+      } catch (error) {
+        if (isSource(error, specifier)) return nextResolve(specifier.slice(0, -3) + '.ts', context);
+        throw error;
       }
-      throw error;
+    },
+  });
+} else {
+  // Node 22.12 to 22.14 (the engines floor; registerHooks came in 22.15):
+  // the same hook through the off-thread register() API.
+  nodeModule.register(new URL('./resolve-hooks.mjs', import.meta.url));
+}
+`;
+
+/** The asynchronous form of the resolve hook above, for {@link REGISTER_HOOKS}'s fallback. */
+const RESOLVE_HOOKS = `export async function resolve(specifier, context, nextResolve) {
+  try {
+    return await nextResolve(specifier, context);
+  } catch (error) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND' && /^\\.\\.?\\//.test(specifier) && specifier.endsWith('.js')) {
+      return nextResolve(specifier.slice(0, -3) + '.ts', context);
     }
-  },
-});
+    throw error;
+  }
+}
 `;
 
 interface HostEvent {
@@ -171,6 +190,7 @@ describe.runIf(process.platform === 'linux')('POSIX ladder on real processes (Li
     workDir = mkdtempSync(path.join(tmpdir(), 'hudhud-ladder-'));
     const register = path.join(workDir, 'register-hooks.mjs');
     writeFileSync(register, REGISTER_HOOKS);
+    writeFileSync(path.join(workDir, 'resolve-hooks.mjs'), RESOLVE_HOOKS);
     hostArgs = [
       // Older Node 22 lines need the flag; newer ones strip types by default.
       ...(process.features.typescript === false ? ['--experimental-strip-types'] : []),

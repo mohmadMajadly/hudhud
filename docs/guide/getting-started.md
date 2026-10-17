@@ -2,9 +2,9 @@
 
 ## Requirements
 
-- **Node.js 22.12.0 or newer.** The packages declare `"engines": { "node": ">=22.12.0" }`. hudhud's CI runs on Node 22, 24 and 26 on Linux and on Node 22 on Windows and macOS (arm64).
+- **Node.js 22.12.0 or newer.** The packages declare `"engines": { "node": ">=22.12.0" }`. hudhud's CI runs on Linux on Node 22.12.0 exactly and on the newest Node 22, 24 and 26, and on the newest Node 22 on Windows and macOS (arm64).
 - **Claude Code, installed and signed in.** hudhud does not bundle, download, install or update Claude Code, and it has no login flow of its own ([ADR-0015](../adr/0015-legal-and-provenance.md)). Whoever runs your application installs Claude Code and signs in with their own credentials, or provides them in the environment (for example `ANTHROPIC_API_KEY`). Embedding or running Claude Code in a product is subject to Anthropic's terms; your application must meet them.
-- **A supported platform.** Windows x64 and Linux x64 are tested end to end. Windows arm64, Linux arm64 and macOS have limits that are listed in [Platforms](platforms.md); read it before you ship on them.
+- **A supported platform.** Windows x64, Linux x64 and macOS arm64 are tested end to end, and macOS x64 passed the macOS gate. Windows arm64 and Linux arm64 are not tested, and process containment differs per platform; [Platforms](platforms.md) lists the limits, so read it before you ship.
 - **TypeScript (optional).** Type declarations are included. They use Node's `AbortSignal`, so install `@types/node`; the repository checks the published declarations with TypeScript 6.0 under `strict` and `module: nodenext`.
 
 hudhud is tested against Claude Code 2.1.296. Other versions run, with a warning; see [Compatibility](compatibility.md).
@@ -30,7 +30,7 @@ npm install @hudhudjs/core @hudhudjs/claude-code
 | `@hudhudjs/claude-code`   | The Claude Code adapter: `connect`, `session`, `hudhud`, the option types and `CLAUDE_CODE_COMPAT`. Subpath `/raw` is the unstable tier.   |
 | `@hudhudjs/win32-job-x64` | The Windows x64 job-object addon. An optional dependency of `@hudhudjs/core`: npm installs it on Windows x64 only. Never import it.        |
 
-The subpaths `@hudhudjs/core/protocol` and `@hudhudjs/claude-code/raw` are not re-exported by `hudhudjs`. To import them, add the package as a direct dependency at the same version as `hudhudjs`.
+The subpaths `@hudhudjs/core/protocol` and `@hudhudjs/claude-code/raw` are not re-exported by `hudhudjs`. To import them, add the package as a direct dependency at the same version as `hudhudjs`: the three packages are always released together, at one version ([ADR-0004](../adr/0004-packages-and-versioning.md#versioning-layers)).
 
 The packages are ES modules and ship no install scripts.
 
