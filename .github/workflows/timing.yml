@@ -97,7 +97,8 @@ jobs:
           mkdir -p "$out"
           log="${out}/samples.jsonl"
           : > "$log"
-          export HUDHUD_TIMING_LOG="$(if [[ "$RUNNER_OS" == Windows ]]; then cygpath -w "$log"; else printf '%s' "$log"; fi)"
+          HUDHUD_TIMING_LOG="$(if [[ "$RUNNER_OS" == Windows ]]; then cygpath -w "$log"; else printf '%s' "$log"; fi)"
+          export HUDHUD_TIMING_LOG
           echo "dir=${out}" >> "$GITHUB_OUTPUT"
           failed=0
           for i in $(seq 1 "$RUNS"); do

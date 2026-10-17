@@ -219,7 +219,7 @@ jobs:
           # The toolset of record (native/win32-job/release/, MSVC 14.44.35207
           # with Spectre libraries, Windows SDK 10.0.26100): reported, never
           # installed (A3 relies on these lines).
-          echo "MSVC toolsets in that instance: $(ls "${root}/VC/Tools/MSVC" | tr '\n' ' ')"
+          echo "MSVC toolsets in that instance: $(find "${root}/VC/Tools/MSVC" -mindepth 1 -maxdepth 1 -printf '%f ')"
           for component in \
             Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64 \
             Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre \
