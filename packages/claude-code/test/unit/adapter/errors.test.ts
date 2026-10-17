@@ -331,6 +331,54 @@ describe('session start errors', () => {
     await harness[Symbol.asyncDispose]();
   });
 
+  it('a dispose that lands during the spawn ends the new CLI before it resolves (R4-2)', async () => {
+    const fake = new FakeHost({ script: { initFrame: () => null } });
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    let disposed: PromiseLike<void> | undefined;
+    fake.beforeSpawn = () => {
+      disposed = harness[Symbol.asyncDispose]();
+    };
+    const pending = rejection(harness.sessions.create());
+    await settle();
+    expect(disposed).toBeDefined();
+    await disposed;
+    // Resolved only after the CLI it spawned is gone; nothing is starting.
+    expect(fake.cli.exitStatus).not.toBeNull();
+    expect(harness.starting.size).toBe(0);
+    expect(await pending).toBeInstanceOf(HarnessDisposedError);
+    // The handshake never ran: only the abort's interrupt followed initialize.
+    expect(fake.log).not.toContain('write:user');
+    expect(harness.registry.size).toBe(0);
+  });
+
+  it('a dispose waits for a start that is still before its spawn, which then refuses', async () => {
+    const fake = new FakeHost();
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    // Dispose lands while the session's posture reads the user settings (step 3).
+    const reader = fake.host.settingsReader;
+    let disposed: PromiseLike<void> | undefined;
+    const order: string[] = [];
+    Object.assign(fake.host, {
+      settingsReader: {
+        readPrefix: async (file: string, max: number) => {
+          disposed ??= harness[Symbol.asyncDispose]();
+          // The read takes a while: dispose must wait for the start to end.
+          await settle();
+          order.push('read done');
+          return reader.readPrefix(file, max);
+        },
+      },
+    });
+    const pending = rejection(harness.sessions.create());
+    await settle();
+    await disposed;
+    order.push('dispose resolved');
+    expect(order).toEqual(['read done', 'dispose resolved']);
+    // The start refused at its next step: nothing was spawned.
+    expect(await pending).toBeInstanceOf(HarnessDisposedError);
+    expect(fake.log).not.toContain('spawn');
+  });
+
   it('an initialize answer that arrives as dispose starts still ends HARNESS_DISPOSED', async () => {
     let release: (() => void) | undefined;
     const fake = new FakeHost({

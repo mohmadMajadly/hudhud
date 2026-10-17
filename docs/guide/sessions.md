@@ -64,7 +64,7 @@ Each capability is `'supported'`, `'emulated'` or `'unsupported'`. The Claude Co
 
 - `harness.sessions.create(options?)` starts a new session under a fresh UUID that hudhud generates.
 - `harness.sessions.resume(sessionId, options?)` continues an existing session ([below](#resume-and-fork)).
-- Disposing the Harness (`await harness[Symbol.asyncDispose]()`, or `await using harness = await connect()`) aborts sessions that are still starting, disposes the live ones and refuses new ones with `HARNESS_DISPOSED`.
+- Disposing the Harness (`await harness[Symbol.asyncDispose]()`, or `await using harness = await connect()`) aborts sessions that are still starting, disposes the live ones and refuses new ones with `HARNESS_DISPOSED`. It resolves once all of them ended, including a start that was spawning Claude Code at that moment: that start ends its process and rejects with `HARNESS_DISPOSED`.
 
 A session's `info` holds what it learned at start: `id`, `mode` (`'create'`, `'resume'` or `'fork'`), `forkedFrom`, `pid` (the process hudhud spawned), `cliPid` (the pid Claude Code reports, which differs behind a launcher), `version`, `apiKeySource`, `tokenSource`, `features` and `containment` (what this session actually got). `session.closed` is a promise that resolves when the session has ended, for whatever reason; it never rejects.
 

@@ -22,7 +22,8 @@
  * probed binary; `sessions.create`/`sessions.resume` run the per-session
  * pipeline of `session-factory.ts`. Disposing the Harness aborts the
  * sessions still starting, disposes the live ones and refuses new ones
- * (`HARNESS_DISPOSED`).
+ * (`HARNESS_DISPOSED`); it resolves once every start in flight settled, so a
+ * CLI spawned by a start it overlapped is gone too (R4-2).
  *
  * `session()` validates connect and session options together, runs the
  * session's guard and cwd checks before anything is spawned (the probe
@@ -241,7 +242,9 @@ class ClaudeHarness extends HarnessBase implements ClaudeCodeHarness, SessionHos
   readonly registry: SessionRegistry = new SessionRegistry();
   readonly jobLoad: JobAddonLoad;
   readonly starting: SessionHost['starting'] = new Set();
+  readonly opening: SessionHost['opening'] = new Set();
   readonly sessions: ClaudeCodeHarness['sessions'];
+  #disposing: Promise<void> | undefined;
 
   constructor(connected: Connected) {
     super({
@@ -292,13 +295,22 @@ class ClaudeHarness extends HarnessBase implements ClaudeCodeHarness, SessionHos
   }
 
   override [Symbol.asyncDispose](): Promise<void> {
-    if (this.disposed) return super[Symbol.asyncDispose]();
+    // Every call waits for the same complete end.
+    this.#disposing ??= this.#dispose();
+    return this.#disposing;
+  }
+
+  #dispose(): Promise<void> {
     this.registry.dispose();
     const starting = [...this.starting];
     // `SessionDriver.abort` never rejects (it resolves with the session's end).
     for (const driver of starting) void driver.abort('dispose');
     const live = super[Symbol.asyncDispose]();
-    return Promise.all([live, ...starting.map((driver) => driver.ended)]).then(() => undefined);
+    // Starts still before their handshake end themselves (`openSession`):
+    // dispose resolves once they settled, so nothing they spawned runs on.
+    return Promise.all([live, ...starting.map((driver) => driver.ended), ...this.opening]).then(
+      () => undefined,
+    );
   }
 }
 
