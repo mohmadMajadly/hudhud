@@ -32,9 +32,10 @@ const suite = integrationSuite();
 /**
  * 3 x the 0.6 s first retry delay of 05 §9 run 58: the failure must land
  * before the CLI's second attempt could start. It also holds the flake
- * margin: measured on CI (W7-T1, timing run 38980331321, GitHub
- * ubuntu-24.04, 15 samples each) at most 179.9 ms (API key) and 155.8 ms
- * (auth token), so 3x the largest measurement (540 ms) is below it.
+ * margin: measured on CI (W7-T1, 15 samples per credential and run) at
+ * most 179.9 ms on GitHub ubuntu-24.04 (timing runs 38980331321 and
+ * 38984419523) and 419.7 ms on windows-2025 (run 38984419523), so 3x the
+ * largest measurement (1260 ms) is below it.
  */
 const FAIL_FAST_BOUND_MS = 1800;
 

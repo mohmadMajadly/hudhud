@@ -122,14 +122,12 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    # K15 (ADR-0014 amendment 7): measured p95 x 2. Run 38980330927 (W7-T1
-    # round A, first run with integration): node 22 8 min 31 s, node 24
-    # 9 min 23 s (integration ran to its end, one test failed), node 26
-    # 9 min 11 s; per job about 32-43 s setup with the CLI fetch, 4.1-4.3 min
-    # check, 38-44 s OS coverage, 3.2-3.7 min integration. With 3 samples
-    # p95 is the maximum, 9.4 min; x 2 = 18.8, rounded up to 19. Re-check
-    # once more runs exist.
-    timeout-minutes: 19
+    # K15 (ADR-0014 amendment 7): measured p95 x 2. Six jobs with
+    # integration (W7-T1): run 38980330927 node 22/24/26 8.5/9.4/9.2 min,
+    # run 38984419589 8.6/10.0/8.7 min; per job 33-43 s setup with the CLI
+    # fetch, 4.0-4.6 min check, 38-47 s OS coverage, 3.2-4.0 min
+    # integration. p95 (nearest rank of 6: the maximum) 10.0 min; x 2 = 20.
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -164,13 +162,14 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: windows-2025
-    # K15 (ADR-0014 amendment 7): PROVISIONAL until the first CI runs with
-    # integration are measured (W7-T1 round 1). Estimate: about 7 min to the
-    # end of `pnpm check` (run 38378992857 and earlier sizing), the
-    # integration project 681 s on the 16-core W6-Z Windows 11 host (plan
-    # §4.4, no job addon) and up to 2.6x that on a CI runner, about 30 min;
-    # job up to about 40 min. Then measured p95 x 2.
-    timeout-minutes: 60
+    # K15 (ADR-0014 amendment 7): measured p95 x 2, one sample so far. Run
+    # 38984419589 (W7-T1 round B): job 24.9 min: setup with the CLI fetch
+    # 77 s, addon build 21 s, check 532 s, OS coverage 113 s, integration
+    # 731 s (including about 105 s the child-launch probe lost to PowerShell
+    # in the sandbox, removed since, and one 60 s hang-guard expiry). p95
+    # taken as 24.9 min; x 2 = 49.8, rounded up to 50. Re-size as runs
+    # accumulate.
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:
@@ -252,11 +251,12 @@ jobs:
     needs: [classify, linux]
     if: needs.classify.outputs.tier == 'FULL'
     runs-on: macos-15
-    # K15: estimated p95 x 2. The last two runs took 68 s (green) and 78 s
-    # (tests failed after 21 s); the launcher and leak tests that now run in
-    # full add about 25 s. Job about 2 min, p95 taken as 3 min. Static checks,
-    # unit and conformance only until the macOS gate passes (K15).
-    timeout-minutes: 6
+    # K15: measured p95 x 2. Run 38984419589 (W7-T1 round B, with the
+    # OS-scoped coverage step): 1.8 min (setup 15 s, check 82 s, OS coverage
+    # 6 s); earlier runs 68 s and 78 s. p95 1.8 min; x 2 = 3.6, rounded up
+    # to 4. Static checks, unit and conformance only until the macOS gate
+    # passes (K15).
+    timeout-minutes: 4
     permissions:
       contents: read
     steps:

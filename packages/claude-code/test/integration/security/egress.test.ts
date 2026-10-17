@@ -13,7 +13,8 @@
 // both tests watch the same window, the first turn plus OBSERVE_MS, more
 // than 3x the 0.2 s it took the first attempts to appear. Re-measured
 // (W7-T1): the first attempt was recorded at most 3.9 ms after the turn
-// ended on CI (timing run 38980331321, GitHub ubuntu-24.04, 15 samples).
+// ended on CI (timing runs 38980331321 and 38984419523, 15 samples each:
+// GitHub ubuntu-24.04 at most 3.9 ms, windows-2025 at most 2.8 ms).
 // The window is not shortened to 3x that: for the "off" test it is how long
 // silence is observed, and longer is stronger.
 

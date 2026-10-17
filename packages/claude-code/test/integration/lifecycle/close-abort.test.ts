@@ -122,13 +122,17 @@ test('close while a turn streams: the turn completes, then the session closes', 
  * 1392 ms; the ladder's steps were intent, interrupt `acknowledged`, then
  * snapshot S1 (one CIM query), during which the CLI exited. Linux
  * `node:22-bookworm` (`docker run --init`): 23 to 45 ms; intent, interrupt
- * `acknowledged`, EOF, then the exit. Linux re-measured (W7-T1, plan
- * §5.9): GitHub ubuntu-24.04 runner, timing run 38980331321, 15 samples,
- * 30.0 to 41.2 ms; `node:22-bookworm` on the W7-T1 host, 3 samples, 22.7
- * to 47.7 ms. Bound: 3x the largest Linux measurement, 47.7 ms. Windows:
- * 3 x 1392 ms until the CI samples are in.
+ * `acknowledged`, EOF, then the exit. Re-measured (W7-T1, plan §5.9) in
+ * today's configuration (Windows suites always run with the staged job
+ * addon, so the CIM snapshot of the W6-Z runs is gone):
+ * - Linux: GitHub ubuntu-24.04, timing runs 38980331321 and 38984419523,
+ *   15 samples each, 30.0 to 41.2 ms and 26.4 to 32.9 ms;
+ *   `node:22-bookworm` on the W7-T1 host, 3 samples, 22.7 to 47.7 ms.
+ * - Windows: GitHub windows-2025, timing run 38984419523, 15 samples,
+ *   50.1 to 210.4 ms; the W7-T1 host, 3 samples, 42.9 to 53.0 ms.
+ * Bound: 3x the largest measurement per platform, 47.7 ms and 210.4 ms.
  */
-const CLOSE_OVERRUN_BOUND_MS = process.platform === 'win32' ? 3 * 1392 : 3 * 47.7;
+const CLOSE_OVERRUN_BOUND_MS = process.platform === 'win32' ? 3 * 210.4 : 3 * 47.7;
 
 test('close with a deadline: a turn that never ends is cut at the deadline', async () => {
   const closeTimeoutMs = 2000;
