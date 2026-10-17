@@ -13,9 +13,9 @@ const session = await hudhud.session({ claudeCode: { includePartialMessages: tru
 try {
   const turn = session.send('Write a haiku about pipes.');
   for await (const event of turn) {
-    if (isEvent(event, 'message.delta') && event.deltaType === 'text') {
+    if (isEventType(event, 'message.delta') && event.deltaType === 'text') {
       process.stdout.write(event.text ?? '');
-    } else if (isEvent(event, 'tool.call')) {
+    } else if (isEventType(event, 'tool.call')) {
       console.log(`\n[tool ${event.toolName}, kind ${event.kind}]`);
     }
     // Every other event, including types added in later versions, is skipped.
@@ -33,17 +33,22 @@ A `Turn` buffers its events from the moment `send()` returns, so nothing is lost
 
 `HudhudEvent` is an open union: besides the event types listed below, it has an arm for event types that later versions of hudhud or Claude Code add (`type: string`, with `raw`). Code that reads events must therefore skip types it does not know, and must never fail on them ([ADR-0003](../adr/0003-public-api.md#event-model)).
 
-The open arm means that `switch (event.type)` does not narrow `event` to the matching type. Use a type guard instead:
+The open arm means that `switch (event.type)` and `event.type === 'tool.call'` do not narrow `event` to the matching type. Use the type guard `isEventType(event, type)` instead; `HudhudEventOf<'tool.call'>` names the event of one type, for example as a parameter type. Both are exported by `hudhudjs` and `@hudhudjs/core`. For a type a later version adds, the guard narrows to the open arm with that `type`, so `raw` is all you can read.
 
 ```ts
-import type { HudhudEvent } from 'hudhudjs';
+/** One line about a tool call. */
+function describeToolCall(event: HudhudEventOf<'tool.call'>): string {
+  return `${event.toolName} (${event.kind}), input ${JSON.stringify(event.input)}`;
+}
 
-/** The event type with the given `type`. */
-export type EventOf<T extends string> = Extract<HudhudEvent, { readonly type: T }>;
-
-/** Whether `event` is the event type `type`, narrowing it when it is. */
-export function isEvent<T extends string>(event: HudhudEvent, type: T): event is EventOf<T> {
-  return event.type === type;
+/** Logs tool calls and their results; skips every other event. */
+export function logTools(event: HudhudEvent): void {
+  if (isEventType(event, 'tool.call')) {
+    console.log(describeToolCall(event));
+  } else if (isEventType(event, 'tool.result')) {
+    console.log(`${event.toolUseId}: ${event.status}`);
+  }
+  // Every other type, including types added in later versions, is skipped.
 }
 ```
 
@@ -114,17 +119,17 @@ async function watch(session: Session): Promise<void> {
   // of failing its iterator (the default policy is 'error').
   const events = session.events({ overflow: 'drop-oldest-with-gap-marker', maxEvents: 1000 });
   for await (const event of events) {
-    if (isEvent(event, 'compat')) {
+    if (isEventType(event, 'compat')) {
       console.log(`[compat] Claude Code ${event.compat.version}: ${event.compat.status}`);
-    } else if (isEvent(event, 'diagnostic')) {
+    } else if (isEventType(event, 'diagnostic')) {
       console.log(`[diagnostic] ${event.code}: ${event.message}`);
-    } else if (isEvent(event, 'api.retry')) {
+    } else if (isEventType(event, 'api.retry')) {
       console.log(`[api.retry] attempt ${String(event.attempt)}: ${event.error ?? 'unknown'}`);
-    } else if (isEvent(event, 'stalled')) {
+    } else if (isEventType(event, 'stalled')) {
       console.log(`[stalled] no output for ${String(event.silentForMs)} ms`);
-    } else if (isEvent(event, 'gap')) {
+    } else if (isEventType(event, 'gap')) {
       console.log(`[gap] ${String(event.dropped)} events dropped`);
-    } else if (isEvent(event, 'session.terminated')) {
+    } else if (isEventType(event, 'session.terminated')) {
       console.log(`[end] intent ${event.intent}, outcome ${event.outcome}`);
     }
   }

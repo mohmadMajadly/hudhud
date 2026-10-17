@@ -13,7 +13,14 @@ describe('hudhudjs (umbrella)', () => {
     expect(umbrella.adapterApiVersion).toBe(1);
     expect(umbrella.wireSchemaVersion).toBe(1);
     expect(Object.keys(umbrella)).toEqual(
-      expect.arrayContaining(['HudhudError', 'connect', 'session', 'hudhud', 'CLAUDE_CODE_COMPAT']),
+      expect.arrayContaining([
+        'HudhudError',
+        'isEventType',
+        'connect',
+        'session',
+        'hudhud',
+        'CLAUDE_CODE_COMPAT',
+      ]),
     );
     expect(umbrella.hudhud.connect).toBe(umbrella.connect);
   });

@@ -11,7 +11,7 @@ They are part of the repository's checks: `pnpm build` type-checks them against 
 | [resume-fork.ts](resume-fork.ts)         | Resuming and forking a session                             |
 | [streaming.ts](streaming.ts)             | `send()` and iterating a turn's events                     |
 | [session-events.ts](session-events.ts)   | A session-wide event subscription with an overflow policy  |
-| [event-guard.ts](event-guard.ts)         | A type guard for the open event union                      |
+| [event-guard.ts](event-guard.ts)         | Narrowing the open event union with `isEventType`          |
 | [permissions.ts](permissions.ts)         | A permission handler that asks a person                    |
 | [stopping.ts](stopping.ts)               | Interrupt, abort, close and dispose                        |
 | [errors.ts](errors.ts)                   | Error codes and retries                                    |

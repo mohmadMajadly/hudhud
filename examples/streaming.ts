@@ -3,18 +3,16 @@
 
 import process from 'node:process';
 
-import { hudhud } from 'hudhudjs';
-
-import { isEvent } from './event-guard.js';
+import { hudhud, isEventType } from 'hudhudjs';
 
 // Text deltas are only produced with includePartialMessages (default false).
 const session = await hudhud.session({ claudeCode: { includePartialMessages: true } });
 try {
   const turn = session.send('Write a haiku about pipes.');
   for await (const event of turn) {
-    if (isEvent(event, 'message.delta') && event.deltaType === 'text') {
+    if (isEventType(event, 'message.delta') && event.deltaType === 'text') {
       process.stdout.write(event.text ?? '');
-    } else if (isEvent(event, 'tool.call')) {
+    } else if (isEventType(event, 'tool.call')) {
       console.log(`\n[tool ${event.toolName}, kind ${event.kind}]`);
     }
     // Every other event, including types added in later versions, is skipped.

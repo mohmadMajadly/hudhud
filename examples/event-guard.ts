@@ -1,14 +1,21 @@
-// A type guard for the open event union. `HudhudEvent` has an arm for event
-// types added in later versions (`type: string`), so `switch (event.type)`
-// does not narrow it; this guard does.
+// Narrowing events by type. `HudhudEvent` has an arm for event types added in
+// later versions (`type: string`), so `switch (event.type)` does not narrow
+// it; `isEventType` does, and `HudhudEventOf` names the event of one type.
 // Guide: docs/guide/events.md#reading-events-in-typescript
 
-import type { HudhudEvent } from 'hudhudjs';
+import { isEventType, type HudhudEvent, type HudhudEventOf } from 'hudhudjs';
 
-/** The event type with the given `type`. */
-export type EventOf<T extends string> = Extract<HudhudEvent, { readonly type: T }>;
+/** One line about a tool call. */
+function describeToolCall(event: HudhudEventOf<'tool.call'>): string {
+  return `${event.toolName} (${event.kind}), input ${JSON.stringify(event.input)}`;
+}
 
-/** Whether `event` is the event type `type`, narrowing it when it is. */
-export function isEvent<T extends string>(event: HudhudEvent, type: T): event is EventOf<T> {
-  return event.type === type;
+/** Logs tool calls and their results; skips every other event. */
+export function logTools(event: HudhudEvent): void {
+  if (isEventType(event, 'tool.call')) {
+    console.log(describeToolCall(event));
+  } else if (isEventType(event, 'tool.result')) {
+    console.log(`${event.toolUseId}: ${event.status}`);
+  }
+  // Every other type, including types added in later versions, is skipped.
 }
