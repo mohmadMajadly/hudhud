@@ -163,6 +163,57 @@ jobs:
       - name: Integration tests against the pinned CLI
         run: pnpm run test:integration
 
+  # The engines floor, Node 22.12.0 exactly (R7-7, ADR-0014 amendment 11):
+  # setup-node installs the newest release of a major everywhere else, so an
+  # API added after 22.12.0 would pass CI and fail users on the floor. pnpm
+  # 11 itself needs Node 22.13 or newer, so the install, the build and the CLI
+  # fetch run on the newest 22 (the setup action), and the tests then run on
+  # 22.12.0 through vitest directly: the unit, conformance and scripts
+  # projects and the integration project (the product, its children and the
+  # test harness all on the floor). Cost: one more Linux job on STANDARD and
+  # FULL, estimated from the Linux jobs above without the check's format,
+  # lint, depcruise, API and coverage steps: about 6-8 min (Linux 1x), so
+  # about +10 of about 140 Linux-equivalent minutes per FULL run; re-size
+  # from its first runs (K15).
+  node-floor:
+    name: linux (node 22.12.0, engines floor)
+    needs: classify
+    if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
+    runs-on: ubuntu-24.04
+    # Estimate x 2 until measured (see above): 8 x 2 = 16.
+    timeout-minutes: 16
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the toolchain (newest Node 22 for pnpm), the pinned CLI and the test root
+        uses: ./.github/actions/setup
+        with:
+          node-version: '22'
+          integration: 'true'
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Install Node.js 22.12.0 (the engines floor)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          package-manager-cache: false
+
+      - name: Require Node.js 22.12.0
+        run: test "$(node --version)" = v22.12.0
+
+      - name: Unit, conformance and scripts tests on the floor
+        run: node node_modules/vitest/vitest.mjs run --project unit --project conformance --project scripts
+
+      - name: Integration tests against the pinned CLI on the floor
+        run: node node_modules/vitest/vitest.mjs run --project integration
+
   windows:
     name: windows (node 22)
     needs: [classify, linux]
@@ -301,7 +352,7 @@ jobs:
 
   ci-gate:
     name: ci-gate
-    needs: [classify, docs, linux, windows, macos]
+    needs: [classify, docs, linux, node-floor, windows, macos]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

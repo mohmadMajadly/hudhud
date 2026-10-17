@@ -38,6 +38,30 @@ describe('ci.yml', () => {
     ]);
   });
 
+  it('tests on the exact engines floor of every package, and the gate waits for it (R7-7)', () => {
+    const floors = new Set(
+      ['core', 'claude-code', 'hudhud', 'win32-job-x64', 'win32-job-arm64'].map((dir) => {
+        const manifest = JSON.parse(
+          readFileSync(new URL(`../../packages/${dir}/package.json`, import.meta.url), 'utf8'),
+        ) as { engines?: { node?: string } };
+        return manifest.engines?.node;
+      }),
+    );
+    expect(floors).toEqual(new Set(['>=22.12.0']));
+    const floor = job('node-floor');
+    expect(floor).toContain(
+      "if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'",
+    );
+    expect(floor).toContain("node-version: '22.12.0'");
+    expect(commands('node-floor')).toEqual([
+      'pnpm run build',
+      'test "$(node --version)" = v22.12.0',
+      'node node_modules/vitest/vitest.mjs run --project unit --project conformance --project scripts',
+      'node node_modules/vitest/vitest.mjs run --project integration',
+    ]);
+    expect(job('ci-gate')).toMatch(/needs: \[[^\]]*\bnode-floor\b[^\]]*\]/u);
+  });
+
   it('every OS job of STANDARD and FULL runs the whole check', () => {
     for (const name of ['linux', 'windows', 'macos']) {
       expect(commands(name)).toEqual(
