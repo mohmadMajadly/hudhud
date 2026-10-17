@@ -25,6 +25,19 @@ function manifest(dir: string): Record<string, unknown> {
 
 const core = manifest('packages/core');
 
+/**
+ * The source links a published package carries (R6-4): the core's, with the
+ * package's own directory.
+ */
+function sourceLinks(dir: string): Record<string, unknown> {
+  const repository = core['repository'] as Record<string, unknown>;
+  return {
+    repository: { ...repository, directory: dir },
+    homepage: String(core['homepage']).replace('/packages/core#', `/${dir}#`),
+    bugs: core['bugs'],
+  };
+}
+
 describe.each([
   // x64 is published: private until the release flow lifts the flag, like
   // every published package here (they all declare publishConfig).
@@ -38,11 +51,13 @@ describe.each([
   it('declares exactly the plan §6.2 manifest', () => {
     expect(pkg).toEqual({
       name: `@hudhudjs/win32-job-${cpu}`,
-      // Versioned with the other packages by changesets (ADR-0004).
+      // Versioned by changesets on its own, at its release record's
+      // release (ADR-0004 amendment of 2026-10-17); all 0.0.0 until then.
       version: core['version'],
       private: true,
       description: expect.any(String) as string,
       license: 'Apache-2.0',
+      ...(cpu === 'x64' ? sourceLinks(dir) : {}),
       os: ['win32'],
       cpu: [cpu],
       exports: {

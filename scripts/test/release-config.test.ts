@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { checkRepositoryFields, type PackageJson } from '../lib/tarball.mjs';
+
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
 interface ChangesetsConfig {
@@ -47,5 +49,26 @@ describe('release versioning', () => {
       (dir) => (read(`${dir}/package.json`) as { version?: unknown }).version,
     );
     expect(new Set(versions).size).toBe(1);
+  });
+
+  it('every published package links its source in the same repository (R6-4)', () => {
+    const published = [
+      'packages/hudhud',
+      'packages/core',
+      'packages/claude-code',
+      'packages/win32-job-x64',
+    ];
+    const core = read('packages/core/package.json') as { repository?: { url?: unknown } };
+    const slug = /^git\+https:\/\/github\.com\/([^/]+\/hudhud)\.git$/u.exec(
+      String(core.repository?.url),
+    )?.[1];
+    expect(slug).toBeDefined();
+    for (const dir of published) {
+      const manifest = read(`${dir}/package.json`) as PackageJson;
+      expect(manifest.publishConfig).toBeDefined();
+      expect(checkRepositoryFields(manifest, dir, String(slug))).toEqual([]);
+    }
+    const arm64 = read('packages/win32-job-arm64/package.json') as Record<string, unknown>;
+    expect(arm64['repository']).toBeUndefined();
   });
 });
