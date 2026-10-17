@@ -284,6 +284,85 @@ export function checkPackedManifest(source, packed) {
   return problems;
 }
 
+/** A GitHub repository slug, `<owner>/<name>`. */
+const SLUG = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/u;
+
+/**
+ * The GitHub repository the packages are published from, as `<owner>/<name>`:
+ * `GITHUB_REPOSITORY` on GitHub Actions, else the `origin` remote's URL
+ * (`https://github.com/<owner>/<name>[.git]`; an SSH remote is not read).
+ * The slug is never committed: the repository's privacy denylist covers the
+ * owner's name, so the check reads it from where the publish runs.
+ *
+ * @param {string | undefined} githubRepository `GITHUB_REPOSITORY`
+ * @param {string | undefined} originUrl `git remote get-url origin`
+ * @returns {string | null}
+ */
+export function repositorySlug(githubRepository, originUrl) {
+  if (githubRepository !== undefined && githubRepository !== '') {
+    return SLUG.test(githubRepository) ? githubRepository : null;
+  }
+  const match = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/u.exec(
+    originUrl?.trim() ?? '',
+  );
+  const slug = match?.[1];
+  return slug !== undefined && SLUG.test(slug) ? slug : null;
+}
+
+/**
+ * Checks the source links of a published package's manifest: `repository`
+ * (git, the repository it is published from, the package's directory),
+ * `homepage` and `bugs`. npm trusted publishing requires `repository.url`
+ * to "exactly match your GitHub repository" (docs.npmjs.com, "Trusted
+ * publishing for npm packages", read 2026-10-17), and provenance
+ * verification compares it with the source repository of the build; the
+ * package pages link the source and the issue tracker through these fields
+ * (review findings R6-4, R7-3).
+ *
+ * @param {PackageJson} manifest
+ * @param {string} directory The package's directory in the repository (`packages/core`).
+ * @param {string} slug The repository, `<owner>/<name>` ({@link repositorySlug}).
+ * @returns {string[]} problems
+ */
+export function checkRepositoryFields(manifest, directory, slug) {
+  const url = `git+https://github.com/${slug}.git`;
+  const web = `https://github.com/${slug}`;
+  /** @type {string[]} */
+  const problems = [];
+  /**
+   * @param {unknown} value
+   * @param {string} key
+   * @returns {unknown}
+   */
+  const field = (value, key) =>
+    typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined;
+  /** @type {unknown} */
+  const repository = Reflect.get(manifest, 'repository');
+  if (
+    field(repository, 'type') !== 'git' ||
+    field(repository, 'url') !== url ||
+    field(repository, 'directory') !== directory
+  ) {
+    problems.push(
+      `package.json repository must be { type: "git", url: "${url}", directory: "${directory}" }, is ${JSON.stringify(repository)}`,
+    );
+  }
+  const homepage = `${web}/tree/main/${directory}#readme`;
+  /** @type {unknown} */
+  const actualHomepage = Reflect.get(manifest, 'homepage');
+  if (actualHomepage !== homepage) {
+    problems.push(
+      `package.json homepage must be ${homepage}, is ${JSON.stringify(actualHomepage)}`,
+    );
+  }
+  /** @type {unknown} */
+  const bugs = Reflect.get(manifest, 'bugs');
+  if (field(bugs, 'url') !== `${web}/issues`) {
+    problems.push(`package.json bugs.url must be ${web}/issues, is ${JSON.stringify(bugs)}`);
+  }
+  return problems;
+}
+
 // ---- files -----------------------------------------------------------------
 
 /**

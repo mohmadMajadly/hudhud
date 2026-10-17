@@ -9,6 +9,7 @@ import {
   checkPackedManifest,
   checkRequiredFiles,
   checkSourceManifest,
+  checkRepositoryFields,
   checkSourceMap,
   checkTarball,
   cleanEnv,
@@ -27,6 +28,7 @@ import {
   rootProblem,
   scanEntries,
   supportsPlatform,
+  repositorySlug,
   type PackageJson,
   type TarEntry,
 } from '../lib/tarball.mjs';
@@ -302,6 +304,75 @@ describe('checkSourceManifest and checkPackedManifest', () => {
 });
 
 // ---- file list ----------------------------------------------------------------
+
+describe('repositorySlug and checkRepositoryFields (R6-4, R7-3)', () => {
+  const SLUG = 'example-owner/hudhud';
+  const linked = {
+    name: '@hudhudjs/core',
+    repository: {
+      type: 'git',
+      url: 'git+https://github.com/example-owner/hudhud.git',
+      directory: 'packages/core',
+    },
+    homepage: 'https://github.com/example-owner/hudhud/tree/main/packages/core#readme',
+    bugs: { url: 'https://github.com/example-owner/hudhud/issues' },
+  } as PackageJson;
+
+  it('takes the slug from GITHUB_REPOSITORY, else from the origin remote', () => {
+    expect(repositorySlug(SLUG, 'https://github.com/other/x.git')).toBe(SLUG);
+    expect(repositorySlug(undefined, 'https://github.com/example-owner/hudhud.git\n')).toBe(SLUG);
+    expect(repositorySlug('', 'https://github.com/example-owner/hudhud')).toBe(SLUG);
+    expect(repositorySlug(undefined, 'ssh://github.com/example-owner/hudhud.git')).toBeNull();
+  });
+
+  it('refuses anything that is not a GitHub repository slug', () => {
+    expect(repositorySlug('owner/repo/extra', undefined)).toBeNull();
+    expect(repositorySlug('../x', undefined)).toBeNull();
+    expect(repositorySlug(undefined, undefined)).toBeNull();
+    expect(repositorySlug(undefined, 'https://gitlab.com/example-owner/hudhud.git')).toBeNull();
+    expect(repositorySlug(undefined, 'https://github.com/example-owner')).toBeNull();
+    expect(repositorySlug(undefined, '/srv/mirror/hudhud.git')).toBeNull();
+  });
+
+  it('accepts the repository, homepage and bugs of the package directory', () => {
+    expect(checkRepositoryFields(linked, 'packages/core', SLUG)).toEqual([]);
+  });
+
+  it('refuses a manifest without them, as npm trusted publishing would', () => {
+    expect(checkRepositoryFields({ name: '@hudhudjs/core' }, 'packages/core', SLUG)).toEqual([
+      'package.json repository must be { type: "git", url: "git+https://github.com/example-owner/hudhud.git", directory: "packages/core" }, is undefined',
+      'package.json homepage must be https://github.com/example-owner/hudhud/tree/main/packages/core#readme, is undefined',
+      'package.json bugs.url must be https://github.com/example-owner/hudhud/issues, is undefined',
+    ]);
+  });
+
+  it('refuses another repository, a string form, another directory or another homepage', () => {
+    const variants: PackageJson[] = [
+      { ...linked, repository: 'github:example-owner/hudhud' } as PackageJson,
+      {
+        ...linked,
+        repository: {
+          type: 'git',
+          url: 'git+https://github.com/someone/hudhud.git',
+          directory: 'packages/core',
+        },
+      } as PackageJson,
+      {
+        ...linked,
+        repository: {
+          type: 'git',
+          url: 'git+https://github.com/example-owner/hudhud.git',
+          directory: 'packages/hudhud',
+        },
+      } as PackageJson,
+      { ...linked, homepage: 'https://example.com' } as PackageJson,
+      { ...linked, bugs: 'https://github.com/example-owner/hudhud/issues' } as PackageJson,
+    ];
+    for (const manifest of variants) {
+      expect(checkRepositoryFields(manifest, 'packages/core', SLUG)).toHaveLength(1);
+    }
+  });
+});
 
 describe('coversPath', () => {
   it('covers a file, a directory and simple globs', () => {
