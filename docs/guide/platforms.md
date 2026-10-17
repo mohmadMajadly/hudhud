@@ -15,7 +15,7 @@ hudhud is tested end to end, against the real Claude Code 2.1.296 in a sandbox, 
 
 Without a digest in the committed table, `binary.verification.status` is `'unverified'` in the default advisory mode, and `binaryVerification: 'strict'` refuses the binary unless you supply its digest with `claudeCode.binaryDigests` ([Binary verification](security.md#binary-verification)).
 
-Node.js 22.12.0 or newer is required on every platform. CI runs the unit, conformance and integration tests on Node 22, 24 and 26 on Linux and on Node 22 on Windows x64 and macOS arm64.
+Node.js 22.12.0 or newer is required on every platform. CI runs the unit, conformance and integration tests on Linux on Node 22.12.0 exactly (the lowest supported version) and on the newest Node 22, 24 and 26, and on the newest Node 22 on Windows x64 and macOS arm64.
 
 ## Process containment
 

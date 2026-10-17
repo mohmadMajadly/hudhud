@@ -1,6 +1,6 @@
 # Every way
 
-hudhud's rule is to offer every way of doing one thing, with the most stable and safe way as the default ([ADR-0002](../adr/0002-execution-modes-and-every-way-registry.md)). A way counts as first-class only when it is tested against recorded Claude Code behaviour (golden fixtures), exercised against the real Claude Code (integration suites, which the canary of [ADR-0013](../adr/0013-testing-strategy.md) also runs against each newer published Claude Code version: nightly on Linux, weekly on Windows; [ADR-0014](../adr/0014-ci-strategy.md#amendments) amendment 3), declared as a capability where one applies, and documented with its default. This page is that registry.
+hudhud's rule is to offer every way of doing one thing, with the most stable and safe way as the default ([ADR-0002](../adr/0002-execution-modes-and-every-way-registry.md)). A way counts as first-class only when it is tested against recorded Claude Code behaviour (golden fixtures), exercised against the real Claude Code (integration suites, which the canary of [ADR-0013](../adr/0013-testing-strategy.md) also runs against each newer published Claude Code version: nightly on Linux, weekly on Windows and macOS arm64; [ADR-0014](../adr/0014-ci-strategy.md#amendments) amendment 3), declared as a capability where one applies, and documented with its default. This page is that registry.
 
 Columns:
 

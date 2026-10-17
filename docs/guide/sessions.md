@@ -115,7 +115,7 @@ await forked.close();
 - Within one `Harness`, a second live session with the same id is refused with `SESSION_ID_IN_USE`. Claude Code itself has no lock: two processes (or two Harnesses) that resume the same session both append to one transcript, and a later resume follows only the last-written branch ([ADR-0008](../adr/0008-turn-and-lifecycle-semantics.md#resume-continue-and-fork-j6-j7-07-1)). Do not resume one session from two places at once.
 - Claude Code's `--continue` ("the most recent session in this directory") is not offered: it silently starts a new session when there is none. Keep the session id and resume it.
 
-On macOS, resume and fork have not been verified yet ([Platforms](platforms.md#macos)).
+Resume and fork are tested against the real Claude Code on Windows x64, Linux x64 and macOS arm64 ([Platforms](platforms.md#support-matrix)).
 
 ## Stopping: interrupt, close, abort and dispose
 
