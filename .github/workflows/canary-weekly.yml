@@ -15,11 +15,12 @@
 # and the publish times it compared, so the summary history shows the windows
 # are contiguous (scripts/lib/canary-weekly.mjs).
 #
-# macOS switch: MACOS_CANARY_ENABLED in scripts/lib/canary-weekly.mjs, off
-# until the macOS gate (M1, ADR-0014) has passed; even then macOS runs only
-# while no darwin entry of tooling/cli-pin.json is pending its gate. Before
-# switching it on: the darwin request-shape snapshots are recorded and
-# ci.yml runs the integration suite on macOS (W7-T4 / closer).
+# macOS switch: MACOS_CANARY_ENABLED in scripts/lib/canary-weekly.mjs, on
+# since the macOS gate passed (research 11; W7-Z, lead ruling): the darwin
+# entries of tooling/cli-pin.json are pinned, the darwin request-shape
+# snapshots are committed and ci.yml runs the integration suite on macOS.
+# macOS still runs only while no darwin entry is pending its gate. A dry run
+# never runs macOS (scripts/lib/nightly.mjs dryRun).
 #
 # Manual dispatch: `mode: canary` tests the newest version if it is newer
 # than the pin (the window does not apply); `mode: dry-run` runs the whole
@@ -29,7 +30,12 @@
 # OS per month; Windows 2x, macOS 10x Linux minutes. With D_windows = 365 s
 # (W7-T2 local canary runs, addon staged) a Windows run is about 12 min of
 # job time, 24 Linux-equivalent minutes; 4.3 runs a month are about 104.
-# macOS: not running (switch off).
+# macOS (10x Linux minutes), only in a week with a new CLI version: from the
+# macOS gate's integration evidence job (runs 38967893191 and 38977497768,
+# research 11 §4, §8): setup about 1 min, build and CLI fetch 45 s, the
+# integration project 142 s plus request-shape 5 s, so about 4.2 min of job
+# time, 42 Linux-equivalent minutes a run; at most 4.3 runs a month, about
+# 181. Both OSes together at most about 285 Linux-equivalent minutes a month.
 name: Weekly canary
 
 on:
@@ -156,12 +162,13 @@ jobs:
   macos:
     name: canary (darwin-arm64)
     needs: check
-    # Off until the macOS gate has passed (MACOS_CANARY_ENABLED, see above).
+    # On since the macOS gate passed (MACOS_CANARY_ENABLED, see above).
     if: needs.check.outputs.run == 'true' && needs.check.outputs.macos == 'true'
     runs-on: macos-15
-    # No measurement exists before the macOS gate: size it (K15) from the
-    # gate's integration timings when the switch goes on.
-    timeout-minutes: 30
+    # K15, from the macOS gate's integration evidence job (see the cost note
+    # above): about 4.2 min, x 2 = 8.4, rounded up to 9. An estimate until the
+    # first weekly run on macOS is measured; re-size from it.
+    timeout-minutes: 9
     permissions:
       contents: read
     env:

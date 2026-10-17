@@ -30,8 +30,8 @@ function facts(
 }
 
 describe('decideWeekly', () => {
-  it('keeps the macOS switch off until the macOS gate has passed', () => {
-    expect(MACOS_CANARY_ENABLED).toBe(false);
+  it('has the macOS switch on since the macOS gate passed', () => {
+    expect(MACOS_CANARY_ENABLED).toBe(true);
   });
 
   it('tests the newest on Windows when a newer version was published in the window', () => {
@@ -41,6 +41,7 @@ describe('decideWeekly', () => {
         '2.1.300': at(WINDOW_MS + 1),
         '2.1.301': at(WINDOW_MS),
       }),
+      false,
     );
     expect(decision).toEqual({
       run: true,
@@ -69,7 +70,9 @@ describe('decideWeekly', () => {
     expect(on.lines[2]).toBe(
       'macOS: on (the macOS gate has passed and the darwin entries are pinned).',
     );
-    expect(decideWeekly(facts('2.1.301', time, { pin: pinned })).macos).toBe(false);
+    // The committed switch is on: a pinned darwin entry runs macOS by default.
+    expect(decideWeekly(facts('2.1.301', time, { pin: pinned })).macos).toBe(true);
+    expect(decideWeekly(facts('2.1.301', time, { pin: pinned }), false).macos).toBe(false);
   });
 
   it('runs when only an older newer-than-pin version is in the window, testing the newest', () => {

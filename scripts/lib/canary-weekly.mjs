@@ -23,12 +23,13 @@ export const WEEK_HOURS = 7 * 24;
 export const MARGIN_HOURS = 2;
 
 /**
- * The macOS switch. Off until the macOS gate (M1, ADR-0014) has passed and
- * the darwin entries of tooling/cli-pin.json are pinned; even when switched
- * on, macOS runs only while no darwin entry is still `pendingGate`. Flipping
- * it is a reviewed one-line change of this file (cost: 10x Linux per run).
+ * The macOS switch. On since the macOS gate (M1, ADR-0014) passed and the
+ * darwin entries of tooling/cli-pin.json were pinned (research 11; W7-Z,
+ * lead ruling); macOS still runs only while no darwin entry is
+ * `pendingGate`. Changing it is a reviewed one-line change of this file
+ * (cost: 10x Linux per run, canary-weekly.yml).
  */
-export const MACOS_CANARY_ENABLED = false;
+export const MACOS_CANARY_ENABLED = true;
 
 /**
  * @param {import('./nightly.mjs').ScheduleFacts} facts

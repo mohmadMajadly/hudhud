@@ -68,7 +68,7 @@ States: **done** (verified, evidence cited), **open** (work left), **owner** (wa
 | # | Gate | Who | Verified by | State |
 |---|---|---|---|---|
 | 5.1 | Install smoke test from the registry on a clean machine per OS (Windows x64, Linux x64, macOS arm64): `npm i hudhudjs`, then the guide's quick start type-checks and imports | Lead | the commands and their output per OS; on Windows the x64 addon is installed and its sha256 equals the release record | open |
-| 5.2 | The weekly canary runs on macOS once 1.4 is done (W7-T2 leaves a documented switch) | Lead | the first weekly run that includes macOS | open |
+| 5.2 | The weekly canary runs on macOS once 1.4 is done (W7-T2 leaves a documented switch) | Lead | the switch `MACOS_CANARY_ENABLED` is on (lead ruling, W7-Z; cost in `canary-weekly.yml`); the first weekly run with a new CLI version runs macOS | done: switched on; its first macOS run is still to be observed |
 | 5.3 | The release record (`native/win32-job/release/<version>/`), the tag and the published versions agree | Lead | `check-tarball.mjs --release-record` against the published tarballs (`npm pack <name>@<version>`) | open |
 
 ## 6. Order
