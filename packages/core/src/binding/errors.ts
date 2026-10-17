@@ -13,9 +13,18 @@ import {
   ERROR_RETRYABLE,
   type ErrorData,
   type HudhudErrorCode,
+  isHudhudErrorCode,
   type KnownErrorData,
   makeErrorData,
 } from '../protocol/errors.js';
+
+/**
+ * The brand every hudhud error carries, from the global symbol registry, so
+ * two copies of this package (an application can end up with two versions
+ * of `@hudhudjs/core` in its tree) recognize each other's errors where
+ * `instanceof` cannot.
+ */
+const HUDHUD_ERROR_BRAND = Symbol.for('hudhudjs.error');
 
 /**
  * The plain-JSON `details` object of an error.
@@ -63,6 +72,9 @@ export abstract class HudhudError extends Error {
     this.code = new.target.code;
     this.retryable = ERROR_RETRYABLE[this.code];
     if (options.details !== undefined) this.details = cloneDetails(options.details);
+    // Not enumerable, so it stays out of spreads and inspection; symbols are
+    // never serialized.
+    Object.defineProperty(this, HUDHUD_ERROR_BRAND, { value: true });
   }
 
   /** The error as plain JSON data. Never includes `cause` or `stack`. */
@@ -97,6 +109,17 @@ export abstract class HudhudError extends Error {
  * Narrows to a hudhud error; with `code`, to a hudhud error with that code
  * (plan §2.2).
  *
+ * @remarks
+ * Unlike `instanceof`, this also recognizes an error built by another copy of
+ * `@hudhudjs/core` in the same process (for example when a dependency pins a
+ * different version): every hudhud error carries a brand from the global
+ * symbol registry. A branded error whose `code` this version does not know
+ * is not accepted, since the result could not be narrowed truthfully.
+ *
+ * @param value - Any value, typically a caught error.
+ * @param code - When given, the error must also have this code.
+ * @returns True for a hudhud error (with `code`: of that code).
+ *
  * @example
  * ```ts
  * if (isHudhudError(error, 'SESSION_NOT_FOUND')) startOver();
@@ -105,7 +128,12 @@ export abstract class HudhudError extends Error {
  * @public
  */
 export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError {
-  return value instanceof HudhudError && (code === undefined || value.code === code);
+  if (typeof value !== 'object' || value === null) return false;
+  const known =
+    value instanceof HudhudError ||
+    (Reflect.get(value, HUDHUD_ERROR_BRAND) === true &&
+      isHudhudErrorCode(Reflect.get(value, 'code')));
+  return known && (code === undefined || Reflect.get(value, 'code') === code);
 }
 
 /**

@@ -772,6 +772,7 @@ Semantics:
 - `close()` drains under a single deadline measured from the call (`closeTimeoutMs`, default 30 s) and then runs the abort ladder (K13). `Symbol.asyncDispose` on Session and Harness runs the abort ladder; disposing a Harness disposes its sessions.
 - `setPermissionMode('bypassPermissions')` is refused unless the session was created with `dangerouslyAllowBypassPermissions`.
 - hudhud installs no signal handlers; a terminal Ctrl+C that reaches a non-detached CLI ends as outcome `unknown` with `PROCESS_EXITED` (K22). This is documented.
+- As built (pre-release review R5-3, FX-E): every `HudhudError` carries a non-enumerable own property keyed by `Symbol.for('hudhudjs.error')`, and `isHudhudError` accepts an `instanceof` match or a branded object whose `code` is in this version's `HUDHUD_ERROR_CODES`. Before, it was `instanceof` only, so with two copies of the core in one process (a dependency pinning another version) it was false for every error of the other copy, although the guide recommends it over `instanceof`.
 
 ### 2.3 Claude Code adapter (`@hudhudjs/claude-code`)
 

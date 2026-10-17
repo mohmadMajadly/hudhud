@@ -7,7 +7,7 @@ Every failure hudhud raises is a `HudhudError` subclass with:
 - `details`: JSON with the specifics; names of variables and files, never their values;
 - `name`: the class name (`AbortError` for `ABORTED`).
 
-Check codes with `isHudhudError(error, code)` rather than `instanceof`. A turn that ends with an error (for example `max-turns`, or an API error the CLI reported) is not an exception: it is a `TurnResult` with `isError: true` ([Sessions](sessions.md#ask-and-send)).
+Check codes with `isHudhudError(error, code)` rather than `instanceof`: it also recognizes errors from a second copy of `@hudhudjs/core` in your dependency tree (for example when a dependency installs another version), where `instanceof` is false. It accepts only codes your version knows. A turn that ends with an error (for example `max-turns`, or an API error the CLI reported) is not an exception: it is a `TurnResult` with `isError: true` ([Sessions](sessions.md#ask-and-send)).
 
 ```ts
 /** Runs `operation` again while it fails with a retryable error, up to `attempts` times. */
