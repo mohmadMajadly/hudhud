@@ -114,10 +114,40 @@ describe('runPosixLadder: full path (K1 target behind a launcher)', () => {
       return undefined;
     };
     const report = await run(world);
+    // The sweep over S1 still runs after the exit (R3-1); it finds every
+    // recorded process gone and signals nothing.
     expect(signalLog(world)).toEqual(['201 SIGTERM']);
     expect(report.exitedAfter).toBe('sigterm');
-    expect(report.sweep).toBeNull();
-    expect(report.steps.at(-1)?.name).toBe('sigterm');
+    expect(report.sweep).toEqual({ processesSignalled: 0, groupsSignalled: 0, skipped: 3 });
+    expect(names(report).slice(-2)).toEqual([
+      'sigterm@2000:done(initialize-pid)',
+      'sweep@2000:done',
+    ]);
+  });
+
+  // Review R3-1 / R8-1: a CLI that exits on SIGTERM without ending its tools.
+  // Before the fix the ladder returned at once and the tool group survived.
+  it('sweeps the tool group the CLI left behind when it exits on SIGTERM', async () => {
+    const world = FakeWorld.standard();
+    world.onSignal = ({ world: w, call }) => {
+      if (call.signal === 'SIGTERM' && call.id === CLI.pid) {
+        // Only the CLI ends; its tool (a daemon in its own group) is reparented.
+        w.remove(CLI.pid);
+        w.remove(LAUNCHER.pid);
+        return 'sent';
+      }
+      return undefined;
+    };
+    const report = await run(world);
+    expect(report.exitedAfter).toBe('sigterm');
+    expect(signalLog(world)).toEqual(['201 SIGTERM', '-300 SIGKILL']);
+    // Every signal after the exit is the sweep's, over identities S1 recorded.
+    expect(world.calls.slice(1).every((call) => call.afterExit)).toBe(true);
+    expect(world.records.has(TOOL.pid)).toBe(false);
+    expect(world.records.has(SLEEP.pid)).toBe(false);
+    expect(world.records.has(HOST.pid)).toBe(true);
+    expect(report.sweep).toEqual({ processesSignalled: 0, groupsSignalled: 1, skipped: 1 });
+    expect(names(report).at(-1)).toBe('sweep@2000:done');
   });
 
   it('reports a process that never exits as exitedAfter null, after waiting termGraceMs', async () => {
@@ -284,6 +314,34 @@ describe('runPosixLadder: guards between S1 and S2', () => {
   });
 });
 
+describe('runPosixLadder: what the snapshots could not read (R3-2)', () => {
+  it('names the rejected entries of S1 and S2 in their steps', async () => {
+    const world = FakeWorld.standard();
+    // Pid 999 is listed but its stat is refused, as under /proc hidepid=1.
+    const table = world.processTable;
+    const os = {
+      platform: 'linux' as const,
+      hostPid: world.hostPid,
+      signals: world.signals,
+      processTable: {
+        source: 'linux-proc' as const,
+        listPids: async () => [...(await table.listPids()), 999],
+        readStat: (pid: number) =>
+          pid === 999
+            ? Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }))
+            : table.readStat(pid),
+      },
+    };
+    const report = await runWithClock(
+      world.clock,
+      runPosixLadder(world.proc, hooks(), TIMING, { intent: 'abort', os, clock: world.clock }),
+    );
+    expect(names(report)).toContain('snapshot-s1@2000:done(rejected-1)');
+    expect(names(report)).toContain('snapshot-s2@7000:done(rejected-1)');
+    expect(world.calls.some((call) => call.id === 999)).toBe(false);
+  });
+});
+
 describe('runPosixLadder: early exit at each step', () => {
   it('stops right after the intent when the process already exited', async () => {
     const world = FakeWorld.standard();
@@ -326,6 +384,9 @@ describe('runPosixLadder: early exit at each step', () => {
     expect(world.calls).toEqual([]);
   });
 
+  // The ladder has no snapshot before S1: an exit at the EOF step is swept by
+  // the binding's snapshot before EOF and its sweep after the exit (R3-1;
+  // test/unit/binding/transport.test.ts, "dispose").
   it('stops during the EOF grace period', async () => {
     const world = FakeWorld.standard();
     world.proc.onEndStdin = () => {
@@ -347,7 +408,11 @@ describe('runPosixLadder: early exit at each step', () => {
     const report = await run(world);
     expect(report.exitedAfter).toBe('snapshot-s1');
     expect(report.signalTarget).toBeNull();
-    expect(world.calls).toEqual([]);
+    // The launcher exited; S1 recorded its CLI and the tool group, which
+    // outlive it here, so the sweep ends them (R3-1), only after the exit.
+    expect(signalLog(world)).toEqual(['-300 SIGKILL', '201 SIGKILL']);
+    expect(world.calls.every((call) => call.afterExit)).toBe(true);
+    expect(names(report).at(-1)).toBe('sweep@2000:done');
   });
 
   it('stops when the exit is observed while S2 is read', async () => {
@@ -357,7 +422,9 @@ describe('runPosixLadder: early exit at each step', () => {
     };
     const report = await run(world);
     expect(report.exitedAfter).toBe('snapshot-s2');
-    expect(signalLog(world)).toEqual(['201 SIGTERM']);
+    expect(signalLog(world)).toEqual(['201 SIGTERM', '-300 SIGKILL', '201 SIGKILL']);
+    expect(world.calls.slice(1).every((call) => call.afterExit)).toBe(true);
+    expect(names(report).at(-1)).toBe('sweep@7000:done');
   });
 });
 

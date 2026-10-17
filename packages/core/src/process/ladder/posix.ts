@@ -29,20 +29,31 @@ import type {
  *    start time still match S2) and to the spawned process, then the sweep
  *    over S1 ∪ S2 (`../sweep.ts`).
  *
+ * The sweep rule (the same on Windows, ADR-0009/ADR-0010; review R3-1):
+ * once S1 was taken, the ladder sweeps the recorded snapshots whichever step
+ * ended the spawned process: an exit observed during S1, the `SIGTERM`
+ * grace or S2 ends the ladder with the sweep over what was recorded, as the
+ * `SIGKILL` path does. A tool's daemon (`setsid`, `nohup … &`) does not die
+ * with the CLI, so a CLI that exits on `SIGTERM` would otherwise leave it
+ * running. An exit before S1 (at the interrupt or EOF step) is covered by
+ * the binding's snapshot before EOF and its sweep after the exit
+ * (`after-exit.ts`).
+ *
  * Without a verified identity of the spawned process (the read failed), no
  * snapshot is taken and nothing is swept: the snapshots and the sweep are
  * rooted at that identity. `SIGTERM` and `SIGKILL` then go to the spawned
  * pid only, which is safe for the reason below.
  *
- * The ladder stops at the first point where the spawned process is seen to
- * have exited, and it never sends a signal after that: each signal is
- * preceded, without an intervening `await`, by an exit check. The spawned
- * process is the host's own child: until Node has observed its exit (and
- * reaped it), its pid cannot have been reused, so it is signalled by pid
- * like `ChildProcess.kill` does. Every other pid is signalled only with an
- * identity verified against the latest snapshot. `kill(-pgid)` is reached
- * only through the sweep plan, which never selects the host's, the spawned
- * process's or the CLI's group.
+ * The ladder stops signalling the spawned process at the first point where
+ * it is seen to have exited: each signal to it is preceded, without an
+ * intervening `await`, by an exit check. The spawned process is the host's
+ * own child: until Node has observed its exit (and reaped it), its pid
+ * cannot have been reused, so it is signalled by pid like `ChildProcess.kill`
+ * does. Every other pid is signalled only with an identity verified against
+ * the latest snapshot: after the exit, only the sweep signals, and only
+ * recorded descendants (and processes they forked) that its fresh snapshot
+ * verifies. `kill(-pgid)` is reached only through the sweep plan, which
+ * never selects the host's, the spawned process's or the CLI's group.
  *
  * The ladder never rejects for an OS failure: a failed snapshot, hook or
  * signal is recorded as a `failed` step and the ladder goes on.
@@ -215,7 +226,9 @@ export async function runPosixLadder<Intent extends string>(
     const atMs = clock.now();
     try {
       const taken = await takeSnapshot(os.processTable);
-      record(name, atMs, 'done');
+      // Unreadable or unparseable entries (`/proc` `hidepid=1`, review R3-2) are named.
+      if (taken.rejected > 0) record(name, atMs, 'done', `rejected-${String(taken.rejected)}`);
+      else record(name, atMs, 'done');
       return taken;
     } catch {
       record(name, atMs, 'failed', 'error');
@@ -276,7 +289,6 @@ export async function runPosixLadder<Intent extends string>(
   const spawned = awaited.identity;
   if (spawned === null) return withoutIdentity(proc.pid);
   const s1 = await snapshot('snapshot-s1');
-  if (proc.hasExited()) return report('snapshot-s1');
   const decision = selectSignalTarget({
     spawned,
     initializePid,
@@ -284,13 +296,45 @@ export async function runPosixLadder<Intent extends string>(
     // Without S1 nothing can be verified, so K1 falls back to the spawned pid.
     s1: s1 ?? { source: os.processTable.source, records: [], rejected: 0 },
   });
+
+  /**
+   * The sweep over what was recorded (the sweep rule above): after the
+   * `SIGKILL`, or as soon as the spawned process was seen to exit after S1.
+   */
+  const sweepRecorded = async (recorded: readonly ProcessSnapshot[]): Promise<void> => {
+    const sweepAt = clock.now();
+    if (recorded.length === 0) {
+      record('sweep', sweepAt, 'skipped', 'no-snapshot');
+      return;
+    }
+    const swept = await sweep(
+      { spawned, signalTarget: decision.target, recorded },
+      { hostPid: os.hostPid, processTable: os.processTable, signals: os.signals },
+    );
+    if (swept.plan === null) {
+      record('sweep', sweepAt, 'failed', 'snapshot-failed');
+    } else {
+      sweepSummary = swept.summary;
+      record('sweep', sweepAt, 'done');
+    }
+  };
+  /** Ends the ladder after an exit observed at `step`, sweeping what was recorded. */
+  const exitedAt = async (
+    step: LadderStepName,
+    recorded: readonly (ProcessSnapshot | null)[],
+  ): Promise<LadderReport<Intent>> => {
+    await sweepRecorded(recorded.filter((taken) => taken !== null));
+    return report(step);
+  };
+
+  if (proc.hasExited()) return exitedAt('snapshot-s1', [s1]);
   signalTarget = decision.target;
   signal('sigterm', decision.target.pid, 'SIGTERM', decision.source);
-  if (await waitForExit(timing.termGraceMs)) return report('sigterm');
+  if (await waitForExit(timing.termGraceMs)) return exitedAt('sigterm', [s1]);
 
   // 5. S2, then SIGKILL of the signal target (re-verified) and the spawned pid, then the sweep.
   const s2 = await snapshot('snapshot-s2');
-  if (proc.hasExited()) return report('snapshot-s2');
+  if (proc.hasExited()) return exitedAt('snapshot-s2', [s1, s2]);
   if (decision.source === 'initialize-pid') {
     if (s2 !== null && maySignal(decision.target, s2, os.hostPid)) {
       signal('sigkill', decision.target.pid, 'SIGKILL', 'signal-target');
@@ -312,21 +356,6 @@ export async function runPosixLadder<Intent extends string>(
     signal('sigkill', spawned.pid, 'SIGKILL', 'spawned');
   }
 
-  const recorded = [s1, s2].filter((taken) => taken !== null);
-  const sweepAt = clock.now();
-  if (recorded.length === 0) {
-    record('sweep', sweepAt, 'skipped', 'no-snapshot');
-  } else {
-    const swept = await sweep(
-      { spawned, signalTarget: decision.target, recorded },
-      { hostPid: os.hostPid, processTable: os.processTable, signals: os.signals },
-    );
-    if (swept.plan === null) {
-      record('sweep', sweepAt, 'failed', 'snapshot-failed');
-    } else {
-      sweepSummary = swept.summary;
-      record('sweep', sweepAt, 'done');
-    }
-  }
+  await sweepRecorded([s1, s2].filter((taken) => taken !== null));
   return report((await exitedAfterKill()) ? 'sweep' : null);
 }

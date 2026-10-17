@@ -13,8 +13,8 @@
 // Windows runs it in both containment modes (`CONTAINMENT_MODES`). With a
 // job, closing the job after the CLI's exit (`KILL_ON_JOB_CLOSE`, ADR-0009
 // "Drain path sweep") ends the whole tree, MSYS2's `sleep.exe` included, so
-// the sweep finds nothing left to kill; best effort keeps the measured
-// W6-T3 residual.
+// the binding takes no snapshot and reports `job-closed`; best effort keeps
+// the measured W6-T3 residual.
 
 import { describe, expect, test } from 'vitest';
 
@@ -99,7 +99,15 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     });
     expect(diagnostics(events, 'termination.ladder')).toEqual([]);
     const sweep = onlyDiagnostic(events, 'termination.sweep-after-exit');
-    expect(sweep.data?.['status']).toBe('done');
+    const report = JSON.stringify({ sweep: sweep.data, tree, workload });
+    if (job) {
+      // Closing the job after the exit ended the whole tree, so no snapshot
+      // was taken and nothing is swept (a walk could only find processes
+      // that are not ours, review R2-1).
+      expect(sweep.data, report).toEqual({ status: 'skipped', reason: 'job-closed' });
+    } else {
+      expect(sweep.data?.['status'], report).toBe('done');
+    }
     const kills = (sweep.data?.['kills'] ?? []) as unknown as readonly SweepKill[];
     // Every kill names a process of the EOF snapshot (nothing started after EOF here).
     expect(kills.every((kill) => kill.source === 'eof-snapshot')).toBe(true);
@@ -112,16 +120,8 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
       ...(posix?.processes ?? []).filter((p) => p.outcome === 'sent').map((p) => p.pid),
       ...(posix?.coveredByGroup ?? []),
     ];
-    const report = JSON.stringify({ sweep: sweep.data, tree, workload });
-    if (job) {
-      // Closing the job after the exit ended the tree; the sweep found its
-      // processes exited, or killed one still ending (never a failure).
-      expect(kills.length, report).toBeGreaterThan(0);
-      for (const kill of kills) expect(['skipped-exited', 'done'], report).toContain(kill.outcome);
-    } else {
-      // The sweep killed at least one process that outlived the CLI ...
-      expect(killed.length, report).toBeGreaterThan(0);
-    }
+    // Without a job the sweep killed at least one process that outlived the CLI ...
+    if (!job) expect(killed.length, report).toBeGreaterThan(0);
     // ... each of them a member of the CLI's tree, and none of them is left.
     for (const pid of killed) expect(tree.map((row) => row.pid)).toContain(pid);
     const after = await table.read();

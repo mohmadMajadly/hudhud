@@ -680,6 +680,7 @@ async function spawnContained(
     process: proc,
     os,
     job: attached.job,
+    jobReleased: attached.released,
     timing: { ...spec.effective.termination },
     clock: host.clock,
     maxLineBytes: spec.effective.maxFrameBytes,

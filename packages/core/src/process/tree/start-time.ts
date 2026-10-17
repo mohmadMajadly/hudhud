@@ -48,3 +48,19 @@ export function compareStartTime(a: string, b: string): number {
 export function filetimeToMicroseconds(filetime: string): string {
   return filetime.length > 1 ? filetime.slice(0, -1) : '0';
 }
+
+/** Milliseconds from 1601-01-01 to 1970-01-01 (the FILETIME and Unix epochs). */
+const EPOCH_GAP_MS = 11_644_473_600_000n;
+
+/**
+ * Converts a wall-clock instant in Unix epoch milliseconds (`Date.now()`) to
+ * the canonical Windows unit, microseconds since 1601-01-01 UTC, so it
+ * compares with Windows start times. A fraction of a millisecond is
+ * truncated (the result is never later than the instant).
+ *
+ * @internal
+ */
+export function epochMsToWindowsStartTime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) throw new RangeError(`not an epoch time: ${String(ms)}`);
+  return String((BigInt(Math.floor(ms)) + EPOCH_GAP_MS) * 1000n);
+}
