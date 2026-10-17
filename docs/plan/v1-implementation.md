@@ -1363,6 +1363,18 @@ Lead rulings on the closer report (2026-10-17):
 - `MACOS_CANARY_ENABLED` is on (`af2aeb8`): the weekly canary also tests a new CLI version on darwin-arm64, timeout and cost from the macOS gate's evidence job (about 4.2 min a run, 10x Linux minutes, at most about 181 Linux-equivalent minutes a month); checklist 5.2.
 - actionlint 1.7.12 through Docker (`rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667`) found two real shellcheck findings, fixed in `caf47a9` (SC2012 in `ci.yml`, SC2155 in `timing.yml`); a second run was clean. Adding it to CI is checklist item 1.12, a suggestion.
 
+#### Review fixes
+
+FX-A (security; review findings R1-1 to R1-5, R6-6, R2-6), as built:
+
+- R1-1: the project credential guard refuses by family (ADR-0012 §2 states the rule and why): the provider and API families `ANTHROPIC_*`, `AWS_*`, `GOOGLE_*`, `GCLOUD_*`, `CLOUDSDK_*`, `CLOUD_ML_*`, `VERTEX_*`, `AZURE_*`, `CCR_*`, `CLAUDE_CODE_USE_*` whole, except model selection; `CLAUDE_*` names with a credential, routing or configuration segment; any `PROXY` name except the `NO_PROXY` forms; any TLS-trust name. The pinned CLI builds the Vertex, Bedrock and Foundry hosts from `CLOUD_ML_REGION`, `AWS_REGION` and `ANTHROPIC_FOUNDRY_RESOURCE`. `isCredentialOrRoutingEnvName` (posture) includes the guard's rule. Integration case in `security/project-credential-env.test.ts`. Not built: a canary strings scan of new CLIs for env-built hosts; with the family rule a new provider variable is refused by default, and a robust scan of minified host templates is not cheap, so it is a checklist item.
+- R1-2: the security guide and ADR-0012's consequences state that under `'full'` hooks, MCP servers and helpers run with the user's credentials; the guard stops configured redirection only.
+- R1-3: every System32 tool resolves through `resolveSystem32Executable` (`taskkill.ts`: `systemRootFrom`, then `checkExecutablePath`); the CIM query takes the resolver as a required option (the leaf `os/win32.ts` cannot import it, wired in `spawn.ts`) and runs with cwd `<SystemRoot>\System32`. `systemRootOf` is removed; a missing `SystemRoot` falls back to `C:\Windows`, checked, as for `taskkill.exe`.
+- R1-4: `prepareSession` takes the child environment; the guard resolves the config directory with `posture.ts` `userConfigDir`, the posture's resolution.
+- R1-5: `managedPolicy: 'unknown-raw-settings'` removed (unreachable: `/raw` refuses `--settings`).
+- R6-6: `settings-guard.git-root-unresolved` and `settings-guard.symlink-followed` are in `DiagnosticCode` and the events schema; the guides document the fallback, links and read-failure reasons.
+- R2-6: `'harness'` passes `PSModulePath` and `PSModuleAnalysisCachePath` on Windows (paths, not credentials; ADR-0012 §4 amendment).
+
 ### 5.10 Summary table
 
 | Wave | Tasks (parallel) | Model mix | Ends with |
