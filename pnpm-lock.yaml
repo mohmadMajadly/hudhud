@@ -71,6 +71,12 @@ importers:
       '@eslint/js':
         specifier: 'catalog:'
         version: 10.0.1(eslint@10.12.0(supports-color@8.1.1))
+      '@hudhudjs/claude-code':
+        specifier: workspace:*
+        version: link:packages/claude-code
+      '@hudhudjs/core':
+        specifier: workspace:*
+        version: link:packages/core
       '@microsoft/api-extractor':
         specifier: 'catalog:'
         version: 7.59.3(@types/node@22.20.5)
@@ -92,6 +98,9 @@ importers:
       eslint:
         specifier: 'catalog:'
         version: 10.12.0(supports-color@8.1.1)
+      hudhudjs:
+        specifier: workspace:*
+        version: link:packages/hudhud
       markdownlint-cli2:
         specifier: 'catalog:'
         version: 0.23.3(supports-color@8.1.1)
