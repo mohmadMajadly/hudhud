@@ -4,6 +4,8 @@
 // extras with the reserved flags and pinned variables refused, and the end
 // of the session ending everything raw.
 
+import { getEventListeners } from 'node:events';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -115,6 +117,72 @@ describe('frames()', () => {
     await expect(strict.next()).rejects.toMatchObject({ code: 'SUBSCRIBER_OVERFLOW' });
     await expect(aborted.next()).rejects.toBeInstanceOf(AbortError);
     await session.close();
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it("a full 'block' subscriber stalls writes and reads, never poisons the session (R4-1, R8-3)", async () => {
+    const fake = new FakeHost();
+    const harness = await harnessWith(fake, false);
+    const captured = captureEvents(harness);
+    const session = await harness.sessions.create();
+    const frames = raw(session).frames({ maxEvents: 1, overflow: 'block' });
+    const iterator = frames[Symbol.asyncIterator]();
+    // The tap blocks on the inbound frames of this turn while the outbound
+    // writes below publish from the other direction.
+    const first = session.ask('hi');
+    await settle();
+    const mode = session.setPermissionMode('plan');
+    const second = session.ask('again');
+    await settle();
+    // Both writes reached the CLI although their observations wait.
+    expect(fake.cli.written.map((frame) => frame['type'])).toEqual([
+      'control_request',
+      'user',
+      'control_request',
+      'user',
+    ]);
+    // Drain: every frame of both directions arrives, in one gapless order.
+    const seen: RawFrame[] = [];
+    const drained = (async () => {
+      for (let next = await iterator.next(); next.done !== true; next = await iterator.next()) {
+        seen.push(next.value);
+      }
+    })();
+    expect(await first).toMatchObject({ outcome: 'completed' });
+    await mode;
+    expect(await second).toMatchObject({ outcome: 'completed' });
+    // The session is healthy: a later turn runs, and stdin never failed.
+    expect(await session.ask('third')).toMatchObject({ outcome: 'completed' });
+    await session.close();
+    await drained;
+    const codes = (captured[0] ?? []).flatMap((event) =>
+      event.type === 'diagnostic' && 'code' in event ? [event.code] : [],
+    );
+    expect(codes).not.toContain('stdin.error');
+    expect(codes).not.toContain('stdout.error');
+    expect(seen.every((frame) => frame.kind === 'frame')).toBe(true);
+    expect(seen.map((frame) => frame.seq)).toEqual(seen.map((_, index) => index + 1));
+    // Three turns (user, system/init, result, idle each) and the mode change.
+    expect(seen).toHaveLength(14);
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it("the session's events.signal ends frames(); no listener outlives the session (R4-4, R4-5)", async () => {
+    const fake = new FakeHost();
+    const harness = await harnessWith(fake, false);
+    const shutdown = new AbortController();
+    const session = await harness.sessions.create({ events: { signal: shutdown.signal } });
+    const own = new AbortController();
+    const frames = raw(session).frames()[Symbol.asyncIterator]();
+    // Subscribed with a long-lived signal of its own, never read.
+    raw(session).frames({ signal: own.signal });
+    expect(getEventListeners(own.signal, 'abort')).toHaveLength(1);
+    shutdown.abort('stop');
+    await expect(frames.next()).rejects.toBeInstanceOf(AbortError);
+    await session.close();
+    // The unread subscription stopped with the session and let go of both signals.
+    expect(getEventListeners(own.signal, 'abort')).toHaveLength(0);
+    expect(getEventListeners(shutdown.signal, 'abort')).toHaveLength(0);
     await harness[Symbol.asyncDispose]();
   });
 
@@ -430,6 +498,54 @@ describe('RawChannel on its own', () => {
     await expect(tap.controlRequest('c', undefined, {})).rejects.toMatchObject({
       details: { cliError: 'error' },
     });
+    tap.close();
+    void reader.return?.();
+  });
+
+  it('an inbound line waits behind a blocked outbound frame; the tap never throws (R4-1 read path)', async () => {
+    const tap = channel();
+    let push: ((line: string) => void) | undefined;
+    const wrapped = tap.wrap({
+      pid: 1,
+      write: () => Promise.resolve(),
+      output: {
+        async *[Symbol.asyncIterator]() {
+          for (;;) {
+            const line = await new Promise<string>((resolve) => {
+              push = resolve;
+            });
+            yield { type: 'line', text: line, bytes: line.length };
+          }
+        },
+      },
+    } as unknown as HarnessTransport);
+    const frames = tap.frames({ maxEvents: 1, overflow: 'block' })[Symbol.asyncIterator]();
+    const reader = wrapped.output[Symbol.asyncIterator]();
+    const read = reader.next();
+    await settle();
+    // The first write fills the queue, the second one's frame waits.
+    const writes = [wrapped.write('{"type":"a"}\n'), wrapped.write('{"type":"b"}\n')];
+    await settle();
+    push?.('{"type":"c"}');
+    await settle();
+    let readState = 'pending';
+    void read.then(
+      () => (readState = 'read'),
+      () => (readState = 'failed'),
+    );
+    await settle();
+    // Stalled, not failed: the line waits for the frames before it.
+    expect(readState).toBe('pending');
+    const seen: RawFrame[] = [];
+    for (let index = 0; index < 3; index += 1) seen.push((await frames.next()).value as RawFrame);
+    expect(seen.map((frame) => (frame.kind === 'frame' ? frame.frame : null))).toEqual([
+      { type: 'a' },
+      { type: 'b' },
+      { type: 'c' },
+    ]);
+    expect(seen.map((frame) => frame.seq)).toEqual([1, 2, 3]);
+    expect(await read).toMatchObject({ done: false, value: { text: '{"type":"c"}' } });
+    await Promise.all(writes);
     tap.close();
     void reader.return?.();
   });

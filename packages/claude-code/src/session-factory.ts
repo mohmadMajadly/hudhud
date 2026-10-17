@@ -603,6 +603,7 @@ export async function openSession(harness: SessionHost, request: SessionRequest)
       allowConfigWrites: effective.dangerouslyAllowConfigWrites,
     },
     defaults: { ...effective.events },
+    ...(values.eventsSignal === undefined ? {} : { signal: values.eventsSignal }),
   });
   // A registry conflict aborts the session after the step (never inside it).
   const conflict = Promise.withResolvers<undefined>();
