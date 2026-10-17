@@ -60,7 +60,7 @@ import { createDarwinPsTableCalls } from './os/darwin.js';
 import { createLinuxProcTableCalls, createPosixSignalCalls } from './os/posix.js';
 import type { OsCalls, ProcessTableCalls } from './os/types.js';
 import { createWin32CimTableCalls } from './os/win32.js';
-import { createTaskkillCalls, nodeTaskkillDeps } from './taskkill.js';
+import { createTaskkillCalls, nodeTaskkillDeps, resolveSystem32PowerShell } from './taskkill.js';
 import { parseProcStat } from './tree/proc-stat.js';
 import { takeSnapshot } from './tree/snapshot.js';
 import type { ProcessIdentity, ProcessTableSource } from './tree/types.js';
@@ -495,7 +495,10 @@ export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls 
     return {
       platform,
       hostPid,
-      processTable: createWin32CimTableCalls(),
+      // PowerShell resolved and checked as for taskkill.exe (review R1-3).
+      processTable: createWin32CimTableCalls({
+        powershell: () => resolveSystem32PowerShell({ env: process.env, ...nodeTaskkillDeps }),
+      }),
       terminate: createTaskkillCalls({ env: process.env, ...nodeTaskkillDeps }),
     };
   }
