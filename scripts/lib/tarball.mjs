@@ -1363,3 +1363,83 @@ export function checkReleaseTag(input) {
   }
   return problems;
 }
+
+// ---- the published set and given tarballs ----------------------------------
+
+/**
+ * Whether a release publishes a package as it is packed: it declares
+ * `publishConfig` and is not private (the tag check refuses a private
+ * package with `publishConfig`, so after it passed this is every package
+ * with `publishConfig`).
+ *
+ * @param {PackageJson} manifest
+ * @returns {boolean}
+ */
+export function isPublished(manifest) {
+  return manifest.publishConfig !== undefined && manifest.private !== true;
+}
+
+/**
+ * The packed manifest of a tarball's entries, or undefined when it has no
+ * readable `package.json`.
+ *
+ * @param {readonly TarEntry[]} entries
+ * @returns {PackageJson | undefined}
+ */
+export function manifestOf(entries) {
+  return packedManifest(entries);
+}
+
+/**
+ * @typedef {object} GivenTarball
+ * @property {string} file The tarball's path.
+ * @property {string | undefined} name The packed `package.json` name.
+ * @property {string | undefined} version The packed `package.json` version.
+ */
+
+/**
+ * Pairs the packages to check with tarballs packed earlier (the release
+ * run's full check over the bytes it publishes, `check-tarball.mjs
+ * --tarballs`): every package needs exactly one tarball packed at its source
+ * version, and every tarball must belong to one of them.
+ *
+ * @param {readonly { name: string, version: string | undefined }[]} sources
+ * @param {readonly GivenTarball[]} given
+ * @returns {{ files: Map<string, string>, problems: string[] }} the tarball of
+ *   each package by name, and every mismatch naming both values
+ */
+export function matchTarballs(sources, given) {
+  /** @type {string[]} */
+  const problems = [];
+  /** @type {Map<string, GivenTarball[]>} */
+  const byName = new Map();
+  for (const tarball of given) {
+    if (tarball.name === undefined) {
+      problems.push(`${tarball.file}: no readable package.json with a name`);
+      continue;
+    }
+    byName.set(tarball.name, [...(byName.get(tarball.name) ?? []), tarball]);
+  }
+  /** @type {Map<string, string>} */
+  const files = new Map();
+  const wanted = new Set(sources.map((source) => source.name));
+  for (const { name, version } of sources) {
+    const found = byName.get(name) ?? [];
+    const only = found[0];
+    if (only === undefined) {
+      problems.push(`${name}: no tarball given`);
+    } else if (found.length > 1) {
+      problems.push(`${name}: ${String(found.length)} tarballs given, expected 1`);
+    } else if (only.version !== version) {
+      problems.push(
+        `${name}: the given tarball is version ${String(only.version)}, the package is ${String(version)}`,
+      );
+    } else {
+      files.set(name, only.file);
+    }
+  }
+  for (const name of [...byName.keys()].sort()) {
+    if (!wanted.has(name)) problems.push(`${name}: a tarball of a package that is not published`);
+  }
+  return { files, problems };
+}
