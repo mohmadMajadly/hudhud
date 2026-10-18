@@ -3,7 +3,7 @@
  *
  * @remarks
  * Written only from the release record
- * `native/win32-job/release/0.0.0-dev/manifest.json`
+ * `native/win32-job/release/0.1.0/manifest.json`
  * by `scripts/addon/write-digests.mjs --from-manifest`; never by a build and
  * never by hand (a test keeps this file equal to the generator's output for
  * that manifest). The loader refuses an addon file whose sha256 differs from

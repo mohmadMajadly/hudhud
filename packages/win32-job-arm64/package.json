@@ -1,6 +1,6 @@
 {
   "name": "@hudhudjs/win32-job-arm64",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Prebuilt Windows ARM64 job-object addon of hudhud. Not first-class in v1 and not published (K17): no package depends on it and the core does not load it.",
   "license": "Apache-2.0",
