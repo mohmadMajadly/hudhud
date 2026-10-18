@@ -7,3 +7,5 @@ It is not first-class yet and is not published in v1 (the package is private): n
 The package contains the addon and a `SHA256SUMS` file. It has no scripts and no dependencies. The C source, the build flags and the security properties of the addon are in `native/win32-job/` of the hudhud repository.
 
 Licensed under the Apache License 2.0.
+
+The addon statically links the Microsoft C runtime; that Microsoft code is not under Apache-2.0. See NOTICE. hudhud is not affiliated with Microsoft.
