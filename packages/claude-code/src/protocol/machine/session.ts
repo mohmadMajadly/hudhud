@@ -302,7 +302,9 @@ export const DUPLICATE_REQUEST_DENY_MESSAGE = 'hudhud: permission request id reu
  * one of the last {@link MAX_REMEMBERED_PERMISSION_IDS} requests to arrive
  * or end is denied without asking (`permission.duplicate-request-id`); an
  * in-flight duplicate is ignored by the correlator however old it is. An id
- * older than that is asked as a new request. Each entry is a
+ * older than that is asked as a new request: an id that is forgotten and
+ * then reused is asked again, never decided automatically, so forgetting
+ * fails safe. Each entry is a
  * {@link keptIdKey}, so the record holds at most about 272,000 UTF-16 code
  * units however long the ids are.
  *
