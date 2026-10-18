@@ -6,7 +6,7 @@ Columns:
 
 - **Selected by**: the option or call that selects the way.
 - **Capability**: the `harness.capabilities` entry that declares it, if any.
-- **Fixtures**: golden fixtures under `packages/claude-code/conformance/`, recorded from Claude Code 2.1.296 on Windows and Linux.
+- **Fixtures**: golden fixtures under `packages/claude-code/conformance/`, recorded from Claude Code 2.1.302 (the pin) on Windows and Linux.
 - **Integration**: suites under `packages/claude-code/test/integration/` that run the way against the pinned Claude Code.
 
 ## Registry

@@ -40,7 +40,7 @@ The root entry and the schemas are stable: semver, a breaking change needs a maj
 
 - Node.js 22.12.0 or newer; `@hudhudjs/core` at the same version (a dependency).
 - Claude Code, installed and signed in by whoever runs your application. hudhud does not bundle, install or update it, and has no login flow.
-- Tested with Claude Code 2.1.296 (`CLAUDE_CODE_COMPAT`); other versions run with a warning, versions listed as known broken are refused.
+- Tested with Claude Code 2.1.296 to 2.1.302 (`CLAUDE_CODE_COMPAT`); other versions run with a warning, versions listed as known broken are refused.
 
 ## Defaults
 

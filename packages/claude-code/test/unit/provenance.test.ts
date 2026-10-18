@@ -84,22 +84,24 @@ describe('the committed digest table (known-binaries.ts, the single source)', ()
 });
 
 describe('knownDigestsFor', () => {
-  it('lists the table entries of one platform', () => {
-    expect(knownDigestsFor('win32-x64')).toEqual([
-      {
-        version: '2.1.296',
-        sha256: '76de74f7694a5bdc03378a5f837c9e132827bf004c98c276bc4e9094ff06769a',
-        size: 260489376,
-      },
+  /** A table of two versions, as the window holds several (ADR-0004 §4). */
+  const TABLE = {
+    '2.1.296': {
+      'linux-x64': { sha256: 'a'.repeat(64), size: 10 },
+      'win32-x64': { sha256: 'b'.repeat(64), size: 11 },
+    },
+    '2.1.302': { 'linux-x64': { sha256: 'f'.repeat(64), size: 12 } },
+  };
+
+  it('lists the table entries of one platform, every version in table order', () => {
+    expect(knownDigestsFor('linux-x64', {}, TABLE)).toEqual([
+      { version: '2.1.296', sha256: 'a'.repeat(64), size: 10 },
+      { version: '2.1.302', sha256: 'f'.repeat(64), size: 12 },
     ]);
-    expect(knownDigestsFor('darwin-arm64')).toEqual([
-      {
-        version: '2.1.296',
-        sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
-        size: 240664432,
-      },
+    expect(knownDigestsFor('win32-x64', {}, TABLE)).toEqual([
+      { version: '2.1.296', sha256: 'b'.repeat(64), size: 11 },
     ]);
-    expect(knownDigestsFor('linux-arm64')).toEqual([]);
+    expect(knownDigestsFor('linux-arm64', {}, TABLE)).toEqual([]);
   });
 
   it('adds the application digests of that platform, lower-cased and without a size', () => {
@@ -107,23 +109,28 @@ describe('knownDigestsFor', () => {
       '2.1.297': { 'linux-x64': 'C'.repeat(64), 'win32-x64': 'd'.repeat(64) },
       '2.1.298': { 'darwin-arm64': 'e'.repeat(64) },
     };
-    expect(knownDigestsFor('linux-x64', app)).toEqual([
-      {
-        version: '2.1.296',
-        sha256: '24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de',
-        size: 257068216,
-      },
+    expect(knownDigestsFor('linux-x64', app, TABLE)).toEqual([
+      { version: '2.1.296', sha256: 'a'.repeat(64), size: 10 },
+      { version: '2.1.302', sha256: 'f'.repeat(64), size: 12 },
       { version: '2.1.297', sha256: 'c'.repeat(64) },
     ]);
-    expect(knownDigestsFor('darwin-arm64', app)).toEqual([
-      {
-        version: '2.1.296',
-        sha256: 'c9b5341637becbd423ddffc5b254afb645682a3868cb708bbc6cc0e7bb419937',
-        size: 240664432,
-      },
+    expect(knownDigestsFor('darwin-arm64', app, TABLE)).toEqual([
       { version: '2.1.298', sha256: 'e'.repeat(64) },
     ]);
     expect(knownDigestsFor('linux-arm64', app, {})).toEqual([]);
+  });
+
+  it('serves the committed table by default: one entry per version for each platform it holds', () => {
+    for (const key of ['linux-x64', 'win32-x64', 'darwin-arm64', 'darwin-x64']) {
+      expect(knownDigestsFor(key)).toEqual(
+        Object.entries(KNOWN_BINARIES).flatMap(([version, platforms]) => {
+          const entry = platforms[key];
+          return entry === undefined ? [] : [{ version, sha256: entry.sha256, size: entry.size }];
+        }),
+      );
+      expect(knownDigestsFor(key)).toHaveLength(Object.keys(KNOWN_BINARIES).length);
+    }
+    expect(knownDigestsFor('linux-arm64')).toEqual([]);
   });
 });
 

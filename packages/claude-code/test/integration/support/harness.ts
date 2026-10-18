@@ -28,15 +28,16 @@
 // leaked processes, no refused launch; after the suite: no process naming
 // the suite directory.
 
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { afterAll, beforeAll, beforeEach, onTestFinished } from 'vitest';
 
-import type { BinaryInfo, Session } from '@hudhudjs/core';
+import type { BinaryInfo, CompatInfo, Session } from '@hudhudjs/core';
 import { hostJobAddonDeps, loadJobAddon, type JobAddonLoad } from '@hudhudjs/core/process';
 
 import { nodeHost, type ClaudeHost } from '../../../src/adapter.js';
+import { compatStatus } from '../../../src/compat.js';
+import { KNOWN_BINARIES } from '../../../src/known-binaries.js';
 import { connectWith, sessionWith, type ClaudeCodeHarness } from '../../../src/connect.js';
 import type { ConnectOptions, SessionOptions } from '../../../src/options-types.js';
 import {
@@ -175,30 +176,27 @@ export class ClaudeIntegrationSuite extends IntegrationSuite<
   }
 
   /**
-   * Whether the CLI under test is the pinned one (tooling/cli-pin.json).
-   * The canary (K16, plan §5.9 W7-T2) runs these suites against a newer
-   * published CLI (`HUDHUD_CLI_CHANNEL=newest`).
+   * The `compat` status connect must report for the CLI under test, judged
+   * by the committed window (ADR-0004 §4, rolling window): the pin and every
+   * admitted version from `minTested` up are `'tested'`; a newer CLI that the
+   * canary runs (K16, `HUDHUD_CLI_CHANNEL=newest`) is `'untested'`
+   * (reported, never refused). The window's own unit test
+   * (`compat.test.ts`) keeps the pin inside it, so a run on the pin always
+   * expects `'tested'`.
    */
-  get pinnedCli(): boolean {
-    return this.cli.version === PINNED_VERSION;
-  }
-
-  /**
-   * The `compat` status connect must report for the CLI under test: the
-   * tested window is the pin (the bump moves both, K16), so a canary's newer
-   * CLI is `'untested'` (reported, never refused; ADR-0004 §4).
-   */
-  get expectedCompatStatus(): 'tested' | 'untested' {
-    return this.pinnedCli ? 'tested' : 'untested';
+  get expectedCompatStatus(): CompatInfo['status'] {
+    return compatStatus(this.cli.version);
   }
 
   /**
    * The advisory verification connect must report for the CLI under test:
-   * the committed digest table holds the pinned binary, so a canary's newer
-   * binary matches no known digest (K8, K9; `unverified`, not refused).
+   * `verified` when the committed digest table holds this exact binary (the
+   * pin and every admitted version of the window, K8), else `unverified`, as
+   * for a canary's newer binary (K9; not refused).
    */
   get expectedVerification(): BinaryInfo['verification'] {
-    return this.pinnedCli
+    const known = KNOWN_BINARIES[this.cli.version]?.[this.cli.platform];
+    return known?.sha256 === this.cli.sha256 && known.size === this.cli.size
       ? {
           status: 'verified',
           method: 'sha256-manifest',
@@ -213,13 +211,6 @@ export class ClaudeIntegrationSuite extends IntegrationSuite<
         };
   }
 }
-
-/** The pinned version (tooling/cli-pin.json). */
-const PINNED_VERSION: string = (
-  JSON.parse(readFileSync(path.join(REPO_ROOT, 'tooling', 'cli-pin.json'), 'utf8')) as {
-    readonly version: string;
-  }
-).version;
 
 /** Creates the suite of the calling test file and registers its Vitest hooks. */
 export function integrationSuite(): ClaudeIntegrationSuite {

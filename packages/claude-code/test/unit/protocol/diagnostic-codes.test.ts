@@ -45,7 +45,7 @@ function registeredCodes(): string[] {
   // The open enum is an anyOf of the known literals and a plain string arm.
   const found = new Set<string>();
   for (const match of text.matchAll(
-    /"((?:control|permission|turn|interrupt|settings-guard)\.[a-z-]+)"/g,
+    /"((?:control|permission|turn|interrupt|settings-guard|compat)\.[a-z-]+)"/g,
   )) {
     found.add(match[1] ?? '');
   }
@@ -82,6 +82,22 @@ describe('diagnostic codes of the project credential guard', () => {
     );
     for (const code of [...Object.keys(GUARD_CODES), GUARD_ALLOWED_CODE]) {
       expect(guide, code).toContain(`\`${code}\``);
+    }
+  });
+});
+
+describe('the compat diagnostic of the session start', () => {
+  /** The code session-factory.ts publishes for an untested version (ADR-0004 §4). */
+  const COMPAT_CODE = 'compat.untested';
+
+  it('is registered in the core events schema and listed in the guides', () => {
+    expect(registeredCodes()).toContain(COMPAT_CODE);
+    for (const guide of ['diagnostics.md', 'compatibility.md']) {
+      const text = readFileSync(
+        new URL(`../../../../../docs/guide/${guide}`, import.meta.url),
+        'utf8',
+      );
+      expect(text, guide).toContain(`\`${COMPAT_CODE}\``);
     }
   });
 });

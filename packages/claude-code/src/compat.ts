@@ -9,10 +9,18 @@
  * `tooling/cli-pin.json` and `known-binaries.ts`; a unit test keeps the three
  * in agreement.
  *
+ * Rolling window (ADR-0004 §4, amendment of 2026-10-18): `maxTested` is the
+ * pin, the newest admitted version; `minTested` is the oldest version still
+ * kept; every published release between them was admitted (the integration
+ * suite green against it on Linux, Windows and macOS) and has its digests in
+ * `KNOWN_BINARIES`.
+ *
  * Policy (ADR-0004 §4 and its amendment, plan §1.8): the status goes into
- * the `compat` event and `harness.compat`. A version outside the window, or
- * one that cannot be parsed, is `'untested'`: reported, never refused (a
- * daily-moving CLI would make hudhud unusable between canary runs). A version
+ * the `compat` event and `harness.compat`, and an `'untested'` status also
+ * into the session diagnostic `compat.untested`. A version outside the
+ * window, or one that cannot be parsed, is `'untested'`: reported, never
+ * refused (a daily-moving CLI would make hudhud unusable between canary
+ * runs). A version
  * listed in `knownBroken` is `'known-broken'`: `connect` refuses it with
  * `HARNESS_VERSION_KNOWN_BROKEN` unless the application sets
  * `claudeCode.dangerouslyAllowKnownBrokenVersion: true`, and a session whose
@@ -52,7 +60,7 @@ export const CLAUDE_CODE_COMPAT: {
   readonly knownBroken: readonly string[];
 } = Object.freeze({
   minTested: '2.1.296',
-  maxTested: '2.1.296',
+  maxTested: '2.1.302',
   knownBroken: Object.freeze(listedVersions(CLAUDE_CODE_KNOWN_BROKEN)),
 });
 

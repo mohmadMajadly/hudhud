@@ -9,10 +9,12 @@ Claude Code releases often. hudhud does not refuse a version because it is new; 
 | Field         | Value in this version |
 | ------------- | --------------------- |
 | `minTested`   | `'2.1.296'`           |
-| `maxTested`   | `'2.1.296'`           |
+| `maxTested`   | `'2.1.302'`           |
 | `knownBroken` | `[]`                  |
 
-The window moves only with a reviewed hudhud release, together with the digests of the tested builds.
+The window spans several Claude Code releases, so the versions users actually have installed are covered, not only the newest. Every published release from `minTested` to `maxTested` was tested: in this version 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302 (2.1.297 and 2.1.298 were never published). For each of them hudhud carries the digests of the official binaries of every platform, so `binary.verification` is `'verified'` for any of them without `claudeCode.binaryDigests` ([Security](security.md#binary-verification)).
+
+The window moves only with a reviewed hudhud release. It rolls: a new Claude Code release joins at the top once hudhud's integration suite passed against it on Linux, Windows and macOS, usually within a week of its publication, and releases older than about 30 days before the newest leave at the bottom ([ADR-0004](../adr/0004-packages-and-versioning.md#versioning-layers), rolling-window amendment).
 
 ## Status of the running version
 
@@ -24,7 +26,7 @@ The window moves only with a reviewed hudhud release, together with the digests 
 | `'untested'`     | Outside the window, or not a version hudhud can parse | A warning only: the session runs                    |
 | `'known-broken'` | Listed in `knownBroken`                               | `connect` fails with `HARNESS_VERSION_KNOWN_BROKEN` |
 
-Check `compat.status` at start and log or surface `'untested'`: the version may behave differently from the tested one.
+Check `compat.status` at start and log or surface `'untested'`: the version may behave differently from the tested ones. Each session started on an untested version also publishes the diagnostic `compat.untested` among its start diagnostics (`data` is the `compat` object), so an application that only watches diagnostics sees the warning too ([Diagnostics](diagnostics.md#start-and-configuration)). hudhud does not refuse an untested version: Claude Code updates itself daily, and a refusal would stop every user between a release of Claude Code and the next release of hudhud.
 
 A known-broken version can still be run with `claudeCode.dangerouslyAllowKnownBrokenVersion: true`. The `compat` status stays `'known-broken'`, the setting appears in the security posture, and the error's `details.reason` (when refused) carries the reviewed reason for the listing.
 

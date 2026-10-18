@@ -44,8 +44,9 @@
  *    handshake succeeded and reject only after the process is gone (plan
  *    §3.2).
  *
- * The diagnostics of steps 2 to 6 (`security.posture`, `binary.*`, `env.*`,
- * `settings-guard.*`, `containment.fallback`) are published before the
+ * The diagnostics of steps 2 to 6 (`security.posture`, `binary.*`,
+ * `compat.untested`, `env.*`, `settings-guard.*`, `containment.fallback`)
+ * are published before the
  * machine sees `process.started`, the channel the binding offers for them
  * (`DriverOptions.diagnostics`). The driver keeps everything published before
  * the handshake settled in its bounded pre-handshake buffer and replays it to
@@ -64,6 +65,7 @@ import {
   buildPosture,
   HarnessDisposedError,
   SessionIdInUseError,
+  type CompatInfo,
   type HarnessCapabilities,
   type PermissionHandler,
   type Session,
@@ -451,6 +453,25 @@ function claimingMachine(
   };
 }
 
+/**
+ * `compat.untested` when the probed version is outside the tested window
+ * (ADR-0004 §4, rolling-window amendment): a warning the application can
+ * surface, published with every session's start diagnostics; the session
+ * runs. `data` is the `compat` info itself (version, window, status).
+ *
+ * @internal
+ */
+export function compatDiagnostics(compat: CompatInfo): BindingDiagnostic[] {
+  if (compat.status !== 'untested') return [];
+  return [
+    {
+      code: 'compat.untested',
+      message: `Claude Code ${compat.version} is outside the tested window ${compat.minTested} to ${compat.maxTested}; the session runs.`,
+      data: { ...compat, knownBroken: [...compat.knownBroken] },
+    },
+  ];
+}
+
 function envDiagnostics(child: ChildEnv): BindingDiagnostic[] {
   const diagnostics: BindingDiagnostic[] = [];
   if (child.dropped.length > 0 || child.spawnInjected.length > 0) {
@@ -637,6 +658,7 @@ async function openSteps(harness: SessionHost, request: SessionRequest): Promise
             data: { ...binary.verification },
           },
         ]),
+    ...compatDiagnostics(probed.compat),
     ...envDiagnostics(child),
     ...prepared.diagnostics,
     ...spawned.diagnostics,

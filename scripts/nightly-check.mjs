@@ -3,7 +3,10 @@
 // plan 5.9 W7-T2): `node scripts/nightly-check.mjs nightly|weekly`.
 // Writes run, mode, version and macos to $GITHUB_OUTPUT and the decision to
 // the job summary. `CANARY_MODE=dry-run` (manual dispatch only) runs the
-// canary path against the pinned version, labelled as a dry run. Reads only
+// canary path against the pinned version, labelled as a dry run;
+// `CANARY_VERSION_REQUEST=X.Y.Z` with `CANARY_MODE=canary` (manual dispatch
+// only) tests exactly that published release (the rolling tested window's
+// admission and window runs, ADR-0004 section 4). Reads only
 // tooling/cli-pin.json and the npm registry's public document of the CLI; no
 // credentials, no dependencies (it runs before `pnpm install`). Exit codes:
 // 0 decided, 1 the registry or the pin could not be read, 2 usage error.

@@ -177,6 +177,10 @@ export function pinFacts(document) {
  * @property {'canary' | 'dry-run'} mode `canary` for every scheduled run.
  * @property {boolean} dispatched A manual dispatch (`CANARY_MODE` set): the
  *   weekly window does not apply.
+ * @property {string} [requested] An exact release named by a manual dispatch
+ *   (`CANARY_VERSION_REQUEST`, the workflow's `version` input): the
+ *   admission and window runs of the rolling tested window (ADR-0004 §4,
+ *   amendment of 2026-10-18). Unset on the schedule.
  */
 
 /**
@@ -251,6 +255,61 @@ export function newerThanPin(facts) {
 }
 
 /**
+ * A dispatch that names an exact release: the canary path against that
+ * version, whatever the pin and the weekly window say (ADR-0004 §4,
+ * rolling-window amendment: admitting every release between the pin and the
+ * newest, and re-running versions of the window on demand). The version must
+ * be a published release no newer than `latest` (a `next` tag is not what
+ * users get); anything else fails the check job, naming the cause.
+ *
+ * @param {ScheduleFacts & { requested: string }} facts
+ * @param {string} where Where the canary runs, for the summary.
+ * @param {boolean} macos Whether the macOS job runs.
+ * @returns {ScheduleDecision}
+ */
+export function decideRequested(facts, where, macos) {
+  /** @type {(error: string) => ScheduleDecision} */
+  const refused = (error) => ({
+    run: false,
+    mode: 'canary',
+    version: '',
+    macos: false,
+    lines: [],
+    error,
+  });
+  if (facts.registry === null) {
+    return refused(`${CLI_PACKAGE} registry state unknown: ${facts.registryError ?? 'not read'}`);
+  }
+  const requested = parseRelease(facts.requested);
+  if (requested === null || !facts.registry.published.has(facts.requested)) {
+    return refused(
+      `${JSON.stringify(facts.requested)} is not a published release of ${CLI_PACKAGE}`,
+    );
+  }
+  const latest = /** @type {[number, number, number]} */ (parseRelease(facts.registry.latest));
+  if (compareReleases(requested, latest) > 0) {
+    return refused(
+      `${facts.requested} is newer than the latest dist-tag (${facts.registry.latest}): not what users get`,
+    );
+  }
+  const pinned = /** @type {[number, number, number]} */ (parseRelease(facts.pin.version));
+  const order = compareReleases(requested, pinned);
+  const relation =
+    order === 0
+      ? 'the pinned version'
+      : `${order < 0 ? 'older' : 'newer'} than the pinned ${facts.pin.version}`;
+  return {
+    run: true,
+    mode: 'canary',
+    version: facts.requested,
+    macos,
+    lines: [
+      `Manual dispatch for ${CLI_PACKAGE} ${facts.requested} (${relation}; the newest is ${facts.registry.latest}): the canary path tests exactly this version ${where} (an admission or window run of the rolling tested window, ADR-0004 §4).`,
+    ],
+  };
+}
+
+/**
  * The nightly (Linux): runs whenever the newest release is newer than the pin.
  *
  * @param {ScheduleFacts} facts
@@ -258,6 +317,9 @@ export function newerThanPin(facts) {
  */
 export function decideNightly(facts) {
   if (facts.mode === 'dry-run') return dryRun(facts);
+  if (facts.requested !== undefined) {
+    return decideRequested({ ...facts, requested: facts.requested }, 'on Linux', false);
+  }
   const step = newerThanPin(facts);
   if ('decision' in step) return step.decision;
   return {
@@ -302,6 +364,13 @@ export async function runScheduleCheck(host, schedule, decide) {
     return 2;
   }
   const mode = requested === 'dry-run' ? 'dry-run' : 'canary';
+  const version = host.env['CANARY_VERSION_REQUEST'] ?? '';
+  if (version !== '' && (requested !== 'canary' || parseRelease(version) === null)) {
+    host.stderr(
+      `${schedule}-check: CANARY_VERSION_REQUEST must be a release X.Y.Z with CANARY_MODE=canary, got ${JSON.stringify(version)} with CANARY_MODE=${JSON.stringify(requested)}\n`,
+    );
+    return 2;
+  }
   /** @type {PinFacts} */
   let pin;
   try {
@@ -328,6 +397,7 @@ export async function runScheduleCheck(host, schedule, decide) {
     pin,
     mode,
     dispatched: requested !== '',
+    ...(version === '' ? {} : { requested: version }),
   });
   const output = host.env['GITHUB_OUTPUT'];
   if (output !== undefined && output !== '') {

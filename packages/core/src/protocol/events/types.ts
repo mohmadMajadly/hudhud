@@ -128,6 +128,7 @@ export type DiagnosticCode =
   | 'binary.launcher-detected'
   | 'binary.version-changed'
   | 'binary.unverified'
+  | 'compat.untested'
   | 'project.permissions-ignored'
   | 'containment.fallback'
   | 'containment.addon-unavailable'

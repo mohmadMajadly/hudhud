@@ -7,6 +7,7 @@ import {
   REGISTRY_DOCUMENT,
   compareReleases,
   decideNightly,
+  decideRequested,
   parseRelease,
   parseTime,
   pinFacts,
@@ -194,6 +195,85 @@ describe('decideNightly', () => {
   });
 });
 
+describe('decideRequested (a dispatch naming an exact release)', () => {
+  const published = {
+    '2.1.296': '2026-10-09T16:58:10.924Z',
+    '2.1.299': '2026-10-14T00:23:19.588Z',
+    '2.1.302': '2026-10-16T16:48:28.057Z',
+  };
+  function asked(requested: string, latest = '2.1.302'): ScheduleFacts & { requested: string } {
+    return {
+      ...facts(null),
+      registry: registryFacts(document(latest, published)),
+      registryError: undefined,
+      dispatched: true,
+      requested,
+    };
+  }
+
+  it('tests exactly the requested release, older, equal or newer than the pin', () => {
+    expect(decideRequested(asked('2.1.299'), 'on Linux', false)).toEqual({
+      run: true,
+      mode: 'canary',
+      version: '2.1.299',
+      macos: false,
+      lines: [
+        `Manual dispatch for ${CLI_PACKAGE} 2.1.299 (newer than the pinned 2.1.296; the newest is 2.1.302): the canary path tests exactly this version on Linux (an admission or window run of the rolling tested window, ADR-0004 §4).`,
+      ],
+    });
+    expect(decideRequested(asked('2.1.296'), 'x', true)).toMatchObject({
+      run: true,
+      version: '2.1.296',
+      macos: true,
+      lines: [expect.stringContaining('(the pinned version;')],
+    });
+    const older = { ...asked('2.1.296'), pin: { version: '2.1.302', darwinPending: false } };
+    expect(decideRequested(older, 'x', false).lines[0]).toContain('older than the pinned 2.1.302');
+  });
+
+  it('is what both schedules decide for a requested release', () => {
+    expect(decideNightly(asked('2.1.299'))).toMatchObject({ run: true, version: '2.1.299' });
+    expect(decideWeekly(asked('2.1.299'), true)).toMatchObject({
+      run: true,
+      version: '2.1.299',
+      macos: false,
+      lines: [expect.stringContaining('on Windows (an admission')],
+    });
+    const gated = { ...asked('2.1.299'), pin: { version: '2.1.296', darwinPending: false } };
+    expect(decideWeekly(gated, true)).toMatchObject({
+      macos: true,
+      lines: [expect.stringContaining('on Windows and macOS')],
+    });
+    expect(decideWeekly(gated, false)).toMatchObject({ macos: false });
+    // A dry run stays a dry run of the pinned version.
+    expect(decideNightly({ ...asked('2.1.299'), mode: 'dry-run' }).mode).toBe('dry-run');
+  });
+
+  it('refuses an unpublished release, one above latest and an unknown registry', () => {
+    expect(decideRequested(asked('2.1.297'), 'x', false)).toMatchObject({
+      run: false,
+      version: '',
+      error: `"2.1.297" is not a published release of ${CLI_PACKAGE}`,
+    });
+    expect(decideRequested(asked('2.1.302', '2.1.299'), 'x', false).error).toBe(
+      '2.1.302 is newer than the latest dist-tag (2.1.299): not what users get',
+    );
+    expect(decideRequested(asked('2.1.299-rc.1'), 'x', false).error).toContain(
+      'is not a published release',
+    );
+    expect(decideRequested({ ...facts(null), requested: '2.1.299' }, 'x', false).error).toBe(
+      `${CLI_PACKAGE} registry state unknown: HTTP 503`,
+    );
+    expect(
+      decideRequested(
+        { ...facts(null), registryError: undefined, requested: '2.1.299' },
+        'x',
+        false,
+      ).error,
+    ).toBe(`${CLI_PACKAGE} registry state unknown: not read`);
+  });
+});
+
 describe('runScheduleCheck', () => {
   function host(
     env: Record<string, string>,
@@ -276,6 +356,41 @@ describe('runScheduleCheck', () => {
     expect(await runScheduleCheck(h, 'nightly', decideNightly)).toBe(1);
     expect(h.err).toContain('nightly-check: Error: tooling/cli-pin.json');
     expect(h.fetched).toBe(0);
+  });
+
+  it('passes a requested release to the decision and refuses a bad request', async () => {
+    const body = document('2.1.301', {
+      '2.1.299': '2026-10-14T00:23:19.588Z',
+      '2.1.301': '2026-10-15T14:34:23.330Z',
+    });
+    const asked = host(
+      { ...ACTIONS, CANARY_MODE: 'canary', CANARY_VERSION_REQUEST: '2.1.299' },
+      { body },
+    );
+    expect(await runScheduleCheck(asked, 'weekly', decideWeekly)).toBe(0);
+    expect(asked.files.get('out')).toBe('run=true\nmode=canary\nversion=2.1.299\nmacos=false\n');
+    expect(asked.files.get('summary')).toContain(
+      'Manual dispatch for @anthropic-ai/claude-code 2.1.299',
+    );
+    for (const [env, message] of [
+      [{ CANARY_MODE: 'dry-run', CANARY_VERSION_REQUEST: '2.1.299' }, 'with CANARY_MODE="dry-run"'],
+      [{ CANARY_VERSION_REQUEST: '2.1.299' }, 'with CANARY_MODE=""'],
+      [{ CANARY_MODE: 'canary', CANARY_VERSION_REQUEST: '2.1.299\nrun=true' }, 'must be a release'],
+      [{ CANARY_MODE: 'canary', CANARY_VERSION_REQUEST: 'latest' }, 'must be a release'],
+    ] as const) {
+      const bad = host({ ...ACTIONS, ...env }, { body });
+      expect(await runScheduleCheck(bad, 'nightly', decideNightly)).toBe(2);
+      expect(bad.err).toContain(message);
+      expect(bad.files.size).toBe(0);
+      expect(bad.fetched).toBe(0);
+    }
+    const unpublished = host(
+      { ...ACTIONS, CANARY_MODE: 'canary', CANARY_VERSION_REQUEST: '2.1.297' },
+      { body },
+    );
+    expect(await runScheduleCheck(unpublished, 'nightly', decideNightly)).toBe(1);
+    expect(unpublished.files.get('out')).toBe('run=false\nmode=canary\nversion=\nmacos=false\n');
+    expect(unpublished.err).toContain('"2.1.297" is not a published release');
   });
 
   it('runs nothing when the newest is the pinned version', async () => {

@@ -10,7 +10,14 @@
 // writes the window it covered (from, to) into its job summary, so the
 // summary history shows that consecutive windows leave no gap.
 
-import { CLI_PACKAGE, compareReleases, newerThanPin, parseRelease, dryRun } from './nightly.mjs';
+import {
+  CLI_PACKAGE,
+  compareReleases,
+  decideRequested,
+  dryRun,
+  newerThanPin,
+  parseRelease,
+} from './nightly.mjs';
 
 /** The weekly schedule's period. */
 export const WEEK_HOURS = 7 * 24;
@@ -39,6 +46,14 @@ export const MACOS_CANARY_ENABLED = true;
  */
 export function decideWeekly(facts, macosEnabled = MACOS_CANARY_ENABLED) {
   if (facts.mode === 'dry-run') return dryRun(facts);
+  if (facts.requested !== undefined) {
+    const macos = macosEnabled && !facts.pin.darwinPending;
+    return decideRequested(
+      { ...facts, requested: facts.requested },
+      macos ? 'on Windows and macOS' : 'on Windows',
+      macos,
+    );
+  }
   const step = newerThanPin(facts);
   if ('decision' in step) return step.decision;
   const pinned = /** @type {[number, number, number]} */ (parseRelease(facts.pin.version));

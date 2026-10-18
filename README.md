@@ -42,7 +42,7 @@ npm install hudhudjs
 npm install @hudhudjs/core @hudhudjs/claude-code
 ```
 
-Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296. See [Getting started](docs/guide/getting-started.md).
+Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296 to 2.1.302. See [Getting started](docs/guide/getting-started.md).
 
 ## What it does
 
