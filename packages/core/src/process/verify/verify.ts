@@ -216,8 +216,19 @@ const nodeIdentityFs: IdentityFs = {
   stat: (value) => stat(value, { bigint: true }),
 };
 
+/** Most results a {@link VerificationCache} keeps (see its remarks). */
+const VERIFICATION_CACHE_MAX_ENTRIES = 16;
+
 /**
  * Per-Harness cache of verification results (plan §1.8).
+ *
+ * @remarks
+ * Keyed by the file's identity (path, size, modification and change times)
+ * and the verification options. When the binary is replaced (for example an
+ * auto-update), the next spawn verifies the new file under a new key and the
+ * old key is never looked up again, so the cache keeps at most 16 results:
+ * storing one more forgets the one stored first. A forgotten result is only
+ * computed again; it never changes a verdict.
  *
  * @beta
  */
@@ -236,7 +247,12 @@ export class VerificationCache {
 
   /** @internal */
   set(key: string, value: VerifiedBinary): void {
+    this.#entries.delete(key);
     this.#entries.set(key, value);
+    for (const oldest of this.#entries.keys()) {
+      if (this.#entries.size <= VERIFICATION_CACHE_MAX_ENTRIES) break;
+      this.#entries.delete(oldest);
+    }
   }
 
   /** @internal */
