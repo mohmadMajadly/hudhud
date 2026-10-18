@@ -530,6 +530,30 @@ describe('the verification cache', () => {
     expect(calls.filter((call) => call.startsWith('hash'))).toHaveLength(2);
   });
 
+  it('keeps at most 16 results: a binary replaced again and again does not grow it', async () => {
+    const cache = new VerificationCache();
+    const verifyAt = async (mtimeMs: number): Promise<Recorded> => {
+      const recorded = fakeOptions({
+        cache,
+        digest: digestOf({ mtimeMs }),
+        stats: [fileIdentity({ mtimeMs: BigInt(mtimeMs) })],
+      });
+      await verifyBinary(resolved({ mtimeMs }), recorded.options);
+      return recorded;
+    };
+    for (let update = 0; update < 100; update += 1) {
+      await verifyAt(1000 + update);
+      expect(cache.size).toBe(Math.min(update + 1, 16));
+    }
+    // The newest results are kept; the first one stored was forgotten and
+    // is computed again, with the same verdict.
+    const newest = await verifyAt(1099);
+    expect(newest.calls.filter((call) => call.startsWith('hash'))).toEqual([]);
+    const oldest = await verifyAt(1000);
+    expect(oldest.calls.filter((call) => call.startsWith('hash'))).toHaveLength(1);
+    expect(cache.size).toBe(16);
+  });
+
   it('verifies again when the file cannot be read', async () => {
     const cache = new VerificationCache();
     const { calls, options } = fakeOptions({ cache, stats: [new Error('ENOENT')] });

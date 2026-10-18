@@ -183,6 +183,66 @@ export const PID_FILE_IDLER =
   "if (process.argv[2] === 'flood') process.stdout.write('x'.repeat(100000));" +
   'setInterval(() => {}, 1000); }, 20);';
 
+/**
+ * A grandchild for the command runners (CAPS-1): it inherits its parent's
+ * stdout, writes its pid to `argv[1]`, then writes one byte to stdout every
+ * 50 ms, so it holds the runner's pipe open after the parent exited. It ends
+ * itself when a write fails (the runner destroyed its read end) and after
+ * 20 s at most; nobody signals it.
+ */
+const PIPE_HOLDER =
+  "const fs = require('node:fs'); fs.writeFileSync(process.argv[1], String(process.pid));" +
+  "process.stdout.on('error', () => process.exit(0));" +
+  "setInterval(() => process.stdout.write('.'), 50); setTimeout(() => process.exit(0), 20000);";
+
+/**
+ * A command for the runners whose child exits while a grandchild holds its
+ * stdout: it writes its pid to `argv[1]`, starts {@link PIPE_HOLDER} (pid to
+ * `argv[2]`), waits for `argv[1] + '.go'`, writes `done` and exits 0. The
+ * grandchild is detached: on Windows libuv puts a Node child in a job that
+ * ends with its parent, so it would not outlive it otherwise.
+ */
+export const PIPE_HOLDING_PARENT =
+  "const fs = require('node:fs'); const cp = require('node:child_process');" +
+  'const [p, g] = [process.argv[1], process.argv[2]];' +
+  `cp.spawn(process.execPath, ['-e', ${JSON.stringify(PIPE_HOLDER)}, g], { stdio: ['ignore', 'inherit', 'ignore'], detached: true, windowsHide: true });` +
+  'fs.writeFileSync(p, String(process.pid));' +
+  "const t = setInterval(() => { if (!fs.existsSync(p + '.go')) return; clearInterval(t);" +
+  "process.stdout.write('done'); process.exit(0); }, 20);";
+
+/**
+ * The identity of the grandchild of {@link PIPE_HOLDING_PARENT}, verified
+ * in one snapshot: listed with the start time read there and the parent's
+ * pid as its parent, while the parent still waits for its gate.
+ */
+export async function pipeHolderIdentity(
+  parentFile: string,
+  holderFile: string,
+  ms = PID_FILE_DEADLINE_MS,
+): Promise<ProcessIdentity> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const parent = Number(await readFile(parentFile, 'utf8').catch(() => ''));
+    const pid = Number(await readFile(holderFile, 'utf8').catch(() => ''));
+    if (Number.isSafeInteger(parent) && parent > 0 && Number.isSafeInteger(pid) && pid > 0) {
+      const record = (await hostSnapshot()).records.find((entry) => entry.pid === pid);
+      if (record?.ppid === parent) return { pid, startTime: record.startTime };
+    }
+    if (Date.now() > deadline) throw new Error(`no grandchild identity from ${holderFile}`);
+    await sleep(50);
+  }
+}
+
+/** Waits until `identity` is no longer listed; false when it still is after `ms`. */
+export async function goneWithin(identity: ProcessIdentity, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (findIdentity((await hostSnapshot()).records, identity) === null) return true;
+    if (Date.now() > deadline) return false;
+    await sleep(100);
+  }
+}
+
 /** Collects all of stdout as bytes. */
 export async function readAll(child: HarnessProcess): Promise<Buffer> {
   const chunks: Uint8Array[] = [];

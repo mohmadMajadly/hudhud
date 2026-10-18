@@ -9,7 +9,7 @@
  * @packageDocumentation
  */
 
-export { createSessionRaw, raw } from './session.js';
+export { createSessionRaw, RAW_CONTROL_MAX_IN_FLIGHT, raw } from './session.js';
 export type { RawFrame, RawGap, RawSession, RawSpawnOptions, RawWireFrame } from './session.js';
 
 // Type-only re-exports of the root types the signatures above name, so this

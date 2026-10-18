@@ -105,6 +105,8 @@ export class ManualClock implements Clock {
   #now: number;
   #order = 0;
   #timers: ManualTimer[] = [];
+  /** Entries of `#timers` that were cancelled or fired since it was last compacted. */
+  #dead = 0;
 
   /** @param startMs - the start time in milliseconds since the epoch (default 2026-01-01T00:00:00Z). */
   constructor(startMs: number = Date.UTC(2026, 0, 1)) {
@@ -128,8 +130,23 @@ export class ManualClock implements Clock {
     };
     this.#timers.push(timer);
     return () => {
-      timer.cancelled = true;
+      this.#retire(timer);
     };
+  }
+
+  /**
+   * Marks a timer cancelled (or fired). The list is compacted once most of
+   * it is dead, so a session that re-arms a timer on every frame without
+   * advancing time keeps only its live timers (amortized O(1) per timer).
+   */
+  #retire(timer: ManualTimer): void {
+    if (timer.cancelled) return;
+    timer.cancelled = true;
+    this.#dead += 1;
+    if (this.#dead > 64 && this.#dead * 2 > this.#timers.length) {
+      this.#timers = this.#timers.filter((other) => !other.cancelled);
+      this.#dead = 0;
+    }
   }
 
   /** Armed timers that have neither fired nor been cancelled. */
@@ -146,7 +163,7 @@ export class ManualClock implements Clock {
   fireNext(): boolean {
     const next = this.#live()[0];
     if (next === undefined) return false;
-    next.cancelled = true;
+    this.#retire(next);
     this.#now = Math.max(this.#now, next.at);
     next.callback();
     return true;
@@ -166,6 +183,7 @@ export class ManualClock implements Clock {
     this.#timers = this.#timers
       .filter((timer) => !timer.cancelled)
       .sort((a, b) => a.at - b.at || a.order - b.order);
+    this.#dead = 0;
     return this.#timers;
   }
 }

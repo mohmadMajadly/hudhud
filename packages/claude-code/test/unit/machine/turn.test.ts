@@ -172,6 +172,32 @@ describe('background turns', () => {
     expect(ofType(run.step(init()), 'turn.started')[0]?.turnId).toBe('bg-2');
     expect(run.state.nextBg).toBe(3);
   });
+
+  it('a repeated system/init while a harness turn is open opens no turn and reports drift once', () => {
+    const run = new Runner();
+    expect(ofType(run.step(init()), 'turn.started')[0]?.turnId).toBe('bg-1');
+    const repeated = run.step(init({ model: 'other-model' }));
+    expect(repeated).toEqual([
+      {
+        type: 'diagnostic',
+        code: 'turn.repeated-init',
+        message:
+          'the harness reported system/init again while a turn it started is still open; no new turn was opened',
+        data: { turnId: 'bg-1' },
+      },
+    ]);
+    // The init's facts are still taken; the next repeats say nothing.
+    expect(run.state.model).toBe('other-model');
+    for (let n = 0; n < 1000; n += 1) expect(run.step(init())).toEqual([]);
+    expect(run.state.turns).toHaveLength(1);
+    expect(run.state.nextBg).toBe(2);
+    // The open turn settles as usual; the next init starts a new harness turn.
+    expect(settled(run.step(result()), 'bg-1')).toMatchObject({ turnId: 'bg-1' });
+    expect(ofType(run.step(init()), 'turn.started')[0]?.turnId).toBe('bg-2');
+    // A queued application turn still takes the next init.
+    run.step(send(T1));
+    expect(ofType(run.step(init()), 'turn.started')[0]?.turnId).toBe(T1);
+  });
 });
 
 describe('interrupt gating (GH#98713)', () => {

@@ -20,6 +20,11 @@
  *   the oldest queued turn. A `system/init` belongs to the oldest started turn
  *   that has not seen one yet; with no such turn and no queued turn it starts
  *   a harness-originated turn `bg-<n>` (background shell after EOF, 07 §7).
+ *   A `system/init` while such a harness turn is still open (no `result` or
+ *   `idle` settled it) opens no other turn: it belongs to the open one, and
+ *   diagnostic `turn.repeated-init` reports the protocol drift once for that
+ *   turn (CAPS-1, lead ruling B2). So a harness that repeats `system/init`
+ *   cannot grow the turn table.
  * - Dropped message (research 10 §3): a `command_lifecycle` frame is
  *   correlated strictly by `command_uuid` with an application turn, before
  *   or after `system/init` (the frame itself proves the lifecycle feature),
@@ -142,6 +147,8 @@ export interface TurnEntry {
   readonly lifecycleStates?: readonly string[];
   /** A `command_lifecycle` `started` was reported for it. */
   readonly lifecycleStarted?: true;
+  /** A harness turn that saw another `system/init` (reported once). */
+  readonly repeatedInit?: true;
 }
 
 /**
@@ -547,6 +554,20 @@ function onInit(d: Draft, frame: JsonObject): void {
   const queued = d.turns.find((turn) => turn.phase === 'queued');
   if (queued !== undefined) {
     releaseHeld(d, startTurn(d, queued, true, frame));
+    return;
+  }
+  const open = d.turns.find((turn) => turn.origin === 'harness');
+  if (open !== undefined) {
+    // Protocol drift: the harness turn this init would start is still open.
+    if (open.repeatedInit === true) return;
+    replaceTurn(d, { ...open, repeatedInit: true });
+    d.effects.push({
+      type: 'diagnostic',
+      code: 'turn.repeated-init',
+      message:
+        'the harness reported system/init again while a turn it started is still open; no new turn was opened',
+      data: { turnId: open.turnId },
+    });
     return;
   }
   const turnId = `bg-${String(d.nextBg)}`;

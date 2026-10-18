@@ -371,9 +371,12 @@ function check(
         model.timers.delete(effect.name);
         break;
       case 'diagnostic':
-        expect(['turn.unmatched-result', 'interrupt.still-queued-retry', 'turn.dropped']).toContain(
-          effect.code,
-        );
+        expect([
+          'turn.unmatched-result',
+          'interrupt.still-queued-retry',
+          'turn.dropped',
+          'turn.repeated-init',
+        ]).toContain(effect.code);
         break;
     }
   }

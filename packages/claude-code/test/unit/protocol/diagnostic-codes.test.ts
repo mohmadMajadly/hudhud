@@ -25,7 +25,12 @@ const CONTROL_CODES: Readonly<Record<ControlDiagnosticCode, true>> = {
 };
 
 /** Codes the turn machine emits (its effect type keeps `code: string`). */
-const TURN_CODES = ['turn.unmatched-result', 'interrupt.still-queued-retry'];
+const TURN_CODES = [
+  'turn.unmatched-result',
+  'interrupt.still-queued-retry',
+  'turn.dropped',
+  'turn.repeated-init',
+];
 
 /**
  * Every code the project credential guard publishes as a session diagnostic

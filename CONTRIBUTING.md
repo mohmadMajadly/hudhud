@@ -85,6 +85,10 @@ FC_SEED=-279742588 pnpm vitest run --project unit packages/core/test/process/tre
 
 The `unit` project's setup file applies `FC_SEED` to every property, so the run takes the same inputs and shrinks to the same counterexample (in PowerShell, set `$env:FC_SEED = '-279742588'` first). A value that is not a 32-bit integer stops the run instead of silently using a fresh seed. To jump straight to the shrunk counterexample of one property, pass both values to its `fc.assert` in a local edit, `{ ...params, seed: -279742588, path: '201:29:29:29:29' }`, and do not commit it. Then add a deterministic test for the counterexample that fails on the unfixed code, and fix whichever side is wrong: the product or the test's oracle.
 
+### Bound tests and the soak size
+
+`packages/claude-code/test/unit/machine/session-bounds.test.ts` shows that a session's tables stay bounded over many simulated inputs. The `unit` project runs each scenario at ten times its cap (a few thousand inputs where a table has no cap), so a run takes seconds. Set `HUDHUD_SOAK=1` to run 100 000 inputs of each instead; that size belongs to a soak run, not to `pnpm check`.
+
 ### The job-object addon on Windows
 
 On Windows x64, `pnpm check` and the integration suites need the job-object addon built and staged in `packages/win32-job-x64` first. Windows checks always exercise the real addon: the suites run under `'job'` containment through the core's real loader (plan §6.2). Linux and macOS need nothing.

@@ -85,4 +85,26 @@ describe('ManualClock', () => {
     expect(fired).toEqual([start + 5, start + 10]);
     expect(clock.nowMs()).toBe(start + 20);
   });
+
+  it('keeps its order and counts across the compaction of cancelled timers', () => {
+    // A driver re-arms its idle timer on every frame: 100 000 re-arms without
+    // time moving leave one live timer, and the dead ones are compacted away.
+    const clock = new ManualClock(0);
+    const fired: string[] = [];
+    let cancel = clock.schedule(1, () => fired.push('idle-0'));
+    clock.schedule(5, () => fired.push('close'));
+    for (let n = 1; n <= 100_000; n += 1) {
+      cancel();
+      cancel(); // a second cancel changes nothing
+      cancel = clock.schedule(1, () => fired.push(`idle-${String(n)}`));
+    }
+    expect(clock.pending).toBe(2);
+    expect(clock.nextAt).toBe(1);
+    // Firing retires the timer too.
+    expect(clock.fireNext()).toBe(true);
+    cancel();
+    clock.advance(10);
+    expect(fired).toEqual(['idle-100000', 'close']);
+    expect(clock.pending).toBe(0);
+  });
 });

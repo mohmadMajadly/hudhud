@@ -55,6 +55,9 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'a
 export function raw(session: Session): RawSession;
 
 // @beta
+export const RAW_CONTROL_MAX_IN_FLIGHT = 64;
+
+// @beta
 export type RawFrame = RawWireFrame | RawGap;
 
 // @beta

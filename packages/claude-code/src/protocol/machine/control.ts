@@ -20,7 +20,8 @@
  * other subtype is answered with a `control_response` error "Unsupported
  * control request subtype", except the never-answered set: `remote_*`
  * subtypes and `request_user_dialog` (v1 declares no dialog kinds, so every
- * kind is unhandled and must not be answered, 02 §4.3). `elicitation` gets
+ * kind is unhandled and must not be answered, 02 §4.3); at most
+ * {@link MAX_UNANSWERED_ENTRIES} of them are remembered. `elicitation` gets
  * the unsupported error in v1 too; answering it with `{action: 'decline'}`
  * (02 §4.3) is a v1.x item. A duplicate in-flight
  * id is ignored; `control_cancel_request` removes the entry and yields
@@ -72,9 +73,15 @@ export interface OutboundEntry {
 
 /** A pending request from the CLI. @internal */
 export interface InboundEntry {
+  /** The request id; for a `never` entry its {@link keptIdKey}. */
   readonly requestId: string;
+  /** The subtype; for a `never` entry cut to 128 code units. */
   readonly subtype: string;
-  /** `never`: a member of the never-answered set, kept only to route a cancel. */
+  /**
+   * `never`: a member of the never-answered set, kept only to route a cancel
+   * and to recognise an in-flight duplicate; at most
+   * {@link MAX_UNANSWERED_ENTRIES} of them.
+   */
   readonly answer: 'expected' | 'never';
   readonly turnId?: string;
 }
@@ -83,7 +90,13 @@ export interface InboundEntry {
 export interface ControlState {
   /** The `<n>` of the next `hudhud_<n>` request id. */
   readonly nextId: number;
+  /** hudhud's pending requests: each ends on its answer, its timeout, a local cancel or close. */
   readonly outbound: readonly OutboundEntry[];
+  /**
+   * The CLI's pending requests: a `can_use_tool` until it is answered or
+   * cancelled, a never-answered one until it is cancelled or forgotten
+   * ({@link MAX_UNANSWERED_ENTRIES}); all of them at close.
+   */
   readonly inbound: readonly InboundEntry[];
 }
 
@@ -190,6 +203,50 @@ const MAX_ECHO = 128;
 const MAX_CLI_ERROR = 1024;
 const ID_PREFIX = 'hudhud_';
 const TIMER_PREFIX = 'control.timeout:';
+
+/**
+ * Most entries of the never-answered set kept at once (see
+ * {@link ControlState.inbound}). The CLI may never cancel such a request, so
+ * without a cap the set would grow with the session's lifetime. When a new
+ * one arrives at the cap, the oldest is forgotten. Forgetting one changes
+ * diagnostics only: nothing is ever written for a never-answered request, and
+ * the session machine ignores their cancels. A later cancel of a forgotten
+ * one reports `control.unknown-cancel`, and a repeat of its id is recorded
+ * again (`control.unanswered-request`, not `control.duplicate-request`).
+ *
+ * @internal
+ */
+export const MAX_UNANSWERED_ENTRIES = 64;
+
+/**
+ * Longest untrusted id a bounded record keeps verbatim (see {@link keptIdKey}).
+ *
+ * @internal
+ */
+export const MAX_KEPT_ID_CHARS = 256;
+
+/**
+ * The key under which a bounded record keeps an untrusted id: the id itself
+ * when it has at most {@link MAX_KEPT_ID_CHARS} UTF-16 code units, otherwise
+ * its first {@link MAX_KEPT_ID_CHARS} code units, `#` and its length. So one
+ * entry never holds more than a few hundred code units, however long the id.
+ * Two distinct ids share a key only when both are longer than the cap and
+ * share the prefix and the length. A record that keys ids takes a shared key
+ * as the same id, which can only make it refuse or ignore a request, never
+ * accept one.
+ *
+ * @internal
+ */
+export function keptIdKey(id: string): string {
+  return id.length <= MAX_KEPT_ID_CHARS
+    ? id
+    : `${id.slice(0, MAX_KEPT_ID_CHARS)}#${String(id.length)}`;
+}
+
+/** Whether `entry` is the pending inbound entry of `requestId`. */
+function isEntryOf(entry: InboundEntry, requestId: string): boolean {
+  return entry.requestId === (entry.answer === 'never' ? keptIdKey(requestId) : requestId);
+}
 
 /** A copy of untrusted text, cut to `max` UTF-16 code units. */
 function cap(text: string, max: number = MAX_ECHO): string {
@@ -382,7 +439,7 @@ function onRequest(
   turnId: string | undefined,
 ): ControlStep {
   const { requestId, subtype, frame } = cls;
-  if (state.inbound.some((entry) => entry.requestId === requestId)) {
+  if (state.inbound.some((entry) => isEntryOf(entry, requestId))) {
     return {
       state,
       effects: [
@@ -395,8 +452,21 @@ function onRequest(
   }
   const base = turnId === undefined ? { requestId, subtype } : { requestId, subtype, turnId };
   if (isNeverAnswered(subtype)) {
+    // Bounded (MAX_UNANSWERED_ENTRIES): the CLI may never cancel these, and
+    // each keeps a bounded key, never the whole untrusted id or subtype.
+    const kept: InboundEntry = {
+      ...base,
+      requestId: keptIdKey(requestId),
+      subtype: cap(subtype),
+      answer: 'never',
+    };
+    const unanswered = state.inbound.filter((entry) => entry.answer === 'never');
+    const forgotten = unanswered.length >= MAX_UNANSWERED_ENTRIES ? unanswered[0] : undefined;
     return {
-      state: { ...state, inbound: [...state.inbound, { ...base, answer: 'never' }] },
+      state: {
+        ...state,
+        inbound: [...state.inbound.filter((entry) => entry !== forgotten), kept],
+      },
       effects: [
         diagnostic(
           'control.unanswered-request',
@@ -445,7 +515,7 @@ function onRequest(
 }
 
 function onCancel(state: ControlState, requestId: string): ControlStep {
-  const entry = state.inbound.find((pending) => pending.requestId === requestId);
+  const entry = state.inbound.find((pending) => isEntryOf(pending, requestId));
   if (entry === undefined) {
     return {
       state,

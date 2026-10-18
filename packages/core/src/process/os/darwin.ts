@@ -46,7 +46,15 @@ export const PS_ENV: Readonly<Record<string, string>> = Object.freeze({ LC_ALL: 
 export interface CommandLimits {
   readonly timeoutMs: number;
   readonly maxStdoutBytes: number;
+  /**
+   * How long stdout may stay open after the command exited (a descendant
+   * that inherited it can hold it); {@link DEFAULT_DRAIN_MS} when absent.
+   */
+  readonly drainMs?: number;
 }
+
+/** The default {@link CommandLimits.drainMs}. */
+export const DEFAULT_DRAIN_MS = 2000;
 
 /** The default limits of {@link runCommand}: the bound of one process table read. */
 export const DEFAULT_LIMITS: CommandLimits = Object.freeze({
@@ -67,6 +75,13 @@ export type CommandRunner = (
  * command exits with code 0; rejects on a spawn error, any other exit, the
  * timeout (the command is then ended through its own handle) or stdout
  * beyond the cap.
+ *
+ * Settles on the command's exit, not on the close of its pipe: a descendant
+ * that inherited stdout could hold the pipe open for as long as it runs.
+ * After the exit, stdout gets {@link CommandLimits.drainMs} to end; if it
+ * does not, the read end is destroyed and the run rejects (the output may
+ * be incomplete). Nothing but the command itself is ever signalled, and
+ * only through its own handle; a descendant is left alone.
  *
  * @internal
  */
@@ -108,14 +123,27 @@ export function runCommand(
     child.on('error', onError);
     // After a failed spawn the pipe may report ENOTCONN (07 §6); never unhandled.
     child.stdout.on('error', onError);
-    child.on('close', (code, signal) => {
+    let settled = false;
+    let drain: ReturnType<typeof setTimeout> | undefined;
+    const settle = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      clearTimeout(drain);
       if (failure === undefined && code !== 0) {
         failure = new Error(`${file} exited with ${code === null ? String(signal) : String(code)}`);
       }
       if (failure === undefined) resolve(new Uint8Array(Buffer.concat(chunks)));
       else reject(failure);
+    };
+    child.on('exit', (code, signal) => {
+      drain = setTimeout(() => {
+        failure ??= new Error(`${file} exited but its stdout stayed open; the output is dropped`);
+        child.stdout.destroy();
+        settle(code, signal);
+      }, limits.drainMs ?? DEFAULT_DRAIN_MS);
     });
+    child.on('close', settle);
   });
 }
 
