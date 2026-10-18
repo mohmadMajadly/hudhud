@@ -18,6 +18,7 @@ import {
 import { parsePsOutput } from '../../../../src/process/tree/ps.js';
 import {
   CHILD_CWD,
+  goneWithin,
   hangGuard,
   NONE_LISTED_GUARD,
   noLeaksGuard,
@@ -26,6 +27,8 @@ import {
   ChildTracker,
   identityFromPidFile,
   PID_FILE_IDLER,
+  PIPE_HOLDING_PARENT,
+  pipeHolderIdentity,
   withFakeTimeouts,
 } from '../spawn-support.js';
 
@@ -166,6 +169,30 @@ describe('runCommand (darwin copy)', () => {
     },
     // The command times out on the fake clock; the identity read is real.
     hangGuard(PID_FILE_IDENTITY_MS),
+  );
+
+  it(
+    'settles on the exit when a grandchild holds stdout open: bounded drain, then rejects (CAPS-1)',
+    async () => {
+      const parentFile = path.join(scratch, 'holder-parent.pid');
+      const holderFile = path.join(scratch, 'holder.pid');
+      const settled = runCommand(
+        node,
+        ['-e', PIPE_HOLDING_PARENT, parentFile, holderFile],
+        {},
+        { timeoutMs: 60_000, maxStdoutBytes: 1024 * 1024, drainMs: 300 },
+      ).catch((error: unknown) => error);
+      const holder = await pipeHolderIdentity(parentFile, holderFile);
+      tracker.trackDescendant(holder);
+      const started = Date.now();
+      await writeFile(`${parentFile}.go`, '');
+      expect(String(await settled)).toMatch(/exited but its stdout stayed open/);
+      // Bounded by the drain, not by the grandchild (which would hold it 20 s).
+      expect(Date.now() - started).toBeLessThan(10_000);
+      // Nobody signalled the grandchild: it ends by itself once its pipe is gone.
+      expect(await goneWithin(holder, 15_000)).toBe(true);
+    },
+    hangGuard(PID_FILE_IDENTITY_MS, 10_000, 15_000 + TABLE_READ_MS),
   );
 
   it(
