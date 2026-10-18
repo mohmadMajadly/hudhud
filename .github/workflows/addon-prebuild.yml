@@ -12,26 +12,33 @@
 # builds locally with the same pin, compares (scripts/addon/manifest.mjs
 # compare), and only on a match commits the record and the table.
 #
-# Phase 2, verify (tag `v<version>`, ADR-0014 amendment 10): the same builds
-# must reproduce the committed record the core's digest table names (the
-# addon is versioned by its record: `@hudhudjs/win32-job-x64` carries the
-# record's `release`, the tag names the version of the library packages),
-# and `release-verify` packs every package and hashes the packed bytes
-# again, and checks the tag against the packed versions, the private flags,
-# the changesets and the source links (scripts/check-tarball.mjs
-# --release-tag), then runs the full tarball check of every published
-# package (`pnpm check:tarball`, plan §4.1, §6.3).
-# Publishing is not part of this workflow (it comes at open-sourcing, with
-# npm trusted publishing and provenance, ADR-0009): the platform package is
-# published first and the core second, so the core's exact optional
-# dependency always resolves.
+# Phase 2, verify (`workflow_call` with `phase: verify` from release.yml,
+# which a tag `v<version>` runs; ADR-0014 amendments 10 and 12): the same
+# builds must reproduce the committed record the core's digest table names
+# (the addon is versioned by its record: `@hudhudjs/win32-job-x64` carries
+# the record's `release`, the tag names the version of the library
+# packages), and `release-verify` packs every package and hashes the packed
+# bytes again, and checks the tag against the packed versions, the private
+# flags, the changesets and the source links (scripts/check-tarball.mjs
+# --release-tag), keeps the tarballs of the published packages, runs the
+# full tarball check over exactly those tarballs (`check-tarball.mjs
+# --tarballs`, plan §4.1, §6.3) and uploads them as `release-tarballs`, the
+# bytes release.yml's publish job publishes. With `dry_run` (release.yml's
+# dry runs) it first simulates the version PR in its working copy
+# (scripts/release.mjs simulate-version) and checks the tag that gives.
+# Phase 2 runs only through release.yml (one tag run, publish after it);
+# this file has no tag trigger of its own.
 #
-# Security (ADR-0014): triggered only by a dispatch or a tag push, never by
-# pull_request_target; every job holds `contents: read` only, no secret is
-# referenced, so the tag jobs hold no write token; actions are pinned by
+# Security (ADR-0014): triggered only by a dispatch or a call from
+# release.yml, never by pull_request_target; every job holds `contents:
+# read` only, no secret is referenced, so the tag jobs hold no write token
+# (release.yml's publish job, after these, is the only one with id-token:
+# write); actions are pinned by
 # full commit SHA; checkout does not persist credentials; dependencies are
 # installed from the frozen lockfile without scripts; no cache is read or
-# written; artifacts are kept 3 days and downloads verify their digest.
+# written; artifacts are kept 3 days (`release-tarballs` 7, so the publish
+# job can wait for its environment's approval) and downloads verify their
+# digest.
 # The only install on a runner is the Visual Studio installer step in
 # `build`, which adds the toolset-of-record components the image lacks
 # (exact ids from the record) and verifies them with vswhere afterwards.
@@ -52,9 +59,10 @@
 #   15, to be re-sized from the first run (FX-D);
 # - test-x64: 4 min 13 s, so 10 minutes;
 # - manifest: under 1 min, 5 minutes.
-# release-verify has not run yet (it runs on tags only): estimated about
-# 4 min from the test-x64 setup and build steps plus three pnpm pack runs
-# (under 10 s locally) and the full tarball check (7 s locally, W7-Z), 10
+# release-verify has not run yet (it runs on tags and release dry runs
+# only): estimated about 4 min from the test-x64 setup and build steps plus
+# the packing (under 10 s locally), the full tarball check (7 s locally,
+# W7-Z) and, in a dry run, `changeset version` (under 5 s locally), 10
 # minutes until its first run is measured.
 name: Addon prebuild
 
@@ -69,8 +77,30 @@ on:
           native/win32-job/release/<release>/.
         type: string
         required: true
-  push:
-    tags: ['v*']
+  # Phase 2, from release.yml only (a tag, or a release dry run).
+  workflow_call:
+    inputs:
+      phase:
+        description: Always `verify` (phase 2); phase 1 is a dispatch of this file.
+        type: string
+        required: true
+      tag:
+        description: >-
+          The release tag to check (`v<version>`); empty in a dry run, which
+          checks the tag its simulated version PR gives.
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: >-
+          Simulate the version PR in the working copy first (release.yml's
+          dry runs); never on a tag.
+        type: boolean
+        required: true
+    outputs:
+      tag:
+        description: The tag release-verify checked.
+        value: ${{ jobs.release-verify.outputs.tag }}
 
 permissions: {}
 
@@ -266,7 +296,7 @@ jobs:
       # difference from the committed record is reported, not fatal here:
       # test-x64 (record check) and the lead's local compare decide.
       - name: Compare with the record the digest table names (phase 1)
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.phase != 'verify'
         run: |
           if ! node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"; then
             echo "::warning::the ${ARCH} build does not reproduce the committed record (reason above)"
@@ -275,7 +305,7 @@ jobs:
       # The record the core's digest table names: the addon release this
       # library release ships (ADR-0014 amendment 10).
       - name: Require the rebuild to reproduce the release record (phase 2)
-        if: github.event_name == 'push'
+        if: inputs.phase == 'verify'
         run: node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
 
       - name: Upload the build
@@ -370,7 +400,7 @@ jobs:
   manifest:
     name: manifest
     needs: build
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.phase != 'verify'
     runs-on: ubuntu-24.04
     # Under 1 min in run 38947897592 (no dependency install: the tool uses
     # Node built-ins only); 5 minutes.
@@ -424,20 +454,32 @@ jobs:
 
   release-verify:
     name: release verify (packed bytes)
-    if: github.event_name == 'push'
+    if: inputs.phase == 'verify'
     needs: [build, test-x64]
     runs-on: windows-2025
-    # Setup about 2 min, pnpm build about 1 min, three pnpm pack runs under
-    # 1 min (the full local check took under 10 s), the full tarball check
-    # under 1 min (7 s locally). About 4 min, x 2.
+    # Setup about 2 min, pnpm build about 1 min, the packing under 1 min (the
+    # full local check took under 10 s), the full tarball check under 1 min
+    # (7 s locally), changeset version in a dry run under 5 s locally. About
+    # 4 min, x 2.
     timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Check out
+      # The whole history: in a dry run, `changeset version` writes each
+      # changelog entry with the commit that added its changeset (the
+      # default changelog generator reads git history), exactly as the real
+      # version PR does on a full clone. In a shallow checkout it tries to
+      # deepen the clone, which needs credentials this job does not keep
+      # (dry run 39109685744: "could not read Username for
+      # 'https://github.com'"). The checkout step fetches it with its token;
+      # nothing persists afterwards.
+      - name: Check out (full history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install pnpm (version from package.json "packageManager")
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -477,22 +519,57 @@ jobs:
             --addon "$addon/arm64/hudhud_win32_job.node" --toolchain "$addon/arm64/toolchain.json" \
             --version "$(cat "$addon/x64/version")"
 
+      # A tag checks itself. A dry run (release.yml off a tag) first does
+      # what the version PR will do, in this working copy only: changeset
+      # version and, when the committed record is not the addon version that
+      # gives, a record of the same builds for it (scripts/release.mjs
+      # simulate-version, which refuses to run on a tag); it checks the tag
+      # that version PR's commit would get.
+      - name: The tag to check (a dry run simulates the version PR)
+        id: tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "$DRY_RUN" == true ]]; then
+            node scripts/release.mjs simulate-version
+          elif [[ "$GITHUB_REF_TYPE" == tag && "$TAG_INPUT" == "$GITHUB_REF_NAME" ]]; then
+            echo "tag=${TAG_INPUT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::phase 2 checks the pushed tag: input tag ${TAG_INPUT@Q}, ref ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME@Q}"
+            exit 1
+          fi
+
       - name: Build
         run: pnpm run build
 
       # The packed bytes against the record the core's table names, and the
       # tag against the packed versions, private flags, changesets and source
-      # links (ADR-0014 amendment 10, review finding R7-2).
+      # links (ADR-0014 amendment 10, review finding R7-2); the tarballs of
+      # the published packages are kept for the publish (amendment 12).
       - name: Pack, hash the bytes a release would publish and check the tag
         env:
           HUDHUD_TEST_ROOT: ${{ runner.temp }}
-        run: node scripts/check-tarball.mjs --release-tag "$GITHUB_REF_NAME"
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: node scripts/check-tarball.mjs --release-tag "$RELEASE_TAG" --keep-tarballs "$RUNNER_TEMP/release-tarballs"
 
-      # The full check of every published package (plan §4.1): files, manifest,
-      # README, LICENSE and NOTICE, entry points, an offline install of the
-      # tarballs, imports and a type-check; the x64 package with the staged
-      # build above (W6-Z ruling 8, lead ruling on A3).
-      - name: Full tarball check of every published package
+      # The full check of every published package (plan §4.1) over exactly
+      # the tarballs kept above: files, manifest, README, LICENSE and NOTICE,
+      # entry points, an offline install of the tarballs, imports and a
+      # type-check; the x64 package with the staged build above (W6-Z ruling
+      # 8, lead ruling on A3).
+      - name: Full tarball check of the tarballs a release publishes
         env:
           HUDHUD_TEST_ROOT: ${{ runner.temp }}
-        run: pnpm run check:tarball
+        run: node scripts/check-tarball.mjs --tarballs "$RUNNER_TEMP/release-tarballs"
+
+      # Kept 7 days: release.yml's publish job may wait for the approval of
+      # its environment.
+      - name: Upload the checked tarballs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/release-tarballs
+          retention-days: 7
+          if-no-files-found: error
