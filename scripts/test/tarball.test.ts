@@ -614,6 +614,26 @@ describe('listEntryPoints', () => {
     });
   });
 
+  it('lists JSON Lines files as data entry points (the conformance streams)', () => {
+    const result = listEntryPoints(
+      {
+        name: '@hudhudjs/conformance',
+        exports: { './streams/*.expect.jsonl': './dist/streams/*.expect.jsonl' },
+      },
+      ['dist/streams/text-turn/linux.expect.jsonl', 'dist/streams/text-turn/linux.jsonl'],
+    );
+    expect(result).toEqual({
+      entries: [
+        {
+          specifier: '@hudhudjs/conformance/streams/text-turn/linux.expect.jsonl',
+          kind: 'data',
+          runtime: 'dist/streams/text-turn/linux.expect.jsonl',
+        },
+      ],
+      problems: [],
+    });
+  });
+
   it('flags missing targets, a pattern that matches nothing and malformed maps', () => {
     const result = listEntryPoints(manifest, ['package.json']);
     expect(result.problems).toEqual([

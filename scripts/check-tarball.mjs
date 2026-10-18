@@ -52,6 +52,10 @@
 // else the https `origin` remote) in `repository`, `homepage` and `bugs`
 // (`checkRepositoryFields`).
 //
+// The data package @hudhudjs/conformance must hold under dist/ exactly the
+// expected streams of packages/claude-code/conformance, byte for byte, and
+// the index rendered for its version (scripts/lib/conformance-package.mjs).
+//
 // Release runs (.github/workflows/release.yml, ADR-0014 amendment 12) publish
 // exactly the bytes they checked:
 //
@@ -93,6 +97,7 @@ import {
   parseManifest,
   releaseOf,
 } from './lib/addon-digests.mjs';
+import { compareFiles, CONFORMANCE_PACKAGE, loadExpected } from './lib/conformance-package.mjs';
 import {
   checkImports,
   checkLegalFiles,
@@ -437,6 +442,9 @@ function fullCheck(given) {
       }
       const result = checkTarball(manifest, readFileSync(file), forbidden, legal);
       problems.push(...result.problems.map((problem) => `${name}: ${problem}`));
+      if (name === CONFORMANCE_PACKAGE) {
+        problems.push(...conformanceProblems(file).map((problem) => `${name}: ${problem}`));
+      }
       const installable = supportsPlatform(manifest, process.platform, process.arch);
       packed.push({ manifest, file, entryPoints: result.entryPoints, installable });
       process.stdout.write(
@@ -461,6 +469,29 @@ function fullCheck(given) {
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   }
+}
+
+/**
+ * The conformance data package against its sources (ADR-0004 amendment of
+ * 2026-10-18): every packed file under `dist/` must be byte-identical to the
+ * repository's expected stream or to the index rendered for the packed
+ * version, and none may be missing.
+ *
+ * @param {string} file The tarball.
+ * @returns {string[]} problems
+ */
+function conformanceProblems(file) {
+  const entries = readTarGz(readFileSync(file));
+  const version = manifestOf(entries)?.version;
+  if (typeof version !== 'string') return ['the tarball has no package.json version'];
+  const expected = loadExpected(REPO, version);
+  return [
+    ...expected.problems,
+    ...compareFiles(
+      expected.files,
+      entries.filter((entry) => entry.path.startsWith('dist/')),
+    ),
+  ];
 }
 
 /**
@@ -523,11 +554,16 @@ function installAndImport(root, installed, otherPlatform, problems) {
   );
   const js = imported.filter((entry) => entry.kind === 'js');
   for (const { manifest, entryPoints } of installed) {
-    // A native addon is loaded by its consumer with `process.dlopen`, never
-    // imported; the installed package must carry the file the subpath names.
-    for (const entry of entryPoints.filter((candidate) => candidate.kind === 'native')) {
+    // A native addon is loaded by its consumer with `process.dlopen` and a
+    // data file is read, neither is imported; the installed package must
+    // carry the file the subpath names.
+    for (const entry of entryPoints.filter(
+      (candidate) => candidate.kind === 'native' || candidate.kind === 'data',
+    )) {
       if (!existsSync(path.join(modules, String(manifest.name), entry.runtime ?? ''))) {
-        problems.push(`${entry.specifier}: the installed addon file is missing`);
+        problems.push(
+          `${entry.specifier}: the installed ${entry.kind === 'native' ? 'addon' : 'data'} file is missing`,
+        );
       }
     }
   }

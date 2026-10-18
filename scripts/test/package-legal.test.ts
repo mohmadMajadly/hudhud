@@ -81,9 +81,10 @@ function packageDirs(names: readonly string[]): string[] {
 }
 
 describe('package LICENSE and NOTICE', () => {
-  it('finds the five packages', () => {
+  it('finds the six packages', () => {
     expect(packages.sort()).toEqual([
       'packages/claude-code',
+      'packages/conformance',
       'packages/core',
       'packages/hudhud',
       'packages/win32-job-arm64',

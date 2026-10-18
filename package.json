@@ -10,7 +10,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "node scripts/conformance-package.mjs && tsc --build",
     "clean": "tsc --build --clean",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -30,7 +30,7 @@ import {
   type StepResult,
 } from '../lib/release.mjs';
 
-const FIXED = ['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code'];
+const FIXED = ['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code', '@hudhudjs/conformance'];
 
 function tarball(name: string, version = '0.1.0'): ReleaseTarball {
   return { file: `${name}.tgz`, name, version, integrity: `sha512-${name}` };
@@ -41,6 +41,7 @@ const TARBALLS = [
   tarball('@hudhudjs/claude-code'),
   tarball('@hudhudjs/core'),
   tarball('@hudhudjs/win32-job-x64'),
+  tarball('@hudhudjs/conformance'),
 ];
 
 describe('integrityOf and packumentUrl', () => {
@@ -91,7 +92,7 @@ describe('parsePackument', () => {
 });
 
 describe('orderTarballs', () => {
-  it('orders the platform package first, then the core, the adapter and the umbrella', () => {
+  it('orders the platform package first, then the core, the adapter, the conformance data and the umbrella', () => {
     const { ordered, problems } = orderTarballs({
       tag: 'v0.1.0',
       fixed: FIXED,
@@ -102,13 +103,14 @@ describe('orderTarballs', () => {
       '@hudhudjs/win32-job-x64',
       '@hudhudjs/core',
       '@hudhudjs/claude-code',
+      '@hudhudjs/conformance',
       'hudhudjs',
     ]);
     expect(PUBLISH_ORDER).toEqual(ordered.map((entry) => entry.name));
   });
 
   it('lets the addon package keep its own version, never the fixed group', () => {
-    const tarballs = [...TARBALLS.slice(0, 3), tarball('@hudhudjs/win32-job-x64', '0.1.0')];
+    const tarballs = TARBALLS;
     const next = tarballs.map((entry) =>
       FIXED.includes(String(entry.name)) ? { ...entry, version: '0.2.0' } : entry,
     );
@@ -116,6 +118,7 @@ describe('orderTarballs', () => {
     expect(orderTarballs({ tag: 'v0.2.0', fixed: FIXED, tarballs }).problems).toEqual([
       '@hudhudjs/core is packed at version 0.1.0, the tag v0.2.0 names 0.2.0',
       '@hudhudjs/claude-code is packed at version 0.1.0, the tag v0.2.0 names 0.2.0',
+      '@hudhudjs/conformance is packed at version 0.1.0, the tag v0.2.0 names 0.2.0',
       'hudhudjs is packed at version 0.1.0, the tag v0.2.0 names 0.2.0',
     ]);
   });
@@ -136,7 +139,7 @@ describe('orderTarballs', () => {
       'the tag "release-1" is not v<semver> (for example v0.1.0)',
       'notes.txt: no readable package.json with a name and a version',
       '@hudhudjs/core: 2 tarballs, expected 1',
-      'hudhudjs: no tarball (every release publishes @hudhudjs/win32-job-x64, @hudhudjs/core, @hudhudjs/claude-code, hudhudjs)',
+      'hudhudjs: no tarball (every release publishes @hudhudjs/win32-job-x64, @hudhudjs/core, @hudhudjs/claude-code, @hudhudjs/conformance, hudhudjs)',
       '@hudhudjs/win32-job-arm64: a tarball of a package no release publishes',
     ]);
     expect(
@@ -167,7 +170,13 @@ describe('planPublish (idempotent re-runs)', () => {
     registry.set('@hudhudjs/core', { kind: 'present', integrity: 'sha512-@hudhudjs/core' });
     const plan = planPublish({ tag: 'v0.1.0', ordered, registry });
     expect(plan.problems).toEqual([]);
-    expect(plan.steps.map((step) => step.action)).toEqual(['skip', 'skip', 'publish', 'publish']);
+    expect(plan.steps.map((step) => step.action)).toEqual([
+      'skip',
+      'skip',
+      'publish',
+      'publish',
+      'publish',
+    ]);
   });
 
   it('stops before publishing anything when a tag version is on the registry with other bytes', () => {
@@ -195,6 +204,7 @@ describe('planPublish (idempotent re-runs)', () => {
       'publish',
       'publish',
       'publish',
+      'publish',
     ]);
     expect(plan.warnings).toEqual([
       '@hudhudjs/win32-job-x64@0.1.0 is already on the registry, published by an earlier release, with other bytes (registry sha512-old, this release sha512-@hudhudjs/win32-job-x64); kept as published',
@@ -202,7 +212,7 @@ describe('planPublish (idempotent re-runs)', () => {
   });
 
   it('refuses to plan a package the registry was not asked about', () => {
-    expect(planPublish({ tag: 'v0.1.0', ordered, registry: new Map() }).problems).toHaveLength(4);
+    expect(planPublish({ tag: 'v0.1.0', ordered, registry: new Map() }).problems).toHaveLength(5);
   });
 });
 
@@ -260,7 +270,7 @@ describe('renderSummary', () => {
     expect(text).toContain('### PARTIAL PUBLISH: recovery');
     expect(text).toContain('On the registry now: `@hudhudjs/win32-job-x64@0.1.0`');
     expect(text).toContain(
-      'Still to publish, in this order: `@hudhudjs/core@0.1.0`, `@hudhudjs/claude-code@0.1.0`, `hudhudjs@0.1.0`.',
+      'Still to publish, in this order: `@hudhudjs/core@0.1.0`, `@hudhudjs/claude-code@0.1.0`, `@hudhudjs/conformance@0.1.0`, `hudhudjs@0.1.0`.',
     );
     expect(text).toContain('"Re-run failed jobs"');
     expect(text).toContain('do not unpublish');

@@ -29,7 +29,9 @@ describe('release versioning', () => {
   const config = read('.changeset/config.json') as ChangesetsConfig;
 
   it('releases the three library packages in one fixed group', () => {
-    expect(config.fixed).toEqual([['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code']]);
+    expect(config.fixed).toEqual([
+      ['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code', '@hudhudjs/conformance'],
+    ]);
     expect(config.linked).toEqual([]);
   });
 
@@ -44,12 +46,13 @@ describe('release versioning', () => {
     expect(arm64.publishConfig).toBeUndefined();
   });
 
-  it('publishes the four packages publicly with provenance, and nothing else (checklist 4.2)', () => {
+  it('publishes the five packages publicly with provenance, and nothing else (checklist 4.2)', () => {
     expect((config as { access?: unknown }).access).toBe('public');
     for (const dir of [
       'packages/hudhud',
       'packages/core',
       'packages/claude-code',
+      'packages/conformance',
       'packages/win32-job-x64',
     ]) {
       const manifest = read(`${dir}/package.json`) as {
@@ -69,10 +72,13 @@ describe('release versioning', () => {
     }
   });
 
-  it('gives the three library packages one version today', () => {
-    const versions = ['packages/hudhud', 'packages/core', 'packages/claude-code'].map(
-      (dir) => (read(`${dir}/package.json`) as { version?: unknown }).version,
-    );
+  it('gives the packages of the fixed group one version today', () => {
+    const versions = [
+      'packages/hudhud',
+      'packages/core',
+      'packages/claude-code',
+      'packages/conformance',
+    ].map((dir) => (read(`${dir}/package.json`) as { version?: unknown }).version);
     expect(new Set(versions).size).toBe(1);
   });
 
@@ -81,6 +87,7 @@ describe('release versioning', () => {
       'packages/hudhud',
       'packages/core',
       'packages/claude-code',
+      'packages/conformance',
       'packages/win32-job-x64',
     ];
     const core = read('packages/core/package.json') as { repository?: { url?: unknown } };
