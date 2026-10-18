@@ -735,6 +735,70 @@ describe('name classifiers', () => {
   });
 });
 
+describe('the never-inherited names of CLI 2.1.302 (lead ruling, COMPAT-1)', () => {
+  /**
+   * Each loads code or configuration, re-routes traffic or weakens a
+   * protection (checklist 1.14), so it never arrives from the parent.
+   */
+  const NAMES = [
+    'CLAUDE_CODE_REMOTE',
+    'CLAUDE_CODE_ENVIRONMENT_KIND',
+    'CLAUDE_CODE_REMOTE_MCP_CONFIG',
+    'CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR',
+    'CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN',
+    'CLAUDE_CODE_CCR_WORKER_SOCKET',
+  ];
+  const cases = NAMES.flatMap((name) =>
+    (['posix', 'win32'] as const).map((platform) => [name, platform] as const),
+  );
+
+  function postureValue(options: unknown, setting: string): unknown {
+    return resolveSessionOptions(options).effective.posture.find(
+      (field) => field.setting === setting,
+    )?.value;
+  }
+
+  it.each(cases)('%s from the parent is dropped and reported (%s)', (name, platform) => {
+    const parent = { ...(platform === 'win32' ? WIN32_PARENT : POSIX_PARENT), [name]: 'v' };
+    for (const preset of ['harness', 'inherit'] as const) {
+      const result = child({ env: preset }, parent, platform);
+      expect(result.env).not.toHaveProperty(name);
+      expect(result.dropped).toContain(name);
+    }
+  });
+
+  it.each(cases)(
+    '%s set with env.add reaches the CLI and is posture-listed (%s)',
+    (name, platform) => {
+      const options = { env: { preset: 'harness', add: { [name]: 'v' } } };
+      const parent = { ...(platform === 'win32' ? WIN32_PARENT : POSIX_PARENT), [name]: 'parent' };
+      const result = child(options, parent, platform);
+      expect(result.env[name]).toBe('v');
+      expect(result.added).toContain(name);
+      expect(result.dropped).not.toContain(name);
+      expect(isCredentialOrRoutingEnvName(name)).toBe(true);
+      expect(postureValue(options, 'env.credentialAndRoutingVariables')).toEqual([name]);
+    },
+  );
+
+  it('keeps the allowed 2.1.302 names passing, unlisted', () => {
+    for (const name of [
+      'CLAUDE_BG_GATEWAY_WITHHELD',
+      'CLAUDE_CODE_SANDBOX_LEAVE_PARENT_FOLDERS_ALONE',
+      'CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT',
+      'CLAUDE_CODE_ALLOW_OTHER_MODELS',
+      'CLAUDE_CODE_JIT_POLICY_AFTER_STARTUP',
+    ]) {
+      const result = child({ env: 'harness' }, { ...POSIX_PARENT, [name]: '1' }, 'posix');
+      expect(result.env[name]).toBe('1');
+      expect(isNeverInherited(name, 'posix')).toBe(false);
+    }
+    // The guard's own families still list a refused name (GATEWAY).
+    expect(isCredentialOrRoutingEnvName('CLAUDE_BG_GATEWAY_WITHHELD')).toBe(true);
+    expect(isCredentialOrRoutingEnvName('CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT')).toBe(false);
+  });
+});
+
 describe('raw extraEnv', () => {
   it('refuses pinned names', () => {
     expect(() => {

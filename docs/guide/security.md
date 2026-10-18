@@ -106,7 +106,15 @@ Claude Code and every tool it runs inherit its environment. The `env` option dec
 
 The `'harness'` allowlist: the operating system's essentials (Windows: `SYSTEMROOT`, `WINDIR`, `COMSPEC`, `PATHEXT`, `SYSTEMDRIVE`, `PATH`, `TEMP`, `TMP`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, `PROGRAMDATA`, `ProgramFiles*`, `LOGONSERVER`, `USERDOMAIN`, `USERNAME`, and PowerShell's `PSModulePath` and `PSModuleAnalysisCachePath`, so PowerShell tools find the modules you installed; Linux and macOS: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `LC_*`, `TERM`, `XDG_*`), every `CLAUDE_*` and `ANTHROPIC_*` variable, the proxy and CA variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` in both cases, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`), and a cloud provider's variables only when its switch is on (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_ANTHROPIC_AWS` and `CLAUDE_CODE_USE_MANTLE`: `AWS_*`; `CLAUDE_CODE_USE_VERTEX`: `GOOGLE_*`, `GCLOUD_*`, `CLOUD_ML_*`, `VERTEX_*`, such as the per-model regions `VERTEX_REGION_CLAUDE_*`; `CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD`: `GOOGLE_*`, `GCLOUD_*`; with either Google switch also `gcloud_project` and `google_cloud_project`; `CLAUDE_CODE_USE_FOUNDRY`: `AZURE_*`).
 
-Never inherited by either preset: `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_AGENT_SDK_*`. Add one explicitly if you need it.
+Never inherited by either preset: `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_AGENT_SDK_*`, and, from Claude Code 2.1.302:
+
+- `CLAUDE_CODE_REMOTE` and `CLAUDE_CODE_ENVIRONMENT_KIND` (they switch on Claude Code's remote and cloud-runner code paths);
+- `CLAUDE_CODE_REMOTE_MCP_CONFIG` (a file of MCP servers that Claude Code loads in that mode);
+- `CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR` (a plugin directory it loads);
+- `CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN` (turns off a Windows sandbox protection);
+- `CLAUDE_CODE_CCR_WORKER_SOCKET` (a cloud runner's socket).
+
+The rule: a variable that loads code or configuration, re-routes traffic or weakens a protection never arrives silently from your process's environment; such names are reported in `env.dropped`. Add one explicitly if you need it (`env.add` or an explicit map); the security posture then lists it under `env.credentialAndRoutingVariables`.
 
 hudhud then sets its own variables in every form, and refuses options that name them: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (from `claudeCode.backgroundWaitCeilingMs`), `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless their options say `'harness-default'`), `CLAUDE_CONFIG_DIR` (only with `claudeCode.configDir`), `TRACEPARENT` and `TRACESTATE` (only with `trace`, else removed). `CLAUDE_CODE_SDK_READS_SESSION_STATE` is always removed.
 

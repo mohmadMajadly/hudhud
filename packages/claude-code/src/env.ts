@@ -9,8 +9,14 @@
  *    map: exactly the map. In both presets the variables of
  *    {@link isNeverInherited} are dropped (`NODE_OPTIONS`, `CLAUDECODE`,
  *    `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_CHILD_SESSION`,
- *    `CLAUDE_AGENT_SDK_*`): they would change how the CLI runs or make it
- *    believe it is nested, and an application that wants one adds it.
+ *    `CLAUDE_AGENT_SDK_*`, and since CLI 2.1.302 `CLAUDE_CODE_REMOTE`,
+ *    `CLAUDE_CODE_ENVIRONMENT_KIND`, `CLAUDE_CODE_REMOTE_MCP_CONFIG`,
+ *    `CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR`,
+ *    `CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN`,
+ *    `CLAUDE_CODE_CCR_WORKER_SOCKET`): they would change how the CLI runs,
+ *    load code or configuration, re-route traffic, weaken a protection or
+ *    make the CLI believe it is nested, and an application that wants one
+ *    adds it (the posture lists it).
  * 2. Object form: `remove` names are deleted, then `add` entries are set.
  * 3. hudhud's pinned variables override in every form:
  *    `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`,
@@ -64,11 +70,33 @@ export function envNameIsPinned(name: string): boolean {
   return PINNED.has(name.toUpperCase());
 }
 
+/**
+ * Parent variables no preset passes on. The rule (lead ruling on the CLI
+ * 2.1.302 names, COMPAT-1, ADR-0012 §4): a variable that loads code or
+ * configuration, re-routes traffic or weakens a protection never arrives
+ * silently from the parent environment; an application that wants one sets
+ * it with `env.add` (or an explicit map), and the posture lists it
+ * ({@link isCredentialOrRoutingEnvName}).
+ */
 const NEVER_INHERITED = new Set([
   'NODE_OPTIONS',
   'CLAUDECODE',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_CHILD_SESSION',
+  // CLI 2.1.302 (static reading): `CLAUDE_CODE_REMOTE` and
+  // `CLAUDE_CODE_ENVIRONMENT_KIND` switch on the remote and byoc code paths;
+  // with both, `CLAUDE_CODE_REMOTE_MCP_CONFIG` names a file of MCP servers
+  // the CLI loads.
+  'CLAUDE_CODE_REMOTE',
+  'CLAUDE_CODE_ENVIRONMENT_KIND',
+  'CLAUDE_CODE_REMOTE_MCP_CONFIG',
+  // A desktop-host handoff: a plugin directory the CLI loads.
+  'CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR',
+  // Turns off the Windows sandbox check that Claude Code's own files stay
+  // protected.
+  'CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN',
+  // A worker socket of the cloud runner: a route.
+  'CLAUDE_CODE_CCR_WORKER_SOCKET',
 ]);
 const NEVER_INHERITED_PREFIX = 'CLAUDE_AGENT_SDK_';
 
@@ -256,15 +284,18 @@ const ROUTING_PREFIXES = [
  * explicit map) is listed in `securityPosture` (K19): credentials, API
  * routing (`ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, provider families, proxies,
  * CA and TLS settings), runtime injection (`NODE_OPTIONS`) and nesting
- * markers, every name the redaction treats as a secret, and every name the
- * project credential guard refuses ({@link isProjectCredentialEnvName}), so
- * the two lists cannot drift apart. Any case.
+ * markers, every never-inherited name ({@link isNeverInherited}: what loads
+ * code or configuration, re-routes traffic or weakens a protection), every
+ * name the redaction treats as a secret, and every name the project
+ * credential guard refuses ({@link isProjectCredentialEnvName}), so the
+ * lists cannot drift apart. Any case.
  */
 export function isCredentialOrRoutingEnvName(name: string): boolean {
   const key = name.toUpperCase();
   return (
     ROUTING_EXACT.has(key) ||
     ROUTING_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+    isNeverInherited(key, 'win32') ||
     isCredentialEnvName(name) ||
     isProjectCredentialEnvName(name)
   );
