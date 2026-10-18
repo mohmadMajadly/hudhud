@@ -15,7 +15,11 @@
 # Manual dispatch: `mode: canary` behaves like the schedule; `mode: dry-run`
 # runs the same path against the PINNED version to validate the workflow.
 # Its job summary says DRY RUN in every heading; it is never a canary result,
-# and the schedule never takes that path.
+# and the schedule never takes that path. `mode: canary` with `version` set
+# tests exactly that published release (at most `latest`; older than the pin
+# is allowed): the admission and window runs of the rolling tested window
+# (ADR-0004 section 4, amendment of 2026-10-18; scripts/lib/nightly.mjs
+# decideRequested).
 #
 # Cost (plan 5.9 W7-T2 formula: 30 x D_linux + 4.3 x 2 x D_windows + 4.3 x
 # 10 x D_macos Linux-equivalent minutes per month; macOS off until its gate).
@@ -44,6 +48,14 @@ on:
         type: choice
         options: [canary, dry-run]
         default: canary
+      version:
+        description: >-
+          Optional, with mode canary only: test exactly this published
+          release (X.Y.Z, at most the latest dist-tag) instead of the newest;
+          the admission and window runs of the rolling tested window
+          (ADR-0004 section 4). Empty: the newest, as on the schedule.
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -83,6 +95,8 @@ jobs:
         env:
           # Empty on the schedule; the dispatch input otherwise.
           CANARY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || '' }}
+          # Empty on the schedule; validated as a published release by the check.
+          CANARY_VERSION_REQUEST: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
         run: node scripts/nightly-check.mjs nightly
 
   canary:
