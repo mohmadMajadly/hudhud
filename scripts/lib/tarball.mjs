@@ -472,6 +472,36 @@ export function checkBundledNotices(entries) {
     );
 }
 
+/** The heading of the Microsoft Distributable Code section of a native package's NOTICE. */
+export const MICROSOFT_NOTICE_HEADING =
+  '\nMicrosoft Distributable Code\n----------------------------\n';
+
+/**
+ * Requires a native addon package's NOTICE to carry the Microsoft
+ * Distributable Code section (ADR-0015 item 12, owner ruling 2026-10-18):
+ * the addon links the Microsoft C runtime statically (`/MT`), whose object
+ * code is not under Apache-2.0. A package is native when it packs a `.node`
+ * file or its `files` names one (so the check also runs where the addon is
+ * not built).
+ *
+ * @param {PackageJson} manifest
+ * @param {readonly TarEntry[]} entries
+ * @returns {string[]} problems
+ */
+export function checkNativeNotice(manifest, entries) {
+  const native =
+    entries.some((entry) => entry.path.endsWith('.node')) ||
+    (manifest.files ?? []).some((pattern) => pattern.endsWith('.node'));
+  if (!native) return [];
+  const notice = entries.find((entry) => entry.path === 'NOTICE')?.data.toString('utf8') ?? '';
+  return notice.includes(MICROSOFT_NOTICE_HEADING) &&
+    notice.includes('is not licensed under the Apache License')
+    ? []
+    : [
+        'NOTICE lacks the Microsoft Distributable Code section of a statically linked addon (ADR-0015 item 12)',
+      ];
+}
+
 /** Root files npm always packs, whatever `files` says. */
 const ALWAYS_TOP =
   /^(?:package\.json|README(?:\.[A-Za-z]+)?|LICEN[CS]E(?:\.[A-Za-z]+)?|CHANGELOG(?:\.[A-Za-z]+)?|NOTICE(?:\.[A-Za-z]+)?)$/u;
@@ -865,6 +895,7 @@ export function checkTarball(source, gz, forbidden, legal = []) {
     ...checkFileList(source, paths),
     ...checkLegalFiles(entries, legal),
     ...checkBundledNotices(entries),
+    ...checkNativeNotice(source, entries),
   ];
   const manifestEntry = entries.find((entry) => entry.path === 'package.json');
   /** @type {PackageJson | undefined} */
