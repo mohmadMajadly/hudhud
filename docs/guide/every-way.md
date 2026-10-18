@@ -1,6 +1,6 @@
 # Every way
 
-hudhud's rule is to offer every way of doing one thing, with the most stable and safe way as the default ([ADR-0002](../adr/0002-execution-modes-and-every-way-registry.md)). A way counts as first-class only when it is tested against recorded Claude Code behaviour (golden fixtures), exercised against the real Claude Code (integration suites, which the canary of [ADR-0013](../adr/0013-testing-strategy.md) also runs against each newer published Claude Code version: nightly on Linux, weekly on Windows and macOS arm64; [ADR-0014](../adr/0014-ci-strategy.md#amendments) amendment 3), declared as a capability where one applies, and documented with its default. This page is that registry.
+hudhud's rule is to offer every way of doing one thing, with the most stable and safe way as the default ([ADR-0002](../adr/0002-execution-modes-and-every-way-registry.md)). A way counts as first-class only when it is tested against recorded Claude Code behaviour (golden fixtures) or exercised against the real Claude Code (integration suites, which the canary of [ADR-0013](../adr/0013-testing-strategy.md) also runs against each newer published Claude Code version: nightly on Linux, weekly on Windows and macOS arm64; [ADR-0014](../adr/0014-ci-strategy.md#amendments) amendment 3), declared as a capability where one applies, and documented with its default. Ways that do not depend on what Claude Code does are covered by unit tests instead, as [ADR-0002](../adr/0002-execution-modes-and-every-way-registry.md#2-the-registry)'s amendment sets out ([below](#ways-without-full-coverage)). This page is that registry.
 
 Columns:
 
@@ -17,6 +17,8 @@ Columns:
 | ------------------- | --------------------------- | ----------------------------------- | -------------- | -------------------------------------------- | -------- | ------------------------------------------------------------------------- |
 | Claude Code backend | native CLI over stream-json | `backend: 'native'`                 | yes            | -                                            | all      | all                                                                       |
 |                     | Agent SDK                   | `backend: 'agent-sdk'`              |                | not offered in v1 (`CAPABILITY_UNSUPPORTED`) | -        | -                                                                         |
+| Process source      | local spawn                 | (always)                            | yes            | -                                            | all      | all                                                                       |
+|                     | custom spawner              |                                     |                | not offered in v1 (K18)                      | -        | -                                                                         |
 | Binary resolution   | explicit path               | `binaryPath`                        |                | -                                            | -        | `harness/smoke`, `lifecycle/connect`                                      |
 |                     | discovery                   | (no `binaryPath`)                   | yes            | -                                            | -        | - (discovery is unit-tested; integration always passes the pinned binary) |
 | Binary verification | advisory                    | `binaryVerification: 'advisory'`    | yes            | -                                            | -        | `lifecycle/connect`                                                       |
@@ -64,6 +66,7 @@ Columns:
 | Permission questions                    | Claude Code decides     | no `onPermission`                                              | yes         | -                   | `tool-bash`                                                                                     | `permissions/decisions`                                |
 |                                         | the application decides | `onPermission`                                                 |             | `permissionsInBand` | `permission-allow`, `permission-deny`, `permission-deny-interrupt`, `permission-error-response` | `permissions/decisions`, `permissions/cancellation`    |
 |                                         | cancelled               | interrupt, close, abort                                        |             | `permissionsInBand` | `permission-never-answered-interrupt`, `permission-eof`                                         | `permissions/cancellation`                             |
+|                                         | hooks                   |                                                                |             | not offered in v1   | -                                                                                               | -                                                      |
 | Tool rules                              | allow and deny lists    | `claudeCode.allowedTools`, `disallowedTools`                   | none        | -                   | -                                                                                               | `security/child-launch`, `request-shape/request-shape` |
 | Settings writes from permission updates | stripped                | (default)                                                      | yes         | -                   | -                                                                                               | `permissions/decisions`                                |
 |                                         | kept                    | `dangerouslyAllowConfigWrites: true`                           |             | -                   | -                                                                                               | `security/posture` (posture only)                      |
@@ -111,13 +114,12 @@ Columns:
 
 ## Ways without full coverage
 
-ADR-0002 makes the fixture and canary columns a release requirement. These ways have no golden fixture or no integration suite today, as the tables show:
+ADR-0002 makes coverage a release requirement, and its amendment (pre-release review R5-7) says what covers a way that has no golden fixture or no integration suite of its own. Each such way in the tables falls under one of these cases:
 
-- harness-independent ways, tested by unit tests only: the event overflow policies, the explicit `env` map, content-block input;
-- ways the integration harness cannot exercise as such: discovery and the user's own config directory (the harness always passes the pinned binary and an isolated config directory), `claudeCode.bare`;
-- `binaryVerification: 'strict'` (unit tests only);
-- `dangerouslyAllowConfigWrites: true` and `autoUpdate: 'harness-default'` (their integration run checks the posture, not the effect);
-- `onAuthFailure: 'harness-retry'` (fixture only), the known-broken refusal and its opt-in (no version is listed);
-- the unstable raw tier.
+- hudhud's own logic, which does not depend on Claude Code, covered by unit and property tests: the event overflow policies, `binaryVerification: 'strict'`, the known-broken refusal and its opt-in (no version is listed);
+- ways that only change what hudhud passes to Claude Code, covered by unit tests that pin the exact argv, environment or frame, and by the posture where they are security-relevant: the explicit `env` map, content-block input, `claudeCode.bare`, `dangerouslyAllowConfigWrites: true` and `autoUpdate: 'harness-default'` (their integration run checks the posture); what Claude Code then does with them is its own behaviour;
+- ways the integration harness must not run as such, because they would use your own installation or configuration: discovery and the user's own config directory (unit tests with a fake host; the integration suites pass the pinned binary and an isolated config directory);
+- `onAuthFailure: 'harness-retry'`: a golden fixture (`auth-401-retries`) and no integration suite, so the canary does not check it against newer versions;
+- the unstable raw tier, which makes no compatibility promise ([ADR-0003](../adr/0003-public-api.md#three-api-tiers)).
 
 The registry is updated with every option that is added or changed.

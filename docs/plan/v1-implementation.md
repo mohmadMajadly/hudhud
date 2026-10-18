@@ -1027,7 +1027,7 @@ Exit codes never prove success (05 §9, 07 §2). The redacted stderr tail is att
 | Conformance (golden JSONL against `claudeSessionMachine.step`) | `conformance` | `pnpm test:conformance` | `pnpm check` |
 | Integration (pinned CLI + in-process mock) | `integration` | `pnpm test:integration` | `pnpm check:full` (CI STANDARD Linux, FULL Linux and Windows; macOS after M1 lands, K15) |
 | Tarball install | script | `pnpm check:tarball` | `pnpm check:full` |
-| Canary | `integration` with `HUDHUD_CLI_CHANNEL=newest` | nightly (Linux) and weekly (Windows; macOS after its gate) | scheduled (K16) |
+| Canary | `integration` with `HUDHUD_CLI_CHANNEL=newest` | nightly (Linux) and weekly (Windows and macOS arm64; macOS since its gate passed, af2aeb8) | scheduled (K16) |
 
 `pnpm check` adds `schema:check`, `check:no-ajv`, conformance. `pnpm check:full` = `pnpm check` + `cli:fetch` + integration + tarball. Coverage stays at 100 %; exclusions in §4.8.
 
