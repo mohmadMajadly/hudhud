@@ -178,10 +178,14 @@ jobs:
     needs: classify
     if: needs.classify.outputs.tier == 'STANDARD' || needs.classify.outputs.tier == 'FULL'
     runs-on: ubuntu-24.04
-    # K15: p95 x 2 from one sample, FULL run 39065841901: 5.6 min (the p95
-    # of one sample is that sample); x 2 = 11.2, rounded up to 12. Re-size
-    # as runs accumulate.
-    timeout-minutes: 12
+    # K15, re-sized from ten runs (2026-10-18). Nine green: 5.1-6.7 min
+    # (runs 39065841901 to 39152988345's re-run); p95 x 2 = 13.4. The tenth,
+    # main push run 39152988345 (first attempt), hit the old 12 min limit on a
+    # runner 2.3-2.9x slower in every step (build 2:01 vs 0:29, unit 4:40 vs
+    # 1:43) with the integration project still passing: about 15.5 min at
+    # that pace, so p95 x 2 alone is too tight. 21 min, the limit of the
+    # Linux jobs, which run these projects and more.
+    timeout-minutes: 21
     permissions:
       contents: read
     steps:
