@@ -3,7 +3,7 @@
   "commit": false,
   "fixed": [["hudhudjs", "@hudhudjs/core", "@hudhudjs/claude-code"]],
   "linked": [],
-  "access": "restricted",
+  "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "bumpVersionsWithWorkspaceProtocolOnly": true,
