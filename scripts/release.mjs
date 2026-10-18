@@ -34,7 +34,8 @@
 //   node scripts/release.mjs simulate-version
 //
 // the version PR of a dry run, in the working copy only (never on a tag):
-// `changeset version`, and, when the committed release record is not the
+// `changeset version` (skipped when no changeset is left: the version PR's own
+// branch), and, when the committed release record is not the
 // record of the addon version that gives, a record for that version with the
 // same builds plus the digest table written from it (`write-digests.mjs
 // --from-manifest`). It prints the tag the version PR's commit would get and
@@ -83,7 +84,7 @@ import {
   shallowProblem,
   simulatedRecord,
 } from './lib/release.mjs';
-import { manifestOf, readTarGz } from './lib/tarball.mjs';
+import { manifestOf, pendingChangesets, readTarGz } from './lib/tarball.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..');
 const TIMEOUT_MS = 10 * 60 * 1000;
@@ -443,27 +444,36 @@ function simulateVersion(argv) {
       'simulate-version never runs on a tag: a release tag checks the committed versions',
     );
   }
-  // The changelog generator reads the commit that added each changeset; in a
-  // shallow clone it tries to deepen it, which needs credentials (release
-  // dry run 39109685744). The version PR runs on a full clone; so must this.
-  const shallow = spawnSync('git', ['rev-parse', '--is-shallow-repository'], {
-    cwd: REPO,
-    encoding: 'utf8',
-    timeout: TIMEOUT_MS,
-    windowsHide: true,
-  });
-  const history = shallowProblem(shallow.status, shallow.stdout);
-  if (history !== null) throw new SetupError(history);
-  const changeset = path.join(REPO, 'node_modules', '@changesets', 'cli', 'bin.js');
-  const versioned = spawnSync(process.execPath, [changeset, 'version'], {
-    cwd: REPO,
-    encoding: 'utf8',
-    timeout: TIMEOUT_MS,
-  });
-  process.stdout.write(versioned.stdout);
-  if (versioned.status !== 0) {
-    process.stderr.write(versioned.stderr);
-    throw new SetupError(`changeset version failed (exit code ${String(versioned.status)})`);
+  // On the version PR's own branch every changeset is consumed and the
+  // committed versions are the ones to check; `changeset version` would exit
+  // 1 there ("No unreleased changesets found", release dry run 39157797892).
+  if (pendingChangesets(readdirSync(path.join(REPO, '.changeset'))).length === 0) {
+    process.stdout.write(
+      'no changeset left: the committed versions are the ones the version PR made\n',
+    );
+  } else {
+    // The changelog generator reads the commit that added each changeset; in
+    // a shallow clone it tries to deepen it, which needs credentials (release
+    // dry run 39109685744). The version PR runs on a full clone; so must this.
+    const shallow = spawnSync('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      timeout: TIMEOUT_MS,
+      windowsHide: true,
+    });
+    const history = shallowProblem(shallow.status, shallow.stdout);
+    if (history !== null) throw new SetupError(history);
+    const changeset = path.join(REPO, 'node_modules', '@changesets', 'cli', 'bin.js');
+    const versioned = spawnSync(process.execPath, [changeset, 'version'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      timeout: TIMEOUT_MS,
+    });
+    process.stdout.write(versioned.stdout);
+    if (versioned.status !== 0) {
+      process.stderr.write(versioned.stderr);
+      throw new SetupError(`changeset version failed (exit code ${String(versioned.status)})`);
+    }
   }
 
   /** @type {Map<string, string>} */
