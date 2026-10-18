@@ -1,6 +1,6 @@
 {
   "name": "@hudhudjs/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Sans-IO protocol and session core of hudhud, plus the process layer.",
   "license": "Apache-2.0",
   "repository": {

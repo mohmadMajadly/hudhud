@@ -1,6 +1,6 @@
 {
   "name": "@hudhudjs/test-support",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Test infrastructure of the hudhud repository (mock API, pinned CLI, sandboxed launcher). Never published.",
   "type": "module",

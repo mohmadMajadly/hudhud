@@ -1,6 +1,6 @@
 {
   "name": "hudhudjs",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Umbrella package for hudhud: re-exports only, exact-version dependencies.",
   "license": "Apache-2.0",
   "repository": {

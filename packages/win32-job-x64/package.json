@@ -1,6 +1,6 @@
 {
   "name": "@hudhudjs/win32-job-x64",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Prebuilt Windows x64 job-object addon of hudhud, loaded only by @hudhudjs/core after its sha256 and version check.",
   "license": "Apache-2.0",
   "repository": {
