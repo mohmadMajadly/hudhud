@@ -77,6 +77,7 @@ import {
   closeControl,
   controlTimerFired,
   initialControlState,
+  keptIdKey,
   receiveControlFrame,
   sendControlRequest,
   type ControlConfig,
@@ -240,9 +241,12 @@ export interface ClaudeSessionState {
    */
   readonly costBaseline: number | 'unknown';
   /**
-   * Every `can_use_tool` request id this session has seen. The binding keys
-   * permission handlers by request id, so a reused id is never asked again
-   * (W3-Z ruling 7). Grows by one short id per permission request.
+   * The keys ({@link keptIdKey}) of the `can_use_tool` request ids seen
+   * most recently, oldest first, at most
+   * {@link MAX_REMEMBERED_PERMISSION_IDS}. An id is moved to the end when
+   * its request arrives and again when it is resolved. A request that reuses
+   * a remembered id is denied without asking (W3-Z ruling 7; see
+   * {@link MAX_REMEMBERED_PERMISSION_IDS} for why forgetting is safe).
    */
   readonly permissionRequestIds: readonly string[];
   readonly control: ControlState;
@@ -291,6 +295,42 @@ export const ANSWER_FAILED_DENY_MESSAGE = 'hudhud: permission answer could not b
 
 /** The deny written for a permission request that reuses an earlier id (fail closed). @internal */
 export const DUPLICATE_REQUEST_DENY_MESSAGE = 'hudhud: permission request id reused';
+
+/**
+ * Most permission request ids a session remembers to refuse their reuse
+ * (W3-Z ruling 7, bounded by CAPS-1). A `can_use_tool` that reuses the id of
+ * one of the last {@link MAX_REMEMBERED_PERMISSION_IDS} requests to arrive
+ * or end is denied without asking (`permission.duplicate-request-id`); an
+ * in-flight duplicate is ignored by the correlator however old it is. An id
+ * older than that is asked as a new request. Each entry is a
+ * {@link keptIdKey}, so the record holds at most about 272,000 UTF-16 code
+ * units however long the ids are.
+ *
+ * Why forgetting cannot turn a reused id into a second, accepted decision.
+ * The danger the rule guards against is an answer the application gave for
+ * an earlier request being applied to a later request with the same id. The
+ * machine applies a `cmd.permission` only to a pending request, so such an
+ * answer would have to arrive after the earlier request ended and after the
+ * later one was asked. The shipped binding (`SessionDriver` and its
+ * `PermissionBridge`) rules that out within one stdout line: every input
+ * goes through one FIFO, the reader queues the next stdout line only after
+ * the previous one was processed (so at most one line waits in the queue),
+ * the bridge sends at most one answer per ask, and it drops every answer
+ * that arrives after the machine withdrew the ask (`permission.cancel`,
+ * executed in the step that ended the request). An answer for the earlier
+ * request is therefore queued before that step ends, and is processed
+ * before the second stdout line that follows it at the latest, where it
+ * finds no pending request (`permission.unknown-request`). The id is
+ * remembered from the end of its request (its `permission.resolved`), so a
+ * reuse in the one line that may come first is still refused. Forgetting
+ * needs {@link MAX_REMEMBERED_PERMISSION_IDS} later requests, by which time
+ * no answer for the earlier request is left. An id asked again is decided by
+ * the application on the new request's own data, and every failure still
+ * fails closed.
+ *
+ * @internal
+ */
+export const MAX_REMEMBERED_PERMISSION_IDS = 1024;
 
 /** Permission modes hudhud may set (K11). */
 const PERMISSION_MODES: readonly PermissionModeWire[] = [
@@ -588,7 +628,10 @@ class Draft {
     // id reused after its request ended is never asked again: the binding
     // keys handlers by request id. Fail closed with a non-interrupting deny,
     // so the CLI is not left waiting.
-    if (this.s.permission.phase !== 'aborted' && this.s.permissionRequestIds.includes(requestId)) {
+    if (
+      this.s.permission.phase !== 'aborted' &&
+      this.s.permissionRequestIds.includes(keptIdKey(requestId))
+    ) {
       this.diagnostic(
         'permission.duplicate-request-id',
         'A permission request reused the id of an earlier request; denied without asking.',
@@ -600,7 +643,7 @@ class Draft {
       });
       return;
     }
-    this.s.permissionRequestIds = [...this.s.permissionRequestIds, requestId];
+    this.rememberPermissionId(requestId);
     const turnId = this.currentTurn();
     const input: PermissionInput =
       turnId === undefined
@@ -619,6 +662,21 @@ class Draft {
         atMs: this.atMs,
       });
     }
+  }
+
+  /**
+   * Moves `requestId` to the newest end of the bounded record, forgetting
+   * the oldest id at {@link MAX_REMEMBERED_PERMISSION_IDS}. One bounded copy
+   * per call; the old state is never changed.
+   */
+  rememberPermissionId(requestId: string): void {
+    const key = keptIdKey(requestId);
+    const kept = this.s.permissionRequestIds.filter((other) => other !== key);
+    if (kept.length >= MAX_REMEMBERED_PERMISSION_IDS) {
+      kept.splice(0, kept.length - MAX_REMEMBERED_PERMISSION_IDS + 1);
+    }
+    kept.push(key);
+    this.s.permissionRequestIds = kept;
   }
 
   onAsk(ask: PermissionAskData, dropAsk: boolean): void {
@@ -663,6 +721,8 @@ class Draft {
         break;
       case 'permission.resolved': {
         const { requestId } = effect.entry;
+        // Remembered from its end: a reuse right after it is still refused.
+        this.rememberPermissionId(requestId);
         const behavior = this.denied.includes(requestId) ? 'deny' : effect.behavior;
         this.event({ type: 'permission.resolved', requestId, behavior, by: effect.by });
         break;

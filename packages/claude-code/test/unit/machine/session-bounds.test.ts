@@ -1,10 +1,15 @@
 // Long-running sessions stay bounded (CAPS-1): after N = 100 000 simulated
-// turns, frames and never-answered control requests
+// permission requests, turns, frames and never-answered control requests
 // through the sans-io session machine, every per-session table is back to
 // its idle size or held at its documented cap, and the serialized state
 // does not grow with N. No process runs: inputs are folded through
 // `stepSession` with a fake clock, and effects are checked per step instead
 // of being kept (the runner of session-support.ts keeps every step).
+//
+// Also the window rule of W3-Z ruling 7 as bounded: a reuse of one of the
+// last MAX_REMEMBERED_PERMISSION_IDS ids is denied without asking, its
+// eviction order counts the end of a request, and a long id is remembered
+// by a bounded key.
 
 import { Buffer } from 'node:buffer';
 
@@ -19,11 +24,14 @@ import {
 } from '../../../src/protocol/machine/control.js';
 import {
   claudeSessionMachine,
+  DUPLICATE_REQUEST_DENY_MESSAGE,
+  MAX_REMEMBERED_PERMISSION_IDS,
   type ClaudeSessionState,
 } from '../../../src/protocol/machine/index.js';
 import {
   assistant,
   cancelRequest,
+  canUseTool,
   controlOk,
   events,
   initResponse,
@@ -83,6 +91,10 @@ function diagnosticCodes(effects: readonly MachineEffect[]): JsonValue[] {
   return events(effects, 'diagnostic').map((event) => event['code'] ?? null);
 }
 
+function asks(effects: readonly MachineEffect[]): number {
+  return effects.filter((effect) => effect.type === 'permission.ask').length;
+}
+
 /** The pending tables the machine holds for a ready, idle session. */
 function expectIdle(state: ClaudeSessionState): void {
   expect(state.ended).toBe(false);
@@ -101,6 +113,43 @@ function permissionId(n: number): string {
 }
 
 describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
+  it('permission requests: answered, cancelled by the CLI, denied as duplicates', () => {
+    const run = new BoundedRun();
+    run.start();
+    let checkpoint = 0;
+    for (let n = 1; n <= N; n += 1) {
+      const id = permissionId(n);
+      expect(asks(run.line(canUseTool(id)))).toBe(1);
+      if (n % 3 === 0) {
+        // Withdrawn by the CLI: nothing is written for it.
+        expect(writes(run.line(cancelRequest(id)))).toEqual([]);
+      } else {
+        const decision = n % 2 === 0 ? { behavior: 'allow' } : { behavior: 'deny', message: 'no' };
+        expect(writes(run.feed({ type: 'cmd.permission', requestId: id, decision }))).toHaveLength(
+          1,
+        );
+      }
+      if (n % 1000 === 0) {
+        // A reuse of a remembered id is denied without asking (ruling 7).
+        const reused = run.line(canUseTool(permissionId(n - 500)));
+        expect(asks(reused)).toBe(0);
+        expect(diagnosticCodes(reused)).toEqual(['permission.duplicate-request-id']);
+        expect(writes(reused)).toMatchObject([
+          { response: { response: { behavior: 'deny', message: DUPLICATE_REQUEST_DENY_MESSAGE } } },
+        ]);
+      }
+      if (n === 2000) checkpoint = run.size();
+    }
+    expectIdle(run.state);
+    expect(run.state.permissionRequestIds).toHaveLength(MAX_REMEMBERED_PERMISSION_IDS);
+    expect(new Set(run.state.permissionRequestIds).size).toBe(MAX_REMEMBERED_PERMISSION_IDS);
+    // The newest ids are the ones remembered.
+    expect(run.state.permissionRequestIds.at(-1)).toBe(permissionId(N));
+    // The state does not grow with N: the same size as after 2000 requests
+    // (only the widths of counters and timestamps may differ).
+    expect(run.size()).toBeLessThanOrEqual(checkpoint + 64);
+  });
+
   it('turns: sent, started, streamed, interrupted and settled', () => {
     const run = new BoundedRun();
     run.start();
@@ -174,6 +223,77 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
   });
 });
 
+describe('the permission id window (ruling 7, bounded)', () => {
+  it('asks again an id that was forgotten, and still denies one inside the window', () => {
+    const run = new BoundedRun();
+    run.start();
+    const answer = (id: string): void => {
+      run.feed({
+        type: 'cmd.permission',
+        requestId: id,
+        decision: { behavior: 'deny', message: 'x' },
+      });
+    };
+    run.line(canUseTool('first'));
+    answer('first');
+    for (let n = 1; n < MAX_REMEMBERED_PERMISSION_IDS; n += 1) {
+      run.line(canUseTool(permissionId(n)));
+      answer(permissionId(n));
+    }
+    // 'first' is the oldest of exactly MAX ids: still refused.
+    expect(run.state.permissionRequestIds[0]).toBe('first');
+    expect(asks(run.line(canUseTool('first')))).toBe(0);
+    // Refusing it remembered nothing new; one more request forgets it.
+    run.line(canUseTool('next'));
+    answer('next');
+    expect(run.state.permissionRequestIds).not.toContain('first');
+    const again = run.line(canUseTool('first'));
+    expect(asks(again)).toBe(1);
+    expect(diagnosticCodes(again)).toEqual([]);
+  });
+
+  it('counts the end of a request: a long-pending id is remembered from its end', () => {
+    const run = new BoundedRun();
+    run.start();
+    run.line(canUseTool('slow'));
+    for (let n = 1; n <= MAX_REMEMBERED_PERMISSION_IDS; n += 1) {
+      run.line(canUseTool(permissionId(n)));
+      run.feed({
+        type: 'cmd.permission',
+        requestId: permissionId(n),
+        decision: { behavior: 'allow' },
+      });
+    }
+    // Pushed out of the window while pending; an in-flight duplicate is
+    // still ignored by the correlator.
+    expect(run.state.permissionRequestIds).not.toContain('slow');
+    expect(diagnosticCodes(run.line(canUseTool('slow')))).toEqual(['control.duplicate-request']);
+    // Its end puts it back as the newest id.
+    run.line(cancelRequest('slow'));
+    expect(run.state.permissionRequestIds.at(-1)).toBe('slow');
+    expect(asks(run.line(canUseTool('slow')))).toBe(0);
+  });
+
+  it('remembers a long id by a bounded key, and still refuses its reuse', () => {
+    const run = new BoundedRun();
+    run.start();
+    const long = 'x'.repeat(100_000);
+    run.line(canUseTool(long));
+    run.feed({ type: 'cmd.permission', requestId: long, decision: { behavior: 'allow' } });
+    const [key] = run.state.permissionRequestIds;
+    expect(key).toBe(`${'x'.repeat(MAX_KEPT_ID_CHARS)}#100000`);
+    expect(asks(run.line(canUseTool(long)))).toBe(0);
+    // Another long id with the same prefix and length shares the key: it is
+    // refused too (fail closed), never asked.
+    const sibling = `${'x'.repeat(99_999)}y`;
+    expect(diagnosticCodes(run.line(canUseTool(sibling)))).toEqual([
+      'permission.duplicate-request-id',
+    ]);
+    // A different length is a different key.
+    expect(asks(run.line(canUseTool(`${long}x`)))).toBe(1);
+  });
+});
+
 // ---- properties: the bounded records against exact reference models --------------
 
 /** The reference key of an id (the rule of `keptIdKey`, restated). */
@@ -188,7 +308,96 @@ interface IdOp {
   readonly id: number;
 }
 
+/**
+ * A few ids that come and go, and floods of fresh requests (answered at
+ * once) that push them out of the window: short sequences that still cross
+ * the cap, so a failure shrinks quickly.
+ */
+type PermissionOp = IdOp | { readonly op: 'flood'; readonly count: number };
+
+const permissionOp: fc.Arbitrary<PermissionOp> = fc.oneof(
+  {
+    weight: 6,
+    arbitrary: fc.record({
+      op: fc.constantFrom('request' as const, 'answer' as const, 'cancel' as const),
+      id: fc.nat(11),
+    }),
+  },
+  {
+    weight: 1,
+    arbitrary: fc.record({
+      op: fc.constant('flood' as const),
+      count: fc.integer({ min: 1, max: MAX_REMEMBERED_PERMISSION_IDS + 8 }),
+    }),
+  },
+);
+
 describe('the bounded records (property)', () => {
+  it('asks a request exactly when its id is neither in flight nor among the newest remembered', () => {
+    fc.assert(
+      fc.property(fc.array(permissionOp, { minLength: 1, maxLength: 40 }), (ops) => {
+        const run = new BoundedRun();
+        run.start();
+        const pending = new Set<string>();
+        // Exact model: ids by recency of arrival or end, newest last.
+        let window: string[] = [];
+        const touch = (id: string): void => {
+          window = [...window.filter((other) => other !== id), id].slice(
+            -MAX_REMEMBERED_PERMISSION_IDS,
+          );
+        };
+        let fresh = 1000;
+        for (const step of ops) {
+          if (step.op === 'flood') {
+            for (let k = 0; k < step.count; k += 1) {
+              fresh += 1;
+              const id = permissionId(fresh);
+              expect(asks(run.line(canUseTool(id)))).toBe(1);
+              run.feed({ type: 'cmd.permission', requestId: id, decision: { behavior: 'allow' } });
+              touch(id);
+            }
+            continue;
+          }
+          const { op, id: n } = step;
+          const id = permissionId(n);
+          if (op === 'request') {
+            const effects = run.line(canUseTool(id));
+            if (pending.has(id)) {
+              expect(diagnosticCodes(effects)).toEqual(['control.duplicate-request']);
+              expect(writes(effects)).toEqual([]);
+            } else if (window.includes(id)) {
+              expect(asks(effects)).toBe(0);
+              expect(diagnosticCodes(effects)).toEqual(['permission.duplicate-request-id']);
+              expect(writes(effects)).toMatchObject([
+                { response: { response: { behavior: 'deny', interrupt: false } } },
+              ]);
+            } else {
+              expect(asks(effects)).toBe(1);
+              pending.add(id);
+              touch(id);
+            }
+          } else if (op === 'answer') {
+            const effects = run.feed({
+              type: 'cmd.permission',
+              requestId: id,
+              decision: { behavior: 'allow' },
+            });
+            expect(writes(effects)).toHaveLength(pending.has(id) ? 1 : 0);
+            if (pending.delete(id)) touch(id);
+          } else {
+            expect(writes(run.line(cancelRequest(id)))).toEqual([]);
+            if (pending.delete(id)) touch(id);
+          }
+        }
+        expect(run.state.permissionRequestIds).toEqual(window);
+        expect(run.state.permission.pending.map((entry) => entry.requestId).sort()).toEqual(
+          [...pending].sort(),
+        );
+      }),
+      { numRuns: 100 },
+    );
+  });
+
   it('never-answered entries: at most the cap, the oldest forgotten first, keys bounded', () => {
     const idOf = (n: number): string =>
       n % 7 === 0 ? `${'r'.repeat(300)}${String(n)}` : `r${String(n)}`;
