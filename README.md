@@ -25,9 +25,10 @@ hudhud is published on npm, starting with version 0.1.0. The packages are:
 - `hudhudjs`: the umbrella, which re-exports the two packages below at exactly its own version;
 - `@hudhudjs/core`: the harness-neutral core;
 - `@hudhudjs/claude-code`: the Claude Code adapter;
+- `@hudhudjs/conformance`: the expected event streams of hudhud's conformance suite, as data, for testing code that consumes hudhud's events; pin it at the version of `@hudhudjs/claude-code` you use;
 - `@hudhudjs/win32-job-x64`: the Windows x64 job-object addon. Do not install it yourself: `@hudhudjs/core` lists it as an optional dependency.
 
-`hudhudjs`, `@hudhudjs/core` and `@hudhudjs/claude-code` are always released together at one version. The version is 0.x, so under semver a minor release may still contain breaking changes; which entry points are stable and which are beta is stated in [ADR-0004](docs/adr/0004-packages-and-versioning.md). Each release is published from this repository's release workflow with npm provenance, so `npm audit signatures` can check where a package was built. The changes of each version are in the `CHANGELOG.md` of each package under `packages/`.
+`hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` and `@hudhudjs/conformance` are always released together at one version. The version is 0.x, so under semver a minor release may still contain breaking changes; which entry points are stable and which are beta is stated in [ADR-0004](docs/adr/0004-packages-and-versioning.md). Each release is published from this repository's release workflow with npm provenance, so `npm audit signatures` can check where a package was built. The changes of each version are in the `CHANGELOG.md` of each package under `packages/`.
 
 ## Install
 

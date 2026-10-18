@@ -92,6 +92,7 @@ describe('check-tarball.mjs', () => {
         'hudhudjs',
         '@hudhudjs/core',
         '@hudhudjs/claude-code',
+        '@hudhudjs/conformance',
         '@hudhudjs/win32-job-x64',
       ]) {
         expect(result.stdout).toContain(`${name}: no tarball given`);

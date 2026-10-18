@@ -43,6 +43,7 @@ describe('isJsonSubpath', () => {
   it.each([
     ['./package.json', true],
     ['./schemas/*.json', true],
+    ['./dist/streams/*.expect.jsonl', true],
     [{ default: './schemas/*.json' }, true],
     [{ import: { default: './a.json' }, require: './a.json' }, true],
     [ENTRY, false],

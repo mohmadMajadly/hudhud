@@ -7,7 +7,8 @@
 //
 // publishes the tarballs release-verify checked (`check-tarball.mjs
 // --release-tag … --keep-tarballs <dir>`), in the order of PUBLISH_ORDER:
-// the platform package, the core, the adapter, the umbrella. It first checks
+// the platform package, the core, the adapter, the conformance data, the
+// umbrella. It first checks
 // that the tarballs are exactly those packages and that the fixed group is
 // at the tag's version, then asks the registry which versions it already
 // holds: a version that is there with the same bytes (npm integrity) is
