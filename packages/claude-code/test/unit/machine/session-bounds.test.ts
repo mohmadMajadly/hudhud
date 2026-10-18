@@ -1,8 +1,14 @@
-// Long-running sessions stay bounded (CAPS-1): after N = 100 000 simulated
-// permission requests, turns, frames and never-answered control requests
-// through the sans-io session machine, every per-session table is back to
-// its idle size or held at its documented cap, and the serialized state
-// does not grow with N. No process runs: inputs are folded through
+// Long-running sessions stay bounded (CAPS-1): after many simulated
+// permission requests, turns, frames, repeated system/init frames and
+// never-answered control requests through the sans-io session machine,
+// every per-session table is back to its idle size or held at its
+// documented cap, and the serialized state does not grow past its size at
+// a checkpoint taken once every cap was reached.
+//
+// Sizes (lead ruling C, K15): the unit lane runs ten times each cap (or a
+// few thousand inputs for the tables without one), enough to cross every
+// cap many times and to compare the state at the checkpoint with the end.
+// HUDHUD_SOAK=1 runs 100 000 of each instead, for the soak lane. No process runs: inputs are folded through
 // `stepSession` with a fake clock, and effects are checked per step instead
 // of being kept (the runner of session-support.ts keeps every step).
 //
@@ -12,6 +18,7 @@
 // by a bounded key.
 
 import { Buffer } from 'node:buffer';
+import process from 'node:process';
 
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
@@ -45,7 +52,22 @@ import {
   type Body,
 } from './session-support.js';
 
-const N = 100_000;
+/** The soak lane's size (`HUDHUD_SOAK=1`); the unit lane uses the sizes below. */
+const SOAK = process.env['HUDHUD_SOAK'] === '1';
+
+/** Inputs per test and the checkpoint the end is compared with. */
+function size(unit: number, checkpoint: number): { readonly n: number; readonly at: number } {
+  return { n: SOAK ? 100_000 : unit, at: checkpoint };
+}
+
+/** Ten times the window, checkpoint once it is full twice over. */
+const PERMISSIONS = size(10 * MAX_REMEMBERED_PERMISSION_IDS, 2 * MAX_REMEMBERED_PERMISSION_IDS);
+/** No cap: enough turns for the checkpoint comparison. */
+const TURNS = size(5_000, 1_000);
+const FRAMES = size(10_000, 1_000);
+/** Ten times the cap, checkpoint once it is full twice over. */
+const UNANSWERED = size(10 * MAX_UNANSWERED_ENTRIES, 2 * MAX_UNANSWERED_ENTRIES);
+const REPEATED_INITS = size(1_000, 100);
 const START_MS = Date.UTC(2026, 9, 18);
 
 /** Folds inputs one at a time; keeps only the last step's effects. */
@@ -112,12 +134,12 @@ function permissionId(n: number): string {
   return `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
 }
 
-describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
+describe('a session after many simulated inputs stays bounded', () => {
   it('permission requests: answered, cancelled by the CLI, denied as duplicates', () => {
     const run = new BoundedRun();
     run.start();
     let checkpoint = 0;
-    for (let n = 1; n <= N; n += 1) {
+    for (let n = 1; n <= PERMISSIONS.n; n += 1) {
       const id = permissionId(n);
       expect(asks(run.line(canUseTool(id)))).toBe(1);
       if (n % 3 === 0) {
@@ -138,14 +160,14 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
           { response: { response: { behavior: 'deny', message: DUPLICATE_REQUEST_DENY_MESSAGE } } },
         ]);
       }
-      if (n === 2000) checkpoint = run.size();
+      if (n === PERMISSIONS.at) checkpoint = run.size();
     }
     expectIdle(run.state);
     expect(run.state.permissionRequestIds).toHaveLength(MAX_REMEMBERED_PERMISSION_IDS);
     expect(new Set(run.state.permissionRequestIds).size).toBe(MAX_REMEMBERED_PERMISSION_IDS);
     // The newest ids are the ones remembered.
-    expect(run.state.permissionRequestIds.at(-1)).toBe(permissionId(N));
-    // The state does not grow with N: the same size as after 2000 requests
+    expect(run.state.permissionRequestIds.at(-1)).toBe(permissionId(PERMISSIONS.n));
+    // The state does not grow: the same size as at the checkpoint
     // (only the widths of counters and timestamps may differ).
     expect(run.size()).toBeLessThanOrEqual(checkpoint + 64);
   });
@@ -154,7 +176,7 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
     const run = new BoundedRun();
     run.start();
     let checkpoint = 0;
-    for (let n = 1; n <= N; n += 1) {
+    for (let n = 1; n <= TURNS.n; n += 1) {
       const turnId = uuid(n);
       run.feed({ type: 'cmd.send', turnId, content: `message ${String(n)}` });
       run.line(lifecycle(turnId, 'started'));
@@ -177,10 +199,10 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
       const settled = run.line(result({ user_message_uuid: turnId }));
       expect(settled.filter((effect) => effect.type === 'turn.settle')).toHaveLength(1);
       run.line(sessionState('idle'));
-      if (n === 2000) checkpoint = run.size();
+      if (n === TURNS.at) checkpoint = run.size();
     }
     expectIdle(run.state);
-    expect(run.state.turns.nextInterrupt).toBe(N / 10 + 1);
+    expect(run.state.turns.nextInterrupt).toBe(TURNS.n / 10 + 1);
     expect(run.size()).toBeLessThanOrEqual(checkpoint + 64);
   });
 
@@ -191,9 +213,9 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
     run.feed({ type: 'cmd.send', turnId, content: 'long' });
     run.line(systemInit());
     let checkpoint = 0;
-    for (let n = 1; n <= N; n += 1) {
+    for (let n = 1; n <= FRAMES.n; n += 1) {
       run.line(assistant(`chunk ${String(n)}`));
-      if (n === 2000) checkpoint = run.size();
+      if (n === FRAMES.at) checkpoint = run.size();
     }
     expect(run.state.turns.turns).toHaveLength(1);
     expect(run.state.timers).toEqual(['idle']);
@@ -207,7 +229,7 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
     const run = new BoundedRun();
     run.start();
     let checkpoint = 0;
-    for (let n = 1; n <= N; n += 1) {
+    for (let n = 1; n <= UNANSWERED.n; n += 1) {
       const subtype = n % 2 === 0 ? 'request_user_dialog' : 'remote_tool_call';
       const effects = run.line({
         type: 'control_request',
@@ -215,11 +237,29 @@ describe(`a session after ${String(N)} simulated inputs stays bounded`, () => {
         request: { subtype },
       });
       expect(writes(effects)).toEqual([]);
-      if (n === 2000) checkpoint = run.size();
+      if (n === UNANSWERED.at) checkpoint = run.size();
     }
     expect(run.state.control.inbound).toHaveLength(MAX_UNANSWERED_ENTRIES);
-    expect(run.state.control.inbound.at(-1)?.requestId).toBe(permissionId(N));
+    expect(run.state.control.inbound.at(-1)?.requestId).toBe(permissionId(UNANSWERED.n));
     expect(run.size()).toBeLessThanOrEqual(checkpoint + 64);
+  });
+
+  it('repeated system/init frames with no result open one harness turn', () => {
+    const run = new BoundedRun();
+    run.start();
+    let checkpoint = 0;
+    let drift = 0;
+    for (let n = 1; n <= REPEATED_INITS.n; n += 1) {
+      const effects = run.line(systemInit());
+      drift += diagnosticCodes(effects).filter((code) => code === 'turn.repeated-init').length;
+      if (n === REPEATED_INITS.at) checkpoint = run.size();
+    }
+    expect(run.state.turns.turns.map((turn) => turn.turnId)).toEqual(['bg-1']);
+    expect(drift).toBe(1);
+    expect(run.size()).toBeLessThanOrEqual(checkpoint + 64);
+    run.line(result());
+    run.line(sessionState('idle'));
+    expectIdle(run.state);
   });
 });
 
