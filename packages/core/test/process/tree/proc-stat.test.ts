@@ -100,6 +100,33 @@ describe('parseProcStat on malformed input', () => {
   });
 });
 
+describe('parseProcStat on names that are not plain text', () => {
+  // Regression (CI run 39085765979, seed -279742588, counterexample
+  // `[Uint8Array.from([239,187,191]),0,0,0,0n,"S"]`): the name is the comm
+  // bytes, so a byte order mark is kept, never stripped.
+  const named = (name: number[]): Uint8Array =>
+    new Uint8Array([...bytes('0 ('), ...name, ...bytes(`) ${REST}`)]);
+  const cases: [string, number[], string][] = [
+    ['a lone byte order mark', [0xef, 0xbb, 0xbf], '﻿'],
+    ['a leading byte order mark', [0xef, 0xbb, 0xbf, 0x78], '﻿x'],
+    ['a byte order mark in the middle', [0x61, 0xef, 0xbb, 0xbf, 0x62], 'a﻿b'],
+    ['a truncated byte order mark', [0xef, 0xbb, 0x29, 0x20], '�) '],
+    ['ill-formed sequences', [0xc0, 0x80, 0xed, 0xa0, 0x80, 0xff], '�'.repeat(6)],
+    ['a UTF-16 byte order mark', [0xff, 0xfe, 0x78], '��x'],
+  ];
+  for (const [label, name, expected] of cases) {
+    it(`keeps ${label} as the name`, () => {
+      expect(parseProcStat(named(name), 0)).toEqual({
+        pid: 0,
+        ppid: 8,
+        pgid: 16,
+        startTime: '35280234',
+        name: expected,
+      });
+    });
+  }
+});
+
 describe('parseProcStat on arbitrary command names', () => {
   it('never lets the name shift a field, whatever bytes it holds', () => {
     fc.assert(

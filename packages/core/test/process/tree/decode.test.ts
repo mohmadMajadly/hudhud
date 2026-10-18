@@ -40,6 +40,33 @@ describe('decodeUtf8Lossy', () => {
     }
   });
 
+  // Regression (CI run 39085765979, seed -279742588): a name that is a UTF-8
+  // byte order mark. A BOM is data in a process name: it is kept wherever it
+  // stands, and a truncated one is an ill-formed subpart like any other.
+  it('keeps a byte order mark at the start, in the middle and repeated', () => {
+    const cases: [number[], string][] = [
+      [[0xef, 0xbb, 0xbf], '﻿'],
+      [[0xef, 0xbb, 0xbf, 0x61], '﻿a'],
+      [[0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf], '﻿﻿'],
+      [[0x61, 0xef, 0xbb, 0xbf, 0x62], 'a﻿b'],
+      [[0x61, 0xef, 0xbb, 0xbf], 'a﻿'],
+      [[0xff, 0xef, 0xbb, 0xbf], '�﻿'],
+      [[0xef, 0xbb], '�'],
+      [[0xef, 0xbb, 0x41], '�A'],
+      [[0xef, 0xbf], '�'],
+      [[0xbb, 0xbf], '��'],
+    ];
+    for (const [input, expected] of cases) {
+      const data = new Uint8Array(input);
+      expect(decodeUtf8Lossy(data)).toBe(expected);
+      expect(referenceDecode(data)).toBe(expected);
+    }
+    // A range that starts on a BOM keeps it (the parsers decode sub-ranges).
+    const framed = new Uint8Array([0x28, 0xef, 0xbb, 0xbf, 0x78, 0x29]);
+    expect(decodeUtf8Lossy(framed, 1, 5)).toBe('﻿x');
+    expect(decodeUtf8Lossy(framed.subarray(1, 5))).toBe('﻿x');
+  });
+
   it('honours start and end offsets and subarray views', () => {
     const data = bytes('xx(name)yy');
     expect(decodeUtf8Lossy(data, 3, 7)).toBe('name');
