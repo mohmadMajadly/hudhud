@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { WIN32_JOB_ADDON_SPECIFIER } from '../../packages/core/src/process/containment/win32-job.js';
-import { isPublishable } from '../lib/tarball.mjs';
+import { isPublishable, MICROSOFT_NOTICE_HEADING } from '../lib/tarball.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -39,12 +39,12 @@ function sourceLinks(dir: string): Record<string, unknown> {
 }
 
 describe.each([
-  // x64 is published: private until the release flow lifts the flag, like
-  // every published package here (they all declare publishConfig).
+  // x64 is published (not private, publishConfig with provenance; checklist
+  // 4.2, lifted by REL-1 for the first publish).
   ['x64', 'packages/win32-job-x64', { publishConfig: { access: 'public', provenance: true } }],
   // ARM64 stays private in v1 (K17, lead ruling on A2): no publishConfig, so
   // neither the release flow nor the tarball check treats it as published.
-  ['arm64', 'packages/win32-job-arm64', {}],
+  ['arm64', 'packages/win32-job-arm64', { private: true }],
 ])('the %s platform package', (cpu, dir, publish) => {
   const pkg = manifest(dir);
 
@@ -52,9 +52,9 @@ describe.each([
     expect(pkg).toEqual({
       name: `@hudhudjs/win32-job-${cpu}`,
       // Versioned by changesets on its own, at its release record's
-      // release (ADR-0004 amendment of 2026-10-17); all 0.0.0 until then.
-      version: core['version'],
-      private: true,
+      // release (ADR-0004 amendment of 2026-10-17), so not the core's
+      // version once a library release keeps the addon.
+      version: expect.stringMatching(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u) as string,
       description: expect.any(String) as string,
       license: 'Apache-2.0',
       ...(cpu === 'x64' ? sourceLinks(dir) : {}),
@@ -89,7 +89,11 @@ describe.each([
 
   it('carries the repository license and notice and never commits the addon', () => {
     expect(read(`${dir}/LICENSE`)).toBe(read('LICENSE'));
-    expect(read(`${dir}/NOTICE`)).toBe(read('NOTICE'));
+    // The root NOTICE, then the Microsoft Distributable Code section of the
+    // statically linked C runtime (ADR-0015 item 12; package-legal.test.ts).
+    expect(read(`${dir}/NOTICE`).startsWith(`${read('NOTICE')}${MICROSOFT_NOTICE_HEADING}`)).toBe(
+      true,
+    );
     const ignored = read(`${dir}/.gitignore`)
       .split('\n')
       .filter((line) => line !== '' && !line.startsWith('#'));

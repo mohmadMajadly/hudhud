@@ -16,3 +16,38 @@ of Anthropic, PBC, and is subject to Anthropic's own terms.
 
 A package of hudhud that includes third-party code lists that code, with its
 license notice, after this text in the package's own NOTICE file.
+
+Microsoft Distributable Code
+----------------------------
+
+hudhud_win32_job.node is built with the Microsoft C/C++ compiler and the
+Windows SDK and links the C runtime statically (/MT). It therefore contains
+object code from the Microsoft Visual C++ runtime libraries and the
+Universal C Runtime, copyrighted by Microsoft Corporation (the "Microsoft
+Distributable Code"), embedded in the file as a result of running that code
+through a linker.
+
+The Microsoft Distributable Code is not licensed under the Apache License,
+Version 2.0, which covers only the code of the hudhud authors. It is
+redistributed under the Microsoft Software License Terms for Visual Studio
+and for the Windows SDK. If you further distribute this file, you must
+comply with Microsoft's distribution requirements, and you must require
+your distributors and end users to agree to terms that protect the
+Microsoft Distributable Code at least as much as Microsoft's terms. In
+particular, you may not:
+
+- alter any copyright, trademark or patent notice in the Microsoft
+  Distributable Code;
+- use Microsoft's trademarks in your programs' names or in a way that
+  suggests your programs come from or are endorsed by Microsoft;
+- distribute the Microsoft Distributable Code to run on a platform other
+  than a Microsoft operating system;
+- include the Microsoft Distributable Code in malicious, deceptive or
+  unlawful programs; or
+- reverse engineer, decompile or disassemble the Microsoft Distributable
+  Code, except to the extent applicable law permits it despite this
+  limitation.
+
+hudhud is not affiliated with or endorsed by Microsoft. Microsoft, Visual
+Studio, Visual C++ and Windows are trademarks of the Microsoft group of
+companies.

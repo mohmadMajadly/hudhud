@@ -1,7 +1,7 @@
 // The versioning model the release tag relies on (ADR-0004 amendment of
 // 2026-10-17, ADR-0014 amendment 10; review findings R6-3, R7-2, R7-5):
-// `hudhudjs`, `@hudhudjs/core` and `@hudhudjs/claude-code` are one changesets
-// `fixed` group, so they always carry one version and a `v<version>` tag
+// `hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` and, since 2026-10-18,
+// `@hudhudjs/conformance` are one changesets `fixed` group, so they always carry one version and a `v<version>` tag
 // names it; the addon package stays outside it, versioned by its release
 // record; the arm64 addon package stays private (K17).
 
@@ -29,7 +29,9 @@ describe('release versioning', () => {
   const config = read('.changeset/config.json') as ChangesetsConfig;
 
   it('releases the three library packages in one fixed group', () => {
-    expect(config.fixed).toEqual([['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code']]);
+    expect(config.fixed).toEqual([
+      ['hudhudjs', '@hudhudjs/core', '@hudhudjs/claude-code', '@hudhudjs/conformance'],
+    ]);
     expect(config.linked).toEqual([]);
   });
 
@@ -44,10 +46,39 @@ describe('release versioning', () => {
     expect(arm64.publishConfig).toBeUndefined();
   });
 
-  it('gives the three library packages one version today', () => {
-    const versions = ['packages/hudhud', 'packages/core', 'packages/claude-code'].map(
-      (dir) => (read(`${dir}/package.json`) as { version?: unknown }).version,
-    );
+  it('publishes the five packages publicly with provenance, and nothing else (checklist 4.2)', () => {
+    expect((config as { access?: unknown }).access).toBe('public');
+    for (const dir of [
+      'packages/hudhud',
+      'packages/core',
+      'packages/claude-code',
+      'packages/conformance',
+      'packages/win32-job-x64',
+    ]) {
+      const manifest = read(`${dir}/package.json`) as {
+        private?: unknown;
+        publishConfig?: unknown;
+      };
+      expect(manifest.private, dir).toBeUndefined();
+      expect(manifest.publishConfig, dir).toEqual({ access: 'public', provenance: true });
+    }
+    for (const dir of ['packages/win32-job-arm64', 'tooling/test-support', '.']) {
+      const manifest = read(`${dir}/package.json`) as {
+        private?: unknown;
+        publishConfig?: unknown;
+      };
+      expect(manifest.private, dir).toBe(true);
+      expect(manifest.publishConfig, dir).toBeUndefined();
+    }
+  });
+
+  it('gives the packages of the fixed group one version today', () => {
+    const versions = [
+      'packages/hudhud',
+      'packages/core',
+      'packages/claude-code',
+      'packages/conformance',
+    ].map((dir) => (read(`${dir}/package.json`) as { version?: unknown }).version);
     expect(new Set(versions).size).toBe(1);
   });
 
@@ -56,6 +87,7 @@ describe('release versioning', () => {
       'packages/hudhud',
       'packages/core',
       'packages/claude-code',
+      'packages/conformance',
       'packages/win32-job-x64',
     ];
     const core = read('packages/core/package.json') as { repository?: { url?: unknown } };

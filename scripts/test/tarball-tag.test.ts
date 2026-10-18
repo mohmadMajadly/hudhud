@@ -9,6 +9,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   checkReleaseTag,
+  isPublished,
+  manifestOf,
+  matchTarballs,
   pendingChangesets,
   tagVersion,
   type PackageJson,
@@ -176,5 +179,62 @@ describe('checkReleaseTag (R7-2)', () => {
     expect(checkReleaseTag({ ...READY, packs: released().slice(1) })).toEqual([
       'hudhudjs (fixed group) was not packed',
     ]);
+  });
+});
+
+describe('the published set and given tarballs (a release publishes what it checked)', () => {
+  it('publishes exactly the packages with publishConfig that are not private', () => {
+    const published = released()
+      .map((entry) => manifestOf(entry.entries))
+      .filter((manifest): manifest is PackageJson => manifest !== undefined)
+      .filter((manifest) => isPublished(manifest))
+      .map((manifest) => manifest.name);
+    expect(published).toEqual([
+      'hudhudjs',
+      '@hudhudjs/core',
+      '@hudhudjs/claude-code',
+      '@hudhudjs/win32-job-x64',
+    ]);
+    expect(isPublished({ name: 'x', private: true, ...PUBLISH })).toBe(false);
+    expect(isPublished({ name: 'x' })).toBe(false);
+    expect(manifestOf([])).toBeUndefined();
+  });
+
+  const SOURCES = [
+    { name: 'hudhudjs', version: '0.1.0' },
+    { name: '@hudhudjs/core', version: '0.1.0' },
+  ];
+
+  it('pairs each package with its one tarball at its source version', () => {
+    const { files, problems } = matchTarballs(SOURCES, [
+      { file: 'b.tgz', name: '@hudhudjs/core', version: '0.1.0' },
+      { file: 'a.tgz', name: 'hudhudjs', version: '0.1.0' },
+    ]);
+    expect(problems).toEqual([]);
+    expect([...files.entries()]).toEqual([
+      ['hudhudjs', 'a.tgz'],
+      ['@hudhudjs/core', 'b.tgz'],
+    ]);
+  });
+
+  it('names a missing, doubled, stale, unknown or unreadable tarball', () => {
+    expect(
+      matchTarballs(SOURCES, [
+        { file: 'a.tgz', name: 'hudhudjs', version: '0.0.0' },
+        { file: 'c.tgz', name: '@hudhudjs/win32-job-arm64', version: '0.1.0' },
+        { file: 'd.tgz', name: undefined, version: undefined },
+      ]).problems,
+    ).toEqual([
+      'd.tgz: no readable package.json with a name',
+      'hudhudjs: the given tarball is version 0.0.0, the package is 0.1.0',
+      '@hudhudjs/core: no tarball given',
+      '@hudhudjs/win32-job-arm64: a tarball of a package that is not published',
+    ]);
+    expect(
+      matchTarballs(SOURCES.slice(0, 1), [
+        { file: 'a.tgz', name: 'hudhudjs', version: '0.1.0' },
+        { file: 'b.tgz', name: 'hudhudjs', version: '0.1.0' },
+      ]).problems,
+    ).toEqual(['hudhudjs: 2 tarballs given, expected 1']);
   });
 });

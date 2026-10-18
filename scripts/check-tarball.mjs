@@ -4,8 +4,8 @@
 // For every publishable package under packages/ (a `publishConfig` or not
 // private): `pnpm pack` it, check the tarball (files list with a README, a
 // LICENSE byte-equal to the repository's and a NOTICE that begins with the
-// repository's and lists the third-party code the package bundles,
-// manifest, source maps and their packed sources, privacy scan, entry points;
+// repository's and lists the third-party code the package bundles (for a
+// native addon, the Microsoft Distributable Code section), manifest, source maps and their packed sources, privacy scan, entry points;
 // scripts/lib/tarball.mjs), install all tarballs into a fresh project
 // outside the repository with `npm install --omit=dev --ignore-scripts`,
 // import every JS entry point with Node's own ESM resolver, parse every JSON
@@ -52,10 +52,30 @@
 // else the https `origin` remote) in `repository`, `homepage` and `bugs`
 // (`checkRepositoryFields`).
 //
+// The data package @hudhudjs/conformance must hold under dist/ exactly the
+// expected streams of packages/claude-code/conformance, byte for byte, and
+// the index rendered for its version (scripts/lib/conformance-package.mjs).
+//
+// Release runs (.github/workflows/release.yml, ADR-0014 amendment 12) publish
+// exactly the bytes they checked:
+//
+//   node scripts/check-tarball.mjs --release-tag v<version> --keep-tarballs <dir>
+//
+// copies, once every check passed, the tarball of every package the release
+// publishes (`publishConfig` and not private) into the new directory <dir>;
+// and
+//
+//   node scripts/check-tarball.mjs --tarballs <dir>
+//
+// runs the full check above over those tarballs instead of packing again:
+// every publishable package needs exactly one tarball in <dir>, packed at its
+// source version, and no other file may be there (`matchTarballs`).
+//
 // Exit codes: 0 all checks passed, 1 problems found, 2 tool or setup error.
 
 import { spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -77,9 +97,11 @@ import {
   parseManifest,
   releaseOf,
 } from './lib/addon-digests.mjs';
+import { compareFiles, CONFORMANCE_PACKAGE, loadExpected } from './lib/conformance-package.mjs';
 import {
   checkImports,
   checkLegalFiles,
+  checkNativeNotice,
   checkReleaseRecord,
   checkReleaseTag,
   checkRepositoryFields,
@@ -89,6 +111,9 @@ import {
   cleanEnv,
   IMPORT_CHILD,
   isPublishable,
+  isPublished,
+  manifestOf,
+  matchTarballs,
   nativeSkipReason,
   parseImportResults,
   readTarGz,
@@ -272,23 +297,102 @@ function pack(dir, name, tarballs) {
 }
 
 const USAGE =
-  'usage: node scripts/check-tarball.mjs [--release-record native/win32-job/release/<release>/manifest.json | --release-tag v<version>]\n';
+  'usage: node scripts/check-tarball.mjs [--tarballs <dir> | --release-record native/win32-job/release/<release>/manifest.json | --release-tag v<version> [--keep-tarballs <dir>]]\n';
+
+/**
+ * The files of a directory of tarballs, with the name and version of each
+ * packed manifest; anything but a `.tgz` file there is refused.
+ *
+ * @param {string} dir
+ * @returns {import('./lib/tarball.mjs').GivenTarball[]}
+ */
+function givenTarballs(dir) {
+  /** @type {string[]} */
+  let names;
+  try {
+    names = readdirSync(dir).sort();
+  } catch (error) {
+    throw new ToolError(
+      `cannot read ${dir} (${String(/** @type {{ code?: unknown }} */ (error).code ?? error)})`,
+    );
+  }
+  const other = names.filter((name) => !name.endsWith('.tgz'));
+  if (other.length > 0) {
+    throw new ToolError(`${dir} holds files that are not tarballs: ${other.join(', ')}`);
+  }
+  return names.map((name) => {
+    const file = path.join(dir, name);
+    /** @type {PackageJson | undefined} */
+    let manifest;
+    try {
+      manifest = manifestOf(readTarGz(readFileSync(file)));
+    } catch (error) {
+      throw new ToolError(
+        `cannot read the tarball ${file}: ${/** @type {Error} */ (error).message}`,
+      );
+    }
+    return {
+      file,
+      name: typeof manifest?.name === 'string' ? manifest.name : undefined,
+      version: typeof manifest?.version === 'string' ? manifest.version : undefined,
+    };
+  });
+}
 
 /** @returns {number} */
 function main() {
   const args = process.argv.slice(2);
   if (args.length === 2 && args[0] === '--release-record' && args[1] !== undefined) {
-    return releaseCheck(args[1], null);
+    return releaseCheck(args[1], null, null);
   }
   if (args.length === 2 && args[0] === '--release-tag' && args[1] !== undefined) {
-    return releaseCheck(tableRecordPath(), args[1]);
+    return releaseCheck(tableRecordPath(), args[1], null);
+  }
+  if (
+    args.length === 4 &&
+    args[0] === '--release-tag' &&
+    args[1] !== undefined &&
+    args[2] === '--keep-tarballs' &&
+    args[3] !== undefined
+  ) {
+    return releaseCheck(tableRecordPath(), args[1], path.resolve(args[3]));
+  }
+  if (args.length === 2 && args[0] === '--tarballs' && args[1] !== undefined) {
+    return fullCheck(path.resolve(args[1]));
   }
   if (args.length > 0) {
     process.stderr.write(USAGE);
     return 2;
   }
+  return fullCheck(null);
+}
+
+/**
+ * The full check of every publishable package.
+ *
+ * @param {string | null} given A directory of tarballs packed earlier, checked
+ *   instead of packing (`--tarballs`).
+ * @returns {number}
+ */
+function fullCheck(given) {
   const packages = publishablePackages();
   if (packages.length === 0) throw new ToolError('no publishable package found under packages/');
+  /** @type {Map<string, string> | null} */
+  let givenFiles = null;
+  if (given !== null) {
+    const matched = matchTarballs(
+      packages.map(({ manifest }) => ({ name: String(manifest.name), version: manifest.version })),
+      givenTarballs(given),
+    );
+    if (matched.problems.length > 0) {
+      report(
+        matched.problems,
+        `tarball check FAILED: the tarballs in ${given} are not those of the publishable packages:`,
+      );
+      return 1;
+    }
+    givenFiles = matched.files;
+  }
 
   const root = makeRoot(process.env['HUDHUD_TEST_ROOT'] ?? os.tmpdir());
   /** @type {string[]} */
@@ -316,7 +420,7 @@ function main() {
         problems.push(...scripted.map((problem) => `${name}: ${problem}`));
         continue;
       }
-      const file = pack(dir, name, tarballs);
+      const file = givenFiles?.get(name) ?? pack(dir, name, tarballs);
       const skipped = nativeSkipReason(manifest, process.platform);
       if (skipped !== null) {
         // Not built on this host, so its contents cannot be checked here,
@@ -326,9 +430,11 @@ function main() {
         const entries = readTarGz(readFileSync(file));
         const paths = entries.map((entry) => entry.path);
         problems.push(
-          ...[...checkRequiredFiles(paths), ...checkLegalFiles(entries, legal)].map(
-            (problem) => `${name}: ${problem}`,
-          ),
+          ...[
+            ...checkRequiredFiles(paths),
+            ...checkLegalFiles(entries, legal),
+            ...checkNativeNotice(manifest, entries),
+          ].map((problem) => `${name}: ${problem}`),
         );
         packed.push({ manifest, file, entryPoints: [], installable: false });
         process.stdout.write(`skipped ${name} (${skipped}; README, LICENSE and NOTICE checked)\n`);
@@ -336,10 +442,13 @@ function main() {
       }
       const result = checkTarball(manifest, readFileSync(file), forbidden, legal);
       problems.push(...result.problems.map((problem) => `${name}: ${problem}`));
+      if (name === CONFORMANCE_PACKAGE) {
+        problems.push(...conformanceProblems(file).map((problem) => `${name}: ${problem}`));
+      }
       const installable = supportsPlatform(manifest, process.platform, process.arch);
       packed.push({ manifest, file, entryPoints: result.entryPoints, installable });
       process.stdout.write(
-        `packed ${name}: ${String(result.paths.length)} files, ${String(result.entryPoints.length)} entry points${installable ? '' : ' (not installable on this platform: static checks only)'}\n`,
+        `${givenFiles === null ? 'packed' : 'checked the given tarball of'} ${name}: ${String(result.paths.length)} files, ${String(result.entryPoints.length)} entry points${installable ? '' : ' (not installable on this platform: static checks only)'}\n`,
       );
     }
 
@@ -351,11 +460,38 @@ function main() {
       report(problems, `tarball check FAILED (${String(problems.length)} problem(s)):`);
       return 1;
     }
-    process.stdout.write('tarball check passed\n');
+    process.stdout.write(
+      given === null
+        ? 'tarball check passed\n'
+        : `tarball check passed over the tarballs in ${given}\n`,
+    );
     return 0;
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   }
+}
+
+/**
+ * The conformance data package against its sources (ADR-0004 amendment of
+ * 2026-10-18): every packed file under `dist/` must be byte-identical to the
+ * repository's expected stream or to the index rendered for the packed
+ * version, and none may be missing.
+ *
+ * @param {string} file The tarball.
+ * @returns {string[]} problems
+ */
+function conformanceProblems(file) {
+  const entries = readTarGz(readFileSync(file));
+  const version = manifestOf(entries)?.version;
+  if (typeof version !== 'string') return ['the tarball has no package.json version'];
+  const expected = loadExpected(REPO, version);
+  return [
+    ...expected.problems,
+    ...compareFiles(
+      expected.files,
+      entries.filter((entry) => entry.path.startsWith('dist/')),
+    ),
+  ];
 }
 
 /**
@@ -418,11 +554,16 @@ function installAndImport(root, installed, otherPlatform, problems) {
   );
   const js = imported.filter((entry) => entry.kind === 'js');
   for (const { manifest, entryPoints } of installed) {
-    // A native addon is loaded by its consumer with `process.dlopen`, never
-    // imported; the installed package must carry the file the subpath names.
-    for (const entry of entryPoints.filter((candidate) => candidate.kind === 'native')) {
+    // A native addon is loaded by its consumer with `process.dlopen` and a
+    // data file is read, neither is imported; the installed package must
+    // carry the file the subpath names.
+    for (const entry of entryPoints.filter(
+      (candidate) => candidate.kind === 'native' || candidate.kind === 'data',
+    )) {
       if (!existsSync(path.join(modules, String(manifest.name), entry.runtime ?? ''))) {
-        problems.push(`${entry.specifier}: the installed addon file is missing`);
+        problems.push(
+          `${entry.specifier}: the installed ${entry.kind === 'native' ? 'addon' : 'data'} file is missing`,
+        );
       }
     }
   }
@@ -533,9 +674,12 @@ function publishingRepository() {
  *
  * @param {string} given The record's repository path.
  * @param {string | null} tag The release tag, or null for the record alone.
+ * @param {string | null} keep With a tag: the new directory that receives,
+ *   once every check passed, the tarballs of the packages the release
+ *   publishes (`--keep-tarballs`).
  * @returns {number}
  */
-function releaseCheck(given, tag) {
+function releaseCheck(given, tag, keep) {
   const manifestPath = given.replaceAll('\\', '/');
   if (releaseOf(manifestPath) === null) {
     process.stderr.write(`${given} is not a release record path\n${USAGE}`);
@@ -557,6 +701,8 @@ function releaseCheck(given, tag) {
   try {
     const tarballs = path.join(root, 'tarballs');
     mkdirSync(tarballs);
+    /** @type {Map<string, string>} The tarball of each packed package directory. */
+    const files = new Map();
     /** @param {string} dir */
     const packed = (dir) => {
       const source = path.join(REPO, dir);
@@ -566,6 +712,7 @@ function releaseCheck(given, tag) {
       const scripted = checkSourceManifest(/** @type {PackageJson} */ (parsed));
       if (scripted.length > 0) throw new ToolError(`${name}: ${scripted.join('; ')}`);
       const file = pack(source, name, tarballs);
+      files.set(dir, file);
       try {
         return readTarGz(readFileSync(file));
       } catch (error) {
@@ -645,6 +792,7 @@ function releaseCheck(given, tag) {
     const lines = Object.keys(manifest.arches)
       .sort()
       .map((arch) => `${arch} sha256 ${String(manifest.arches[arch]?.sha256)}`);
+    if (keep !== null) lines.push(...keepTarballs(keep, packs, files));
     report(
       lines,
       `${what} passed: the packed tarballs carry ${manifestPath} (version ${manifest.version})`,
@@ -653,6 +801,42 @@ function releaseCheck(given, tag) {
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 10 });
   }
+}
+
+/**
+ * Copies the checked tarballs of the packages a release publishes into a new
+ * directory.
+ *
+ * @param {string} keep The directory; it must not exist yet.
+ * @param {Map<string, import('./lib/tarball.mjs').TarEntry[]>} packs The
+ *   packed entries by package directory.
+ * @param {Map<string, string>} files The tarball by package directory.
+ * @returns {string[]} one line per kept tarball
+ */
+function keepTarballs(keep, packs, files) {
+  mkdirSync(path.dirname(keep), { recursive: true });
+  try {
+    mkdirSync(keep);
+  } catch (error) {
+    throw new ToolError(
+      `cannot create ${keep} for the tarballs (${String(/** @type {{ code?: unknown }} */ (error).code ?? error)}); it must not exist`,
+    );
+  }
+  /** @type {string[]} */
+  const kept = [];
+  for (const dir of [...packs.keys()].sort()) {
+    const packedManifest = manifestOf(packs.get(dir) ?? []);
+    const file = files.get(dir);
+    if (packedManifest === undefined || file === undefined || !isPublished(packedManifest)) {
+      continue;
+    }
+    copyFileSync(file, path.join(keep, path.basename(file)));
+    kept.push(
+      `kept ${path.basename(file)} (${String(packedManifest.name)}@${String(packedManifest.version)})`,
+    );
+  }
+  if (kept.length === 0) throw new ToolError('no published package was packed: nothing to keep');
+  return kept;
 }
 
 try {

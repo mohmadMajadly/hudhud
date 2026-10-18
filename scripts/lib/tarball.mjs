@@ -472,6 +472,36 @@ export function checkBundledNotices(entries) {
     );
 }
 
+/** The heading of the Microsoft Distributable Code section of a native package's NOTICE. */
+export const MICROSOFT_NOTICE_HEADING =
+  '\nMicrosoft Distributable Code\n----------------------------\n';
+
+/**
+ * Requires a native addon package's NOTICE to carry the Microsoft
+ * Distributable Code section (ADR-0015 item 12, owner ruling 2026-10-18):
+ * the addon links the Microsoft C runtime statically (`/MT`), whose object
+ * code is not under Apache-2.0. A package is native when it packs a `.node`
+ * file or its `files` names one (so the check also runs where the addon is
+ * not built).
+ *
+ * @param {PackageJson} manifest
+ * @param {readonly TarEntry[]} entries
+ * @returns {string[]} problems
+ */
+export function checkNativeNotice(manifest, entries) {
+  const native =
+    entries.some((entry) => entry.path.endsWith('.node')) ||
+    (manifest.files ?? []).some((pattern) => pattern.endsWith('.node'));
+  if (!native) return [];
+  const notice = entries.find((entry) => entry.path === 'NOTICE')?.data.toString('utf8') ?? '';
+  return notice.includes(MICROSOFT_NOTICE_HEADING) &&
+    notice.includes('is not licensed under the Apache License')
+    ? []
+    : [
+        'NOTICE lacks the Microsoft Distributable Code section of a statically linked addon (ADR-0015 item 12)',
+      ];
+}
+
 /** Root files npm always packs, whatever `files` says. */
 const ALWAYS_TOP =
   /^(?:package\.json|README(?:\.[A-Za-z]+)?|LICEN[CS]E(?:\.[A-Za-z]+)?|CHANGELOG(?:\.[A-Za-z]+)?|NOTICE(?:\.[A-Za-z]+)?)$/u;
@@ -680,8 +710,9 @@ export function scanEntries(entries, forbidden) {
 /**
  * @typedef {object} EntryPoint
  * @property {string} specifier What a consumer imports.
- * @property {'js' | 'json' | 'native'} kind `native`: a Node-API addon (`.node`),
- *   which is loaded with `process.dlopen`, never imported.
+ * @property {'js' | 'json' | 'native' | 'data'} kind `native`: a Node-API addon (`.node`),
+ *   which is loaded with `process.dlopen`, never imported; `data`: a JSON
+ *   Lines file (`.jsonl`, the conformance streams), read, never imported.
  * @property {string} [runtime] Package-relative file the runtime import resolves to.
  * @property {string} [types] Package-relative declaration file (the `types` condition).
  */
@@ -692,6 +723,7 @@ export function scanEntries(entries, forbidden) {
  */
 function entryKind(runtime) {
   if (runtime.endsWith('.json')) return 'json';
+  if (runtime.endsWith('.jsonl')) return 'data';
   return runtime.endsWith('.node') ? 'native' : 'js';
 }
 
@@ -865,6 +897,7 @@ export function checkTarball(source, gz, forbidden, legal = []) {
     ...checkFileList(source, paths),
     ...checkLegalFiles(entries, legal),
     ...checkBundledNotices(entries),
+    ...checkNativeNotice(source, entries),
   ];
   const manifestEntry = entries.find((entry) => entry.path === 'package.json');
   /** @type {PackageJson | undefined} */
@@ -1290,7 +1323,7 @@ export function pendingChangesets(names) {
  * The checks of a release tag before anything is published (review finding
  * R7-2). The tag scheme (ADR-0014 amendment 10): one tag kind, `v<version>`,
  * where `<version>` is the version of the `fixed` group (`hudhudjs`,
- * `@hudhudjs/core`, `@hudhudjs/claude-code`). The addon package is versioned
+ * `@hudhudjs/core`, `@hudhudjs/claude-code`, `@hudhudjs/conformance`). The addon package is versioned
  * on its own by its release record: its version is the `release` of the
  * record the core's digest table names, so a library release that does not
  * change the addon re-publishes nothing of it.
@@ -1362,4 +1395,84 @@ export function checkReleaseTag(input) {
     );
   }
   return problems;
+}
+
+// ---- the published set and given tarballs ----------------------------------
+
+/**
+ * Whether a release publishes a package as it is packed: it declares
+ * `publishConfig` and is not private (the tag check refuses a private
+ * package with `publishConfig`, so after it passed this is every package
+ * with `publishConfig`).
+ *
+ * @param {PackageJson} manifest
+ * @returns {boolean}
+ */
+export function isPublished(manifest) {
+  return manifest.publishConfig !== undefined && manifest.private !== true;
+}
+
+/**
+ * The packed manifest of a tarball's entries, or undefined when it has no
+ * readable `package.json`.
+ *
+ * @param {readonly TarEntry[]} entries
+ * @returns {PackageJson | undefined}
+ */
+export function manifestOf(entries) {
+  return packedManifest(entries);
+}
+
+/**
+ * @typedef {object} GivenTarball
+ * @property {string} file The tarball's path.
+ * @property {string | undefined} name The packed `package.json` name.
+ * @property {string | undefined} version The packed `package.json` version.
+ */
+
+/**
+ * Pairs the packages to check with tarballs packed earlier (the release
+ * run's full check over the bytes it publishes, `check-tarball.mjs
+ * --tarballs`): every package needs exactly one tarball packed at its source
+ * version, and every tarball must belong to one of them.
+ *
+ * @param {readonly { name: string, version: string | undefined }[]} sources
+ * @param {readonly GivenTarball[]} given
+ * @returns {{ files: Map<string, string>, problems: string[] }} the tarball of
+ *   each package by name, and every mismatch naming both values
+ */
+export function matchTarballs(sources, given) {
+  /** @type {string[]} */
+  const problems = [];
+  /** @type {Map<string, GivenTarball[]>} */
+  const byName = new Map();
+  for (const tarball of given) {
+    if (tarball.name === undefined) {
+      problems.push(`${tarball.file}: no readable package.json with a name`);
+      continue;
+    }
+    byName.set(tarball.name, [...(byName.get(tarball.name) ?? []), tarball]);
+  }
+  /** @type {Map<string, string>} */
+  const files = new Map();
+  const wanted = new Set(sources.map((source) => source.name));
+  for (const { name, version } of sources) {
+    const found = byName.get(name) ?? [];
+    const only = found[0];
+    if (only === undefined) {
+      problems.push(`${name}: no tarball given`);
+    } else if (found.length > 1) {
+      problems.push(`${name}: ${String(found.length)} tarballs given, expected 1`);
+    } else if (only.version !== version) {
+      problems.push(
+        `${name}: the given tarball is version ${String(only.version)}, the package is ${String(version)}`,
+      );
+    } else {
+      files.set(name, only.file);
+    }
+  }
+  for (const name of [...byName.keys()].sort()) {
+    if (!wanted.has(name)) problems.push(`${name}: a tarball of a package that is not published`);
+  }
+  return { files, problems };
 }

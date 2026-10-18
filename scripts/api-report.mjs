@@ -13,7 +13,7 @@
 // unless they carry API Extractor configs or reports, which then fail. JSON
 // subpaths (committed schemas) are data, not API, and native addon subpaths
 // (`.node`, the prebuilt platform packages) have no TypeScript API; both are
-// skipped. Requires a prior `pnpm build`.
+// skipped (JSON Lines data too). Requires a prior `pnpm build`.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -40,14 +40,15 @@ function leafTargets(target) {
 
 /**
  * True for a subpath that exports JSON data only, such as
- * `"./schemas/*": "./schemas/*.json"` or `"./package.json"`.
+ * `"./schemas/*": "./schemas/*.json"` or `"./package.json"`, or JSON Lines
+ * data (`.jsonl`, the conformance streams of `@hudhudjs/conformance`).
  *
  * @param {unknown} target
  * @returns {boolean}
  */
 export function isJsonSubpath(target) {
   const leaves = leafTargets(target);
-  return leaves.length > 0 && leaves.every((leaf) => leaf.endsWith('.json'));
+  return leaves.length > 0 && leaves.every((leaf) => /\.jsonl?$/u.test(leaf));
 }
 
 /**
@@ -199,6 +200,9 @@ export function checkReports(root, { localBuild }) {
 export const REPORT_TIERS = Object.freeze({
   'packages/claude-code/api/claude-code.api.md': { tier: 'stable' },
   'packages/claude-code/api/claude-code-raw.api.md': { tier: 'beta' },
+  // The index's types; the data itself promises nothing across versions
+  // (ADR-0004 amendment of 2026-10-18).
+  'packages/conformance/api/conformance.api.md': { tier: 'stable' },
   'packages/core/api/core.api.md': { tier: 'stable' },
   'packages/core/api/core-binding.api.md': { tier: 'beta' },
   'packages/core/api/core-process.api.md': { tier: 'beta' },
