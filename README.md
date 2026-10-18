@@ -20,7 +20,14 @@ try {
 
 ## Status
 
-hudhud has not been released yet: every package is at version `0.0.0` and none is published to npm. Until the first release, the `hudhudjs` package on npm is a name placeholder, not this library. The API described in the [user guide](docs/guide/README.md) is the v1 API under release review.
+hudhud is published on npm, starting with version 0.1.0. The packages are:
+
+- `hudhudjs`: the umbrella, which re-exports the two packages below at exactly its own version;
+- `@hudhudjs/core`: the harness-neutral core;
+- `@hudhudjs/claude-code`: the Claude Code adapter;
+- `@hudhudjs/win32-job-x64`: the Windows x64 job-object addon. Do not install it yourself: `@hudhudjs/core` lists it as an optional dependency.
+
+`hudhudjs`, `@hudhudjs/core` and `@hudhudjs/claude-code` are always released together at one version. The version is 0.x, so under semver a minor release may still contain breaking changes; which entry points are stable and which are beta is stated in [ADR-0004](docs/adr/0004-packages-and-versioning.md). Each release is published from this repository's release workflow with npm provenance, so `npm audit signatures` can check where a package was built. The changes of each version are in the `CHANGELOG.md` of each package under `packages/`.
 
 ## Install
 
@@ -28,7 +35,13 @@ hudhud has not been released yet: every package is at version `0.0.0` and none i
 npm install hudhudjs
 ```
 
-`hudhudjs` re-exports `@hudhudjs/core` and `@hudhudjs/claude-code`, which can also be installed directly. Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296. See [Getting started](docs/guide/getting-started.md).
+`hudhudjs` re-exports `@hudhudjs/core` and `@hudhudjs/claude-code`. To install them directly instead, install both at the same version:
+
+```sh
+npm install @hudhudjs/core @hudhudjs/claude-code
+```
+
+Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296. See [Getting started](docs/guide/getting-started.md).
 
 ## What it does
 
