@@ -32,7 +32,8 @@ test('connect: binary info, compat, capabilities and posture of the pinned CLI',
     verification: suite.expectedVerification,
   });
 
-  // The pin is the tested window (K16: the bump moves both together).
+  // The committed window judges the CLI under test (ADR-0004 §4): 'tested'
+  // for the pin and every admitted version, 'untested' for a newer canary CLI.
   expect(harness.compat).toEqual({
     harness: 'claude-code',
     version: suite.cli.version,
