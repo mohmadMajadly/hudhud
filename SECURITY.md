@@ -1,28 +1,26 @@
 # Security policy
 
-hudhud is pre-alpha and the repository is private. There are no releases, so no version is supported yet.
-
 ## Reporting a vulnerability
 
 Please do not open a public issue, discussion or pull request for a suspected vulnerability.
 
-Report it privately through GitHub private vulnerability reporting: on the repository's **Security** tab, choose **Report a vulnerability**. The report is visible only to you and the maintainers.
-
-While the repository is private, that form is not available to outside reporters; report directly to the repository owner instead.
+Report it privately through GitHub private vulnerability reporting: on the repository's **Security** tab, choose **Report a vulnerability**. The report is visible only to you and the maintainers. Include the affected package and version, the operating system, and the steps or code that show the problem.
 
 <!-- Owner action before the first release (release checklist 3.11): enable
 "Private vulnerability reporting" in the repository settings (Settings,
-Security, "Private vulnerability reporting"), then fill in the sections below
-and remove this comment. -->
+Security, "Private vulnerability reporting"), confirm the two sections below,
+then remove this comment. -->
 
 ## Supported versions
 
-To be stated before the first release: which release lines receive security fixes.
+hudhud's packages (`hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` and `@hudhudjs/win32-job-x64`) receive security fixes in their newest published version only. A fix is released as a new version of all three library packages together; older versions are deprecated on npm with a pointer to the fixed one when the problem is serious.
 
 ## What happens after a report
 
-To be stated before the first release: when you can expect a first answer, how the fix and the advisory are coordinated with you, and how you are credited.
+- We aim to acknowledge a report within 7 days.
+- We confirm the problem, agree a disclosure date with you, and prepare the fix and a GitHub security advisory in private.
+- The fix is published to npm first, then the advisory, which credits you unless you ask not to be named.
 
 ## Scope
 
-The threat model is in [docs/architecture.md](docs/architecture.md#security-model-and-threat-model) and [ADR-0012](docs/adr/0012-security-defaults-and-trust.md).
+The threat model is in [docs/architecture.md](docs/architecture.md#security-model-and-threat-model) and [ADR-0012](docs/adr/0012-security-defaults-and-trust.md). Vulnerabilities in Claude Code itself go to Anthropic, not here.
