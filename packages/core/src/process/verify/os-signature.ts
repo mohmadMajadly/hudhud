@@ -9,9 +9,11 @@
  * -NoProfile -NonInteractive -Command <script> <path>`.
  *
  * - The executable is taken by absolute path under a validated
- *   `%SystemRoot%` (`systemRootFrom`, as for `taskkill.exe`), and its
- *   realpath must equal that path: a junction or link that redirects
- *   `System32` is refused, as is anything but a regular file.
+ *   `%SystemRoot%`, and its realpath must equal that path: a junction or
+ *   link that redirects `System32` is refused, as is anything but a regular
+ *   file. The resolution is `resolveSystem32PowerShell` of `taskkill.ts`,
+ *   shared with `taskkill.exe` and the CIM process table; the working
+ *   directory is `System32`.
  * - The binary path is never interpolated into script text. The script is a
  *   constant; the path is a separate argv entry. PowerShell appends the argv
  *   entries after `-Command <script>` to the command text, so the script ends
@@ -109,7 +111,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 
 import { system32Layout } from '../os/win32.js';
-import { systemRootFrom } from '../taskkill.js';
+import { checkExecutablePath, resolveSystem32PowerShell } from '../taskkill.js';
 import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './command.js';
 
 /**
@@ -126,7 +128,7 @@ import { runBoundedCommand, type BoundedCommand, type CommandOutcome } from './c
  * per file identity (`verify.ts`), so the bound is paid at most once per
  * binary and Harness.
  *
- * @public
+ * @beta
  */
 export const DEFAULT_SIGNATURE_TIMEOUT_MS = 120_000;
 
@@ -139,14 +141,14 @@ const MAX_SIGNER_SHOWN = 256;
 /**
  * Which OS signature check applies.
  *
- * @public
+ * @beta
  */
 export type SignaturePlatform = 'win32' | 'darwin' | 'other';
 
 /**
  * The signature platform of a Node platform name.
  *
- * @public
+ * @beta
  */
 export function signaturePlatformOf(platform: NodeJS.Platform): SignaturePlatform {
   return platform === 'win32' || platform === 'darwin' ? platform : 'other';
@@ -156,7 +158,7 @@ export function signaturePlatformOf(platform: NodeJS.Platform): SignaturePlatfor
  * The values `Get-AuthenticodeSignature` reports in `Status`
  * (`System.Management.Automation.SignatureStatus`).
  *
- * @public
+ * @beta
  */
 export const AUTHENTICODE_STATUSES: readonly string[] = Object.freeze([
   'Valid',
@@ -182,7 +184,7 @@ export const AUTHENTICODE_STATUSES: readonly string[] = Object.freeze([
  * without the expected lines. Both fail the check; only `invalid` may be
  * cached (`verify.ts`).
  *
- * @public
+ * @beta
  */
 export type OsSignatureResult =
   | { readonly kind: 'valid'; readonly detail: string; readonly signer?: string }
@@ -194,7 +196,7 @@ export type OsSignatureResult =
  * The publisher strict verification requires (W3-Z ruling 9). The adapter
  * supplies its harness's publisher from its committed table.
  *
- * @public
+ * @beta
  */
 export interface PublisherPin {
   /**
@@ -214,7 +216,7 @@ export interface PublisherPin {
 /**
  * Filesystem calls used to check the checker's executable.
  *
- * @public
+ * @beta
  */
 export interface SignatureFs {
   realpath(path: string): Promise<string>;
@@ -224,7 +226,7 @@ export interface SignatureFs {
 /**
  * Dependencies of {@link checkOsSignature}.
  *
- * @public
+ * @beta
  */
 export interface SignatureDeps {
   readonly platform: SignaturePlatform;
@@ -245,7 +247,7 @@ export interface SignatureDeps {
 /**
  * The host's filesystem and command runner.
  *
- * @public
+ * @beta
  */
 export const nodeSignatureDeps: Pick<SignatureDeps, 'fs' | 'run'> = {
   fs: { realpath, lstat },
@@ -270,7 +272,7 @@ const ARG_COUNT = 1 + POWERSHELL_ARGS.length + 2;
  * The PowerShell script. Constant: it never contains the path. The final
  * line comment absorbs the argv text PowerShell appends after it.
  *
- * @public
+ * @beta
  */
 export const AUTHENTICODE_SCRIPT: string = [
   "$ErrorActionPreference = 'Stop'",
@@ -290,40 +292,13 @@ const UNSAFE_IN_ARGUMENT = /[\p{Cc}\p{Zl}\p{Zp}]/u;
  *
  * @throws RangeError when the path holds a control character or line
  * terminator (it could end the script's line comment)
- * @public
+ * @beta
  */
 export function authenticodeArgv(binaryPath: string): readonly string[] {
   if (UNSAFE_IN_ARGUMENT.test(binaryPath)) {
     throw new RangeError('refusing a path with a control character or line terminator');
   }
   return [...POWERSHELL_ARGS, AUTHENTICODE_SCRIPT, binaryPath];
-}
-
-/**
- * Checks the checker's executable: its realpath must be `expected` itself
- * and a regular file.
- *
- * @returns `undefined` when it may run, else why it is refused
- */
-async function checkedExecutable(
-  fs: SignatureFs,
-  expected: string,
-  caseInsensitive: boolean,
-): Promise<string | undefined> {
-  let resolved: string;
-  let regular: boolean;
-  try {
-    resolved = await fs.realpath(expected);
-    const stats = await fs.lstat(resolved);
-    regular = stats.isFile() && !stats.isSymbolicLink();
-  } catch {
-    return 'not-found';
-  }
-  const same = caseInsensitive
-    ? resolved.toLowerCase() === expected.toLowerCase()
-    : resolved === expected;
-  if (!same) return 'redirected';
-  return regular ? undefined : 'not-regular-file';
 }
 
 function describeFailure(outcome: CommandOutcome): string {
@@ -336,17 +311,16 @@ function describeFailure(outcome: CommandOutcome): string {
 
 async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<OsSignatureResult> {
   const args = authenticodeArgv(binaryPath);
-  const root = systemRootFrom(deps.hostEnv);
-  if (!root.ok) return { kind: 'invalid', detail: `powershell unavailable: ${root.reason}` };
-  const layout = system32Layout(root.root);
-  const refusal = await checkedExecutable(deps.fs, layout.powershell, true);
-  if (refusal !== undefined)
-    return { kind: 'invalid', detail: `powershell unavailable: ${refusal}` };
+  const powershell = await resolveSystem32PowerShell({ env: deps.hostEnv, fs: deps.fs });
+  if (!powershell.ok) {
+    return { kind: 'invalid', detail: `powershell unavailable: ${powershell.reason}` };
+  }
+  const layout = system32Layout(powershell.systemRoot);
   const outcome = await deps.run({
     file: layout.powershell,
     args,
     env: layout.env,
-    cwd: `${root.root}\\System32`,
+    cwd: `${powershell.systemRoot}\\System32`,
     platform: 'win32',
     timeoutMs: deps.timeoutMs ?? DEFAULT_SIGNATURE_TIMEOUT_MS,
     maxStdoutBytes: MAX_SIGNATURE_OUTPUT_BYTES,
@@ -383,7 +357,7 @@ async function checkWindows(binaryPath: string, deps: SignatureDeps): Promise<Os
 /**
  * Absolute path of `codesign` on macOS.
  *
- * @public
+ * @beta
  */
 export const CODESIGN_PATH = '/usr/bin/codesign';
 
@@ -395,7 +369,7 @@ const TEAM_ID = /^[A-Z0-9]{10}$/;
  * (see the module remarks).
  *
  * @throws RangeError when `teamId` is not 10 upper-case letters or digits
- * @public
+ * @beta
  */
 export function codesignRequirement(teamId: string): string {
   if (!TEAM_ID.test(teamId)) {
@@ -417,8 +391,10 @@ async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsS
   if (!TEAM_ID.test(teamId)) {
     return { kind: 'invalid', detail: 'codesign not run: the pinned Team ID is malformed' };
   }
-  const refusal = await checkedExecutable(deps.fs, CODESIGN_PATH, false);
-  if (refusal !== undefined) return { kind: 'invalid', detail: `codesign unavailable: ${refusal}` };
+  const codesign = await checkExecutablePath(deps.fs, CODESIGN_PATH, false);
+  if (!codesign.ok) {
+    return { kind: 'invalid', detail: `codesign unavailable: ${codesign.reason}` };
+  }
   const outcome = await deps.run({
     file: CODESIGN_PATH,
     // `-R` with a leading `=`: the argument is requirement text, not a file.
@@ -445,7 +421,7 @@ async function checkDarwin(binaryPath: string, deps: SignatureDeps): Promise<OsS
  * absolute realpath). See the module remarks.
  *
  * @throws RangeError for a Windows path with a control character
- * @public
+ * @beta
  */
 export async function checkOsSignature(
   binaryPath: string,

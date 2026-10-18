@@ -3,6 +3,11 @@
  * process-table snapshots, spawn, the termination ladders and the sweep.
  *
  * @remarks
+ * Beta: every export is `@beta`, for adapter authors, and may change in a
+ * minor version until a second adapter exists (ADR-0004 amendment, R5-1).
+ * `BinaryVerification` and `VerificationMode` are stable: the root entry
+ * exports them too.
+ *
  * Ordinary async code used by adapters (ADR-0009, ADR-0010, ADR-0011). The
  * OS call adapters (`os/`) stay internal; their interfaces are public and
  * {@link osCallsFor} composes them for the host. Binary verification (K8,
@@ -154,7 +159,7 @@ export {
   TaskkillUnavailableError,
   WIN32_DEFAULT_SYSTEM_ROOT,
 } from './taskkill.js';
-// The stderr tail of a spawned process (also on the root entry).
+// The bounded, redacted stderr tail of a spawned process.
 export type { StderrTailOptions } from '../observability/stderr-tail.js';
 export { StderrTail, TRUNCATED } from '../observability/stderr-tail.js';
 

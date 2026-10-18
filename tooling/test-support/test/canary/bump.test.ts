@@ -266,6 +266,7 @@ describe('bumpReport', () => {
     );
     expect(report).toContain('dispatch .github/workflows/macos-gate.yml on it');
     expect(report).toContain('CLAUDE_CODE_PUBLISHER.darwinTeamId');
+    expect(report).toContain('compare them with PROVIDER_FAMILIES');
     expect(report).toContain('pnpm check:full on Linux and on Windows');
     expect(bumpReport('2.1.296', [], 'x')).toContain('cli:bump 2.1.296 -> 2.1.296');
   });

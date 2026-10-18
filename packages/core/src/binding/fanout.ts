@@ -23,10 +23,18 @@
  *
  * Memory: the subscriber set holds only live subscribers (a subscriber leaves
  * it synchronously when its queue stops accepting); each queue is bounded as
- * documented in `queue.ts`; at most one publish can be pending; an abort
- * listener stays on the caller's signal only until that consumer is finished
- * (it saw the end, returned or threw), so an abort can still stop the delivery
- * of events queued before an end.
+ * documented in `queue.ts`; at most one publish can be pending; the fanout's
+ * abort listener stays on the subscription's signal only until that consumer
+ * is finished (it saw the end, returned or threw), so an abort can still stop
+ * the delivery of events queued before an end. Producers pass a
+ * {@link LinkedSignal} there, never the application's own signal: it lets go
+ * of the application's signals as soon as the subscription stops accepting
+ * (`Selection.onClose`), so an application signal that outlives the session
+ * retains nothing of it.
+ *
+ * Byte accounting: an event counts its declared bytes against `maxBytes`;
+ * events derived from one input can share that input's bytes
+ * ({@link SharedBytes}), so a subscriber is charged the input once.
  *
  * The fanout is harness-neutral and generic in the event type: the gap marker,
  * the overflow error and the abort error are built by injected factories.
@@ -64,6 +72,105 @@ export interface AbortSignalLike {
   ): void;
   /** Removes the abort listener. */
   removeEventListener(type: 'abort', listener: () => void): void;
+}
+
+/**
+ * The abort signal of one subscription, linked to the application's signals
+ * (ADR-0007).
+ *
+ * @remarks
+ * It follows its parents (aborting one aborts it with that parent's reason)
+ * only while the subscription accepts events: once it stopped (`unlink`, for
+ * example from {@link Selection.onClose}), it lets go of them, so a
+ * long-lived application signal holds no listener, and through it no queue,
+ * of a subscription that ended (R4-5). A parent that aborts after that is
+ * still seen: `poll()`, called before each delivery, aborts the signal then,
+ * so the events still queued are not delivered after the abort. Its owner can
+ * abort it directly (`abort`). The listener the fanout adds is kept until the
+ * fanout removes it (the consumer finished); that removal releases the
+ * signal (`onRelease`).
+ *
+ * @beta
+ */
+export class LinkedSignal implements AbortSignalLike {
+  /** Whether the signal aborted. */
+  aborted = false;
+  /** The abort reason. */
+  reason: unknown;
+  readonly #parents: readonly AbortSignal[];
+  readonly #listeners = new Set<() => void>();
+  readonly #onRelease: () => void;
+  #unlinks: (() => void)[] = [];
+  #released = false;
+
+  /**
+   * @param parents - the application's signals; `undefined` entries are skipped.
+   * @param onRelease - called once when the signal aborted or its last
+   *   listener was removed.
+   */
+  constructor(
+    parents: readonly (AbortSignal | undefined)[],
+    onRelease: () => void = () => undefined,
+  ) {
+    this.#parents = parents.filter((parent): parent is AbortSignal => parent !== undefined);
+    this.#onRelease = onRelease;
+    const aborted = this.#parents.find((parent) => parent.aborted);
+    if (aborted !== undefined) {
+      this.aborted = true;
+      this.reason = aborted.reason;
+      return;
+    }
+    for (const parent of this.#parents) {
+      const fromParent = (): void => {
+        this.abort(parent.reason);
+      };
+      parent.addEventListener('abort', fromParent, { once: true });
+      this.#unlinks.push(() => {
+        parent.removeEventListener('abort', fromParent);
+      });
+    }
+  }
+
+  /** Registers the abort listener. */
+  addEventListener(_type: 'abort', listener: () => void): void {
+    this.#listeners.add(listener);
+  }
+
+  /** Removes the abort listener and releases the signal. */
+  removeEventListener(_type: 'abort', listener: () => void): void {
+    this.#listeners.delete(listener);
+    this.#release();
+  }
+
+  /** Aborts the signal (once) and calls its listeners. */
+  abort(reason: unknown): void {
+    if (this.aborted) return;
+    this.aborted = true;
+    this.reason = reason;
+    this.#release();
+    for (const listener of [...this.#listeners]) listener();
+  }
+
+  /** Stops following the parents; {@link LinkedSignal.poll} still sees their abort. */
+  unlink(): void {
+    const unlinks = this.#unlinks;
+    this.#unlinks = [];
+    for (const unlink of unlinks) unlink();
+  }
+
+  /** Aborts the signal when a parent aborted (after `unlink` no listener tells it). */
+  poll(): void {
+    if (this.aborted) return;
+    const aborted = this.#parents.find((parent) => parent.aborted);
+    if (aborted !== undefined) this.abort(aborted.reason);
+  }
+
+  #release(): void {
+    this.unlink();
+    if (this.#released) return;
+    this.#released = true;
+    this.#onRelease();
+  }
 }
 
 /**
@@ -126,6 +233,26 @@ export interface Selection<E> {
    * K20). They are not passed through `match` and must fit the limits.
    */
   readonly replay?: readonly SizedEvent<E>[];
+  /**
+   * Called once, synchronously, when the subscription stops accepting events
+   * (it ended, overflowed, was aborted, or its consumer returned), possibly
+   * before its consumer took the events still queued.
+   */
+  readonly onClose?: () => void;
+}
+
+/**
+ * Events derived from one input share its bytes (ADR-0007, R4-3): a
+ * subscriber is charged the input's bytes for the first of these events it
+ * takes and `siblingBytes` for each later one.
+ *
+ * @beta
+ */
+export interface SharedBytes {
+  /** Identifies the input; compared by identity. */
+  readonly key: object;
+  /** What each later event of the same input is charged. */
+  readonly siblingBytes: number;
 }
 
 /**
@@ -134,8 +261,13 @@ export interface Selection<E> {
  * @beta
  */
 export interface FanoutDeps<E> {
-  /** Builds a gap marker event for `dropped` events. */
-  readonly gapMarker: (dropped: number) => E;
+  /** Builds a gap marker event for `dropped` events; `first` is the oldest event dropped. */
+  readonly gapMarker: (dropped: number, first: E) => E;
+  /**
+   * How many events an event stands for in a gap count (a gap marker in a
+   * replay stands for the events it reports); at least 1. Default 1.
+   */
+  readonly count?: (event: E) => number;
   /** Builds the subscriber-scoped overflow error (`SUBSCRIBER_OVERFLOW`). */
   readonly overflowError: (info: OverflowInfo) => Error;
   /** Builds the abort error (`ABORTED`) from `signal.reason`. */
@@ -146,6 +278,9 @@ interface Subscriber<E> {
   readonly queue: BoundedQueue<E>;
   readonly match: ((event: E) => boolean) | undefined;
   readonly endAfter: ((event: E) => boolean) | undefined;
+  readonly maxBytes: number;
+  /** The input of the last shared-bytes event this subscriber was charged for in full. */
+  lastShared: object | undefined;
 }
 
 /** Wraps a non-`Error` value thrown by a predicate. */
@@ -231,12 +366,15 @@ export class Fanout<E> {
     let detach = (): void => {
       // Replaced below when a signal listener is registered.
     };
+    const onClose = selection.onClose;
     const queue: BoundedQueue<E> = new BoundedQueue<E>({
       ...limits,
       gapMarker: this.#deps.gapMarker,
+      ...(this.#deps.count === undefined ? {} : { count: this.#deps.count }),
       overflowError: this.#deps.overflowError,
       onClose: () => {
         this.#subscribers.delete(subscriber);
+        onClose?.();
       },
       // The signal stays attached until the consumer is finished, so an abort
       // also stops the delivery of events still queued after an end.
@@ -248,6 +386,8 @@ export class Fanout<E> {
       queue,
       match: selection.match,
       endAfter: selection.endAfter,
+      maxBytes: limits.maxBytes,
+      lastShared: undefined,
     };
 
     // Replay always fits (checked above), so every push returns 'ok'.
@@ -275,6 +415,10 @@ export class Fanout<E> {
   /**
    * Delivers one event to every live, matching subscriber.
    *
+   * @param shared - the event was derived from an input other events share:
+   *   a subscriber that already took an event of the same input (the last
+   *   shared input it took) is charged `shared.siblingBytes` instead of
+   *   `bytes`, so one input counts once per subscriber (ADR-0007).
    * @returns `undefined` when every subscriber took the event; a promise when
    * a `'block'` subscriber is full. The producer must wait for that promise
    * before the next publish. It never rejects.
@@ -282,8 +426,9 @@ export class Fanout<E> {
    * @throws Error after {@link Fanout.close}, or while an earlier publish is
    * still pending.
    */
-  publish(event: E, bytes: number): Promise<void> | undefined {
+  publish(event: E, bytes: number, shared?: SharedBytes): Promise<void> | undefined {
     assertEventBytes(bytes);
+    if (shared !== undefined) assertEventBytes(shared.siblingBytes);
     if (this.#closed) throw new Error('Fanout.publish called after close');
     if (this.#pending !== undefined) {
       throw new Error('Fanout.publish called while an earlier publish is still pending');
@@ -304,7 +449,14 @@ export class Fanout<E> {
         continue;
       }
       if (!selected) continue;
-      const result = queue.push(event, bytes);
+      let charge = bytes;
+      if (shared !== undefined) {
+        if (subscriber.lastShared === shared.key) charge = shared.siblingBytes;
+        // An input larger than the whole budget never enters the queue (it is
+        // refused or dropped whole), so it is charged in full to every event.
+        else if (bytes <= subscriber.maxBytes) subscriber.lastShared = shared.key;
+      }
+      const result = queue.push(event, charge);
       if (typeof result !== 'string') waits.push(result);
       if (last) queue.end();
     }

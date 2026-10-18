@@ -42,9 +42,9 @@ The binary can change between `connect()` and a session, for example through an 
 
 ## hudhud's own versions
 
-- The packages follow semantic versioning. The stable API is everything exported from `hudhudjs`, `@hudhudjs/core` and `@hudhudjs/claude-code`; the `claudeCode` options are versioned with the Claude Code adapter.
+- The packages follow semantic versioning. The stable API is everything exported from `hudhudjs`, `@hudhudjs/core` and `@hudhudjs/claude-code` except the few adapter-author items tagged `@beta` (`defineAdapter`, `buildPosture`), plus `sanitizeForDisplay`, `parseErrorData` and `isRetryable` from `@hudhudjs/core/protocol`, and the schemas; the `claudeCode` options are versioned with the Claude Code adapter. The other subpaths of `@hudhudjs/core` (`/binding`, `/process`, the rest of `/protocol`) are beta: for adapter authors, and they may change in a minor version.
 - `@hudhudjs/claude-code/raw` is exempt from compatibility promises ([The raw tier](raw.md)).
 - Fields and types whose names start with `x-` are experimental and exempt as well.
-- Event types and fields are only ever added within a major version; removing one is a major change. Code that reads events must skip unknown types ([Events](events.md#reading-events-in-typescript)).
+- Event types and fields are only ever added within a major version; removing one is a major change. Code that reads events must skip unknown types ([Events](events.md#reading-events-in-typescript)). Values from a fixed list in events, results, capabilities and binary information (for example `permission.resolved`'s `by`) are open: a minor version may add values, so handle unknown ones too.
 - `wireSchemaVersion` (currently `1`) versions the JSON model of events, errors, capabilities and the security posture (the schemas under `@hudhudjs/core/schemas/`), independent of the package version; it changes only on a breaking change. `adapterApiVersion` (currently `1`) is the contract between the core and harness adapters.
 - `hudhudjs` depends on exact versions of the other two packages. When you install `@hudhudjs/core` or `@hudhudjs/claude-code` next to it (for a subpath), use the same version.

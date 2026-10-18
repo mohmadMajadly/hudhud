@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import fc from 'fast-check';
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { InvalidOptionsError } from '@hudhudjs/core';
+
 import type { SecurityPosture } from '../../../core/src/protocol/capabilities.js';
 import {
   buildPosture,
@@ -19,6 +21,7 @@ import {
   postureDeviations,
   serializePosture,
 } from '../../../core/src/security/posture.js';
+import { checkExtraArgs } from '../../src/argv.js';
 import {
   resolveConnectOptions,
   resolveSessionOptions,
@@ -562,14 +565,11 @@ describe('managedPolicyOf', () => {
     expect(managedPolicyOf({ ...base, projectSettings: project })).toBe(
       'unknown-project-settings-unreadable',
     );
-    // Precedence: base URL, provider, raw settings, project unreadable, user unreadable.
+    // Precedence: base URL, provider, project unreadable, user unreadable.
     const userUnreadable = { ...CLEAN, present: true, readable: false };
     expect(
       managedPolicyOf({ ...base, projectSettings: project, userSettings: userUnreadable }),
     ).toBe('unknown-project-settings-unreadable');
-    expect(managedPolicyOf({ ...base, projectSettings: project, rawSettings: true })).toBe(
-      'unknown-raw-settings',
-    );
     expect(
       managedPolicyOf({
         ...base,
@@ -592,27 +592,41 @@ describe('managedPolicyOf', () => {
     });
   });
 
-  it('reports raw --settings as unknown, after the known causes (ruling 3)', () => {
-    for (const extraArgs of [['--settings=/x.json'], ['--settings', '/x.json']]) {
-      expect(valueOf(posture({ raw: { extraArgs } }), 'managedPolicy')).toBe(
-        'unknown-raw-settings',
-      );
+  it('has no raw --settings case: raw extraArgs refuse --settings in every spelling (R1-5)', () => {
+    // A settings file handed to the CLI past hudhud would be an unknown
+    // managed-policy source; it cannot happen, so no value stands for it.
+    for (const extraArgs of [
+      ['--settings=/x.json'],
+      ['--settings', '/x.json'],
+      ['--SETTINGS=/x.json'],
+      ['--Settings', '/x.json'],
+      ['-x', '--settings=/x.json'],
+    ]) {
+      expect(() => {
+        checkExtraArgs(extraArgs);
+      }).toThrow(InvalidOptionsError);
     }
-    // Not a --settings flag: a value, another flag, or a prefix of another name.
-    for (const extraArgs of [['settings'], ['--setting-sources=user'], ['--settingsx=1']]) {
-      expect(valueOf(posture({ raw: { extraArgs } }), 'managedPolicy')).toBe('fetched-if-eligible');
-    }
-    const unreadable = { ...CLEAN, present: true, readable: false };
-    expect(managedPolicyOf({ ...base, rawSettings: true, userSettings: unreadable })).toBe(
-      'unknown-raw-settings',
+    // Accepted raw args leave managedPolicy at its default.
+    fc.assert(
+      fc.property(
+        fc.array(fc.stringMatching(/^--?[a-zA-Z][a-zA-Z-]{0,12}(?:=[a-z/.]{0,6})?$/), {
+          maxLength: 4,
+        }),
+        (extraArgs) => {
+          let accepted = true;
+          try {
+            checkExtraArgs(extraArgs);
+          } catch {
+            accepted = false;
+          }
+          if (accepted) {
+            expect(valueOf(posture({ raw: { extraArgs } }), 'managedPolicy')).toBe(
+              'fetched-if-eligible',
+            );
+          }
+        },
+      ),
     );
-    expect(
-      managedPolicyOf({ ...base, rawSettings: true, env: { ANTHROPIC_BASE_URL: 'http://h' } }),
-    ).toBe('not-fetched-custom-base-url');
-    expect(
-      managedPolicyOf({ ...base, rawSettings: true, env: { CLAUDE_CODE_USE_VERTEX: '1' } }),
-    ).toBe('not-applicable-third-party-provider');
-    expect(managedPolicyOf({ ...base, rawSettings: false })).toBe('fetched-if-eligible');
   });
 
   it('follows env remove: a removed base URL is not in the child env', () => {

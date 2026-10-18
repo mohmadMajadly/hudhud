@@ -63,9 +63,10 @@ export type {
   FanoutDeps,
   FanoutSubscriberOptions,
   Selection,
+  SharedBytes,
   SizedEvent,
 } from './fanout.js';
-export { Fanout } from './fanout.js';
+export { Fanout, LinkedSignal } from './fanout.js';
 export type { OverflowInfo } from './queue.js';
 
 export type { HarnessFacts, SessionCore, TurnCore } from './handles.js';

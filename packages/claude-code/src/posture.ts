@@ -45,8 +45,6 @@ import type {
  *   seen; the CLI fetches it when the account is eligible.
  * - `'not-fetched-custom-base-url'`: `ANTHROPIC_BASE_URL` is set.
  * - `'not-applicable-third-party-provider'`: a `CLAUDE_CODE_USE_*` switch is on.
- * - `'unknown-raw-settings'`: the `/raw` `extraArgs` pass `--settings`, whose
- *   content hudhud does not read, so a base URL in it cannot be ruled out.
  * - `'unknown-project-settings-unreadable'`: under `projectCredentialEnv:
  *   'allow'` a project or local settings file the CLI may apply could not be
  *   read or parsed by the guard's scan, so a base URL in it cannot be ruled
@@ -56,18 +54,21 @@ import type {
  *
  * Precedence: a known custom base URL, then a known third-party provider
  * (both decide the fetch whatever else is configured), then the unknowns:
- * raw `--settings` (a file the application handed the CLI past hudhud),
- * then unreadable project settings (repository content, the redirection
- * vector of C3, so the more security-relevant unknown), then the unreadable
- * user settings file (the user's own configuration).
+ * unreadable project settings (repository content, the redirection vector
+ * of C3, so the more security-relevant unknown), then the unreadable user
+ * settings file (the user's own configuration).
  * The user settings file is `<config dir>/settings.json` only: that is the
  * one user-scope file whose `env` the CLI applies (plan §1.9, 08).
+ *
+ * No value covers a settings file passed with `--settings`: hudhud never
+ * passes the flag, and `/raw` `extraArgs` refuse it in every spelling
+ * (`RESERVED_FLAGS` of `argv.ts`), so no session runs with one (review R1-5:
+ * the former `'unknown-raw-settings'` was unreachable and is removed).
  */
 export type ManagedPolicy =
   | 'fetched-if-eligible'
   | 'not-fetched-custom-base-url'
   | 'not-applicable-third-party-provider'
-  | 'unknown-raw-settings'
   | 'unknown-project-settings-unreadable'
   | 'unknown-user-settings-unreadable';
 
@@ -191,16 +192,14 @@ export interface ManagedPolicyInput {
   readonly userSettings: UserSettingsEnvScan;
   /** Guard findings in project and local settings under `'allow'`; absent when none apply. */
   readonly projectSettings?: ProjectSettingsEnvFlags;
-  /** The `/raw` `extraArgs` pass `--settings` (content not read by hudhud). */
-  readonly rawSettings?: boolean;
   readonly platform: ProcessPlatform;
 }
 
 /**
  * The managed-policy state (K23). A custom base URL from any source wins,
- * then a third-party provider, then raw `--settings`, then unreadable
- * project settings, then an unreadable user settings file (see
- * {@link ManagedPolicy} for the order's reasons).
+ * then a third-party provider, then unreadable project settings, then an
+ * unreadable user settings file (see {@link ManagedPolicy} for the order's
+ * reasons).
  */
 export function managedPolicyOf(input: ManagedPolicyInput): ManagedPolicy {
   const sources: EnvFlags[] = [
@@ -213,7 +212,6 @@ export function managedPolicyOf(input: ManagedPolicyInput): ManagedPolicy {
   if (sources.some((flags) => flags.thirdPartyProvider)) {
     return 'not-applicable-third-party-provider';
   }
-  if (input.rawSettings === true) return 'unknown-raw-settings';
   if (input.projectSettings?.readable === false) return 'unknown-project-settings-unreadable';
   if (!input.userSettings.readable) return 'unknown-user-settings-unreadable';
   return 'fetched-if-eligible';
@@ -406,7 +404,6 @@ export function claudePostureEntries(input: ClaudePostureInput): readonly Postur
     named: namedVariables(input),
     userSettings: input.userSettings,
     ...(input.projectSettings === undefined ? {} : { projectSettings: input.projectSettings }),
-    rawSettings: flagNames(input.raw?.extraArgs ?? []).includes('--settings'),
     platform: input.platform,
   });
   return [

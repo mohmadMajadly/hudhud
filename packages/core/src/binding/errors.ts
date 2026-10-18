@@ -13,9 +13,18 @@ import {
   ERROR_RETRYABLE,
   type ErrorData,
   type HudhudErrorCode,
+  isHudhudErrorCode,
   type KnownErrorData,
   makeErrorData,
 } from '../protocol/errors.js';
+
+/**
+ * The brand every hudhud error carries, from the global symbol registry, so
+ * two copies of this package (an application can end up with two versions
+ * of `@hudhudjs/core` in its tree) recognize each other's errors where
+ * `instanceof` cannot.
+ */
+const HUDHUD_ERROR_BRAND = Symbol.for('hudhudjs.error');
 
 /**
  * The plain-JSON `details` object of an error.
@@ -53,8 +62,14 @@ export abstract class HudhudError extends Error {
   /** The class name, stable under minification (overridden by every subclass). */
   declare static readonly errorName: string;
 
+  /** The error code (plan §3.1); also `name` tells the class. */
   readonly code: HudhudErrorCode;
+  /**
+   * Whether repeating the same call with the same inputs may succeed without
+   * a change by the application. Fixed per code.
+   */
   readonly retryable: boolean;
+  /** Plain JSON facts about the failure: names of variables, files and paths, never secret values. */
   readonly details?: HudhudErrorDetails;
 
   constructor(message: string, options: HudhudErrorOptions = {}) {
@@ -63,6 +78,9 @@ export abstract class HudhudError extends Error {
     this.code = new.target.code;
     this.retryable = ERROR_RETRYABLE[this.code];
     if (options.details !== undefined) this.details = cloneDetails(options.details);
+    // Not enumerable, so it stays out of spreads and inspection; symbols are
+    // never serialized.
+    Object.defineProperty(this, HUDHUD_ERROR_BRAND, { value: true });
   }
 
   /** The error as plain JSON data. Never includes `cause` or `stack`. */
@@ -97,6 +115,17 @@ export abstract class HudhudError extends Error {
  * Narrows to a hudhud error; with `code`, to a hudhud error with that code
  * (plan §2.2).
  *
+ * @remarks
+ * Unlike `instanceof`, this also recognizes an error built by another copy of
+ * `@hudhudjs/core` in the same process (for example when a dependency pins a
+ * different version): every hudhud error carries a brand from the global
+ * symbol registry. A branded error whose `code` this version does not know
+ * is not accepted, since the result could not be narrowed truthfully.
+ *
+ * @param value - Any value, typically a caught error.
+ * @param code - When given, the error must also have this code.
+ * @returns True for a hudhud error (with `code`: of that code).
+ *
  * @example
  * ```ts
  * if (isHudhudError(error, 'SESSION_NOT_FOUND')) startOver();
@@ -105,7 +134,12 @@ export abstract class HudhudError extends Error {
  * @public
  */
 export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is HudhudError {
-  return value instanceof HudhudError && (code === undefined || value.code === code);
+  if (typeof value !== 'object' || value === null) return false;
+  const known =
+    value instanceof HudhudError ||
+    (Reflect.get(value, HUDHUD_ERROR_BRAND) === true &&
+      isHudhudErrorCode(Reflect.get(value, 'code')));
+  return known && (code === undefined || Reflect.get(value, 'code') === code);
 }
 
 /**
@@ -114,10 +148,13 @@ export function isHudhudError(value: unknown, code?: HudhudErrorCode): value is 
  * @public
  */
 export interface ProjectCredentialFindings {
+  /** Every settings file with a finding or a problem (paths). */
   readonly files: readonly string[];
-  /** Variable names. */
+  /** Names of the credential or routing variables the files set. */
   readonly variables: readonly string[];
+  /** Whether a file sets `apiKeyHelper`. */
   readonly apiKeyHelper: boolean;
+  /** Files that could not be evaluated (paths); they refuse too (fail closed). */
   readonly unparseable: readonly string[];
 }
 
@@ -127,7 +164,9 @@ export interface ProjectCredentialFindings {
  * @public
  */
 export class InvalidOptionsError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'INVALID_OPTIONS';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'InvalidOptionsError';
 }
 
@@ -137,7 +176,9 @@ export class InvalidOptionsError extends HudhudError {
  * @public
  */
 export class CapabilityUnsupportedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'CAPABILITY_UNSUPPORTED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'CapabilityUnsupportedError';
 }
 
@@ -147,7 +188,9 @@ export class CapabilityUnsupportedError extends HudhudError {
  * @public
  */
 export class AdapterApiVersionError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'ADAPTER_API_VERSION_MISMATCH';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'AdapterApiVersionError';
 }
 
@@ -157,7 +200,9 @@ export class AdapterApiVersionError extends HudhudError {
  * @public
  */
 export class BinaryNotFoundError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'BINARY_NOT_FOUND';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'BinaryNotFoundError';
 }
 
@@ -167,7 +212,9 @@ export class BinaryNotFoundError extends HudhudError {
  * @public
  */
 export class BinaryRefusedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'BINARY_REFUSED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'BinaryRefusedError';
 }
 
@@ -177,7 +224,9 @@ export class BinaryRefusedError extends HudhudError {
  * @public
  */
 export class BinaryVerificationError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'BINARY_VERIFICATION_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'BinaryVerificationError';
 }
 
@@ -187,7 +236,9 @@ export class BinaryVerificationError extends HudhudError {
  * @public
  */
 export class BinaryProbeError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'BINARY_PROBE_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'BinaryProbeError';
 }
 
@@ -201,7 +252,9 @@ export class BinaryProbeError extends HudhudError {
  * @public
  */
 export class HarnessVersionKnownBrokenError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'HARNESS_VERSION_KNOWN_BROKEN';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'HarnessVersionKnownBrokenError';
 }
 
@@ -211,7 +264,9 @@ export class HarnessVersionKnownBrokenError extends HudhudError {
  * @public
  */
 export class CwdInvalidError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'CWD_INVALID';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'CwdInvalidError';
 }
 
@@ -221,7 +276,9 @@ export class CwdInvalidError extends HudhudError {
  * @public
  */
 export class CwdTooLongError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'CWD_TOO_LONG';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'CwdTooLongError';
 }
 
@@ -231,7 +288,9 @@ export class CwdTooLongError extends HudhudError {
  * @public
  */
 export class SessionIdInUseError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SESSION_ID_IN_USE';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SessionIdInUseError';
 }
 
@@ -241,7 +300,9 @@ export class SessionIdInUseError extends HudhudError {
  * @public
  */
 export class SpawnError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SPAWN_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SpawnError';
 }
 
@@ -251,7 +312,9 @@ export class SpawnError extends HudhudError {
  * @public
  */
 export class HandshakeTimeoutError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'HANDSHAKE_TIMEOUT';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'HandshakeTimeoutError';
 }
 
@@ -261,7 +324,9 @@ export class HandshakeTimeoutError extends HudhudError {
  * @public
  */
 export class HandshakeError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'HANDSHAKE_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'HandshakeError';
 }
 
@@ -271,7 +336,9 @@ export class HandshakeError extends HudhudError {
  * @public
  */
 export class SessionNotFoundError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SESSION_NOT_FOUND';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SessionNotFoundError';
 }
 
@@ -281,7 +348,9 @@ export class SessionNotFoundError extends HudhudError {
  * @public
  */
 export class AuthenticationFailedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'AUTHENTICATION_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'AuthenticationFailedError';
 }
 
@@ -291,7 +360,9 @@ export class AuthenticationFailedError extends HudhudError {
  * @public
  */
 export class SessionPoisonedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SESSION_POISONED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SessionPoisonedError';
 }
 
@@ -301,7 +372,9 @@ export class SessionPoisonedError extends HudhudError {
  * @public
  */
 export class ProtocolError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code: HudhudErrorCode = 'PROTOCOL_ERROR';
+  /** The class name, stable under minification. */
   static override readonly errorName: string = 'ProtocolError';
 }
 
@@ -311,7 +384,9 @@ export class ProtocolError extends HudhudError {
  * @public
  */
 export class OversizedFrameError extends ProtocolError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'OVERSIZED_FRAME';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'OversizedFrameError';
 }
 
@@ -321,7 +396,9 @@ export class OversizedFrameError extends ProtocolError {
  * @public
  */
 export class OutboundFrameTooLargeError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'OUTBOUND_FRAME_TOO_LARGE';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'OutboundFrameTooLargeError';
 }
 
@@ -331,7 +408,9 @@ export class OutboundFrameTooLargeError extends HudhudError {
  * @public
  */
 export class ControlRequestError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'CONTROL_REQUEST_FAILED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'ControlRequestError';
 }
 
@@ -341,7 +420,9 @@ export class ControlRequestError extends HudhudError {
  * @public
  */
 export class ProcessExitedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'PROCESS_EXITED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'ProcessExitedError';
 }
 
@@ -355,7 +436,9 @@ export class ProcessExitedError extends HudhudError {
  * @public
  */
 export class TurnDroppedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'TURN_DROPPED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'TurnDroppedError';
 }
 
@@ -365,7 +448,9 @@ export class TurnDroppedError extends HudhudError {
  * @public
  */
 export class SessionClosedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SESSION_CLOSED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SessionClosedError';
 }
 
@@ -375,7 +460,9 @@ export class SessionClosedError extends HudhudError {
  * @public
  */
 export class HarnessDisposedError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'HARNESS_DISPOSED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'HarnessDisposedError';
 }
 
@@ -385,7 +472,9 @@ export class HarnessDisposedError extends HudhudError {
  * @public
  */
 export class SubscriberOverflowError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'SUBSCRIBER_OVERFLOW';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'SubscriberOverflowError';
 }
 
@@ -395,7 +484,9 @@ export class SubscriberOverflowError extends HudhudError {
  * @public
  */
 export class ProjectCredentialEnvError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'PROJECT_CREDENTIAL_ENV';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'ProjectCredentialEnvError';
 
   /** Builds the error from guard findings; the message lists names and files, never values. */
@@ -429,7 +520,9 @@ export class ProjectCredentialEnvError extends HudhudError {
  * @public
  */
 export class AbortError extends HudhudError {
+  /** The taxonomy code of this class. */
   static override readonly code = 'ABORTED';
+  /** The class name, stable under minification. */
   static override readonly errorName = 'AbortError';
 
   constructor(message = 'The operation was aborted.', options: HudhudErrorOptions = {}) {

@@ -2,11 +2,11 @@
 
 import Type from 'typebox';
 
-import { stringMap, type SchemaDocument } from './common.js';
+import { openEnum, stringMap, type SchemaDocument } from './common.js';
 
-export const Capability = Type.Enum(['supported', 'emulated', 'unsupported']);
+export const Capability = openEnum(['supported', 'emulated', 'unsupported'] as const);
 
-export const ProcessContainment = Type.Enum(['job', 'best-effort', 'cgroup']);
+export const ProcessContainment = openEnum(['job', 'best-effort', 'cgroup'] as const);
 
 export const HarnessCapabilities = Type.Object({
   multiTurn: Capability,

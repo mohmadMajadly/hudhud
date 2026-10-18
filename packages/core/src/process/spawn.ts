@@ -60,7 +60,7 @@ import { createDarwinPsTableCalls } from './os/darwin.js';
 import { createLinuxProcTableCalls, createPosixSignalCalls } from './os/posix.js';
 import type { OsCalls, ProcessTableCalls } from './os/types.js';
 import { createWin32CimTableCalls } from './os/win32.js';
-import { createTaskkillCalls, nodeTaskkillDeps } from './taskkill.js';
+import { createTaskkillCalls, nodeTaskkillDeps, resolveSystem32PowerShell } from './taskkill.js';
 import { parseProcStat } from './tree/proc-stat.js';
 import { takeSnapshot } from './tree/snapshot.js';
 import type { ProcessIdentity, ProcessTableSource } from './tree/types.js';
@@ -69,7 +69,7 @@ import { childEnv } from './win32-env.js';
 /**
  * Reads the start time of a pid, in the unit of {@link StartTimeReader.source}.
  *
- * @public
+ * @beta
  */
 export interface StartTimeReader {
   readonly source: ProcessTableSource;
@@ -80,7 +80,7 @@ export interface StartTimeReader {
 /**
  * What {@link spawnHarnessProcess} starts.
  *
- * @public
+ * @beta
  */
 export interface SpawnSpec {
   /** Absolute path of the executable, normally `resolveExecutable(...).path`. */
@@ -102,7 +102,7 @@ export interface SpawnSpec {
 /**
  * Why a {@link SpawnSpec} was refused before anything was started.
  *
- * @public
+ * @beta
  */
 export type SpawnSpecProblem =
   | 'file-refused'
@@ -117,7 +117,7 @@ export type SpawnSpecProblem =
  * Thrown by {@link spawnHarnessProcess} for a spec it refuses; nothing was
  * started. Messages name variables, never values.
  *
- * @public
+ * @beta
  */
 export class SpawnSpecError extends Error {
   override readonly name = 'SpawnSpecError';
@@ -133,11 +133,12 @@ export class SpawnSpecError extends Error {
 }
 
 /**
- * Cause of a failed spawn (plan §3.1 `SpawnError.details.cause`; the
- * `'gatekeeper'` cause needs the macOS gate's evidence and is mapped by the
- * adapter).
+ * Cause of a failed spawn (plan §3.1 `SpawnError.details.cause`). There is
+ * no Gatekeeper cause: the macOS gate found that quarantine does not stop a
+ * launch from a non-GUI parent (research 11 §77), so none is mapped
+ * (review R3-3; roadmap, ADR-0018).
  *
- * @public
+ * @beta
  */
 export type SpawnFailureCause = 'enoent' | 'eacces' | 'eperm' | 'unknown';
 
@@ -145,7 +146,7 @@ export type SpawnFailureCause = 'enoent' | 'eacces' | 'eperm' | 'unknown';
  * The OS refused to start the process (child `error` before `spawn`). The
  * adapter maps it to the public `SpawnError` (`SPAWN_FAILED`).
  *
- * @public
+ * @beta
  */
 export class ProcessSpawnError extends Error {
   override readonly name = 'ProcessSpawnError';
@@ -171,7 +172,7 @@ const SPAWN_CAUSES: ReadonlyMap<string, SpawnFailureCause> = new Map([
 /**
  * A write to stdin or a read of stdout failed.
  *
- * @public
+ * @beta
  */
 export class ProcessStreamError extends Error {
   override readonly name = 'ProcessStreamError';
@@ -199,7 +200,7 @@ export class ProcessStreamError extends Error {
 /**
  * How the process ended.
  *
- * @public
+ * @beta
  */
 export interface ProcessExit {
   /** Exit code; `null` when ended by a signal. Windows codes are unsigned (`4294967295`). */
@@ -210,14 +211,14 @@ export interface ProcessExit {
 /**
  * Why {@link HarnessProcess.identity} is `null`.
  *
- * @public
+ * @beta
  */
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 
 /**
  * The settled identity read of a spawned process.
  *
- * @public
+ * @beta
  */
 export type IdentityRead =
   | {
@@ -234,7 +235,7 @@ export type IdentityRead =
 /**
  * The spawned harness process.
  *
- * @public
+ * @beta
  */
 export interface HarnessProcess {
   /** The spawned pid (never `initialize.pid`, ADR-0011 J9). */
@@ -459,7 +460,7 @@ class SpawnedProcess implements HarnessProcess {
  * The start-time reader over a process table: one `/proc/<pid>/stat` read on
  * Linux, one full table read (`ps`, CIM) elsewhere.
  *
- * @public
+ * @beta
  */
 export function processTableStartTime(table: ProcessTableCalls): StartTimeReader {
   if (table.source === 'linux-proc') {
@@ -488,14 +489,17 @@ export function processTableStartTime(table: ProcessTableCalls): StartTimeReader
  * operating system.
  *
  * @throws Error for a platform hudhud does not support
- * @public
+ * @beta
  */
 export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls {
   if (platform === 'win32') {
     return {
       platform,
       hostPid,
-      processTable: createWin32CimTableCalls(),
+      // PowerShell resolved and checked as for taskkill.exe (review R1-3).
+      processTable: createWin32CimTableCalls({
+        powershell: () => resolveSystem32PowerShell({ env: process.env, ...nodeTaskkillDeps }),
+      }),
       terminate: createTaskkillCalls({ env: process.env, ...nodeTaskkillDeps }),
     };
   }
@@ -637,7 +641,7 @@ export async function spawnProcess(
  *
  * @throws {@link SpawnSpecError} for a refused spec (nothing started)
  * @throws {@link ProcessSpawnError} when the OS refused to start it
- * @public
+ * @beta
  */
 export function spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess> {
   return spawnProcess(spec, {

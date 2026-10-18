@@ -2,11 +2,14 @@
 // §5.4 W2-T6). Every child is tracked and checked for leaks by pid and start
 // time after each test (plan §4.7).
 
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { closeSync, existsSync, openSync } from 'node:fs';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import type { Readable, Writable } from 'node:stream';
 
 import fc from 'fast-check';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -16,7 +19,9 @@ import {
   ProcessSpawnError,
   ProcessStreamError,
   spawnHarnessProcess,
+  spawnProcess,
   type HarnessProcess,
+  type SpawnFunction,
   type StartTimeReader,
 } from '../../../src/process/spawn.js';
 import { findIdentity } from '../../../src/process/tree/descendants.js';
@@ -39,6 +44,12 @@ import {
 } from './spawn-support.js';
 
 const WIN32 = process.platform === 'win32';
+
+/** A start-time reader for spawns that fail before any identity read. */
+const UNREAD_START_TIME: StartTimeReader = {
+  source: 'linux-proc',
+  read: () => Promise.reject(new Error('no identity read is expected')),
+};
 const LINUX = process.platform === 'linux';
 const DARWIN = process.platform === 'darwin';
 // Each test and hook timeout is a hang guard sized from the product bounds
@@ -587,15 +598,32 @@ describe('spawn failures', () => {
     async () => {
       // On Windows a cwd of 259+ characters fails exactly like this (J10).
       const cwd = path.join(scratch, 'x'.repeat(120), 'y'.repeat(120), 'z'.repeat(40));
-      const error: unknown = await spawnHarnessProcess({
-        file: process.execPath,
-        args: ['-e', '0'],
-        cwd,
-        env: BASE_ENV,
-      }).catch((caught: unknown) => caught);
+      // The real spawn, with the child kept so the test can wait for its
+      // pipes (review R8-U2: a fixed 200 ms wait let a late pipe 'error' land
+      // in a later test or after the file).
+      type Piped = ChildProcessByStdio<Writable, Readable, Readable>;
+      const kept: Piped[] = [];
+      const spawnKept = ((...args: Parameters<SpawnFunction>) => {
+        const child = (spawn as (...a: Parameters<SpawnFunction>) => Piped)(...args);
+        kept.push(child);
+        return child;
+      }) as SpawnFunction;
+      const error: unknown = await spawnProcess(
+        { file: process.execPath, args: ['-e', '0'], cwd, env: BASE_ENV },
+        { spawn: spawnKept, platform: process.platform, startTime: UNREAD_START_TIME },
+      ).catch((caught: unknown) => caught);
       expect(error).toMatchObject({ reason: 'enoent' });
-      // Give the pipes time to report; an unhandled 'error' would fail the run.
-      await sleep(200);
+      // Every pipe has closed: a stream emits 'error' before 'close' and
+      // nothing after it, so any pipe error (ENOTCONN on Windows) has been
+      // emitted by now; an unhandled one would have failed the run.
+      expect(kept).toHaveLength(1);
+      const pipes = kept.flatMap((child) => [child.stdin, child.stdout, child.stderr]);
+      await Promise.all(
+        pipes.map(async (stream) => {
+          if (!stream.closed) await once(stream, 'close');
+        }),
+      );
+      expect(pipes.every((stream) => stream.closed)).toBe(true);
     },
     TIMEOUT,
   );

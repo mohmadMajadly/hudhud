@@ -4,6 +4,15 @@
   "private": true,
   "description": "Sans-IO protocol and session core of hudhud, plus the process layer.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohmadMajadly/hudhud.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/mohmadMajadly/hudhud/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/mohmadMajadly/hudhud/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -24,6 +33,7 @@
       "default": "./dist/binding/index.js"
     },
     "./schemas/*": "./schemas/*.json",
+    "./schemas/*.json": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "files": [

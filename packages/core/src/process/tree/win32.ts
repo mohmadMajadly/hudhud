@@ -38,7 +38,7 @@ function parseEntry(entry: unknown): ProcessRecord | null {
  * microseconds (the CIM value has microsecond resolution, so the truncation
  * is exact).
  *
- * @public
+ * @beta
  */
 export function parseWin32ProcessJson(output: Uint8Array): ParsedProcessTable {
   let document: unknown;

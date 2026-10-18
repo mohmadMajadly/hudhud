@@ -28,11 +28,13 @@ try {
 
 ## Entry points
 
-| Specifier                              | Contents                                                                                                                                                                                                                |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@hudhudjs/claude-code`                | `connect`, `session`, `hudhud`, `CLAUDE_CODE_COMPAT`, and the option types (`ConnectOptions`, `SessionOptions`, `ResumeOptions`, `EnvOption`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `ClaudeCodeHarness`) |
-| `@hudhudjs/claude-code/raw`            | The unstable raw tier: every wire frame, raw control requests behind an explicit opt-in, extra argv and environment. Exempt from compatibility promises.                                                                |
-| `@hudhudjs/claude-code/schemas/<name>` | The JSON Schemas of the options and of the Claude Code wire frames hudhud reads and writes (`options.schema`, `wire-inbound.schema`, `wire-outbound.schema`)                                                            |
+| Specifier                                   | Contents                                                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@hudhudjs/claude-code`                     | `connect`, `session`, `hudhud`, `CLAUDE_CODE_COMPAT`, and the option types (`ConnectOptions`, `SessionOptions`, `ResumeOptions`, `EnvOption`, `PermissionMode`, `WorkspaceTrust`, `SettingSource`, `ClaudeCodeHarness`)              |
+| `@hudhudjs/claude-code/raw`                 | The unstable raw tier: every wire frame, raw control requests behind an explicit opt-in, extra argv and environment. Exempt from compatibility promises.                                                                             |
+| `@hudhudjs/claude-code/schemas/<name>.json` | The JSON Schemas of the options and of the Claude Code wire frames hudhud reads and writes (`options.schema.json`, `wire-inbound.schema.json`, `wire-outbound.schema.json`); the specifier without `.json` resolves to the same file |
+
+The root entry and the schemas are stable: semver, a breaking change needs a major version. The raw tier is beta (`@beta` in the API reports) and makes no compatibility promise at all.
 
 ## Requirements
 

@@ -8,6 +8,14 @@
 // properties, new definitions, new union arms and widened limits pass.
 // Definitions and properties whose name starts with `x-` are experimental
 // and exempt (ADR-0005 §6).
+//
+// Schemas that applications and other languages read (every schema except
+// those in WIDENING_ALLOWED) also fail when a closed enum is widened: a new
+// value of a closed enum, a closed enum opened to any string, or a closed
+// enum dropped. A reader that switches exhaustively over a closed enum, or a
+// closed enum generated in another language, breaks on the new value. The
+// known values of an open enum (an `anyOf` of an `enum` and `{ type:
+// 'string' }`) may grow (ADR-0005 §6).
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -26,6 +34,21 @@ import { canonicalJson, isPlainObject } from './compose.mjs';
  */
 
 export const BASELINE_DIR = '.baseline';
+
+/**
+ * Committed schemas whose values only flow into hudhud or between hudhud
+ * and its harness, never to an application: there a widened enum is
+ * additive. The options are written by applications and read by hudhud; the
+ * Claude Code wire schemas describe the CLI's frames (read leniently, ADR-0005
+ * §7) and the frames hudhud writes to it. Every other schema is read by
+ * applications or other languages, where widening a closed enum breaks
+ * readers; a schema missing from this list counts as such (fail closed).
+ */
+export const WIDENING_ALLOWED = new Set([
+  'packages/claude-code/schemas/options.schema.json',
+  'packages/claude-code/schemas/wire-inbound.schema.json',
+  'packages/claude-code/schemas/wire-outbound.schema.json',
+]);
 
 const LOWER_LIMITS = ['minimum', 'exclusiveMinimum', 'minLength', 'minItems', 'minProperties'];
 const UPPER_LIMITS = ['maximum', 'exclusiveMaximum', 'maxLength', 'maxItems', 'maxProperties'];
@@ -64,6 +87,43 @@ function normalize(schema) {
 }
 
 /**
+ * The values a closed `enum` or `const` allows, or `undefined` when the
+ * schema has neither.
+ *
+ * @param {JsonObject} schema
+ * @returns {Json[] | undefined}
+ */
+function closedValues(schema) {
+  if (schema['const'] !== undefined) return [schema['const']];
+  const values = schema['enum'];
+  return Array.isArray(values) ? values : undefined;
+}
+
+/**
+ * Whether a schema is an open enum: an `anyOf` with an `enum` arm of known
+ * values and an arm that accepts every string.
+ *
+ * @param {JsonObject} schema
+ * @returns {boolean}
+ */
+function isOpenEnum(schema) {
+  const arms = schema['anyOf'];
+  return (
+    Array.isArray(arms) &&
+    arms.some((arm) => isPlainObject(arm) && Array.isArray(arm['enum'])) &&
+    arms.some((arm) => canonicalJson(arm) === canonicalJson({ type: 'string' }))
+  );
+}
+
+/**
+ * @param {readonly Json[]} values
+ * @returns {string}
+ */
+function listValues(values) {
+  return values.map((v) => JSON.stringify(v)).join(', ');
+}
+
+/**
  * @param {Json | undefined} type
  * @returns {string[] | undefined}
  */
@@ -80,9 +140,11 @@ class SchemaComparison {
    * @param {string} file
    * @param {JsonObject} baseline
    * @param {JsonObject} current
+   * @param {boolean} wideningAllowed Whether a widened closed enum is additive.
    */
-  constructor(file, baseline, current) {
+  constructor(file, baseline, current, wideningAllowed) {
     this.file = file;
+    this.wideningAllowed = wideningAllowed;
     /** @type {JsonObject} */
     this.baseDefs = normalizeDefs(baseline['$defs']);
     /** @type {JsonObject} */
@@ -120,8 +182,10 @@ class SchemaComparison {
    * @param {Json | undefined} baseSchema
    * @param {Json | undefined} currentSchema
    * @param {string} pointer
+   * @param {boolean} [open] The known-values arm of an open enum on both
+   *   sides: its values may grow.
    */
-  compare(baseSchema, currentSchema, pointer) {
+  compare(baseSchema, currentSchema, pointer, open = false) {
     const base = normalize(baseSchema);
     const current = normalize(currentSchema);
     if (base === false) return;
@@ -139,8 +203,13 @@ class SchemaComparison {
       );
       return;
     }
+    const baseValues = closedValues(base);
+    if (baseValues !== undefined && isOpenEnum(current)) {
+      this.compareOpened(baseValues, /** @type {Json[]} */ (current['anyOf']), pointer);
+      return;
+    }
     this.compareTypes(base, current, pointer);
-    this.compareValues(base, current, pointer);
+    this.compareValues(base, current, pointer, open);
     this.compareLimits(base, current, pointer);
     this.compareObjects(base, current, pointer);
     this.compareUnions(base, current, pointer);
@@ -187,21 +256,59 @@ class SchemaComparison {
   }
 
   /**
+   * A closed enum (or `const`) that became an open enum: widening, which
+   * breaks readers of a read schema. A baseline value the open enum no
+   * longer accepts (a non-string outside its known values) is narrowing.
+   *
+   * @param {readonly Json[]} baseValues The baseline's closed values.
+   * @param {readonly Json[]} arms The `anyOf` arms of the current open enum.
+   * @param {string} pointer
+   */
+  compareOpened(baseValues, arms, pointer) {
+    const known = new Set(
+      arms.flatMap((arm) =>
+        isPlainObject(arm) && Array.isArray(arm['enum']) ? arm['enum'].map(canonicalJson) : [],
+      ),
+    );
+    const lost = baseValues.filter(
+      (value) => typeof value !== 'string' && !known.has(canonicalJson(value)),
+    );
+    if (lost.length > 0) {
+      this.report(pointer, 'enum-narrowed', `no longer allows ${listValues(lost)}`);
+    }
+    if (!this.wideningAllowed) {
+      this.report(
+        pointer,
+        'enum-widened',
+        `the closed enum ${listValues(baseValues)} became open; readers that handle only these values break`,
+      );
+    }
+  }
+
+  /**
    * `enum` and `const`: every value the baseline allowed must stay allowed.
+   * In a read schema a closed enum must not gain values either; `open`
+   * exempts the known values of an open enum.
    *
    * @param {JsonObject} base
    * @param {JsonObject} current
    * @param {string} pointer
+   * @param {boolean} open
    */
-  compareValues(base, current, pointer) {
-    const allowed = (/** @type {JsonObject} */ schema) => {
-      if (schema['const'] !== undefined) return [schema['const']];
-      const values = schema['enum'];
-      return Array.isArray(values) ? values : undefined;
-    };
-    const currentValues = allowed(current);
-    if (currentValues === undefined) return;
-    const baseValues = allowed(base);
+  compareValues(base, current, pointer, open) {
+    const currentValues = closedValues(current);
+    const baseValues = closedValues(base);
+    const frozen = !open && !this.wideningAllowed;
+    if (currentValues === undefined) {
+      if (baseValues !== undefined && frozen) {
+        this.report(
+          pointer,
+          'enum-widened',
+          `no longer restricted to ${listValues(baseValues)}; readers that handle only these values break`,
+        );
+      }
+      return;
+    }
     if (baseValues === undefined) {
       this.report(pointer, 'enum-narrowed', 'values are now restricted');
       return;
@@ -209,10 +316,16 @@ class SchemaComparison {
     const kept = new Set(currentValues.map(canonicalJson));
     const lost = baseValues.filter((value) => !kept.has(canonicalJson(value)));
     if (lost.length > 0) {
+      this.report(pointer, 'enum-narrowed', `no longer allows ${listValues(lost)}`);
+    }
+    if (!frozen) return;
+    const was = new Set(baseValues.map(canonicalJson));
+    const added = currentValues.filter((value) => !was.has(canonicalJson(value)));
+    if (added.length > 0) {
       this.report(
         pointer,
-        'enum-narrowed',
-        `no longer allows ${lost.map((v) => JSON.stringify(v)).join(', ')}`,
+        'enum-widened',
+        `now also allows ${listValues(added)}; readers of a closed enum may not handle it (make it an open enum)`,
       );
     }
   }
@@ -302,12 +415,14 @@ class SchemaComparison {
         this.report(`${pointer}/${keyword}`, 'constraint-added', keyword);
         continue;
       }
+      // The known values of an open enum on both sides may grow.
+      const open = keyword === 'anyOf' && isOpenEnum(base) && isOpenEnum(current);
       baseArms.forEach((arm, index) => {
         const key = armKey(arm);
         const match = currentArms.find((candidate) => armKey(candidate) === key);
         const at = `${pointer}/${keyword}/${String(index)}`;
         if (match === undefined) this.report(at, 'union-arm-removed', key);
-        else this.compare(arm, match, at);
+        else this.compare(arm, match, at, open);
       });
     }
   }
@@ -380,13 +495,15 @@ function armKey(arm) {
 /**
  * Compares one baseline document with its current version.
  *
- * @param {string} file
+ * @param {string} file Path from the repository root, forward slashes.
  * @param {JsonObject} baseline
  * @param {JsonObject} current
+ * @param {boolean} [wideningAllowed] Whether a widened closed enum is
+ *   additive; defaults to whether {@link WIDENING_ALLOWED} lists `file`.
  * @returns {Violation[]}
  */
-export function diffSchema(file, baseline, current) {
-  const comparison = new SchemaComparison(file, baseline, current);
+export function diffSchema(file, baseline, current, wideningAllowed = WIDENING_ALLOWED.has(file)) {
+  const comparison = new SchemaComparison(file, baseline, current, wideningAllowed);
   for (const [name, schema] of Object.entries(comparison.baseDefs)) {
     if (isExperimental(name)) continue;
     const at = `/$defs/${escapePointer(name)}`;

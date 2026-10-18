@@ -40,7 +40,13 @@
  * so the binding's own diagnostics (ladder, sweep, permission failures,
  * containment) share one gapless stream with the machine's events. Each
  * event counts the byte size of the line it came from when it carries that
- * frame as `raw`, else 256 bytes (plan §1.6).
+ * frame as `raw`, else 256 bytes (plan §1.6); a subscriber is charged a line
+ * once: every further event of the same line counts 256 bytes for it
+ * (ADR-0007, R4-3).
+ *
+ * Subscriptions end with `ABORTED` when their own signal or the session's
+ * `events.signal` aborts; they let go of both signals as soon as they stop
+ * accepting events (`LinkedSignal`).
  *
  * Events published before the handshake settled (the adapter's diagnostics
  * passed in `diagnostics`, the machine's `session.started` and every other
@@ -94,9 +100,10 @@ import {
 } from './errors.js';
 import {
   Fanout,
+  LinkedSignal,
   resolveSubscriberOptions,
-  type AbortSignalLike,
   type FanoutSubscriberOptions,
+  type SharedBytes,
   type SubscriberOptions,
 } from './fanout.js';
 import {
@@ -201,72 +208,32 @@ export const PRE_HANDSHAKE_MAX_BYTES = 1_048_576;
 
 // ---- fanout items --------------------------------------------------------------------------
 
-/** What travels through the fanout: events plus the binding's own markers. */
+/**
+ * What travels through the fanout: events plus the binding's own markers.
+ * Each carries the `seq` of its place in the stream (a gap: its first event
+ * left out; a turn end: the next event's), so a gap marker that drops one of
+ * them still names where it starts.
+ */
 type Item =
   | { readonly kind: 'event'; readonly event: HudhudEvent }
-  /** `seq`: set on the replay's truncation marker (the first event left out). */
-  | { readonly kind: 'gap'; readonly dropped: number; readonly seq?: number }
-  | { readonly kind: 'turn-end'; readonly turnId: string; readonly error: HudhudError | undefined };
+  | { readonly kind: 'gap'; readonly dropped: number; readonly seq: number }
+  | {
+      readonly kind: 'turn-end';
+      readonly turnId: string;
+      readonly error: HudhudError | undefined;
+      readonly seq: number;
+    };
+
+/** The `seq` of an item's place in the stream (see {@link Item}). */
+function seqOf(item: Item): number {
+  return item.kind === 'event' ? item.event.seq : item.seq;
+}
 
 /** Wraps the error a subscription is cut with, so it is not taken for an `AbortSignal` reason. */
 class CutReason {
   readonly error: HudhudError;
   constructor(error: HudhudError) {
     this.error = error;
-  }
-}
-
-/**
- * The abort signal of one subscription: follows the application's signal
- * and can be aborted by the driver (abort cutting through a stalled
- * `'block'` subscriber).
- */
-class SubscriptionSignal implements AbortSignalLike {
-  aborted = false;
-  reason: unknown;
-  readonly #listeners = new Set<() => void>();
-  readonly #onRelease: () => void;
-  #unlink: () => void = () => undefined;
-
-  constructor(parent: AbortSignal | undefined, onRelease: () => void) {
-    this.#onRelease = onRelease;
-    if (parent === undefined) return;
-    if (parent.aborted) {
-      this.aborted = true;
-      this.reason = parent.reason;
-      return;
-    }
-    const fromParent = (): void => {
-      this.abort(parent.reason);
-    };
-    parent.addEventListener('abort', fromParent, { once: true });
-    this.#unlink = () => {
-      parent.removeEventListener('abort', fromParent);
-    };
-  }
-
-  addEventListener(_type: 'abort', listener: () => void): void {
-    this.#listeners.add(listener);
-  }
-
-  removeEventListener(_type: 'abort', listener: () => void): void {
-    // The fanout registers one listener and detaches it once the consumer
-    // is finished.
-    this.#listeners.delete(listener);
-    this.#release();
-  }
-
-  /** Called once at most: both callers drop the signal afterwards (`#release`). */
-  abort(reason: unknown): void {
-    this.aborted = true;
-    this.reason = reason;
-    this.#release();
-    for (const listener of [...this.#listeners]) listener();
-  }
-
-  #release(): void {
-    this.#unlink();
-    this.#onRelease();
   }
 }
 
@@ -381,13 +348,19 @@ export class SessionDriver<State, Config> implements SessionCore {
   #seq = 1;
   /** Events published before the handshake settled; replayed after `compat`. */
   readonly #early: { readonly event: HudhudEvent; readonly bytes: number }[] = [];
+  /** The input of the last line-carrying event the buffer counted in full. */
+  #earlyShared: object | undefined;
   #earlyBytes = 0;
   #earlyDropped = 0;
   #earlyOpen = true;
   #closingEarly = false;
-  readonly #outbox: { readonly item: Item; readonly bytes: number }[] = [];
+  readonly #outbox: {
+    readonly item: Item;
+    readonly bytes: number;
+    readonly shared?: SharedBytes;
+  }[] = [];
   #blocked: Promise<void> | undefined;
-  readonly #blockSignals = new Set<SubscriptionSignal>();
+  readonly #blockSignals = new Set<LinkedSignal>();
 
   // timers
   readonly #timers = new Map<
@@ -449,7 +422,10 @@ export class SessionDriver<State, Config> implements SessionCore {
             compat: options.compat,
           };
     this.#fanout = new Fanout<Item>({
-      gapMarker: (dropped) => ({ kind: 'gap', dropped }),
+      // Numbered as the first event it stands for (R4-U1).
+      gapMarker: (dropped, first) => ({ kind: 'gap', dropped, seq: seqOf(first) }),
+      // A replayed gap marker that is dropped in turn stands for its events.
+      count: (item) => (item.kind === 'gap' ? item.dropped : 1),
       overflowError: (info: OverflowInfo) =>
         new SubscriberOverflowError('The subscriber queue overflowed.', {
           details: { ...info },
@@ -548,11 +524,15 @@ export class SessionDriver<State, Config> implements SessionCore {
     const content = this.#encode(normalizeUserInput(input));
     const id = this.#ids.uuid();
     const record = new TurnRecord(id);
-    const events = options.iterate
-      ? this.#subscribeTurn(id, options.events, options.signal)
-      : undefined;
     const refusal = this.#refusal();
-    if (refusal !== undefined) {
+    const events = options.iterate
+      ? this.#subscribeTurn(id, options.events, options.signal, refusal)
+      : undefined;
+    if (options.signal?.aborted === true) {
+      // Aborted before the call: nothing is sent (R4-6); the iterator above
+      // was made with the aborted signal and rejects the same way.
+      this.#failTurn(record, AbortError.fromSignal(options.signal));
+    } else if (refusal !== undefined) {
       this.#failTurn(record, refusal);
     } else {
       this.#begin();
@@ -591,10 +571,16 @@ export class SessionDriver<State, Config> implements SessionCore {
     const signal = this.#signalFor(options?.signal, options?.overflow ?? this.#defaults.overflow);
     const resolved = this.#subscriberOptions(options, signal);
     const source = this.#fanout.subscribe(
-      { match: (item) => item.kind === 'event', replay: this.#replayFor(resolved) },
+      {
+        match: (item) => item.kind === 'event',
+        replay: this.#replayFor(resolved),
+        onClose: () => {
+          signal.unlink();
+        },
+      },
       resolved,
     );
-    return this.#eventsOf(source);
+    return this.#eventsOf(source, signal);
   }
 
   /**
@@ -740,7 +726,6 @@ export class SessionDriver<State, Config> implements SessionCore {
   // ---- effects --------------------------------------------------------------------------
 
   #execute(effects: readonly MachineEffect[], item: QueueItem): void {
-    const ladderInStep = effects.some((effect) => effect.type === 'ladder.start');
     const ended: TurnRecord[] = [];
     const current = item.send;
     for (const effect of effects) {
@@ -749,7 +734,9 @@ export class SessionDriver<State, Config> implements SessionCore {
           this.#write(effect.line);
           break;
         case 'stdin.end':
-          this.#endInput(!ladderInStep && this.#ladder === undefined);
+          // Recorded (snapshot, then EOF) also while a ladder runs, so the tree
+          // is swept after the exit whichever step ends the harness (R3-1).
+          this.#endInput(true);
           break;
         case 'timer.set':
           this.#armTimer(effect.name, effect.ms);
@@ -759,7 +746,7 @@ export class SessionDriver<State, Config> implements SessionCore {
           this.#timers.delete(effect.name);
           break;
         case 'event':
-          this.#publish(effect.event, item.bytes);
+          this.#publish(effect.event, item.bytes, item);
           break;
         case 'permission.ask':
           this.#bridge.ask(effect.requestId, effect.request);
@@ -928,21 +915,38 @@ export class SessionDriver<State, Config> implements SessionCore {
 
   // ---- events ---------------------------------------------------------------------------
 
-  #publish(event: HudhudEvent, lineBytes: number | undefined): void {
-    const bytes =
-      lineBytes !== undefined && Object.hasOwn(event, 'raw') ? lineBytes : SYNTHESIZED_EVENT_BYTES;
+  /**
+   * Numbers and publishes one event. An event that carries the frame of the
+   * input line it came from (`raw`, from `source`) counts the line's bytes;
+   * the other events of the same line count {@link SYNTHESIZED_EVENT_BYTES}
+   * for a subscriber that already took one of them (R4-3, ADR-0007).
+   */
+  #publish(event: HudhudEvent, lineBytes: number | undefined, source?: object): void {
+    const framed = lineBytes !== undefined && Object.hasOwn(event, 'raw');
+    const bytes = framed ? lineBytes : SYNTHESIZED_EVENT_BYTES;
+    const shared: SharedBytes | undefined =
+      framed && source !== undefined
+        ? { key: source, siblingBytes: SYNTHESIZED_EVENT_BYTES }
+        : undefined;
     const numbered = { ...event, seq: this.#seq };
     this.#seq += 1;
-    if (this.#earlyOpen) this.#keepEarly(numbered, bytes);
-    this.#outbox.push({ item: { kind: 'event', event: numbered }, bytes });
+    if (this.#earlyOpen) this.#keepEarly(numbered, bytes, shared);
+    this.#outbox.push(
+      shared === undefined
+        ? { item: { kind: 'event', event: numbered }, bytes }
+        : { item: { kind: 'event', event: numbered }, bytes, shared },
+    );
     this.#drainOutbox();
   }
 
   /**
    * Keeps a pre-handshake event while it fits; one event slot and its bytes
-   * stay reserved for the truncation diagnostic that closes the buffer.
+   * stay reserved for the truncation diagnostic that closes the buffer. The
+   * buffer counts a line once, as subscribers do.
    */
-  #keepEarly(event: HudhudEvent, bytes: number): void {
+  #keepEarly(event: HudhudEvent, lineBytes: number, shared: SharedBytes | undefined): void {
+    const bytes =
+      shared !== undefined && shared.key === this.#earlyShared ? shared.siblingBytes : lineBytes;
     const fits =
       this.#early.length < PRE_HANDSHAKE_MAX_EVENTS - 1 &&
       this.#earlyBytes + bytes <= PRE_HANDSHAKE_MAX_BYTES - SYNTHESIZED_EVENT_BYTES;
@@ -950,6 +954,7 @@ export class SessionDriver<State, Config> implements SessionCore {
     if (fits || this.#closingEarly) {
       this.#early.push({ event, bytes });
       this.#earlyBytes += bytes;
+      if (shared !== undefined) this.#earlyShared = shared.key;
     } else {
       this.#earlyDropped += 1;
     }
@@ -1027,7 +1032,7 @@ export class SessionDriver<State, Config> implements SessionCore {
       const next = this.#outbox.shift();
       if (next === undefined) return;
       if (this.#fanout.closed) continue;
-      const wait = this.#fanout.publish(next.item, next.bytes);
+      const wait = this.#fanout.publish(next.item, next.bytes, next.shared);
       if (wait !== undefined) {
         const blocked = wait.then(() => {
           this.#blocked = undefined;
@@ -1047,8 +1052,13 @@ export class SessionDriver<State, Config> implements SessionCore {
     for (const signal of [...this.#blockSignals]) signal.abort(reason);
   }
 
-  #signalFor(parent: AbortSignal | undefined, overflow: unknown): SubscriptionSignal {
-    const signal: SubscriptionSignal = new SubscriptionSignal(parent, () => {
+  /**
+   * The signal of one subscription: the call's own signal and the session's
+   * `events.signal` (either ends it, R4-4), and the driver's cut of a
+   * `'block'` subscriber.
+   */
+  #signalFor(own: AbortSignal | undefined, overflow: unknown): LinkedSignal {
+    const signal: LinkedSignal = new LinkedSignal([own, this.#defaults.signal], () => {
       this.#blockSignals.delete(signal);
     });
     if (overflow === 'block' && !signal.aborted) this.#blockSignals.add(signal);
@@ -1057,8 +1067,8 @@ export class SessionDriver<State, Config> implements SessionCore {
 
   #subscriberOptions(
     options: SubscriberOptions | undefined,
-    signal: SubscriptionSignal,
-  ): Required<Omit<FanoutSubscriberOptions, 'signal'>> & { readonly signal: SubscriptionSignal } {
+    signal: LinkedSignal,
+  ): Required<Omit<FanoutSubscriberOptions, 'signal'>> & { readonly signal: LinkedSignal } {
     const maxEvents = options?.maxEvents ?? this.#defaults.maxEvents;
     const maxBytes = options?.maxBytes ?? this.#defaults.maxBytes;
     const overflow = options?.overflow ?? this.#defaults.overflow;
@@ -1078,12 +1088,20 @@ export class SessionDriver<State, Config> implements SessionCore {
     }
   }
 
+  /**
+   * The events of one turn. A turn refused at the send (`refusal`) gets an
+   * iterator that rejects with that error, also after the session ended,
+   * when the fanout would only have ended it quietly; a signal aborted
+   * already wins (`ABORTED`), as for `turn.done`.
+   */
   #subscribeTurn(
     turnId: string,
     options: SubscriberOptions | undefined,
     parent: AbortSignal | undefined,
+    refusal: HudhudError | undefined,
   ): AsyncIterableIterator<HudhudEvent, undefined, undefined> {
     const signal = this.#signalFor(parent, options?.overflow ?? this.#defaults.overflow);
+    if (refusal !== undefined) signal.abort(new CutReason(refusal));
     const source = this.#fanout.subscribe(
       {
         match: (item) =>
@@ -1092,18 +1110,25 @@ export class SessionDriver<State, Config> implements SessionCore {
         endAfter: (item) =>
           item.kind === 'turn-end' ||
           (item.kind === 'event' && item.event.type === 'turn.completed'),
+        onClose: () => {
+          signal.unlink();
+        },
       },
       this.#subscriberOptions(options, signal),
     );
-    return this.#eventsOf(source);
+    return this.#eventsOf(source, signal);
   }
 
-  /** The public view of a subscription: events, gap markers numbered in place, turn ends. */
+  /**
+   * The public view of a subscription: events, gap markers numbered as their
+   * first event left out, turn ends. Before each delivery it polls the
+   * subscription's signal, which no longer listens to the application's
+   * signals once the subscription stopped (R4-5).
+   */
   #eventsOf(
     source: AsyncIterableIterator<Item, undefined, undefined>,
+    signal: LinkedSignal,
   ): AsyncIterableIterator<HudhudEvent, undefined, undefined> {
-    // Events published from now on start at the current seq.
-    let lastSeq = this.#seq - 1;
     let done = false;
     const finish = async (): Promise<IteratorReturnResult<undefined>> => {
       done = true;
@@ -1112,6 +1137,7 @@ export class SessionDriver<State, Config> implements SessionCore {
     };
     const next = async (): Promise<IteratorResult<HudhudEvent, undefined>> => {
       if (done) return { done: true, value: undefined };
+      signal.poll();
       const result = await source.next();
       if (result.done === true) {
         done = true;
@@ -1120,31 +1146,14 @@ export class SessionDriver<State, Config> implements SessionCore {
       const item = result.value;
       switch (item.kind) {
         case 'event':
-          // The replayed compat (seq 0) does not move the position back.
-          lastSeq = Math.max(lastSeq, item.event.seq);
           return { done: false, value: item.event };
         case 'gap':
-          // The replay's truncation marker carries the seq of its first event left out.
-          if (item.seq !== undefined) {
-            return {
-              done: false,
-              value: {
-                type: 'gap',
-                dropped: item.dropped,
-                seq: item.seq,
-                ts: this.#clock.nowIso(),
-                sessionId: this.id,
-              },
-            };
-          }
-          // Numbered as the first dropped event: the last delivered seq plus one.
-          lastSeq += 1;
           return {
             done: false,
             value: {
               type: 'gap',
               dropped: item.dropped,
-              seq: lastSeq,
+              seq: item.seq,
               ts: this.#clock.nowIso(),
               sessionId: this.id,
             },
@@ -1175,7 +1184,7 @@ export class SessionDriver<State, Config> implements SessionCore {
   #turnEnded(record: TurnRecord): void {
     if (this.#turns.get(record.id) === record) this.#turns.delete(record.id);
     this.#outbox.push({
-      item: { kind: 'turn-end', turnId: record.id, error: record.error },
+      item: { kind: 'turn-end', turnId: record.id, error: record.error, seq: this.#seq },
       bytes: 0,
     });
     this.#drainOutbox();
@@ -1257,7 +1266,7 @@ export class SessionDriver<State, Config> implements SessionCore {
     if (sweep !== null) {
       this.#diagnostic(
         'termination.sweep-after-exit',
-        'The graceful close swept the process tree.',
+        'The sweep after the exit ran over the process tree.',
         toJsonObject(sweep),
       );
     }

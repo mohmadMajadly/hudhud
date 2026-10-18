@@ -4,6 +4,15 @@
   "private": true,
   "description": "Prebuilt Windows x64 job-object addon of hudhud, loaded only by @hudhudjs/core after its sha256 and version check.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohmadMajadly/hudhud.git",
+    "directory": "packages/win32-job-x64"
+  },
+  "homepage": "https://github.com/mohmadMajadly/hudhud/tree/main/packages/win32-job-x64#readme",
+  "bugs": {
+    "url": "https://github.com/mohmadMajadly/hudhud/issues"
+  },
   "os": [
     "win32"
   ],

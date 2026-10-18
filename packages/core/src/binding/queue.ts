@@ -30,8 +30,9 @@
  *
  * - queued events: at most `maxEvents`, and their declared bytes at most
  *   `maxBytes`;
- * - dropped events: one integer counter; gap markers are created only when the
- *   consumer pulls, so they never occupy queue space;
+ * - dropped events: one integer counter and the first dropped item (so the
+ *   marker can name where the gap starts); gap markers are created only when
+ *   the consumer pulls, so they never occupy queue space;
  * - blocked pushes: at most one; a second push while one is blocked is a
  *   producer contract violation and throws;
  * - pending `next()` calls: at most `maxEvents`; further concurrent calls
@@ -115,8 +116,17 @@ export interface BoundedQueueOptions<T> {
   /** Positive safe integer. */
   readonly maxBytes: number;
   readonly overflow: OverflowPolicy;
-  /** Builds the gap marker for `dropped` events; called when the consumer pulls it. */
-  readonly gapMarker: (dropped: number) => T;
+  /**
+   * Builds the gap marker for `dropped` events, given the first item it
+   * stands for (the oldest one dropped); called when the consumer pulls it.
+   */
+  readonly gapMarker: (dropped: number, first: T) => T;
+  /**
+   * How many events an item stands for in a gap count (an item that is
+   * itself a gap marker stands for the events it reports); at least 1.
+   * Default 1.
+   */
+  readonly count?: (item: T) => number;
   /** Builds the error the iterator rejects with on overflow. */
   readonly overflowError: (info: OverflowInfo) => Error;
   /**
@@ -200,7 +210,8 @@ export class BoundedQueue<T> {
   readonly #maxEvents: number;
   readonly #maxBytes: number;
   readonly #overflow: OverflowPolicy;
-  readonly #gapMarker: (dropped: number) => T;
+  readonly #gapMarker: (dropped: number, first: T) => T;
+  readonly #count: (item: T) => number;
   readonly #overflowError: (info: OverflowInfo) => Error;
   readonly #onClose: (() => void) | undefined;
   readonly #onFinish: (() => void) | undefined;
@@ -212,6 +223,8 @@ export class BoundedQueue<T> {
   #bytes = 0;
 
   #gap = 0;
+  /** The oldest item of the pending gap (set while `#gap > 0`). */
+  #gapFirst: { readonly item: T } | undefined;
   #state: QueueState = 'open';
   #error: Error | undefined;
   #blocked: Blocked<T> | undefined;
@@ -231,6 +244,7 @@ export class BoundedQueue<T> {
     this.#maxBytes = options.maxBytes;
     this.#overflow = options.overflow;
     this.#gapMarker = options.gapMarker;
+    this.#count = options.count ?? (() => 1);
     this.#overflowError = options.overflowError;
     this.#onClose = options.onClose;
     this.#onFinish = options.onFinish;
@@ -299,7 +313,7 @@ export class BoundedQueue<T> {
     if (this.#blocked !== undefined) {
       throw new Error('BoundedQueue.push called while a blocked push is still pending');
     }
-    if (bytes > this.#maxBytes) return this.#oversized(bytes);
+    if (bytes > this.#maxBytes) return this.#oversized(item, bytes);
     const waiter = this.#waiters.shift();
     if (waiter !== undefined) {
       // Waiters exist only while nothing is queued and no gap is pending.
@@ -319,7 +333,7 @@ export class BoundedQueue<T> {
         // within the byte budget.
         for (let node = this.#first; node !== undefined && !this.#fits(bytes); node = this.#first) {
           this.#unlink(node);
-          this.#gap += 1;
+          this.#dropped(node.item);
         }
         this.#enqueue(item, bytes);
         return 'dropped';
@@ -367,9 +381,16 @@ export class BoundedQueue<T> {
     return this.#size < this.#maxEvents && this.#bytes + bytes <= this.#maxBytes;
   }
 
-  #oversized(bytes: number): PushResult {
+  /** Counts one dropped item into the pending gap. */
+  #dropped(item: T): void {
+    this.#gapFirst ??= { item };
+    this.#gap += this.#count(item);
+  }
+
+  #oversized(item: T, bytes: number): PushResult {
     if (this.#overflow === 'drop-oldest-with-gap-marker') {
-      this.#gap += this.#size + 1;
+      for (let node = this.#first; node !== undefined; node = node.next) this.#dropped(node.item);
+      this.#dropped(item);
       this.#clearItems();
       this.#settleWaiters();
       return 'dropped';
@@ -420,6 +441,7 @@ export class BoundedQueue<T> {
   #discard(): void {
     this.#clearItems();
     this.#gap = 0;
+    this.#gapFirst = undefined;
     const blocked = this.#blocked;
     this.#blocked = undefined;
     blocked?.resolve();
@@ -449,10 +471,12 @@ export class BoundedQueue<T> {
 
   /** Takes the next deliverable result, or `undefined` when the consumer must wait. */
   #take(): IteratorResult<T, undefined> | Error | undefined {
-    if (this.#gap > 0) {
+    const first = this.#gapFirst;
+    if (this.#gap > 0 && first !== undefined) {
       const dropped = this.#gap;
       this.#gap = 0;
-      return { done: false, value: this.#gapMarker(dropped) };
+      this.#gapFirst = undefined;
+      return { done: false, value: this.#gapMarker(dropped, first.item) };
     }
     const node = this.#first;
     if (node !== undefined) {

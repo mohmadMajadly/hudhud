@@ -149,6 +149,17 @@ describe('isJsonValue', () => {
     expect(isJsonValue({ a: shared, b: shared })).toBe(false);
   });
 
+  it('never throws: a throwing getter makes the value not JSON (R4-8)', () => {
+    const getter = {};
+    Object.defineProperty(getter, 'boom', {
+      enumerable: true,
+      get: () => {
+        throw new Error('getter');
+      },
+    });
+    expect(isJsonValue({ nested: getter })).toBe(false);
+  });
+
   it('refuses nesting beyond the limit without recursion', () => {
     let deep: unknown = [];
     for (let i = 1; i < 100_000; i += 1) deep = [deep];

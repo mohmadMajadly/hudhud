@@ -5,5 +5,13 @@
   "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
   "apiReport": {
     "reportFileName": "core"
+  },
+  "messages": {
+    "extractorMessageReporting": {
+      "ae-undocumented": {
+        "logLevel": "error",
+        "addToApiReportFile": false
+      }
+    }
   }
 }

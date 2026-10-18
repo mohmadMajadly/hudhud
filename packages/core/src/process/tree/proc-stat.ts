@@ -30,7 +30,7 @@ const TAIL = /^ ([A-Za-z]) ([0-9]+) ([0-9]+)(?: -?[0-9]+){16} ([0-9]+)(?:[ \n]|$
  *   pid of the `/proc` entry that was read).
  * @returns the record, or `null` for anything malformed.
  *
- * @public
+ * @beta
  */
 export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRecord | null {
   const open = stat.indexOf(OPEN_PAREN);

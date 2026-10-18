@@ -7,14 +7,14 @@
 /**
  * Default inbound line cap: 64 MiB (ADR-0011 §7, 05 §11).
  *
- * @public
+ * @beta
  */
 export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number = 64 * 1024 * 1024;
 
 /**
  * Options of {@link createFramer}.
  *
- * @public
+ * @beta
  */
 export interface FramerOptions {
   /**
@@ -43,7 +43,7 @@ export interface FramerOptions {
  * Lines that are empty or hold only spaces, tabs and carriage returns produce
  * no output.
  *
- * @public
+ * @beta
  */
 export type FramerOutput =
   | { readonly kind: 'line'; readonly text: string; readonly bytes: number }
@@ -57,7 +57,7 @@ export type FramerOutput =
 /**
  * A push-based NDJSON framer.
  *
- * @public
+ * @beta
  */
 export interface Framer {
   /**
@@ -80,7 +80,7 @@ export interface Framer {
  * Largest accepted `maxLineBytes`: V8's maximum string length on 64-bit hosts
  * (2^29 - 24 UTF-16 code units). A line within it always decodes to a string.
  *
- * @public
+ * @beta
  */
 export const maxFramerLineBytes = 0x1fff_ffe8;
 
@@ -229,7 +229,7 @@ function startsWithBom(buffer: Uint8Array, length: number): boolean {
  *
  * @throws RangeError when `maxLineBytes` is not an integer in
  * `[1, maxFramerLineBytes]`.
- * @public
+ * @beta
  */
 export function createFramer(options: FramerOptions): Framer {
   const max = options.maxLineBytes;

@@ -40,30 +40,30 @@ import { assertSpawnable, type IdentityFs, type VerifiedBinary } from './verify.
 /**
  * Default timeout of the version probe (plan §3.1 `BINARY_PROBE_FAILED`).
  *
- * @public
+ * @beta
  */
 export const DEFAULT_VERSION_PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * Default stdout cap of the version probe.
  *
- * @public
+ * @beta
  */
 export const DEFAULT_VERSION_PROBE_MAX_BYTES = 4096;
 
 /**
  * Why the probe failed.
  *
- * @public
+ * @beta
  */
 export type VersionProbeFailure =
-  'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code';
+  'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code' | 'aborted';
 
 /**
  * Thrown by {@link runVersionProbe}. The adapter maps it to the public
  * `BinaryProbeError` (`BINARY_PROBE_FAILED`).
  *
- * @public
+ * @beta
  */
 export class VersionProbeError extends Error {
   override readonly name = 'VersionProbeError';
@@ -82,7 +82,7 @@ export class VersionProbeError extends Error {
 /**
  * Options of {@link runVersionProbe}.
  *
- * @public
+ * @beta
  */
 export interface VersionProbeOptions {
   /** The fixed argv, for example `['--version']`. */
@@ -94,6 +94,8 @@ export interface VersionProbeOptions {
   readonly timeoutMs?: number;
   /** Defaults to {@link DEFAULT_VERSION_PROBE_MAX_BYTES}. */
   readonly maxStdoutBytes?: number;
+  /** Aborting it stops the probe at once (the child is killed): `aborted`. */
+  readonly signal?: AbortSignal;
   /** Seams for tests; the host's by default. */
   readonly deps?: {
     readonly fs?: IdentityFs;
@@ -105,7 +107,7 @@ export interface VersionProbeOptions {
 /**
  * Creates and removes the probe's working directory.
  *
- * @public
+ * @beta
  */
 export interface ProbeWorkDir {
   /** Creates a new, empty directory owned by this process; returns its absolute path. */
@@ -118,7 +120,7 @@ export interface ProbeWorkDir {
  * A new directory under `os.tmpdir()` per probe (`mkdtemp`, mode 0700 on
  * POSIX), removed after the probe.
  *
- * @public
+ * @beta
  */
 export const tempProbeWorkDir: ProbeWorkDir = {
   create: () => mkdtemp(path.join(tmpdir(), 'hudhud-probe-')),
@@ -150,7 +152,7 @@ function checkProbeSpec(options: VersionProbeOptions): void {
  *
  * @throws {@link VersionProbeError}, or from {@link assertSpawnable}
  * `BinaryNotVerifiedError` / `BinaryChangedError`
- * @public
+ * @beta
  */
 export async function runVersionProbe(
   binary: VerifiedBinary,
@@ -173,6 +175,7 @@ export async function runVersionProbe(
       platform: options.platform,
       timeoutMs: options.timeoutMs ?? DEFAULT_VERSION_PROBE_TIMEOUT_MS,
       maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_VERSION_PROBE_MAX_BYTES,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
   } finally {
     await workDir.remove(cwd);

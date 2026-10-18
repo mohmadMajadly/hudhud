@@ -46,6 +46,16 @@ hudhud maintains an every-way registry: a table in the documentation with one ro
 
 The registry is not exhaustive today. Rows are added as features are designed; this ADR fixes the rule, not the final row set.
 
+Amendment (pre-release review R5-7; FX-E, 2026-10-18): what criteria 1 and 2 require, as applied to v1. Read literally, every way needs both a golden fixture and the canary, and the v1 registry had shipped ways with neither, while many ways the integration suites run against Claude Code have no fixture. The criteria now read as follows; a way that meets none of the cases below is not shipped.
+
+- A way whose behaviour depends on Claude Code's output (frames, exit, timing) is covered by a golden fixture or an integration suite. The canary runs every integration suite against each newer Claude Code version, so an integration suite meets criterion 2; a fixture alone pins the recorded behaviour, and the canary does not re-check it.
+- A way that only changes what hudhud passes to Claude Code (a flag, an environment variable, a settings source, the content of a user message) is covered when a unit test pins the exact argv, environment or frame, the outbound frame passes the strict outbound schema (ADR-0005 §7), and, when it is security-relevant, the posture lists it. What Claude Code then does with it is Claude Code's behaviour, documented with the way; examples: `claudeCode.bare`, `autoUpdate: 'harness-default'`, `dangerouslyAllowConfigWrites: true`, the explicit `env` map, content-block input.
+- A way that is hudhud's own logic and does not depend on Claude Code (the subscriber overflow policies, binary verification modes, the known-broken refusal and its opt-in) is covered by unit and property tests.
+- A way the integration harness must not exercise as such, because it would run or read the user's own installation or configuration (discovery, the user's config directory), is covered by unit tests with a fake host; its integration counterpart runs with the explicit path and an isolated directory.
+- The raw tier (`@hudhudjs/claude-code/raw`) is exempt (ADR-0003 tiers): it is listed for completeness, without a compatibility promise.
+
+The registry's "Ways without full coverage" section names the case each such way falls under. Reason: R2 ("provide every way") and this ADR's purpose, that no way ships untested, are both kept; dropping the ways listed there would remove tested, documented options, while requiring a fixture for behaviour that is hudhud's own, or that Claude Code owns once hudhud passed the flag, tests nothing more. The registry also gains the initial rows it lacked: "Process source: custom spawner" (not offered in v1, K18) and "Permissions: hooks" (not offered in v1).
+
 ### 3. One-shot is a capability-degraded Session (B2 = option i)
 
 The one-shot form (`-p` with text or json output) uses the same `Session` type with degraded capabilities, not a separate `Harness.run()` sibling operation. `multiTurn` is emulated via `--resume`. hudhud always generates and passes `--session-id` ([ADR-0008](0008-turn-and-lifecycle-semantics.md)), which makes the emulation addressable. One-shot ships in v1.1 ([ADR-0018](0018-scope-and-roadmap.md)).

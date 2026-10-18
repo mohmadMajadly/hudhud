@@ -7,14 +7,15 @@
 import { ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
-// @public
+// @beta
 export interface AfterExitDeps {
     // (undocumented)
     readonly os: OsCalls;
+    readonly rootExitObservedAt?: string;
     readonly signalTarget?: ProcessIdentity;
 }
 
-// @public
+// @beta
 export interface AfterExitKill {
     // (undocumented)
     readonly outcome: 'done' | 'failed' | 'skipped-exited' | 'skipped-identity-changed' | 'skipped-protected';
@@ -23,7 +24,7 @@ export interface AfterExitKill {
     readonly source: 'eof-snapshot' | 'started-after-eof';
 }
 
-// @public
+// @beta
 export type AfterExitSkipReason =
 /** No EOF snapshot (no identity, root gone, table unreadable). */
 'no-snapshot'
@@ -32,9 +33,13 @@ export type AfterExitSkipReason =
 /** The fresh table could not be read. */
 | 'table-failed'
 /** The spawned process is still running. */
-| 'root-alive';
+| 'root-alive'
+/** Windows: the session's job was closed after the exit, which ended the whole tree. */
+| 'job-closed'
+/** Windows: closing the session's job failed; with a job no snapshot is taken, so nothing is swept. */
+| 'job-close-failed';
 
-// @public
+// @beta
 export type AfterExitSweepReport = {
     readonly status: 'skipped';
     readonly reason: AfterExitSkipReason;
@@ -43,9 +48,10 @@ export type AfterExitSweepReport = {
     readonly summary: LadderSweepSummary;
     readonly posix?: SweepResult;
     readonly kills: readonly AfterExitKill[];
+    readonly rejected?: number;
 };
 
-// @public
+// @beta
 export class ArgvError extends Error {
     constructor(reason: ArgvProblem, message: string, where?: {
         readonly index?: number;
@@ -61,19 +67,19 @@ export class ArgvError extends Error {
     readonly reason: ArgvProblem;
 }
 
-// @public
+// @beta
 export type ArgvProblem = 'invalid-name' | 'nul' | 'ill-formed' | 'reserved-flag' | 'end-of-options' | 'not-a-string';
 
-// @public
+// @beta
 export function assertNoReservedFlags(args: readonly string[], reserved: readonly string[]): void;
 
-// @public
+// @beta
 export function assertSpawnable(binary: VerifiedBinary, fs?: IdentityFs): Promise<void>;
 
-// @public
+// @beta
 export function assertSpawnableOrReverify(binary: VerifiedBinary, reverify: () => Promise<VerifiedBinary>, fs?: IdentityFs): Promise<SpawnableBinary>;
 
-// @public
+// @beta
 export class BinaryChangedError extends Error {
     constructor(filePath: string, options?: {
         readonly cause?: unknown;
@@ -86,7 +92,7 @@ export class BinaryChangedError extends Error {
     readonly path: string;
 }
 
-// @public
+// @beta
 export interface BinaryIdentity {
     readonly ctimeNs: string;
     readonly fileId: string;
@@ -96,7 +102,7 @@ export interface BinaryIdentity {
     readonly size: number;
 }
 
-// @public
+// @beta
 export class BinaryNotVerifiedError extends Error {
     constructor(binary: VerifiedBinary, options?: {
         readonly cause?: unknown;
@@ -114,15 +120,13 @@ export class BinaryNotVerifiedError extends Error {
 // @public
 export interface BinaryVerification {
     readonly detail?: string;
-    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
-    // (undocumented)
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
     readonly mode: VerificationMode;
-    // (undocumented)
-    readonly status: 'verified' | 'unverified' | 'failed';
+    readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
 }
 
-// @public
+// @beta
 export interface BoundedCommand {
     // (undocumented)
     readonly args: readonly string[];
@@ -131,10 +135,11 @@ export interface BoundedCommand {
     readonly file: string;
     readonly maxStdoutBytes: number;
     readonly platform: ProcessPlatform;
+    readonly signal?: AbortSignal;
     readonly timeoutMs: number;
 }
 
-// @public
+// @beta
 export type BoundedSpawn = (file: string, args: readonly string[], options: {
     readonly shell: false;
     readonly windowsHide: true;
@@ -145,22 +150,22 @@ export type BoundedSpawn = (file: string, args: readonly string[], options: {
     readonly stdio: readonly ['ignore', 'pipe', 'ignore'];
 }) => ChildProcessByStdio<null, Readable, null>;
 
-// @public
+// @beta
 export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProblem | undefined;
 
-// @public
+// @beta
 export function checkExecutablePath(value: string, platform: ProcessPlatform): ExecutableRefusal | undefined;
 
-// @public
+// @beta
 export function checkKnownDigests(digests: readonly KnownDigest[]): void;
 
-// @public
+// @beta
 export function checkOsSignature(binaryPath: string, deps: SignatureDeps): Promise<OsSignatureResult>;
 
-// @public
+// @beta
 export function childEnv(env: Readonly<Record<string, string>>, platform: ProcessPlatform): Record<string, string>;
 
-// @public
+// @beta
 export type CommandOutcome = {
     readonly kind: 'exited';
     readonly exitCode: number | null;
@@ -173,12 +178,14 @@ export type CommandOutcome = {
     readonly kind: 'timeout';
 } | {
     readonly kind: 'output-too-large';
+} | {
+    readonly kind: 'aborted';
 };
 
-// @public
+// @beta
 export function compareStartTime(a: string, b: string): number;
 
-// @public
+// @beta
 export interface ContainedProcess {
     readonly exited: Promise<unknown>;
     readonly exitStatus: object | null;
@@ -186,7 +193,7 @@ export interface ContainedProcess {
     readonly pid: number;
 }
 
-// @public
+// @beta
 export interface ContainmentFallbackDiagnostic {
     // (undocumented)
     readonly code: 'containment.fallback';
@@ -199,19 +206,19 @@ export interface ContainmentFallbackDiagnostic {
     readonly message: string;
 }
 
-// @public
+// @beta
 export function createFramer(options: FramerOptions): Framer;
 
-// @public
+// @beta
 export function createSessionContainment(load: JobAddonLoad, fallbackStartTime: StartTimeReader): SessionContainment;
 
-// @public
+// @beta
 export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls;
 
-// @public
+// @beta
 export type CwdErrorReason = CwdProblem | 'not-found' | 'not-directory' | 'unresolvable';
 
-// @public
+// @beta
 export interface CwdFs {
     // (undocumented)
     realpath(value: string): Promise<string>;
@@ -219,10 +226,10 @@ export interface CwdFs {
     stat(value: string): Promise<FileIdentity>;
 }
 
-// @public
+// @beta
 export type CwdProblem = PathProblem | 'too-long';
 
-// @public
+// @beta
 export class CwdValidationError extends Error {
     constructor(reason: CwdErrorReason, cwdPath: string, resolved?: string, options?: {
         readonly cause?: unknown;
@@ -236,10 +243,10 @@ export class CwdValidationError extends Error {
     readonly resolved: string | undefined;
 }
 
-// @public
+// @beta
 export const DARWIN_CHILD_SET_ENV_NAMES: readonly string[];
 
-// @public
+// @beta
 export interface DarwinPsTableCalls {
     // (undocumented)
     runPs(): Promise<Uint8Array>;
@@ -247,34 +254,34 @@ export interface DarwinPsTableCalls {
     readonly source: 'darwin-ps';
 }
 
-// @public
+// @beta
 export const DEFAULT_LADDER_TIMING: LadderTiming;
 
-// @public
+// @beta
 export const DEFAULT_MAX_INBOUND_FRAME_BYTES: number;
 
-// @public
+// @beta
 export const DEFAULT_SIGNATURE_TIMEOUT_MS = 120000;
 
-// @public
+// @beta
 export const DEFAULT_TASKKILL_TIMEOUT_MS = 10000;
 
-// @public
+// @beta
 export const DEFAULT_VERSION_PROBE_MAX_BYTES = 4096;
 
-// @public
+// @beta
 export const DEFAULT_VERSION_PROBE_TIMEOUT_MS = 15000;
 
-// @public
+// @beta
 export interface DescendantSnapshot extends DescendantTree {
     // (undocumented)
     readonly snapshot: ProcessSnapshot;
 }
 
-// @public
+// @beta
 export function descendantsOf(records: readonly ProcessRecord[], root: ProcessIdentity): DescendantTree;
 
-// @public
+// @beta
 export interface DescendantTree {
     // (undocumented)
     readonly descendants: readonly ProcessRecord[];
@@ -282,7 +289,7 @@ export interface DescendantTree {
     readonly root: ProcessRecord | null;
 }
 
-// @public
+// @beta
 export interface EofSnapshot {
     // (undocumented)
     readonly root: ProcessIdentity;
@@ -290,7 +297,7 @@ export interface EofSnapshot {
     readonly snapshot: ProcessSnapshot;
 }
 
-// @public
+// @beta
 export interface ExecutableFs {
     canExecute(value: string): Promise<void>;
     // (undocumented)
@@ -299,7 +306,7 @@ export interface ExecutableFs {
     stat(value: string): Promise<ExecutableIdentity>;
 }
 
-// @public
+// @beta
 export interface ExecutableIdentity extends FileIdentity {
     // (undocumented)
     readonly ctimeNs: bigint;
@@ -307,10 +314,10 @@ export interface ExecutableIdentity extends FileIdentity {
     readonly mtimeNs: bigint;
 }
 
-// @public
+// @beta
 export type ExecutableRefusal = PathProblem | 'batch-file' | 'not-exe' | 'not-regular-file' | 'not-executable' | 'unresolvable';
 
-// @public
+// @beta
 export class ExecutableResolutionError extends Error {
     constructor(reason: ExecutableRefusal | 'not-found', requested: string, resolved?: string, options?: {
         readonly cause?: unknown;
@@ -324,7 +331,7 @@ export class ExecutableResolutionError extends Error {
     readonly resolved: string | undefined;
 }
 
-// @public
+// @beta
 export class FileChangedError extends Error {
     constructor(filePath: string);
     // (undocumented)
@@ -333,7 +340,7 @@ export class FileChangedError extends Error {
     readonly path: string;
 }
 
-// @public
+// @beta
 export interface FileDigest {
     readonly ctimeNs: string;
     readonly fileId: string;
@@ -343,7 +350,7 @@ export interface FileDigest {
     readonly size: number;
 }
 
-// @public
+// @beta
 export interface FileIdentity {
     // (undocumented)
     readonly dev: bigint;
@@ -359,24 +366,24 @@ export interface FileIdentity {
     readonly size: bigint;
 }
 
-// @public
+// @beta
 export function findIdentity(records: readonly ProcessRecord[], identity: ProcessIdentity): ProcessRecord | null;
 
-// @public
+// @beta
 export function formatFlag(name: string, value?: string): string;
 
-// @public
+// @beta
 export interface Framer {
     end(): FramerOutput[];
     push(chunk: Uint8Array): FramerOutput[];
 }
 
-// @public
+// @beta
 export interface FramerOptions {
     readonly maxLineBytes: number;
 }
 
-// @public
+// @beta
 export type FramerOutput = {
     readonly kind: 'line';
     readonly text: string;
@@ -393,7 +400,7 @@ export type FramerOutput = {
     readonly bytes: number;
 };
 
-// @public
+// @beta
 export type GroupSkipReason =
 /** The group id is 0 or 1, or the group of the host, the spawned process or the CLI. */
 'protected-group'
@@ -402,14 +409,14 @@ export type GroupSkipReason =
 /** The host's own group is unknown, so no group can be proven foreign to it. */
 | 'host-group-unknown';
 
-// @public
+// @beta
 export interface GroupTarget {
     readonly leader: ProcessIdentity;
     // (undocumented)
     readonly pgid: number;
 }
 
-// @public
+// @beta
 export interface HarnessProcess {
     endStdin(): void;
     readonly exited: Promise<ProcessExit>;
@@ -423,13 +430,13 @@ export interface HarnessProcess {
     write(data: string | Uint8Array): Promise<void>;
 }
 
-// @public
+// @beta
 export function hostJobAddonDeps(): JobAddonDeps;
 
-// @public
+// @beta
 export function hostPlatform(nodePlatform?: NodeJS.Platform): ProcessPlatform;
 
-// @public
+// @beta
 export interface IdentityFs {
     // (undocumented)
     realpath(path: string): Promise<string>;
@@ -437,10 +444,10 @@ export interface IdentityFs {
     stat(path: string): Promise<ExecutableIdentity>;
 }
 
-// @public
+// @beta
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 
-// @public
+// @beta
 export type IdentityRead = {
     readonly identity: ProcessIdentity;
     readonly problem: null;
@@ -449,19 +456,19 @@ export type IdentityRead = {
     readonly problem: IdentityProblem;
 };
 
-// @public
+// @beta
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
 
-// @public
+// @beta
 export function isCanonicalStartTime(value: string): boolean;
 
-// @public
+// @beta
 export function isFlagName(name: string): boolean;
 
-// @public
+// @beta
 export const JOB_TERMINATE_EXIT_CODE = 0;
 
-// @public
+// @beta
 export interface JobAddon {
     createJob(): JobObject;
     readonly file: string;
@@ -469,7 +476,7 @@ export interface JobAddon {
     readonly version: string;
 }
 
-// @public
+// @beta
 export interface JobAddonDeps {
     // (undocumented)
     readonly arch: string;
@@ -481,13 +488,13 @@ export interface JobAddonDeps {
     readonly requireResolve: (specifier: string) => string;
 }
 
-// @public
+// @beta
 export interface JobAddonDigests {
     readonly version?: string;
     readonly x64?: string;
 }
 
-// @public
+// @beta
 export class JobAddonError extends Error {
     constructor(code: string, api: string, options?: {
         readonly cause?: unknown;
@@ -499,7 +506,7 @@ export class JobAddonError extends Error {
     readonly name = "JobAddonError";
 }
 
-// @public
+// @beta
 export type JobAddonLoad = {
     readonly status: 'loaded';
     readonly addon: JobAddon;
@@ -509,34 +516,34 @@ export type JobAddonLoad = {
     readonly detail: string;
 };
 
-// @public
+// @beta
 export interface JobAddonModuleObject {
     // (undocumented)
     exports: unknown;
 }
 
-// @public
+// @beta
 export type JobAddonUnavailableReason = 'not-windows' | 'arm64-not-first-class' | 'unsupported-arch' | 'package-missing' | 'digest-mismatch' | 'dlopen-failed' | 'abi-mismatch';
 
-// @public
+// @beta
 export type JobContainment = 'job' | 'best-effort';
 
-// @public
+// @beta
 export interface JobContainmentCapability {
     // (undocumented)
     readonly processContainment: JobContainment;
     readonly reasons: Readonly<Record<string, string>>;
 }
 
-// @public
+// @beta
 export function jobContainmentCapability(load: JobAddonLoad): JobContainmentCapability;
 
-// @public
+// @beta
 export interface JobHandle {
     terminate(): void;
 }
 
-// @public
+// @beta
 export interface JobObject extends JobHandle {
     assign(pid: number): string;
     close(): void;
@@ -545,7 +552,7 @@ export interface JobObject extends JobHandle {
     terminate(): void;
 }
 
-// @public
+// @beta
 export interface KnownDigest {
     readonly sha256: string;
     readonly size?: number;
@@ -553,22 +560,22 @@ export interface KnownDigest {
     readonly version: string;
 }
 
-// @public
+// @beta
 export interface LadderClock {
     now(): number;
     schedule(ms: number, callback: () => void): () => void;
 }
 
-// @public
+// @beta
 export interface LadderHooks {
     interrupt(): Promise<InterruptOutcome>;
     onStep?(step: LadderStep): void;
 }
 
-// @public
+// @beta
 export type LadderIdentity = PromiseLike<ProcessIdentity | null>;
 
-// @public
+// @beta
 export interface LadderReport<Intent extends string = string> {
     readonly exitedAfter: LadderStepName | null;
     // (undocumented)
@@ -582,7 +589,7 @@ export interface LadderReport<Intent extends string = string> {
     readonly sweep: LadderSweepSummary | null;
 }
 
-// @public
+// @beta
 export interface LadderStep {
     readonly atMs: number;
     readonly detail?: string;
@@ -591,10 +598,10 @@ export interface LadderStep {
     readonly outcome: 'done' | 'skipped' | 'failed';
 }
 
-// @public
+// @beta
 export type LadderStepName = 'intent' | 'interrupt' | 'eof' | 'snapshot-s1' | 'sigterm' | 'snapshot-s2' | 'sigkill' | 'sweep' | 'terminate-job' | 'taskkill' | 'terminate-process';
 
-// @public
+// @beta
 export interface LadderSweepSummary {
     // (undocumented)
     readonly groupsSignalled: number;
@@ -604,7 +611,7 @@ export interface LadderSweepSummary {
     readonly skipped: number;
 }
 
-// @public
+// @beta
 export interface LadderTiming {
     readonly eofGraceMs: number;
     readonly interruptWaitMs: number;
@@ -612,7 +619,7 @@ export interface LadderTiming {
     readonly termGraceMs: number;
 }
 
-// @public
+// @beta
 export interface LinuxProcTableCalls {
     listPids(): Promise<readonly number[]>;
     readStat(pid: number): Promise<Uint8Array | null>;
@@ -620,19 +627,19 @@ export interface LinuxProcTableCalls {
     readonly source: 'linux-proc';
 }
 
-// @public
+// @beta
 export function loadHostJobAddon(): JobAddonLoad;
 
-// @public
+// @beta
 export function loadJobAddon(deps: JobAddonDeps): JobAddonLoad;
 
-// @public
+// @beta
 export const maxFramerLineBytes = 536870888;
 
-// @public
+// @beta
 export const nodeTaskkillDeps: Omit<TaskkillDeps, 'env'>;
 
-// @public
+// @beta
 export class NotRegularFileError extends Error {
     constructor(filePath: string);
     // (undocumented)
@@ -641,7 +648,7 @@ export class NotRegularFileError extends Error {
     readonly path: string;
 }
 
-// @public
+// @beta
 export type OsCalls = {
     readonly platform: 'linux';
     readonly hostPid: number;
@@ -659,10 +666,10 @@ export type OsCalls = {
     readonly terminate: Win32TerminateCalls;
 };
 
-// @public
+// @beta
 export function osCallsFor(platform: NodeJS.Platform, hostPid: number): OsCalls;
 
-// @public
+// @beta
 export type OsSignatureResult = {
     readonly kind: 'valid';
     readonly detail: string;
@@ -678,7 +685,7 @@ export type OsSignatureResult = {
     readonly kind: 'unsupported';
 };
 
-// @public
+// @beta
 export interface ParsedProcessTable {
     // (undocumented)
     readonly records: readonly ProcessRecord[];
@@ -686,28 +693,28 @@ export interface ParsedProcessTable {
     readonly rejected: number;
 }
 
-// @public
+// @beta
 export function parseFlag(element: string): {
     readonly name: string;
     readonly value: string | undefined;
 } | undefined;
 
-// @public
+// @beta
 export function parseProcStat(stat: Uint8Array, expectedPid?: number): ProcessRecord | null;
 
-// @public
+// @beta
 export function parsePsOutput(output: Uint8Array, dialect?: PsDialect): ParsedProcessTable;
 
-// @public
+// @beta
 export function parseWin32ProcessJson(output: Uint8Array): ParsedProcessTable;
 
-// @public
+// @beta
 export type PathProblem = 'empty' | 'nul' | 'ill-formed' | 'not-absolute' | 'device-namespace' | 'alternate-data-stream' | 'trailing-dot-or-space' | 'reserved-device-name';
 
-// @public
+// @beta
 export function pathProblem(value: string, platform: ProcessPlatform): PathProblem | undefined;
 
-// @public
+// @beta
 export interface PosixLadderDeps<Intent extends string = string> {
     // (undocumented)
     readonly clock: LadderClock;
@@ -716,7 +723,7 @@ export interface PosixLadderDeps<Intent extends string = string> {
     readonly os: PosixOsCalls;
 }
 
-// @public
+// @beta
 export interface PosixLadderProcess {
     endStdin(): void;
     readonly exited: Promise<unknown>;
@@ -726,15 +733,15 @@ export interface PosixLadderProcess {
     readonly pid: number;
 }
 
-// @public
+// @beta
 export type PosixOsCalls = Extract<OsCalls, {
     readonly platform: 'linux' | 'darwin';
 }>;
 
-// @public
+// @beta
 export type PosixSignal = 'SIGTERM' | 'SIGKILL';
 
-// @public
+// @beta
 export interface PosixSignalCalls {
     // (undocumented)
     signalGroup(pgid: number, signal: PosixSignal): SignalOutcome;
@@ -742,30 +749,30 @@ export interface PosixSignalCalls {
     signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
 }
 
-// @public
+// @beta
 export interface ProbeWorkDir {
     create(): Promise<string>;
     remove(dir: string): Promise<void>;
 }
 
-// @public
+// @beta
 export interface ProcessExit {
     readonly code: number | null;
     // (undocumented)
     readonly signal: NodeJS.Signals | null;
 }
 
-// @public
+// @beta
 export interface ProcessIdentity {
     // (undocumented)
     readonly pid: number;
     readonly startTime: string;
 }
 
-// @public
+// @beta
 export type ProcessPlatform = 'win32' | 'posix';
 
-// @public
+// @beta
 export interface ProcessRecord extends ProcessIdentity {
     readonly name: string;
     readonly pgid?: number;
@@ -774,7 +781,7 @@ export interface ProcessRecord extends ProcessIdentity {
     readonly zombie?: true;
 }
 
-// @public
+// @beta
 export interface ProcessSnapshot {
     readonly records: readonly ProcessRecord[];
     readonly rejected: number;
@@ -782,7 +789,7 @@ export interface ProcessSnapshot {
     readonly source: ProcessTableSource;
 }
 
-// @public
+// @beta
 export class ProcessSpawnError extends Error {
     constructor(errno: string | undefined, options?: {
         readonly cause?: unknown;
@@ -796,7 +803,7 @@ export class ProcessSpawnError extends Error {
     readonly reason: SpawnFailureCause;
 }
 
-// @public
+// @beta
 export class ProcessStreamError extends Error {
     constructor(stream: 'stdin' | 'stdout', reason: 'ended' | 'failed', errno: string | undefined, options?: {
         readonly cause?: unknown;
@@ -810,28 +817,28 @@ export class ProcessStreamError extends Error {
     readonly stream: 'stdin' | 'stdout';
 }
 
-// @public
+// @beta
 export type ProcessTableCalls = LinuxProcTableCalls | DarwinPsTableCalls | Win32CimTableCalls;
 
-// @public
+// @beta
 export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 
-// @public
+// @beta
 export function processTableStartTime(table: ProcessTableCalls): StartTimeReader;
 
-// @public
+// @beta
 export type PsDialect = 'bsd' | 'procps';
 
-// @public
+// @beta
 export interface PublisherPin {
     readonly darwinTeamId?: string;
     readonly windowsSubject?: string;
 }
 
-// @public
+// @beta
 export function recheckBinary(binary: VerifiedBinary, fs?: IdentityFs): Promise<void>;
 
-// @public
+// @beta
 export interface ResolvedExecutable {
     readonly ctimeNs: string;
     readonly mtimeMs: number;
@@ -841,46 +848,46 @@ export interface ResolvedExecutable {
     readonly size: number;
 }
 
-// @public
+// @beta
 export function resolveExecutable(requested: string, options?: ResolveExecutableOptions): Promise<ResolvedExecutable>;
 
-// @public
+// @beta
 export interface ResolveExecutableOptions {
     readonly fs?: ExecutableFs;
     readonly platform?: ProcessPlatform;
 }
 
-// @public
+// @beta
 export function resolveTaskkillPath(deps: Pick<TaskkillDeps, 'env' | 'fs'>): Promise<{
     readonly path: string;
     readonly systemRoot: string;
 }>;
 
-// @public
+// @beta
 export function runBoundedCommand(command: BoundedCommand, spawnFn?: BoundedSpawn): Promise<CommandOutcome>;
 
-// @public
+// @beta
 export function runPosixLadder<Intent extends string>(proc: PosixLadderProcess, hooks: LadderHooks, timing: LadderTiming, deps: PosixLadderDeps<Intent>): Promise<LadderReport<Intent>>;
 
-// @public
+// @beta
 export function runVersionProbe(binary: VerifiedBinary, options: VersionProbeOptions): Promise<string>;
 
-// @public
+// @beta
 export function runWindowsLadder<Intent extends string>(proc: WindowsLadderProcess, hooks: LadderHooks, timing: LadderTiming, job: JobHandle | null, deps: WindowsLadderDeps<Intent>): Promise<LadderReport<Intent>>;
 
-// @public
+// @beta
 export function safeSearchPathEntries(value: string | undefined, platform: ProcessPlatform): string[];
 
-// @public
+// @beta
 export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean;
 
-// @public
+// @beta
 export interface SessionContainment {
     attach(proc: ContainedProcess): SessionContainmentResult;
     readonly startTime: StartTimeReader;
 }
 
-// @public
+// @beta
 export interface SessionContainmentResult {
     readonly containment: JobContainment;
     readonly diagnostics: readonly ContainmentFallbackDiagnostic[];
@@ -888,21 +895,21 @@ export interface SessionContainmentResult {
     readonly released: Promise<'closed' | 'close-failed' | 'no-job'>;
 }
 
-// @public
+// @beta
 export function settleProbedVersion(binary: VerifiedBinary, version: string, digests: readonly KnownDigest[]): VerifiedBinary;
 
-// @public
+// @beta
 export function sha256File(filePath: string, options?: Sha256FileOptions): Promise<FileDigest>;
 
-// @public
+// @beta
 export interface Sha256FileOptions {
     readonly chunkBytes?: number;
 }
 
-// @public
+// @beta
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
 
-// @public
+// @beta
 export interface SignalTargetDecision {
     readonly launcherDetected: boolean;
     // (undocumented)
@@ -910,7 +917,7 @@ export interface SignalTargetDecision {
     readonly target: ProcessIdentity;
 }
 
-// @public
+// @beta
 export interface SignatureDeps {
     // (undocumented)
     readonly fs: SignatureFs;
@@ -922,7 +929,7 @@ export interface SignatureDeps {
     readonly timeoutMs?: number;
 }
 
-// @public
+// @beta
 export interface SignatureFs {
     // (undocumented)
     lstat(path: string): Promise<{
@@ -933,38 +940,38 @@ export interface SignatureFs {
     realpath(path: string): Promise<string>;
 }
 
-// @public
+// @beta
 export type SignaturePlatform = 'win32' | 'darwin' | 'other';
 
-// @public
+// @beta
 export function signaturePlatformOf(platform: NodeJS.Platform): SignaturePlatform;
 
-// @public
+// @beta
 export function snapshotAtEof(pid: number, identity: LadderIdentity, os: Pick<OsCalls, 'processTable'>): Promise<EofSnapshot | null>;
 
-// @public
+// @beta
 export interface SnapshotDeps {
     // (undocumented)
     readonly processTable: ProcessTableCalls;
 }
 
-// @public
+// @beta
 export function snapshotDescendants(root: ProcessIdentity, deps: SnapshotDeps): Promise<DescendantSnapshot>;
 
-// @public
+// @beta
 export interface SpawnableBinary {
     // (undocumented)
     readonly binary: VerifiedBinary;
     readonly reverified: boolean;
 }
 
-// @public
+// @beta
 export type SpawnFailureCause = 'enoent' | 'eacces' | 'eperm' | 'unknown';
 
-// @public
+// @beta
 export function spawnHarnessProcess(spec: SpawnSpec): Promise<HarnessProcess>;
 
-// @public
+// @beta
 export interface SpawnSpec {
     readonly args: readonly string[];
     readonly cwd: string;
@@ -975,7 +982,7 @@ export interface SpawnSpec {
     readonly stderrTail?: Omit<StderrTailOptions, 'secrets'>;
 }
 
-// @public
+// @beta
 export class SpawnSpecError extends Error {
     constructor(problem: SpawnSpecProblem, subject: string);
     // (undocumented)
@@ -985,17 +992,17 @@ export class SpawnSpecError extends Error {
     readonly subject: string;
 }
 
-// @public
+// @beta
 export type SpawnSpecProblem = 'file-refused' | 'cwd-refused' | 'arg-nul' | 'env-name' | 'env-value' | 'env-duplicate-name' | 'env-missing-required';
 
-// @public
+// @beta
 export interface StartTimeReader {
     read(pid: number): Promise<string | null>;
     // (undocumented)
     readonly source: ProcessTableSource;
 }
 
-// @public
+// @beta
 export class StderrTail {
     constructor(options?: StderrTailOptions);
     end(): void;
@@ -1007,7 +1014,7 @@ export class StderrTail {
     get truncated(): boolean;
 }
 
-// @public
+// @beta
 export interface StderrTailOptions {
     readonly maxChars?: number;
     readonly maxLineChars?: number;
@@ -1015,13 +1022,13 @@ export interface StderrTailOptions {
     readonly secrets?: readonly string[];
 }
 
-// @public
+// @beta
 export function sweep(request: SweepRequest, deps: SweepDeps): Promise<SweepResult>;
 
-// @public
+// @beta
 export function sweepAfterExit(eof: EofSnapshot | null, deps: AfterExitDeps): Promise<AfterExitSweepReport>;
 
-// @public
+// @beta
 export interface SweepDeps {
     readonly hostPid: number;
     // (undocumented)
@@ -1030,7 +1037,7 @@ export interface SweepDeps {
     readonly signals: PosixSignalCalls;
 }
 
-// @public
+// @beta
 export interface SweepPlan {
     readonly groups: readonly GroupTarget[];
     readonly processes: readonly ProcessIdentity[];
@@ -1046,14 +1053,14 @@ export interface SweepPlan {
     }[];
 }
 
-// @public
+// @beta
 export interface SweepRequest {
     readonly recorded: readonly ProcessSnapshot[];
     readonly signalTarget: ProcessIdentity;
     readonly spawned: ProcessIdentity;
 }
 
-// @public
+// @beta
 export interface SweepResult {
     readonly coveredByGroup: readonly number[];
     // (undocumented)
@@ -1071,10 +1078,10 @@ export interface SweepResult {
     readonly summary: LadderSweepSummary;
 }
 
-// @public
+// @beta
 export type SweepSignalOutcome = SignalOutcome | 'error';
 
-// @public
+// @beta
 export type SweepSkipReason =
 /** The pid is absent from the latest snapshot. */
 'exited'
@@ -1089,7 +1096,7 @@ export type SweepSkipReason =
 */
 | 'zombie';
 
-// @public
+// @beta
 export function systemRootFrom(env: Readonly<Record<string, string | undefined>>): {
     readonly ok: true;
     readonly root: string;
@@ -1098,13 +1105,13 @@ export function systemRootFrom(env: Readonly<Record<string, string | undefined>>
     readonly reason: TaskkillRefusal;
 };
 
-// @public
+// @beta
 export function taskkillArgv(pid: number, tree?: boolean): readonly string[];
 
-// @public
+// @beta
 export type TaskkillCalls = Win32TerminateCalls;
 
-// @public
+// @beta
 export interface TaskkillDeps {
     readonly env: Readonly<Record<string, string | undefined>>;
     // (undocumented)
@@ -1114,16 +1121,16 @@ export interface TaskkillDeps {
     readonly timeoutMs?: number;
 }
 
-// @public
+// @beta
 export interface TaskkillExecError {
     // (undocumented)
     readonly code?: number | string | null | undefined;
 }
 
-// @public
+// @beta
 export type TaskkillExecFile = (file: string, args: readonly string[], options: TaskkillExecOptions, callback: (error: TaskkillExecError | null) => void) => unknown;
 
-// @public
+// @beta
 export interface TaskkillExecOptions {
     // (undocumented)
     readonly cwd: string;
@@ -1143,7 +1150,7 @@ export interface TaskkillExecOptions {
     readonly windowsVerbatimArguments: false;
 }
 
-// @public
+// @beta
 export interface TaskkillFs {
     // (undocumented)
     lstat(path: string): Promise<{
@@ -1154,7 +1161,7 @@ export interface TaskkillFs {
     realpath(path: string): Promise<string>;
 }
 
-// @public
+// @beta
 export type TaskkillRefusal =
 /** `SystemRoot` is not a plain drive-absolute directory path. */
 'system-root-invalid'
@@ -1167,13 +1174,13 @@ export type TaskkillRefusal =
 /** Not a regular file. */
 | 'not-regular-file';
 
-// @public
+// @beta
 export interface TaskkillResult {
     // (undocumented)
     readonly exitCode: number | null;
 }
 
-// @public
+// @beta
 export class TaskkillUnavailableError extends Error {
     constructor(reason: TaskkillRefusal, options?: {
         readonly cause?: unknown;
@@ -1186,16 +1193,16 @@ export class TaskkillUnavailableError extends Error {
     readonly reason: TaskkillRefusal;
 }
 
-// @public
+// @beta
 export const tempProbeWorkDir: ProbeWorkDir;
 
-// @public
+// @beta
 export const TRUNCATED = "<truncated>";
 
-// @public
+// @beta
 export function validateCwd(cwd: string, platform: ProcessPlatform, fs?: CwdFs): Promise<string>;
 
-// @public
+// @beta
 export class VerificationCache {
     clear(): void;
     // @internal (undocumented)
@@ -1210,7 +1217,7 @@ export class VerificationCache {
 // @public
 export type VerificationMode = 'advisory' | 'strict';
 
-// @public
+// @beta
 export interface VerifiedBinary extends BinaryIdentity {
     readonly matchedVersion?: string;
     readonly path: string;
@@ -1219,10 +1226,10 @@ export interface VerifiedBinary extends BinaryIdentity {
     readonly verification: BinaryVerification;
 }
 
-// @public
+// @beta
 export function verifyBinary(binary: ResolvedExecutable, options: VerifyBinaryOptions): Promise<VerifiedBinary>;
 
-// @public
+// @beta
 export interface VerifyBinaryOptions {
     // (undocumented)
     readonly cache?: VerificationCache;
@@ -1239,7 +1246,7 @@ export interface VerifyBinaryOptions {
     readonly publisher?: PublisherPin;
 }
 
-// @public
+// @beta
 export class VersionProbeError extends Error {
     constructor(reason: VersionProbeFailure, subject?: string);
     // (undocumented)
@@ -1251,10 +1258,10 @@ export class VersionProbeError extends Error {
     readonly subject: string | undefined;
 }
 
-// @public
-export type VersionProbeFailure = 'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code';
+// @beta
+export type VersionProbeFailure = 'spec-refused' | 'spawn-error' | 'timeout' | 'output-too-large' | 'exit-code' | 'aborted';
 
-// @public
+// @beta
 export interface VersionProbeOptions {
     readonly args: readonly string[];
     readonly deps?: {
@@ -1266,22 +1273,23 @@ export interface VersionProbeOptions {
     readonly maxStdoutBytes?: number;
     // (undocumented)
     readonly platform: ProcessPlatform;
+    readonly signal?: AbortSignal;
     readonly timeoutMs?: number;
 }
 
-// @public
+// @beta
 export const WIN32_CWD_MAX_LENGTH = 258;
 
-// @public
+// @beta
 export const WIN32_DEFAULT_SYSTEM_ROOT = "C:\\Windows";
 
-// @public
+// @beta
 export const WIN32_JOB_ADDON_SPECIFIER = "@hudhudjs/win32-job-x64/hudhud_win32_job.node";
 
-// @public
+// @beta
 export const WIN32_REQUIRED_ENV_NAMES: readonly string[];
 
-// @public
+// @beta
 export interface Win32CimTableCalls {
     // (undocumented)
     queryProcesses(): Promise<Uint8Array>;
@@ -1289,13 +1297,13 @@ export interface Win32CimTableCalls {
     readonly source: 'win32-cim';
 }
 
-// @public
+// @beta
 export interface Win32TerminateCalls {
     taskkillProcess(pid: number): Promise<TaskkillResult>;
     taskkillTree(pid: number): Promise<TaskkillResult>;
 }
 
-// @public
+// @beta
 export interface WindowsLadderDeps<Intent extends string> {
     // (undocumented)
     readonly clock: LadderClock;
@@ -1305,7 +1313,7 @@ export interface WindowsLadderDeps<Intent extends string> {
     readonly os: WindowsOsCalls;
 }
 
-// @public
+// @beta
 export interface WindowsLadderProcess {
     closeStdin(): void;
     readonly exited: Promise<unknown>;
@@ -1315,7 +1323,7 @@ export interface WindowsLadderProcess {
     terminate(): boolean;
 }
 
-// @public
+// @beta
 export type WindowsOsCalls = Extract<OsCalls, {
     readonly platform: 'win32';
 }>;

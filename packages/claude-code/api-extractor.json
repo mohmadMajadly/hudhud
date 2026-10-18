@@ -5,5 +5,13 @@
   "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
   "apiReport": {
     "reportFileName": "claude-code"
+  },
+  "messages": {
+    "extractorMessageReporting": {
+      "ae-undocumented": {
+        "logLevel": "error",
+        "addToApiReportFile": false
+      }
+    }
   }
 }

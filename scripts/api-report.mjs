@@ -6,7 +6,9 @@
 //   node scripts/api-report.mjs --local   update the committed reports
 //
 // Also fails when an `exports` subpath has no API Extractor config, or a
-// committed report has no config, so no entry point escapes review.
+// committed report has no config, so no entry point escapes review, and
+// when the release tags in the reports disagree with the entry points'
+// tiers (REPORT_TIERS: stable or beta, ADR-0004 amendment R5-1).
 // Packages without an `exports` field have no entry point and are skipped,
 // unless they carry API Extractor configs or reports, which then fail. JSON
 // subpaths (committed schemas) are data, not API, and native addon subpaths
@@ -177,9 +179,140 @@ export function checkReports(root, { localBuild }) {
   return { problems, checked };
 }
 
+// ---- release tiers ------------------------------------------------------------
+//
+// ADR-0003 and the ADR-0004 amendment (pre-release review R5-1): the stable
+// tier is the package roots of `hudhudjs`, `@hudhudjs/core` and
+// `@hudhudjs/claude-code` (their `@beta` items excepted) plus the documented
+// application part of `@hudhudjs/core/protocol`; every other entry point is
+// beta. API Extractor shows each item's release tag in the reports; this
+// check keeps the tags and the tiers in step.
+
+/**
+ * @typedef {object} ReportTier
+ * @property {'stable' | 'beta'} tier
+ * @property {readonly string[]} [stable] For a beta entry point: the names
+ *   that are its documented stable part (`@public` there by design).
+ */
+
+/** @type {Readonly<Record<string, ReportTier>>} */
+export const REPORT_TIERS = Object.freeze({
+  'packages/claude-code/api/claude-code.api.md': { tier: 'stable' },
+  'packages/claude-code/api/claude-code-raw.api.md': { tier: 'beta' },
+  'packages/core/api/core.api.md': { tier: 'stable' },
+  'packages/core/api/core-binding.api.md': { tier: 'beta' },
+  'packages/core/api/core-process.api.md': { tier: 'beta' },
+  'packages/core/api/core-protocol.api.md': {
+    tier: 'beta',
+    stable: [
+      'ErrorDataFailure',
+      'isRetryable',
+      'parseErrorData',
+      'sanitizeForDisplay',
+      'SanitizeForDisplayOptions',
+    ],
+  },
+  'packages/hudhud/api/hudhud.api.md': { tier: 'stable' },
+});
+
+const ITEM =
+  /^\/\/ @(public|beta|alpha|internal)(?: \(undocumented\))?\r?\nexport (?:declare )?(?:abstract )?(?:class|interface|type|function|const|let|enum|namespace) ([\w$]+)/gmu;
+
+/**
+ * The release tag of every top-level item of an API report.
+ *
+ * @param {string} report The report's text.
+ * @returns {Map<string, string>} Item name to tag (`public`, `beta`, ...).
+ */
+export function reportTags(report) {
+  /** @type {Map<string, string>} */
+  const tags = new Map();
+  for (const match of report.matchAll(ITEM)) {
+    const [, tag = '', name = ''] = match;
+    tags.set(name, tag);
+  }
+  return tags;
+}
+
+/**
+ * Checks the release tags against {@link REPORT_TIERS}: every report has a
+ * tier; an item that is `@public` in a beta entry point is stable elsewhere
+ * (`@public` in a stable report of the same package) or listed as that
+ * entry's documented stable part; every listed name is `@public` there.
+ *
+ * @param {Readonly<Record<string, string>>} reports Report text by path from
+ *   the repository root (forward slashes).
+ * @param {Readonly<Record<string, ReportTier>>} [tiers]
+ * @returns {string[]} problems
+ */
+export function checkTiers(reports, tiers = REPORT_TIERS) {
+  /** @type {string[]} */
+  const problems = [];
+  /** @type {Map<string, Set<string>>} */
+  const stableByPackage = new Map();
+  const packageOf = (/** @type {string} */ file) => file.split('/api/')[0] ?? file;
+  for (const [file, text] of Object.entries(reports)) {
+    const tier = tiers[file];
+    if (tier === undefined) {
+      problems.push(`${file}: no release tier (add it to REPORT_TIERS in scripts/api-report.mjs)`);
+      continue;
+    }
+    if (tier.tier !== 'stable') continue;
+    const names = stableByPackage.get(packageOf(file)) ?? new Set();
+    for (const [name, tag] of reportTags(text)) if (tag === 'public') names.add(name);
+    stableByPackage.set(packageOf(file), names);
+  }
+  for (const [file, text] of Object.entries(reports)) {
+    const tier = tiers[file];
+    if (tier?.tier !== 'beta') continue;
+    const stableHere = new Set(tier.stable ?? []);
+    const elsewhere = stableByPackage.get(packageOf(file)) ?? new Set();
+    const tags = reportTags(text);
+    for (const [name, tag] of tags) {
+      if (tag !== 'public' || stableHere.has(name) || elsewhere.has(name)) continue;
+      problems.push(
+        `${file}: ${name} is @public in a beta entry point; tag it @beta, or make it stable on purpose (REPORT_TIERS)`,
+      );
+    }
+    for (const name of stableHere) {
+      if (tags.get(name) !== 'public') {
+        problems.push(`${file}: ${name} is listed as stable but is not @public there`);
+      }
+    }
+  }
+  for (const file of Object.keys(tiers)) {
+    if (reports[file] === undefined)
+      problems.push(`${file}: listed in REPORT_TIERS, no such report`);
+  }
+  return problems;
+}
+
+/**
+ * The committed API reports, by path from the repository root.
+ *
+ * @param {string} root
+ * @returns {Record<string, string>}
+ */
+export function committedReports(root) {
+  /** @type {Record<string, string>} */
+  const reports = {};
+  const packagesDir = path.join(root, 'packages');
+  for (const name of readdirSync(packagesDir).sort()) {
+    const apiDir = path.join(packagesDir, name, 'api');
+    if (!existsSync(apiDir)) continue;
+    for (const file of readdirSync(apiDir).sort()) {
+      if (file.endsWith('.api.md')) {
+        reports[`packages/${name}/api/${file}`] = readFileSync(path.join(apiDir, file), 'utf8');
+      }
+    }
+  }
+  return reports;
+}
+
 function main() {
   const localBuild = process.argv.includes('--local');
   const { problems, checked } = checkReports(ROOT, { localBuild });
+  problems.push(...checkTiers(committedReports(ROOT)));
   if (problems.length > 0) {
     process.stderr.write(`api-report: FAILED\n${problems.map((p) => `  - ${p}`).join('\n')}\n`);
     return 1;

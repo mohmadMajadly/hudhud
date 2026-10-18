@@ -249,9 +249,13 @@ export function parseDenylist(text) {
  *
  * @param {string} text
  * @param {readonly string[]} denylist Lower-cased denylist terms.
+ * @param {boolean} [sourceLink] Whether the line is one of the source links
+ *   of a published package manifest ({@link packageSourceLinkLines}); then a
+ *   denylist term may stand as the owner segment of its
+ *   `https://github.com/<owner>/hudhud` URL, and nowhere else on the line.
  * @returns {{ rule: string, excerpt: string }[]}
  */
-export function scanLine(text, denylist) {
+export function scanLine(text, denylist, sourceLink = false) {
   /** @type {{ rule: string, excerpt: string }[]} */
   const hits = [];
   for (const rule of RULES) {
@@ -260,7 +264,9 @@ export function scanLine(text, denylist) {
       hits.push({ rule: rule.id, excerpt: rule.mask(match) });
     }
   }
-  const lower = text.toLowerCase();
+  const lower = sourceLink
+    ? text.toLowerCase().replace(OWNER_SEGMENT, 'github.com/-/hudhud')
+    : text.toLowerCase();
   for (const [index, term] of denylist.entries()) {
     if (lower.includes(term)) {
       // Never print the term itself: the denylist is private.
@@ -268,6 +274,90 @@ export function scanLine(text, denylist) {
     }
   }
   return hits;
+}
+
+/**
+ * The owner segment of this repository's GitHub URL, as the source links
+ * spell it (lower-cased line): `github.com/<owner>/hudhud`.
+ */
+const OWNER_SEGMENT = /github\.com\/[a-z0-9](?:[a-z0-9-]{0,38})\/hudhud/gu;
+
+/** A package manifest under `packages/`; group 1 is the package directory. */
+const PACKAGE_MANIFEST = /^packages\/([^/]+)\/package\.json$/u;
+
+/**
+ * The lines (1-based) of a published package manifest that hold its source
+ * links: `repository.url`, `homepage` and `bugs.url` (owner ruling on R6-4,
+ * 2026-10-17: the repository owner's GitHub handle is allowed in the
+ * package metadata only). A manifest qualifies only when it is
+ * `packages/<dir>/package.json`, declares `publishConfig`, and its three
+ * links are exactly `git+https://github.com/<owner>/hudhud.git` (with
+ * `directory` `packages/<dir>`), `https://github.com/<owner>/hudhud/tree/main/packages/<dir>#readme`
+ * and `https://github.com/<owner>/hudhud/issues` with one `<owner>`; each
+ * such line must be the field alone on its line and occur once in the file.
+ * Anything else gives no line, so the handle stays refused everywhere else.
+ *
+ * @param {string} path Repository-relative path.
+ * @param {string} text The whole file.
+ * @returns {Set<number>}
+ */
+export function packageSourceLinkLines(path, text) {
+  /** @type {Set<number>} */
+  const allowed = new Set();
+  const dir = PACKAGE_MANIFEST.exec(path)?.[1];
+  if (dir === undefined) return allowed;
+  /** @type {unknown} */
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch {
+    return allowed;
+  }
+  /**
+   * @param {unknown} value
+   * @param {string} key
+   * @returns {unknown}
+   */
+  const field = (value, key) =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Reflect.get(value, key)
+      : undefined;
+  if (field(manifest, 'publishConfig') === undefined) return allowed;
+  const repository = field(manifest, 'repository');
+  const url = field(repository, 'url');
+  const owner =
+    typeof url === 'string'
+      ? /^git\+https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/hudhud\.git$/u.exec(
+          url,
+        )?.[1]
+      : undefined;
+  if (owner === undefined) return allowed;
+  const web = `https://github.com/${owner}/hudhud`;
+  const homepage = `${web}/tree/main/packages/${dir}#readme`;
+  const bugs = `${web}/issues`;
+  if (
+    field(repository, 'type') !== 'git' ||
+    field(repository, 'directory') !== `packages/${dir}` ||
+    field(manifest, 'homepage') !== homepage ||
+    field(field(manifest, 'bugs'), 'url') !== bugs
+  ) {
+    return allowed;
+  }
+  const expected = [
+    JSON.stringify({ url }).slice(1, -1).replace('":"', '": "'),
+    JSON.stringify({ homepage }).slice(1, -1).replace('":"', '": "'),
+    JSON.stringify({ url: bugs }).slice(1, -1).replace('":"', '": "'),
+  ];
+  const lines = text.split(/\r?\n/u).map((line) => line.trim().replace(/,$/u, ''));
+  /** @type {number[]} */
+  const found = [];
+  for (const wanted of expected) {
+    const at = lines.flatMap((line, index) => (line === wanted ? [index + 1] : []));
+    if (at.length !== 1) return new Set();
+    found.push(/** @type {number} */ (at[0]));
+  }
+  for (const line of found) allowed.add(line);
+  return allowed;
 }
 
 /**
@@ -307,7 +397,8 @@ function toFinding(path, line, hit, denylist) {
 }
 
 /**
- * Scans a multi-line text.
+ * Scans a multi-line text: a whole file, so the source links of a published
+ * package manifest are recognised ({@link packageSourceLinkLines}).
  *
  * @param {string} path
  * @param {string} text
@@ -315,10 +406,11 @@ function toFinding(path, line, hit, denylist) {
  * @returns {Finding[]}
  */
 export function scanText(path, text, denylist) {
+  const links = packageSourceLinkLines(path, text);
   /** @type {Finding[]} */
   const findings = [];
   for (const [index, line] of text.split(/\r?\n/u).entries()) {
-    for (const hit of scanLine(line, denylist)) {
+    for (const hit of scanLine(line, denylist, links.has(index + 1))) {
       findings.push(toFinding(path, index + 1, hit, denylist));
     }
   }
@@ -341,11 +433,16 @@ export function scanPathName(path, denylist) {
  *
  * @param {readonly AddedLine[]} lines
  * @param {readonly string[]} denylist
+ * @param {ReadonlyMap<string, ReadonlySet<number>>} [sourceLinks] Per path,
+ *   the source-link lines of the staged file ({@link packageSourceLinkLines}
+ *   of its whole staged content); none by default.
  * @returns {Finding[]}
  */
-export function scanAddedLines(lines, denylist) {
+export function scanAddedLines(lines, denylist, sourceLinks = new Map()) {
   return lines.flatMap(({ path, line, text }) =>
-    scanLine(text, denylist).map((hit) => toFinding(path, line, hit, denylist)),
+    scanLine(text, denylist, sourceLinks.get(path)?.has(line) === true).map((hit) =>
+      toFinding(path, line, hit, denylist),
+    ),
   );
 }
 

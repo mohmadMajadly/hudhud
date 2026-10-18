@@ -94,13 +94,15 @@ export type VerificationMode = 'advisory' | 'strict';
  * @public
  */
 export interface BinaryVerification {
-  readonly status: 'verified' | 'unverified' | 'failed';
+  /** The verdict (open: later versions may add values). */
+  readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
   /**
    * What decided the status: `os-signature` when the signature check failed,
    * `sha256-manifest` when the digest table was compared, `none` when the
-   * table had nothing to compare with.
+   * table had nothing to compare with. Open: later versions may add values.
    */
-  readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+  readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
+  /** The `binaryVerification` mode in effect. */
   readonly mode: VerificationMode;
   /** Human-readable reason; names versions and checks, never secrets. */
   readonly detail?: string;
@@ -117,7 +119,7 @@ export interface BinaryVerification {
 /**
  * One known digest of a harness binary for the host platform.
  *
- * @public
+ * @beta
  */
 export interface KnownDigest {
   readonly version: string;
@@ -130,7 +132,7 @@ export interface KnownDigest {
 /**
  * The identity of a file, as `sha256File` reports it.
  *
- * @public
+ * @beta
  */
 export interface BinaryIdentity {
   /** `<dev>:<ino>` (POSIX) or `<volume serial>:<file index>` (win32). */
@@ -147,7 +149,7 @@ export interface BinaryIdentity {
 /**
  * A verified (or rejected) binary: the verdict bound to the file identity.
  *
- * @public
+ * @beta
  */
 export interface VerifiedBinary extends BinaryIdentity {
   /** The realpath that was verified; the only path to spawn. */
@@ -162,7 +164,7 @@ export interface VerifiedBinary extends BinaryIdentity {
 /**
  * The file changed between resolution, verification and spawn.
  *
- * @public
+ * @beta
  */
 export class BinaryChangedError extends Error {
   override readonly name = 'BinaryChangedError';
@@ -180,7 +182,7 @@ export class BinaryChangedError extends Error {
  * adapter maps it to the public `BinaryVerificationError`
  * (`BINARY_VERIFICATION_FAILED`).
  *
- * @public
+ * @beta
  */
 export class BinaryNotVerifiedError extends Error {
   override readonly name = 'BinaryNotVerifiedError';
@@ -202,7 +204,7 @@ export class BinaryNotVerifiedError extends Error {
 /**
  * Filesystem calls used to read a file identity again.
  *
- * @public
+ * @beta
  */
 export interface IdentityFs {
   realpath(path: string): Promise<string>;
@@ -217,7 +219,7 @@ const nodeIdentityFs: IdentityFs = {
 /**
  * Per-Harness cache of verification results (plan §1.8).
  *
- * @public
+ * @beta
  */
 export class VerificationCache {
   readonly #entries = new Map<string, VerifiedBinary>();
@@ -251,7 +253,7 @@ export class VerificationCache {
 /**
  * Options of {@link verifyBinary}.
  *
- * @public
+ * @beta
  */
 export interface VerifyBinaryOptions {
   readonly mode: VerificationMode;
@@ -284,7 +286,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
  * sizes that are non-negative safe integers.
  *
  * @throws RangeError naming the first bad entry
- * @public
+ * @beta
  */
 export function checkKnownDigests(digests: readonly KnownDigest[]): void {
   digests.forEach((entry, index) => {
@@ -462,7 +464,7 @@ function bound(filePath: string, digest: FileDigest): Omit<VerifiedBinary, 'veri
  * @throws {@link BinaryChangedError} when the file changed during
  * verification or cannot be read; RangeError for an invalid digest table or
  * a Windows path with a control character (strict)
- * @public
+ * @beta
  */
 export async function verifyBinary(
   binary: ResolvedExecutable,
@@ -500,7 +502,7 @@ export async function verifyBinary(
  *
  * Pure; the result is a new object.
  *
- * @public
+ * @beta
  */
 export function settleProbedVersion(
   binary: VerifiedBinary,
@@ -539,7 +541,7 @@ export function settleProbedVersion(
  * nanoseconds) unchanged.
  *
  * @throws {@link BinaryChangedError}
- * @public
+ * @beta
  */
 export async function recheckBinary(
   binary: VerifiedBinary,
@@ -562,7 +564,7 @@ export async function recheckBinary(
  * again ({@link recheckBinary}).
  *
  * @throws {@link BinaryNotVerifiedError}, {@link BinaryChangedError}
- * @public
+ * @beta
  */
 export async function assertSpawnable(
   binary: VerifiedBinary,
@@ -577,7 +579,7 @@ export async function assertSpawnable(
 /**
  * The binary to spawn after {@link assertSpawnableOrReverify}.
  *
- * @public
+ * @beta
  */
 export interface SpawnableBinary {
   readonly binary: VerifiedBinary;
@@ -608,7 +610,7 @@ export interface SpawnableBinary {
  *
  * @throws {@link BinaryNotVerifiedError}; whatever `reverify` throws other
  * than {@link BinaryChangedError} (for example when the file is gone)
- * @public
+ * @beta
  */
 export async function assertSpawnableOrReverify(
   binary: VerifiedBinary,

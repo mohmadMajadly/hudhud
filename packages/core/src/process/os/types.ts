@@ -18,7 +18,7 @@
  * @remarks
  * Start times are field 22 of `/proc/<pid>/stat` (clock ticks since boot).
  *
- * @public
+ * @beta
  */
 export interface LinuxProcTableCalls {
   readonly source: 'linux-proc';
@@ -37,7 +37,7 @@ export interface LinuxProcTableCalls {
  *
  * @remarks
  * Contract of `runPs`: run `/bin/ps` with argv
- * `['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']`, `shell: false`, and
+ * `['-A', '-ww', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm=']`, `shell: false`, and
  * an environment of exactly `{ LC_ALL: 'C', TZ: 'UTC0' }`. `LC_ALL=C` fixes
  * the `lstart` format (`Mon Oct 12 17:02:31 2026`); `TZ=UTC0` makes `lstart`
  * unambiguous across DST changes (plan decision of W1-T9, additive to the
@@ -46,7 +46,7 @@ export interface LinuxProcTableCalls {
  * `pid ppid pgid lstart comm` layout with `lstart` padded to 28 columns
  * (research 09); the `stat` column is to be confirmed by the next gate run. Resolves with stdout as bytes; rejects on a non-zero exit.
  *
- * @public
+ * @beta
  */
 export interface DarwinPsTableCalls {
   readonly source: 'darwin-ps';
@@ -70,7 +70,7 @@ export interface DarwinPsTableCalls {
  * `n` = `Name` (string or null). JSON escapes control characters, so a
  * hostile name cannot forge a record. Resolves with stdout as bytes.
  *
- * @public
+ * @beta
  */
 export interface Win32CimTableCalls {
   readonly source: 'win32-cim';
@@ -80,21 +80,21 @@ export interface Win32CimTableCalls {
 /**
  * Reads of the process table for one platform.
  *
- * @public
+ * @beta
  */
 export type ProcessTableCalls = LinuxProcTableCalls | DarwinPsTableCalls | Win32CimTableCalls;
 
 /**
  * The only signals the POSIX ladder sends (ADR-0010).
  *
- * @public
+ * @beta
  */
 export type PosixSignal = 'SIGTERM' | 'SIGKILL';
 
 /**
  * Result of one `kill(2)` call, mapped from its errno.
  *
- * @public
+ * @beta
  */
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
 
@@ -107,7 +107,7 @@ export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
  * is `kill(-pgid, signal)`; it is never called for the host's, the
  * launcher's or the CLI's group (ADR-0010, K1).
  *
- * @public
+ * @beta
  */
 export interface PosixSignalCalls {
   signalProcess(pid: number, signal: PosixSignal): SignalOutcome;
@@ -117,7 +117,7 @@ export interface PosixSignalCalls {
 /**
  * Result of the best-effort Windows tree kill.
  *
- * @public
+ * @beta
  */
 export interface TaskkillResult {
   readonly exitCode: number | null;
@@ -129,7 +129,7 @@ export interface TaskkillResult {
  * `process/taskkill.ts`). `TerminateJobObject` belongs to the job addon
  * handle and `TerminateProcess` to the child handle, so neither is here.
  *
- * @public
+ * @beta
  */
 export interface Win32TerminateCalls {
   /** `taskkill /T /F /PID <pid>`: the tree kill of the best-effort ladder. */
@@ -141,7 +141,7 @@ export interface Win32TerminateCalls {
 /**
  * Everything the process layer asks of the operating system.
  *
- * @public
+ * @beta
  */
 export type OsCalls =
   | {

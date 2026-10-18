@@ -28,6 +28,10 @@
     "extractorMessageReporting": {
       "default": {
         "logLevel": "error"
+      },
+      "ae-incompatible-release-tags": {
+        "logLevel": "error",
+        "addToApiReportFile": false
       }
     },
     "tsdocMessageReporting": {

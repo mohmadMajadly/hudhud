@@ -13,14 +13,14 @@ import { DEFAULT_MAX_JSON_DEPTH, nestingExceeds, type JsonObject } from './json.
 /**
  * Default outbound line cap: 32 MiB (ADR-0011 §7).
  *
- * @public
+ * @beta
  */
 export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number = 32 * 1024 * 1024;
 
 /**
  * Result of {@link encodeJsonLine}.
  *
- * @public
+ * @beta
  */
 export type EncodeJsonLineResult =
   | { readonly ok: true; readonly line: string; readonly bytes: number }
@@ -120,7 +120,7 @@ function protocolError(reason: string): EncodeJsonLineResult {
  * object yields `PROTOCOL_ERROR` with `details.reason`: `too-deep` for nesting
  * beyond {@link DEFAULT_MAX_JSON_DEPTH} (the same limit `parseJsonLine`
  * enforces inbound, checked before and after `toJSON`), `not-serializable`
- * for a cycle, a `bigint` or a throwing `toJSON`, `not-object` for a
+ * for a cycle, a `bigint`, a throwing `toJSON`, getter or proxy trap, `not-object` for a
  * non-object at run time. This function never throws
  * for a valid `maxBytes`.
  *
@@ -128,7 +128,7 @@ function protocolError(reason: string): EncodeJsonLineResult {
  * @param maxBytes - The outbound cap in bytes, a positive safe integer; usually
  * {@link DEFAULT_MAX_OUTBOUND_FRAME_BYTES}.
  * @throws RangeError when `maxBytes` is not a positive safe integer.
- * @public
+ * @beta
  */
 export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonLineResult {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
@@ -139,7 +139,13 @@ export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonL
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
     return protocolError('not-object');
   }
-  const shape = shapeOf(candidate, DEFAULT_MAX_JSON_DEPTH);
+  let shape: Shape;
+  try {
+    shape = shapeOf(candidate, DEFAULT_MAX_JSON_DEPTH);
+  } catch {
+    // A getter or a proxy trap of the caller's object threw.
+    return protocolError('not-serializable');
+  }
   if (shape === 'too-deep') return protocolError('too-deep');
   if (shape === 'cycle') return protocolError('not-serializable');
   let json: unknown;

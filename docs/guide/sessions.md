@@ -64,7 +64,7 @@ Each capability is `'supported'`, `'emulated'` or `'unsupported'`. The Claude Co
 
 - `harness.sessions.create(options?)` starts a new session under a fresh UUID that hudhud generates.
 - `harness.sessions.resume(sessionId, options?)` continues an existing session ([below](#resume-and-fork)).
-- Disposing the Harness (`await harness[Symbol.asyncDispose]()`, or `await using harness = await connect()`) aborts sessions that are still starting, disposes the live ones and refuses new ones with `HARNESS_DISPOSED`.
+- Disposing the Harness (`await harness[Symbol.asyncDispose]()`, or `await using harness = await connect()`) aborts sessions that are still starting, disposes the live ones and refuses new ones with `HARNESS_DISPOSED`. It resolves once all of them ended, including a start that was spawning Claude Code at that moment: that start ends its process and rejects with `HARNESS_DISPOSED`.
 
 A session's `info` holds what it learned at start: `id`, `mode` (`'create'`, `'resume'` or `'fork'`), `forkedFrom`, `pid` (the process hudhud spawned), `cliPid` (the pid Claude Code reports, which differs behind a launcher), `version`, `apiKeySource`, `tokenSource`, `features` and `containment` (what this session actually got). `session.closed` is a promise that resolves when the session has ended, for whatever reason; it never rejects.
 
@@ -75,7 +75,9 @@ Both send one prompt and start one turn.
 - `session.ask(prompt, { signal })` resolves with the turn's `TurnResult`.
 - `session.send(input, { signal, events })` returns a `Turn` at once: `turn.id`, `turn.done` (the same `TurnResult` promise), `turn.interrupt()`, and the turn's own events when you iterate it ([Events](events.md)).
 
-A `TurnResult` is returned for every turn that ends, including turns that end with an error: `isError`, `outcome` (`'completed'`, `'error'`, `'cancelled'`, `'max-turns'`, `'max-budget'`, `'unknown'`, or a newer value), `text`, `stopReason`, `terminalReason`, `errors`, `apiErrorStatus`, `usage`, `permissionDenials`, `raw` (the CLI's own result frame), and `synthesized` (`true` when hudhud built the result itself because the CLI ended the turn without a result frame, for example on an interrupt or a process exit). `ask()` and `turn.done` reject only when the session fails, for example with `PROCESS_EXITED` or `AUTHENTICATION_FAILED` ([Troubleshooting](troubleshooting.md)).
+A `TurnResult` is returned for every turn that ends, including turns that end with an error: `isError`, `outcome` (`'completed'`, `'error'`, `'cancelled'`, `'max-turns'`, `'max-budget'`, `'unknown'`, or a newer value), `text`, `stopReason`, `terminalReason`, `errors`, `apiErrorStatus`, `usage`, `permissionDenials`, `raw` (the CLI's own result frame), and `synthesized` (`true` when hudhud built the result itself because the CLI ended the turn without a result frame, for example on an interrupt or a process exit). `ask()` and `turn.done` reject only when the session fails, for example with `PROCESS_EXITED` or `AUTHENTICATION_FAILED` ([Troubleshooting](troubleshooting.md)), or when the call's `signal` aborts.
+
+The `signal` of `ask()` and of `send()` works the same way. When it aborts, the call gives up waiting: `ask()`, `turn.done` and the turn's iterator reject at once with `ABORTED`, and hudhud interrupts the turn, which still ends in the background (its `turn.completed` event reaches `session.events()`). A signal that is already aborted when you call sends nothing: no turn starts. The session option `events.signal` is different: it ends event subscriptions only, never a turn ([Events](events.md#bounded-queues-and-overflow)).
 
 Prompts sent while a turn runs wait in Claude Code's queue (each has its own `Turn`, announced by a `turn.queued` event). Claude Code runs them after the current turn and may merge several queued prompts into one turn; every `Turn` it covers then settles with that turn's result.
 
@@ -115,18 +117,18 @@ await forked.close();
 - Within one `Harness`, a second live session with the same id is refused with `SESSION_ID_IN_USE`. Claude Code itself has no lock: two processes (or two Harnesses) that resume the same session both append to one transcript, and a later resume follows only the last-written branch ([ADR-0008](../adr/0008-turn-and-lifecycle-semantics.md#resume-continue-and-fork-j6-j7-07-1)). Do not resume one session from two places at once.
 - Claude Code's `--continue` ("the most recent session in this directory") is not offered: it silently starts a new session when there is none. Keep the session id and resume it.
 
-On macOS, resume and fork have not been verified yet ([Platforms](platforms.md#macos)).
+Resume and fork are tested against the real Claude Code on Windows x64, Linux x64 and macOS arm64 ([Platforms](platforms.md#support-matrix)); on macOS the macOS gate checked resume as well ([Platforms](platforms.md#macos)).
 
 ## Stopping: interrupt, close, abort and dispose
 
-| You want to                               | Call                                                                                              | What happens                                                                                       |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Stop one turn, keep the session           | `turn.interrupt()`                                                                                | The turn ends with outcome `'cancelled'`; the session stays usable                                 |
-| Give up waiting for one turn              | `ask(prompt, { signal })`, `send(input, { signal })`                                              | The call rejects at once with `ABORTED`; the turn is interrupted and settles in the background     |
-| End a session and let its work finish     | `session.close()`                                                                                 | Drain: running and queued turns finish, then input ends and the CLI exits, within `closeTimeoutMs` |
-| End a session now                         | `session[Symbol.asyncDispose]()`, `await using`, or `close({ signal })` with a signal that aborts | Abort: the termination ladder below                                                                |
-| Give up while a session is still starting | the `signal` option of `create`, `resume` or `session()`                                          | The call rejects with `ABORTED` after the process was stopped; nothing is left running             |
-| End everything                            | `harness[Symbol.asyncDispose]()`                                                                  | Every session of the Harness is disposed                                                           |
+| You want to                               | Call                                                                                              | What happens                                                                                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Stop one turn, keep the session           | `turn.interrupt()`                                                                                | The turn ends with outcome `'cancelled'`; the session stays usable                                                                                                             |
+| Give up waiting for one turn              | `ask(prompt, { signal })`, `send(input, { signal })`                                              | `ask()`, or `turn.done` and the turn's iterator, reject at once with `ABORTED`; the turn is interrupted and settles in the background; an already aborted signal sends nothing |
+| End a session and let its work finish     | `session.close()`                                                                                 | Drain: running and queued turns finish, then input ends and the CLI exits, within `closeTimeoutMs`                                                                             |
+| End a session now                         | `session[Symbol.asyncDispose]()`, `await using`, or `close({ signal })` with a signal that aborts | Abort: the termination ladder below                                                                                                                                            |
+| Give up while a session is still starting | the `signal` option of `create`, `resume` or `session()`                                          | The call rejects with `ABORTED` after the process was stopped; nothing is left running                                                                                         |
+| End everything                            | `harness[Symbol.asyncDispose]()`                                                                  | Every session of the Harness is disposed                                                                                                                                       |
 
 ```ts
 // 1. Interrupt one turn; the session stays usable.

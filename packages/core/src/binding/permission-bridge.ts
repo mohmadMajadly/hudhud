@@ -42,20 +42,31 @@ import type { PermissionErrorReason, PermissionRequestData } from '../protocol/m
  * @public
  */
 export interface PermissionRequest {
+  /** The question's id, also in the `permission.requested` and `permission.resolved` events. */
   readonly requestId: string;
+  /** The session the question comes from. */
   readonly sessionId: string;
+  /** The turn the question comes from, when known. */
   readonly turnId?: string;
+  /** The tool's name. Untrusted. */
   readonly toolName: string;
+  /** The tool's display name, when the harness gives one. Untrusted. */
   readonly displayName?: string;
+  /** The id of the tool call. */
   readonly toolUseId: string;
+  /** The tool's input, as JSON. Untrusted. */
   readonly input: JsonValue;
-  /** Passed through, never applied. */
+  /** The harness's permission suggestions: passed through as data, never applied. */
   readonly suggestions: readonly JsonValue[];
+  /** The path the request is about, when the harness names one. Untrusted. */
   readonly blockedPath?: string;
   /** Untrusted: sanitize before rendering. */
   readonly decisionReason?: string;
+  /** A title for the question, when the harness gives one. Untrusted. */
   readonly title?: string;
+  /** A description of the question, when the harness gives one. Untrusted. */
   readonly description?: string;
+  /** The whole request frame. */
   readonly raw: JsonValue;
 }
 

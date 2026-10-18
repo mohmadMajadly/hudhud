@@ -26,8 +26,13 @@ export const FULL_LABEL = 'full-ci';
 /** Diffs larger than this are not inspected file by file: FULL. */
 export const MAX_FILES = 2000;
 
-/** Root files that are documentation only (exact, case-sensitive). */
-const LIGHT_ROOT_FILES = new Set(['README.md', 'CHANGELOG.md', 'LICENSE']);
+/**
+ * Root files that are documentation only (exact, case-sensitive). The legal
+ * files `LICENSE` and `NOTICE` are not: every package carries a copy that
+ * `scripts/test/package-legal.test.ts` and `pnpm check:tarball` compare with
+ * them, and only the FULL tier runs those (review finding R7-1).
+ */
+const LIGHT_ROOT_FILES = new Set(['README.md', 'CHANGELOG.md']);
 
 /** Directory prefixes that are documentation only. */
 const LIGHT_PREFIXES = ['docs/'];

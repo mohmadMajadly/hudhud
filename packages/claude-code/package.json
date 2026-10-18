@@ -4,6 +4,15 @@
   "private": true,
   "description": "Claude Code adapter for hudhud.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohmadMajadly/hudhud.git",
+    "directory": "packages/claude-code"
+  },
+  "homepage": "https://github.com/mohmadMajadly/hudhud/tree/main/packages/claude-code#readme",
+  "bugs": {
+    "url": "https://github.com/mohmadMajadly/hudhud/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -16,6 +25,7 @@
       "default": "./dist/raw/index.js"
     },
     "./schemas/*": "./schemas/*.json",
+    "./schemas/*.json": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "files": [

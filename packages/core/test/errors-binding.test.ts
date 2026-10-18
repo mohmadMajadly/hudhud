@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import * as errors from '../src/binding/errors.js';
 import {
@@ -277,6 +277,64 @@ describe('isHudhudError', () => {
     expect(isHudhudError(error, 'ABORTED')).toBe(true);
     expect(isHudhudError(error, 'PROTOCOL_ERROR')).toBe(false);
     if (isHudhudError(error, 'ABORTED')) expect(error.code).toBe('ABORTED');
+  });
+
+  // R5-3: an application can hold two copies of the core (a dependency pins
+  // another version); `instanceof` fails across them, the brand does not.
+  describe('across two copies of the core', () => {
+    async function secondCopy(): Promise<typeof errors> {
+      vi.resetModules();
+      const other = await import('../src/binding/errors.js');
+      expect(other.HudhudError).not.toBe(HudhudError);
+      return other;
+    }
+
+    it('accepts an error built by the other copy, with and without a code', async () => {
+      const other = await secondCopy();
+      const error: unknown = new other.InvalidOptionsError('x');
+      expect(error).not.toBeInstanceOf(HudhudError);
+      expect(isHudhudError(error)).toBe(true);
+      expect(isHudhudError(error, 'INVALID_OPTIONS')).toBe(true);
+      expect(isHudhudError(error, 'ABORTED')).toBe(false);
+      // And the other way round.
+      expect(other.isHudhudError(new AbortError(), 'ABORTED')).toBe(true);
+    });
+
+    it('accepts a rebuilt error of the other copy', async () => {
+      const other = await secondCopy();
+      const error = other.HudhudError.fromData(new ProcessExitedError('gone').toData());
+      expect(isHudhudError(error, 'PROCESS_EXITED')).toBe(true);
+    });
+
+    it('refuses a branded object whose code this copy does not know', async () => {
+      const other = await secondCopy();
+      const error = new other.SpawnError('x');
+      Object.defineProperty(error, 'code', { value: 'NEW_CODE_OF_A_LATER_VERSION' });
+      expect(isHudhudError(error)).toBe(false);
+    });
+  });
+
+  it('brands every error with a hidden global symbol', () => {
+    const brand = Symbol.for('hudhudjs.error');
+    const error = new AbortError();
+    expect(Reflect.get(error, brand)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(error, brand)).toEqual({
+      value: true,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    expect(JSON.parse(JSON.stringify(error))).toEqual(error.toData());
+  });
+
+  it('refuses an unbranded look-alike and a brand without a known code', () => {
+    const brand = Symbol.for('hudhudjs.error');
+    expect(isHudhudError({ code: 'ABORTED', message: 'x', retryable: false })).toBe(false);
+    expect(isHudhudError({ [brand]: true, code: 'NOT_A_CODE' })).toBe(false);
+    expect(isHudhudError({ [brand]: 'yes', code: 'ABORTED' })).toBe(false);
+    expect(isHudhudError({ [brand]: true, code: 'ABORTED' }, 'ABORTED')).toBe(true);
+    expect(isHudhudError(undefined)).toBe(false);
+    expect(isHudhudError('ABORTED')).toBe(false);
   });
 });
 

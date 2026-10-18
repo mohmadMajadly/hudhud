@@ -47,7 +47,7 @@ describe('isEventType', () => {
     if (!isEventType(event, 'tool.call')) throw new Error('not a tool call');
     expectTypeOf(event.toolName).toEqualTypeOf<string>();
     expectTypeOf(event.kind).toEqualTypeOf<ToolKind>();
-    expectTypeOf(event.status).toEqualTypeOf<'pending'>();
+    expectTypeOf(event.status).toEqualTypeOf<'pending' | (string & {})>();
     expect(event.toolName).toBe('Bash');
   });
 

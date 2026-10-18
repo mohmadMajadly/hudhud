@@ -62,7 +62,7 @@ export type HudhudErrorCode = (typeof HUDHUD_ERROR_CODES)[number];
  * Whether repeating the same call with the same inputs may succeed without a
  * change by the application (plan §3.1). Fixed per code.
  *
- * @public
+ * @beta
  */
 export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>> = {
   INVALID_OPTIONS: false,
@@ -107,9 +107,13 @@ export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>> = {
  * @public
  */
 export interface ErrorData {
+  /** The error code; open, since data from a newer peer may carry a code this version does not know. */
   readonly code: HudhudErrorCode | (string & {});
+  /** Human-readable text; names variables and files, never secret values. */
   readonly message: string;
+  /** Whether repeating the same call with the same inputs may succeed. */
   readonly retryable: boolean;
+  /** Plain JSON facts about the failure, if any. */
   readonly details?: JsonObject;
 }
 
@@ -129,14 +133,20 @@ const MAX_DETAILS_DEPTH = 64;
 /**
  * Narrows to a known error code.
  *
- * @public
+ * @beta
  */
 export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode {
   return typeof value === 'string' && CODE_SET.has(value);
 }
 
 /**
- * Whether a code is retryable.
+ * Whether an error with this code is retryable: repeating the same call with
+ * the same inputs may succeed without a change by the application (plan
+ * §3.1). Fixed per code; a `HudhudError` carries the same value as
+ * `retryable`.
+ *
+ * @param code - A known error code.
+ * @returns The code's retryability.
  *
  * @public
  */
@@ -157,7 +167,7 @@ export function isJsonObjectValue(value: unknown): value is JsonObject {
 /**
  * Builds `ErrorData` with the retryability fixed by the code table.
  *
- * @public
+ * @beta
  */
 export function makeErrorData(
   code: HudhudErrorCode,

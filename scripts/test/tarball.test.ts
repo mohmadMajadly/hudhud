@@ -5,10 +5,13 @@ import { describe, expect, it } from 'vitest';
 import {
   checkFileList,
   checkImports,
+  checkSchemaSpecifiers,
+  bundledPackages,
   checkLegalFiles,
   checkPackedManifest,
   checkRequiredFiles,
   checkSourceManifest,
+  checkRepositoryFields,
   checkSourceMap,
   checkTarball,
   cleanEnv,
@@ -27,6 +30,7 @@ import {
   rootProblem,
   scanEntries,
   supportsPlatform,
+  repositorySlug,
   type PackageJson,
   type TarEntry,
 } from '../lib/tarball.mjs';
@@ -303,6 +307,75 @@ describe('checkSourceManifest and checkPackedManifest', () => {
 
 // ---- file list ----------------------------------------------------------------
 
+describe('repositorySlug and checkRepositoryFields (R6-4, R7-3)', () => {
+  const SLUG = 'example-owner/hudhud';
+  const linked = {
+    name: '@hudhudjs/core',
+    repository: {
+      type: 'git',
+      url: 'git+https://github.com/example-owner/hudhud.git',
+      directory: 'packages/core',
+    },
+    homepage: 'https://github.com/example-owner/hudhud/tree/main/packages/core#readme',
+    bugs: { url: 'https://github.com/example-owner/hudhud/issues' },
+  } as PackageJson;
+
+  it('takes the slug from GITHUB_REPOSITORY, else from the origin remote', () => {
+    expect(repositorySlug(SLUG, 'https://github.com/other/x.git')).toBe(SLUG);
+    expect(repositorySlug(undefined, 'https://github.com/example-owner/hudhud.git\n')).toBe(SLUG);
+    expect(repositorySlug('', 'https://github.com/example-owner/hudhud')).toBe(SLUG);
+    expect(repositorySlug(undefined, 'ssh://github.com/example-owner/hudhud.git')).toBeNull();
+  });
+
+  it('refuses anything that is not a GitHub repository slug', () => {
+    expect(repositorySlug('owner/repo/extra', undefined)).toBeNull();
+    expect(repositorySlug('../x', undefined)).toBeNull();
+    expect(repositorySlug(undefined, undefined)).toBeNull();
+    expect(repositorySlug(undefined, 'https://gitlab.com/example-owner/hudhud.git')).toBeNull();
+    expect(repositorySlug(undefined, 'https://github.com/example-owner')).toBeNull();
+    expect(repositorySlug(undefined, '/srv/mirror/hudhud.git')).toBeNull();
+  });
+
+  it('accepts the repository, homepage and bugs of the package directory', () => {
+    expect(checkRepositoryFields(linked, 'packages/core', SLUG)).toEqual([]);
+  });
+
+  it('refuses a manifest without them, as npm trusted publishing would', () => {
+    expect(checkRepositoryFields({ name: '@hudhudjs/core' }, 'packages/core', SLUG)).toEqual([
+      'package.json repository must be { type: "git", url: "git+https://github.com/example-owner/hudhud.git", directory: "packages/core" }, is undefined',
+      'package.json homepage must be https://github.com/example-owner/hudhud/tree/main/packages/core#readme, is undefined',
+      'package.json bugs.url must be https://github.com/example-owner/hudhud/issues, is undefined',
+    ]);
+  });
+
+  it('refuses another repository, a string form, another directory or another homepage', () => {
+    const variants: PackageJson[] = [
+      { ...linked, repository: 'github:example-owner/hudhud' } as PackageJson,
+      {
+        ...linked,
+        repository: {
+          type: 'git',
+          url: 'git+https://github.com/someone/hudhud.git',
+          directory: 'packages/core',
+        },
+      } as PackageJson,
+      {
+        ...linked,
+        repository: {
+          type: 'git',
+          url: 'git+https://github.com/example-owner/hudhud.git',
+          directory: 'packages/hudhud',
+        },
+      } as PackageJson,
+      { ...linked, homepage: 'https://example.com' } as PackageJson,
+      { ...linked, bugs: 'https://github.com/example-owner/hudhud/issues' } as PackageJson,
+    ];
+    for (const manifest of variants) {
+      expect(checkRepositoryFields(manifest, 'packages/core', SLUG)).toHaveLength(1);
+    }
+  });
+});
+
 describe('coversPath', () => {
   it('covers a file, a directory and simple globs', () => {
     expect(coversPath('dist', 'dist/a.js')).toBe(true);
@@ -411,22 +484,36 @@ describe('resolveInside and checkSourceMap', () => {
   const map = (sources: unknown, extra: object = {}): string =>
     JSON.stringify({ version: 3, sources, ...extra });
 
-  it('accepts relative sources inside the package', () => {
-    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts']))).toEqual([]);
-    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts'], { sourceRoot: '' }))).toEqual([]);
+  const packed = new Set(['src/a.ts', 'dist/a.js', 'dist/a.js.map']);
+
+  it('accepts relative sources inside the package that are packed', () => {
+    expect(checkSourceMap('dist/a.js.map', map(['../src/a.ts']), packed)).toEqual([]);
+    expect(
+      checkSourceMap('dist/a.js.map', map(['../src/a.ts'], { sourceRoot: '' }), packed),
+    ).toEqual([]);
+  });
+
+  it('flags a source that is not in the tarball (R7-6: src dropped from files)', () => {
+    expect(checkSourceMap('dist/index.js.map', map(['../src/absent.ts']), packed)).toEqual([
+      'dist/index.js.map: source "../src/absent.ts" (src/absent.ts) is not in the tarball',
+    ]);
+    expect(
+      checkSourceMap('dist/a.js.map', map(['../src/a.ts']), new Set(['dist/a.js.map'])),
+    ).toEqual(['dist/a.js.map: source "../src/a.ts" (src/a.ts) is not in the tarball']);
   });
 
   it('flags unreadable maps and unsafe sources', () => {
-    expect(checkSourceMap('m.map', 'nope')).toEqual(['m.map: not valid JSON']);
-    expect(checkSourceMap('m.map', 'null')).toEqual(['m.map: not a source map']);
-    expect(checkSourceMap('m.map', '{}')).toEqual(['m.map: no sources list']);
-    expect(checkSourceMap('dist/m.map', map(['../src/a.ts'], { sourceRoot: '/x' }))).toEqual([
-      'dist/m.map: has a sourceRoot',
-    ]);
+    expect(checkSourceMap('m.map', 'nope', packed)).toEqual(['m.map: not valid JSON']);
+    expect(checkSourceMap('m.map', 'null', packed)).toEqual(['m.map: not a source map']);
+    expect(checkSourceMap('m.map', '{}', packed)).toEqual(['m.map: no sources list']);
+    expect(
+      checkSourceMap('dist/m.map', map(['../src/a.ts'], { sourceRoot: '/x' }), packed),
+    ).toEqual(['dist/m.map: has a sourceRoot']);
     expect(
       checkSourceMap(
         'dist/m.map',
         map([1, 'C:\\x\\a.ts', '/srv/u/a.ts', 'file:///a.ts', '..\\a.ts', '../../../a.ts']),
+        packed,
       ),
     ).toEqual([
       'dist/m.map: a source is not a string',
@@ -497,6 +584,7 @@ describe('listEntryPoints', () => {
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
       './raw': { types: { types: './dist/raw.d.ts' }, default: { default: './dist/raw.js' } },
       './schemas/*': './schemas/*.json',
+      './schemas/*.json': './schemas/*.json',
       './package.json': './package.json',
     },
   };
@@ -519,6 +607,8 @@ describe('listEntryPoints', () => {
         { specifier: '@s/p/raw', kind: 'js', runtime: 'dist/raw.js', types: 'dist/raw.d.ts' },
         { specifier: '@s/p/schemas/a', kind: 'json', runtime: 'schemas/a.json' },
         { specifier: '@s/p/schemas/b', kind: 'json', runtime: 'schemas/b.json' },
+        { specifier: '@s/p/schemas/a.json', kind: 'json', runtime: 'schemas/a.json' },
+        { specifier: '@s/p/schemas/b.json', kind: 'json', runtime: 'schemas/b.json' },
         { specifier: '@s/p/package.json', kind: 'json', runtime: 'package.json' },
       ],
     });
@@ -532,6 +622,7 @@ describe('listEntryPoints', () => {
       'exports ./raw: dist/raw.js is not in the tarball',
       'exports ./raw: types dist/raw.d.ts is not in the tarball',
       'exports ./schemas/* matches no file',
+      'exports ./schemas/*.json matches no file',
     ]);
     expect(listEntryPoints({ name: 'p' }, []).problems).toEqual([
       'exports must be an object of subpaths',
@@ -603,6 +694,28 @@ describe('listEntryPoints', () => {
   });
 });
 
+describe('checkSchemaSpecifiers', () => {
+  const a = { specifier: 'p/schemas/a', kind: 'json' as const, runtime: 'schemas/a.json' };
+  const aJson = { specifier: 'p/schemas/a.json', kind: 'json' as const, runtime: 'schemas/a.json' };
+
+  it('wants every schema importable by its file name', () => {
+    expect(checkSchemaSpecifiers('p', [a, aJson])).toEqual([]);
+    expect(checkSchemaSpecifiers('p', [a])).toEqual([
+      'p/schemas/a.json is not importable (the exports map lacks it)',
+    ]);
+  });
+
+  it('ignores files outside schemas/ and entries that are not JSON', () => {
+    expect(
+      checkSchemaSpecifiers('p', [
+        { specifier: 'p/package.json', kind: 'json', runtime: 'package.json' },
+        { specifier: 'p', kind: 'js', runtime: 'dist/index.js' },
+        { specifier: 'p/x', kind: 'json' },
+      ]),
+    ).toEqual([]);
+  });
+});
+
 // ---- one tarball --------------------------------------------------------------
 
 const LICENSE_TEXT = 'Apache License 2.0';
@@ -625,21 +738,47 @@ describe('checkRequiredFiles and checkLegalFiles', () => {
     expect(checkLegalFiles([entry('README.md', 'x')], LEGAL)).toEqual([]);
   });
 
-  it('names every LICENSE or NOTICE file, of any accepted spelling, that differs', () => {
+  it('names every LICENSE that differs and every NOTICE that does not begin with the root file', () => {
     expect(
       checkLegalFiles(
         [
           entry('LICENSE', LICENSE_TEXT),
           entry('LICENCE.md', 'other'),
           entry('NOTICE', `${NOTICE_TEXT} `),
+          entry('NOTICE.md', `x${NOTICE_TEXT}`),
+          entry('NOTICE.txt', NOTICE_TEXT.slice(1)),
           entry('dist/NOTICE', 'not at the root'),
         ],
         LEGAL,
       ),
     ).toEqual([
       "LICENCE.md differs from the repository's LICENSE",
-      "NOTICE differs from the repository's NOTICE",
+      "NOTICE.md does not begin with the repository's NOTICE",
+      "NOTICE.txt does not begin with the repository's NOTICE",
     ]);
+  });
+
+  it('accepts a NOTICE that adds third-party notices after the root text (R6-2)', () => {
+    expect(
+      checkLegalFiles([entry('NOTICE', `${NOTICE_TEXT}\n--- ajv ---\n\nMIT\n`)], LEGAL),
+    ).toEqual([]);
+  });
+
+  it("finds the packages a bundle includes by esbuild's node_modules markers", () => {
+    expect(
+      bundledPackages(
+        [
+          '// node_modules/ajv/dist/runtime/ucs2length.js',
+          'var a = require_ucs2length();',
+          '// node_modules/fast-deep-equal/index.js',
+          '// node_modules/ajv/dist/runtime/equal.js',
+          '// node_modules/@scope/pkg/index.js',
+          '  "node_modules/ajv/dist/runtime/equal.js"(exports) {',
+          'const s = "// node_modules/not-a-marker/x.js";',
+        ].join('\n'),
+      ),
+    ).toEqual(['@scope/pkg', 'ajv', 'fast-deep-equal']);
+    expect(bundledPackages('export {};')).toEqual([]);
   });
 
   it('refuses a label that is not a legal file', () => {
@@ -653,7 +792,7 @@ describe('checkTarball', () => {
   const source: PackageJson = {
     name: 'p',
     version: '1.0.0',
-    files: ['dist'],
+    files: ['dist', 'src'],
     exports: { '.': { types: './dist/index.d.ts', default: './dist/index.js' } },
   };
   const packed = JSON.stringify(source);
@@ -665,6 +804,7 @@ describe('checkTarball', () => {
     file('dist/index.js', 'export {}'),
     file('dist/index.d.ts', 'export {}'),
     file('dist/index.js.map', JSON.stringify({ sources: ['../src/index.ts'] })),
+    file('src/index.ts', 'export {};'),
   ];
 
   it('passes a clean tarball and lists its entry points', () => {
@@ -677,13 +817,38 @@ describe('checkTarball', () => {
     ]);
   });
 
+  it('reports a source map whose source is not packed (R7-6)', () => {
+    const withoutSrc = clean.filter((item) => item.name !== 'package/src/index.ts');
+    expect(checkTarball({ ...source, files: ['dist'] }, gz(withoutSrc), []).problems).toEqual([
+      'dist/index.js.map: source "../src/index.ts" (src/index.ts) is not in the tarball',
+    ]);
+  });
+
   it('reports a LICENSE or NOTICE that is not the repository file', () => {
     const drifted = clean.map((item) =>
       item.name === 'package/NOTICE' ? file('NOTICE', 'Copyright someone else') : item,
     );
     expect(checkTarball(source, gz(drifted), [], LEGAL).problems).toEqual([
-      "NOTICE differs from the repository's NOTICE",
+      "NOTICE does not begin with the repository's NOTICE",
     ]);
+  });
+
+  it('reports bundled third-party code that NOTICE does not list (R6-2)', () => {
+    const bundle = '// node_modules/ajv/dist/runtime/equal.js\nvar x;\n';
+    const bundled = [
+      ...clean,
+      file('src/generated/v.gen.ts', bundle),
+      file('dist/generated/v.gen.js', bundle),
+    ];
+    expect(checkTarball(source, gz(bundled), [], LEGAL).problems).toEqual([
+      'src/generated/v.gen.ts bundles code of ajv, which NOTICE does not list (--- ajv --- and its license)',
+    ]);
+    const listed = bundled.map((item) =>
+      item.name === 'package/NOTICE'
+        ? file('NOTICE', `${NOTICE_TEXT}\n--- ajv ---\n\nMIT\n`)
+        : item,
+    );
+    expect(checkTarball(source, gz(listed), [], LEGAL).problems).toEqual([]);
   });
 
   it('collects the problems of every stage', () => {
@@ -800,6 +965,40 @@ describe('parseImportResults and checkImports', () => {
   it('ships a child that imports with the resolver of the consumer', () => {
     expect(IMPORT_CHILD).toContain('import.meta.resolve(specifier)');
     expect(IMPORT_CHILD).toContain('HUDHUD_TARBALL_SPECIFIERS');
+    expect(IMPORT_CHILD).toContain("{ with: { type: 'json' } }");
+  });
+
+  // R5-6: `./schemas/*` mapped `x.json` to `x.json.json`; an import pinned to
+  // the file the exports map names catches a specifier that resolves elsewhere.
+  it('pins an entry that names its package to the exact file', () => {
+    const json = {
+      specifier: '@s/p/schemas/a.json',
+      kind: 'json' as const,
+      runtime: 'schemas/a.json',
+      packageName: '@s/p',
+    };
+    expect(
+      checkImports(
+        [json],
+        { [json.specifier]: { ok: true, url: `${base}@s/p/schemas/a.json`, names: ['default'] } },
+        base,
+      ),
+    ).toEqual([]);
+    expect(
+      checkImports(
+        [json],
+        {
+          [json.specifier]: {
+            ok: true,
+            url: `${base}@s/p/schemas/a.json.json`,
+            names: ['default'],
+          },
+        },
+        base,
+      ),
+    ).toEqual([
+      `@s/p/schemas/a.json: resolved to ${base}@s/p/schemas/a.json.json, not schemas/a.json`,
+    ]);
   });
 });
 

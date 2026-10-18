@@ -511,6 +511,38 @@ describe('turns', () => {
     expect(run.state.lastResultIsError).toBe(false);
   });
 
+  it('estimates each report against the previous one of the session (R4-7)', () => {
+    const deltas = (mode: 'create' | 'resume'): unknown[] => {
+      const run = new SessionRun(makeConfig({ mode }));
+      run.start();
+      const out: unknown[] = [];
+      for (const [id, cost] of [
+        [U1, 0.25],
+        [U2, 0.75],
+      ] as const) {
+        run.feed({ type: 'cmd.send', turnId: id, content: 'x' });
+        run.line(systemInit());
+        const done = run.line(
+          result({
+            user_message_uuid: id,
+            usage: { input_tokens: 100, output_tokens: 20 },
+            total_cost_usd: cost,
+          }),
+        );
+        out.push(events(done, 'usage.update')[0]?.['estimatedDelta']);
+      }
+      return out;
+    };
+    const turn = { inputTokens: 100, outputTokens: 20, estimate: true };
+    expect(deltas('create')).toEqual([
+      { ...turn, costUsd: 0.25 },
+      { ...turn, costUsd: 0.5 },
+    ]);
+    // A resumed session's running cost continues from earlier processes:
+    // its first report has no baseline, so no cost delta.
+    expect(deltas('resume')).toEqual([turn, { ...turn, costUsd: 0.5 }]);
+  });
+
   it('starts a turn without a model and with the lifecycle frame', () => {
     const run = new SessionRun();
     run.start();

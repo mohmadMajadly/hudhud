@@ -38,14 +38,14 @@ import type { SessionOutcome, TerminationIntent } from './outcome.js';
 /**
  * Name of a machine timer; the binding owns the real timer.
  *
- * @public
+ * @beta
  */
 export type TimerName = string;
 
 /**
  * The injected clock, carried by every input (ADR-0006).
  *
- * @public
+ * @beta
  */
 export interface MachineClockInput {
   /** Monotonic milliseconds of the binding clock. */
@@ -57,7 +57,7 @@ export interface MachineClockInput {
 /**
  * What the process and transport layers report to a machine.
  *
- * @public
+ * @beta
  */
 export type TransportInput =
   | { readonly type: 'process.started'; readonly pid: number }
@@ -84,7 +84,7 @@ export type TransportInput =
  * the application's code produced reaches the harness or the model. A machine
  * reading data from elsewhere treats any other value as `handler-failed`.
  *
- * @public
+ * @beta
  */
 export type PermissionErrorReason = 'no-handler' | 'handler-failed' | 'invalid-decision';
 
@@ -114,7 +114,7 @@ export type PermissionErrorReason = 'no-handler' | 'handler-failed' | 'invalid-d
  * the ask when it arrives, never with an allow; the machine kit checks that
  * every ask ends exactly once.
  *
- * @public
+ * @beta
  */
 export type CommandInput =
   | { readonly type: 'cmd.send'; readonly turnId: string; readonly content: JsonValue }
@@ -143,21 +143,21 @@ export type CommandInput =
  * One input of {@link HarnessMachine.step}: a transport report or a command,
  * stamped with the injected clock.
  *
- * @public
+ * @beta
  */
 export type MachineInput = MachineClockInput & (TransportInput | CommandInput);
 
 /**
  * An event as a machine emits it: plain JSON (ADR-0006).
  *
- * @public
+ * @beta
  */
 export type HudhudEventData = HudhudEvent;
 
 /**
  * A turn result as a machine settles it: plain JSON (ADR-0006).
  *
- * @public
+ * @beta
  */
 export type TurnResultData = TurnResult;
 
@@ -165,7 +165,7 @@ export type TurnResultData = TurnResult;
  * A permission request as a machine asks it (plan §2.2 `PermissionRequest`).
  * Every text field is untrusted harness text: sanitize it before display.
  *
- * @public
+ * @beta
  */
 export interface PermissionRequestData {
   readonly requestId: string;
@@ -189,7 +189,7 @@ export interface PermissionRequestData {
  * §2.2 `SessionInfo`). The binding adds what only it knows, such as the
  * containment the session got.
  *
- * @public
+ * @beta
  */
 export interface SessionInfoData {
   readonly id: string;
@@ -210,7 +210,7 @@ export interface SessionInfoData {
  * What a machine asks the binding to do. Effects of one step are executed in
  * order.
  *
- * @public
+ * @beta
  */
 export type MachineEffect =
   | { readonly type: 'write'; readonly line: string }
@@ -257,7 +257,7 @@ export type MachineEffect =
 /**
  * The result of one {@link HarnessMachine.step}.
  *
- * @public
+ * @beta
  */
 export interface MachineStep<State> {
   readonly state: State;
@@ -269,7 +269,7 @@ export interface MachineStep<State> {
  * JSON values; `step` never mutates its arguments, never throws for any
  * input, and returns errors as data.
  *
- * @public
+ * @beta
  */
 export interface HarnessMachine<State, Config> {
   initialState(config: Config): State;

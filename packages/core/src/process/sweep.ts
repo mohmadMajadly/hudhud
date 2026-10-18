@@ -38,7 +38,7 @@ const SWEEP_SIGNAL: PosixSignal = 'SIGKILL';
 /**
  * What the sweep needs from the operating system (POSIX).
  *
- * @public
+ * @beta
  */
 export interface SweepDeps {
   /** `process.pid` of the host. */
@@ -50,7 +50,7 @@ export interface SweepDeps {
 /**
  * What to sweep.
  *
- * @public
+ * @beta
  */
 export interface SweepRequest {
   /** Identity of the spawned process: the root of the sweep (ADR-0011 J9). */
@@ -64,14 +64,14 @@ export interface SweepRequest {
 /**
  * Result of one `kill(2)` call by the sweep; `error` when the adapter threw.
  *
- * @public
+ * @beta
  */
 export type SweepSignalOutcome = SignalOutcome | 'error';
 
 /**
  * What the sweep did. JSON data.
  *
- * @public
+ * @beta
  */
 export interface SweepResult {
   /** The plan over the latest snapshot; `null` when that snapshot could not be taken. */
@@ -99,7 +99,7 @@ function call(send: () => SignalOutcome): SweepSignalOutcome {
  * successful calls by pid, `summary.groupsSignalled` the successful
  * `kill(-pgid)` calls.
  *
- * @public
+ * @beta
  */
 export async function sweep(request: SweepRequest, deps: SweepDeps): Promise<SweepResult> {
   let latest: ProcessSnapshot;

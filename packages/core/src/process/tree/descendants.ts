@@ -29,7 +29,7 @@ export function indexByPid(records: readonly ProcessRecord[]): {
 /**
  * True when both name the same process: equal pid and equal start time.
  *
- * @public
+ * @beta
  */
 export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean {
   return a.pid === b.pid && a.startTime === b.startTime;
@@ -38,7 +38,7 @@ export function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean {
 /**
  * The record of `identity` in `records` when pid and start time both match (and the pid is unique).
  *
- * @public
+ * @beta
  */
 export function findIdentity(
   records: readonly ProcessRecord[],
@@ -51,7 +51,7 @@ export function findIdentity(
 /**
  * The root's record (identity-matched) and its strict descendants in breadth-first order.
  *
- * @public
+ * @beta
  */
 export interface DescendantTree {
   readonly root: ProcessRecord | null;
@@ -71,7 +71,7 @@ export interface DescendantTree {
  * pid reused within one start-time tick (one second on macOS) is not
  * distinguishable.
  *
- * @public
+ * @beta
  */
 export function descendantsOf(
   records: readonly ProcessRecord[],

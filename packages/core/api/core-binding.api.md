@@ -14,7 +14,7 @@ export interface AbortSignalLike {
     removeEventListener(type: 'abort', listener: () => void): void;
 }
 
-// @public
+// @beta
 export interface AfterExitKill {
     // (undocumented)
     readonly outcome: 'done' | 'failed' | 'skipped-exited' | 'skipped-identity-changed' | 'skipped-protected';
@@ -23,7 +23,7 @@ export interface AfterExitKill {
     readonly source: 'eof-snapshot' | 'started-after-eof';
 }
 
-// @public
+// @beta
 export type AfterExitSkipReason =
 /** No EOF snapshot (no identity, root gone, table unreadable). */
 'no-snapshot'
@@ -32,9 +32,13 @@ export type AfterExitSkipReason =
 /** The fresh table could not be read. */
 | 'table-failed'
 /** The spawned process is still running. */
-| 'root-alive';
+| 'root-alive'
+/** Windows: the session's job was closed after the exit, which ended the whole tree. */
+| 'job-closed'
+/** Windows: closing the session's job failed; with a job no snapshot is taken, so nothing is swept. */
+| 'job-close-failed';
 
-// @public
+// @beta
 export type AfterExitSweepReport = {
     readonly status: 'skipped';
     readonly reason: AfterExitSkipReason;
@@ -43,17 +47,14 @@ export type AfterExitSweepReport = {
     readonly summary: LadderSweepSummary;
     readonly posix?: SweepResult;
     readonly kills: readonly AfterExitKill[];
+    readonly rejected?: number;
 };
 
 // @public
 export interface BinaryInfo {
-    // (undocumented)
     readonly path: string;
-    // (undocumented)
     readonly requestedPath?: string;
-    // (undocumented)
-    readonly source: 'option' | 'native-install' | 'path';
-    // (undocumented)
+    readonly source: 'option' | 'native-install' | 'path' | (string & {});
     readonly verification: BinaryVerification;
     readonly version: string;
 }
@@ -61,11 +62,9 @@ export interface BinaryInfo {
 // @public
 export interface BinaryVerification {
     readonly detail?: string;
-    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
-    // (undocumented)
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
     readonly mode: VerificationMode;
-    // (undocumented)
-    readonly status: 'verified' | 'unverified' | 'failed';
+    readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
 }
 
@@ -80,7 +79,7 @@ export interface BindingDiagnostic {
 }
 
 // @public
-export type Capability = 'supported' | 'emulated' | 'unsupported';
+export type Capability = 'supported' | 'emulated' | 'unsupported' | (string & {});
 
 // @beta
 export interface Clock {
@@ -89,7 +88,7 @@ export interface Clock {
     schedule(ms: number, callback: () => void): () => void;
 }
 
-// @public
+// @beta
 export type CommandInput = {
     readonly type: 'cmd.send';
     readonly turnId: string;
@@ -123,17 +122,11 @@ export type CommandInput = {
 
 // @public
 export interface CompatInfo {
-    // (undocumented)
     readonly harness: string;
-    // (undocumented)
     readonly knownBroken: readonly string[];
-    // (undocumented)
     readonly maxTested: string;
-    // (undocumented)
     readonly minTested: string;
-    // (undocumented)
-    readonly status: 'tested' | 'untested' | 'known-broken';
-    // (undocumented)
+    readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
     readonly version: string;
 }
 
@@ -152,7 +145,7 @@ export function createSession(core: SessionCore): Session;
 // @beta
 export const cryptoIds: IdSource;
 
-// @public
+// @beta
 export interface DarwinPsTableCalls {
     // (undocumented)
     runPs(): Promise<Uint8Array>;
@@ -164,7 +157,7 @@ export interface DarwinPsTableCalls {
 export const DEFAULT_OUTPUT_DRAIN_MS = 2000;
 
 // @public
-export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | 'stdout.error' | 'termination.ladder' | 'termination.sweep-after-exit' | 'binding.machine-error' | 'events.pre-handshake-truncated' | 'security.posture' | 'settings-guard.allowed' | 'session.id-in-use' | (string & {});
+export type DiagnosticCode = 'env.dropped' | 'env.added' | 'env.removed' | 'binary.launcher-detected' | 'binary.version-changed' | 'binary.unverified' | 'project.permissions-ignored' | 'containment.fallback' | 'containment.addon-unavailable' | 'stdout.non-json-line' | 'frame.skipped-oversized' | 'interrupt.still-queued-retry' | 'session.id-mismatch' | 'control.unknown-response' | 'control.late-response' | 'control.duplicate-request' | 'control.unknown-cancel' | 'control.unsupported-request' | 'control.unanswered-request' | 'control.malformed-request' | 'control.answer-not-pending' | 'control.answer-failed' | 'permission.malformed-request' | 'permission.duplicate-request' | 'permission.unknown-request' | 'permission.invalid-decision' | 'permission.handler-failed' | 'permission.updates-stripped' | 'permission.ignored-after-abort' | 'permission.duplicate-request-id' | 'stdin.error' | 'turn.unmatched-result' | 'turn.dropped' | 'stdout.error' | 'termination.ladder' | 'termination.sweep-after-exit' | 'binding.machine-error' | 'events.pre-handshake-truncated' | 'security.posture' | 'settings-guard.allowed' | 'settings-guard.git-root-unresolved' | 'settings-guard.symlink-followed' | 'session.id-in-use' | (string & {});
 
 // @beta
 export interface DriverOptions<State, Config> {
@@ -191,20 +184,15 @@ export interface DriverOptions<State, Config> {
 
 // @public
 export interface ErrorData {
-    // (undocumented)
     readonly code: HudhudErrorCode | (string & {});
-    // (undocumented)
     readonly details?: JsonObject;
-    // (undocumented)
     readonly message: string;
-    // (undocumented)
     readonly retryable: boolean;
 }
 
 // @public
 export interface EventBase {
     readonly seq: number;
-    // (undocumented)
     readonly sessionId: string;
     readonly ts: string;
 }
@@ -217,7 +205,7 @@ export interface ExitEmitter {
     removeListener(event: 'exit', listener: () => void): unknown;
 }
 
-// @public
+// @beta
 export interface ExitObservation {
     // (undocumented)
     readonly code: number | null;
@@ -230,7 +218,7 @@ export class Fanout<E> {
     constructor(deps: FanoutDeps<E>);
     close(): void;
     get closed(): boolean;
-    publish(event: E, bytes: number): Promise<void> | undefined;
+    publish(event: E, bytes: number, shared?: SharedBytes): Promise<void> | undefined;
     get publishPending(): boolean;
     subscribe(selection?: Selection<E>, options?: FanoutSubscriberOptions): AsyncIterableIterator<E, undefined, undefined>;
     get subscriberCount(): number;
@@ -239,7 +227,8 @@ export class Fanout<E> {
 // @beta
 export interface FanoutDeps<E> {
     readonly abortError: (reason: unknown) => Error;
-    readonly gapMarker: (dropped: number) => E;
+    readonly count?: (event: E) => number;
+    readonly gapMarker: (dropped: number, first: E) => E;
     readonly overflowError: (info: OverflowInfo) => Error;
 }
 
@@ -248,7 +237,7 @@ export interface FanoutSubscriberOptions extends Omit<SubscriberOptions, 'signal
     readonly signal?: AbortSignalLike;
 }
 
-// @public
+// @beta
 export type GroupSkipReason =
 /** The group id is 0 or 1, or the group of the host, the spawned process or the CLI. */
 'protected-group'
@@ -257,7 +246,7 @@ export type GroupSkipReason =
 /** The host's own group is unknown, so no group can be proven foreign to it. */
 | 'host-group-unknown';
 
-// @public
+// @beta
 export interface GroupTarget {
     readonly leader: ProcessIdentity;
     // (undocumented)
@@ -266,13 +255,9 @@ export interface GroupTarget {
 
 // @public
 export interface Harness extends AsyncDisposable {
-    // (undocumented)
     readonly binary: BinaryInfo;
-    // (undocumented)
     readonly capabilities: HarnessCapabilities;
-    // (undocumented)
     readonly compat: CompatInfo;
-    // (undocumented)
     readonly securityPosture: SecurityPosture;
 }
 
@@ -297,19 +282,13 @@ export class HarnessBase implements Harness {
 
 // @public
 export interface HarnessCapabilities {
-    // (undocumented)
     readonly fork: Capability;
-    // (undocumented)
     readonly interrupt: Capability;
-    // (undocumented)
     readonly multiTurn: Capability;
-    // (undocumented)
     readonly permissionsInBand: Capability;
     readonly processContainment: ProcessContainment;
     readonly reasons: Readonly<Record<string, string>>;
-    // (undocumented)
     readonly resume: Capability;
-    // (undocumented)
     readonly workspaceTrust: {
         readonly none: Capability;
         readonly context: Capability;
@@ -329,7 +308,7 @@ export interface HarnessFacts {
     readonly securityPosture: SecurityPosture;
 }
 
-// @public
+// @beta
 export interface HarnessMachine<State, Config> {
     // (undocumented)
     initialState(config: Config): State;
@@ -337,7 +316,7 @@ export interface HarnessMachine<State, Config> {
     step(state: State, input: MachineInput): MachineStep<State>;
 }
 
-// @public
+// @beta
 export interface HarnessProcess {
     endStdin(): void;
     readonly exited: Promise<ProcessExit>;
@@ -394,7 +373,7 @@ export type HudhudEvent = (EventBase & {
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'session.started';
-    readonly mode: 'create' | 'resume' | 'fork';
+    readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly cliPid?: number;
     readonly version: string;
@@ -408,7 +387,7 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'turn.started';
     readonly turnId: string;
-    readonly origin: 'application' | 'harness';
+    readonly origin: 'application' | 'harness' | (string & {});
     readonly features: readonly string[];
     readonly model?: string;
     readonly raw: JsonValue;
@@ -431,14 +410,14 @@ export type HudhudEvent = (EventBase & {
     readonly toolUseId: string;
     readonly toolName: string;
     readonly kind: ToolKind;
-    readonly status: 'pending';
+    readonly status: 'pending' | (string & {});
     readonly input: JsonValue;
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'tool.result';
     readonly turnId?: string;
     readonly toolUseId: string;
-    readonly status: 'completed' | 'failed';
+    readonly status: 'completed' | 'failed' | (string & {});
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.requested';
@@ -450,8 +429,8 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'permission.resolved';
     readonly requestId: string;
-    readonly behavior: 'allow' | 'deny' | 'cancelled';
-    readonly by: 'application' | 'harness' | 'close' | 'abort';
+    readonly behavior: 'allow' | 'deny' | 'cancelled' | (string & {});
+    readonly by: 'application' | 'harness' | 'close' | 'abort' | (string & {});
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.denied';
@@ -520,13 +499,13 @@ export type HudhudEvent = (EventBase & {
     readonly raw?: JsonValue;
 });
 
-// @public
+// @beta
 export type HudhudEventData = HudhudEvent;
 
-// @public
+// @beta
 export type IdentityProblem = 'exited' | 'not-listed' | 'read-failed';
 
-// @public
+// @beta
 export type IdentityRead = {
     readonly identity: ProcessIdentity;
     readonly problem: null;
@@ -541,10 +520,10 @@ export interface IdSource {
     uuid(): string;
 }
 
-// @public
+// @beta
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
 
-// @public
+// @beta
 export interface JobHandle {
     terminate(): void;
 }
@@ -565,7 +544,7 @@ export type KnownErrorData = ErrorData & {
     readonly code: HudhudErrorCode;
 };
 
-// @public
+// @beta
 export interface LadderReport<Intent extends string = string> {
     readonly exitedAfter: LadderStepName | null;
     // (undocumented)
@@ -579,7 +558,7 @@ export interface LadderReport<Intent extends string = string> {
     readonly sweep: LadderSweepSummary | null;
 }
 
-// @public
+// @beta
 export interface LadderStep {
     readonly atMs: number;
     readonly detail?: string;
@@ -588,10 +567,10 @@ export interface LadderStep {
     readonly outcome: 'done' | 'skipped' | 'failed';
 }
 
-// @public
+// @beta
 export type LadderStepName = 'intent' | 'interrupt' | 'eof' | 'snapshot-s1' | 'sigterm' | 'snapshot-s2' | 'sigkill' | 'sweep' | 'terminate-job' | 'taskkill' | 'terminate-process';
 
-// @public
+// @beta
 export interface LadderSweepSummary {
     // (undocumented)
     readonly groupsSignalled: number;
@@ -601,7 +580,7 @@ export interface LadderSweepSummary {
     readonly skipped: number;
 }
 
-// @public
+// @beta
 export interface LadderTiming {
     readonly eofGraceMs: number;
     readonly interruptWaitMs: number;
@@ -609,7 +588,19 @@ export interface LadderTiming {
     readonly termGraceMs: number;
 }
 
-// @public
+// @beta
+export class LinkedSignal implements AbortSignalLike {
+    constructor(parents: readonly (AbortSignal | undefined)[], onRelease?: () => void);
+    abort(reason: unknown): void;
+    aborted: boolean;
+    addEventListener(_type: 'abort', listener: () => void): void;
+    poll(): void;
+    reason: unknown;
+    removeEventListener(_type: 'abort', listener: () => void): void;
+    unlink(): void;
+}
+
+// @beta
 export interface LinuxProcTableCalls {
     listPids(): Promise<readonly number[]>;
     readStat(pid: number): Promise<Uint8Array | null>;
@@ -717,13 +708,13 @@ export class LoopbackViolation extends Error {
     readonly what: string;
 }
 
-// @public
+// @beta
 export interface MachineClockInput {
     readonly at: string;
     readonly atMs: number;
 }
 
-// @public
+// @beta
 export type MachineEffect = {
     readonly type: 'write';
     readonly line: string;
@@ -791,10 +782,10 @@ export type MachineEffect = {
     readonly error?: ErrorData;
 };
 
-// @public
+// @beta
 export type MachineInput = MachineClockInput & (TransportInput | CommandInput);
 
-// @public
+// @beta
 export interface MachineStep<State> {
     // (undocumented)
     readonly effects: readonly MachineEffect[];
@@ -823,7 +814,7 @@ export function normalizeUserInput(input: unknown): UserInput;
 // @beta
 export function openSession<State, Config>(options: DriverOptions<State, Config>): Promise<Session>;
 
-// @public
+// @beta
 export type OsCalls = {
     readonly platform: 'linux';
     readonly hostPid: number;
@@ -865,7 +856,7 @@ export type PermissionDecision = {
     readonly interrupt?: boolean;
 };
 
-// @public
+// @beta
 export type PermissionErrorReason = 'no-handler' | 'handler-failed' | 'invalid-decision';
 
 // @public
@@ -875,33 +866,22 @@ export type PermissionHandler = (request: PermissionRequest, ctx: {
 
 // @public
 export interface PermissionRequest {
-    // (undocumented)
     readonly blockedPath?: string;
     readonly decisionReason?: string;
-    // (undocumented)
     readonly description?: string;
-    // (undocumented)
     readonly displayName?: string;
-    // (undocumented)
     readonly input: JsonValue;
-    // (undocumented)
     readonly raw: JsonValue;
-    // (undocumented)
     readonly requestId: string;
-    // (undocumented)
     readonly sessionId: string;
     readonly suggestions: readonly JsonValue[];
-    // (undocumented)
     readonly title?: string;
-    // (undocumented)
     readonly toolName: string;
-    // (undocumented)
     readonly toolUseId: string;
-    // (undocumented)
     readonly turnId?: string;
 }
 
-// @public
+// @beta
 export interface PermissionRequestData {
     // (undocumented)
     readonly blockedPath?: string;
@@ -930,10 +910,10 @@ export interface PermissionRequestData {
     readonly turnId?: string;
 }
 
-// @public
+// @beta
 export type PosixSignal = 'SIGTERM' | 'SIGKILL';
 
-// @public
+// @beta
 export interface PosixSignalCalls {
     // (undocumented)
     signalGroup(pgid: number, signal: PosixSignal): SignalOutcome;
@@ -948,50 +928,47 @@ export const PRE_HANDSHAKE_MAX_BYTES = 1048576;
 export const PRE_HANDSHAKE_MAX_EVENTS = 256;
 
 // @public
-export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup' | (string & {});
 
-// @public
+// @beta
 export interface ProcessExit {
     readonly code: number | null;
     // (undocumented)
     readonly signal: NodeJS.Signals | null;
 }
 
-// @public
+// @beta
 export interface ProcessIdentity {
     // (undocumented)
     readonly pid: number;
     readonly startTime: string;
 }
 
-// @public
+// @beta
 export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 
 // @beta
 export interface ProcessTransportOptions {
     readonly clock?: Clock;
     readonly job?: JobHandle | null;
+    readonly jobReleased?: Promise<'closed' | 'close-failed' | 'no-job'>;
     readonly maxLineBytes?: number;
     readonly os: OsCalls;
     readonly process: HarnessProcess;
     readonly timing?: LadderTiming;
+    readonly wallClockMs?: () => number;
 }
 
 // @public
 export interface SecurityPosture {
-    // (undocumented)
     readonly entries: readonly SecurityPostureEntry[];
 }
 
 // @public
 export interface SecurityPostureEntry {
-    // (undocumented)
     readonly defaultValue: JsonValue;
-    // (undocumented)
     readonly deviates: boolean;
-    // (undocumented)
     readonly setting: string;
-    // (undocumented)
     readonly value: JsonValue;
 }
 
@@ -999,6 +976,7 @@ export interface SecurityPostureEntry {
 export interface Selection<E> {
     readonly endAfter?: (event: E) => boolean;
     readonly match?: (event: E) => boolean;
+    readonly onClose?: () => void;
     readonly replay?: readonly SizedEvent<E>[];
 }
 
@@ -1012,9 +990,7 @@ export interface Session extends AsyncDisposable {
     }): Promise<void>;
     readonly closed: Promise<void>;
     events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent>;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
     readonly info: SessionInfo;
     send(input: UserInput, opts?: {
         readonly signal?: AbortSignal;
@@ -1097,25 +1073,19 @@ export interface SessionEnd {
 
 // @public
 export interface SessionInfo {
-    // (undocumented)
     readonly apiKeySource?: string;
     readonly cliPid?: number;
     readonly containment: ProcessContainment;
-    // (undocumented)
     readonly features: readonly string[];
-    // (undocumented)
     readonly forkedFrom?: string;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
-    readonly mode: 'create' | 'resume' | 'fork';
+    readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly tokenSource?: string;
-    // (undocumented)
     readonly version: string;
 }
 
-// @public
+// @beta
 export interface SessionInfoData {
     // (undocumented)
     readonly apiKeySource?: string;
@@ -1134,10 +1104,16 @@ export interface SessionInfoData {
     readonly version: string;
 }
 
-// @public
+// @beta
 export type SessionOutcome = 'closed' | 'aborted' | 'failed' | 'crashed' | 'killed-externally' | 'unknown';
 
-// @public
+// @beta
+export interface SharedBytes {
+    readonly key: object;
+    readonly siblingBytes: number;
+}
+
+// @beta
 export type SignalOutcome = 'sent' | 'no-such-process' | 'not-permitted';
 
 // @beta
@@ -1157,7 +1133,7 @@ export interface SubscriberOptions {
     readonly signal?: AbortSignal;
 }
 
-// @public
+// @beta
 export interface SweepPlan {
     readonly groups: readonly GroupTarget[];
     readonly processes: readonly ProcessIdentity[];
@@ -1173,7 +1149,7 @@ export interface SweepPlan {
     }[];
 }
 
-// @public
+// @beta
 export interface SweepResult {
     readonly coveredByGroup: readonly number[];
     // (undocumented)
@@ -1191,10 +1167,10 @@ export interface SweepResult {
     readonly summary: LadderSweepSummary;
 }
 
-// @public
+// @beta
 export type SweepSignalOutcome = SignalOutcome | 'error';
 
-// @public
+// @beta
 export type SweepSkipReason =
 /** The pid is absent from the latest snapshot. */
 'exited'
@@ -1215,7 +1191,7 @@ export const SYNTHESIZED_EVENT_BYTES = 256;
 // @beta
 export const systemClock: Clock;
 
-// @public
+// @beta
 export interface TaskkillResult {
     // (undocumented)
     readonly exitCode: number | null;
@@ -1228,16 +1204,16 @@ export interface TerminateRequest {
     interrupt(): Promise<InterruptOutcome>;
 }
 
-// @public
+// @beta
 export type TerminationIntent = 'none' | 'close' | 'close-timeout' | 'abort' | 'dispose' | 'watchdog' | 'auth-fail-fast' | 'oversized-frame' | 'handshake-failed';
 
-// @public
+// @beta
 export type TimerName = string;
 
 // @public
 export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'other' | (string & {});
 
-// @public
+// @beta
 export type TransportInput = {
     readonly type: 'process.started';
     readonly pid: number;
@@ -1312,50 +1288,33 @@ export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'm
 
 // @public
 export interface TurnResult {
-    // (undocumented)
     readonly apiErrorStatus?: number;
-    // (undocumented)
     readonly errors?: readonly string[];
-    // (undocumented)
     readonly isError: boolean;
-    // (undocumented)
     readonly outcome: TurnOutcome;
-    // (undocumented)
     readonly permissionDenials: readonly {
         readonly toolName: string;
         readonly toolUseId: string;
     }[];
-    // (undocumented)
     readonly raw?: JsonValue;
-    // (undocumented)
     readonly sessionId: string;
-    // (undocumented)
     readonly stopReason?: StopReason;
     readonly synthesized: boolean;
-    // (undocumented)
     readonly terminalReason?: string;
-    // (undocumented)
     readonly text?: string;
-    // (undocumented)
     readonly turnId: string;
-    // (undocumented)
     readonly usage?: UsageTotals;
 }
 
-// @public
+// @beta
 export type TurnResultData = TurnResult;
 
 // @public
 export interface UsageTotals {
-    // (undocumented)
     readonly cacheCreationInputTokens?: number;
-    // (undocumented)
     readonly cacheReadInputTokens?: number;
-    // (undocumented)
     readonly costUsd?: number;
-    // (undocumented)
     readonly inputTokens?: number;
-    // (undocumented)
     readonly outputTokens?: number;
 }
 
@@ -1377,7 +1336,7 @@ export type UserInput = string | {
 // @public
 export type VerificationMode = 'advisory' | 'strict';
 
-// @public
+// @beta
 export interface Win32CimTableCalls {
     // (undocumented)
     queryProcesses(): Promise<Uint8Array>;
@@ -1385,7 +1344,7 @@ export interface Win32CimTableCalls {
     readonly source: 'win32-cim';
 }
 
-// @public
+// @beta
 export interface Win32TerminateCalls {
     taskkillProcess(pid: number): Promise<TaskkillResult>;
     taskkillTree(pid: number): Promise<TaskkillResult>;

@@ -40,7 +40,7 @@ import { JobAddonError } from './win32-job.js';
  * A `containment.fallback` diagnostic (K2), as data for the binding's
  * `diagnostic` event.
  *
- * @public
+ * @beta
  */
 export interface ContainmentFallbackDiagnostic {
   readonly code: 'containment.fallback';
@@ -56,7 +56,7 @@ export interface ContainmentFallbackDiagnostic {
 /**
  * What a session got.
  *
- * @public
+ * @beta
  */
 export interface SessionContainmentResult {
   /** `info.containment` (K2). */
@@ -76,7 +76,7 @@ export interface SessionContainmentResult {
 /**
  * The process as {@link SessionContainment.attach} needs it (a `HarnessProcess`).
  *
- * @public
+ * @beta
  */
 export interface ContainedProcess {
   readonly pid: number;
@@ -89,7 +89,7 @@ export interface ContainedProcess {
 /**
  * Containment of one session's process.
  *
- * @public
+ * @beta
  */
 export interface SessionContainment {
   /** Pass as `SpawnSpec.startTime` (see the module remarks). Serves one pid. */
@@ -225,7 +225,7 @@ class Containment implements SessionContainment {
  * process table). Works on every platform: without a loaded addon it reads
  * through the fallback and reports `'best-effort'`.
  *
- * @public
+ * @beta
  */
 export function createSessionContainment(
   load: JobAddonLoad,

@@ -363,7 +363,7 @@ Detail: [ADR-0013](adr/0013-testing-strategy.md).
 - Request-shape structural snapshots (fail on semantic change, warn on additive, normalized); endpoint allowlist.
 - Hand-authored responses typed and validated against `@anthropic-ai/sdk` types (or a published spec); pluggable response provider; scenario matching on user-message markers only; the mock never assumes the last message is `user`.
 - Degradation-signal assertions classify a red canary as `mock-inadequate` or `protocol-regressed`.
-- Pinned, hash-verified CLI; golden JSONL fixtures; SDK differential oracle (from v1.1); nightly (Linux) and weekly (Windows, macOS after its gate) canaries against the newest published CLI, without write tokens; the lead prepares bump PRs locally (K16); fast-check; Windows CI mandatory.
+- Pinned, hash-verified CLI; golden JSONL fixtures; SDK differential oracle (from v1.1); nightly (Linux) and weekly (Windows and macOS arm64) canaries against the newest published CLI, without write tokens; the lead prepares bump PRs locally (K16); fast-check; Windows CI mandatory.
 - Opt-in live suite only with an owner-provided dedicated credential; deferred, none exists yet (owner decision 2).
 
 ## CI

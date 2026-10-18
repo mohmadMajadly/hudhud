@@ -248,6 +248,46 @@ describe("the session's diagnostics", () => {
     await harness[Symbol.asyncDispose]();
   });
 
+  it("the guard skips the child's config directory, not the parent's (R1-4)", async () => {
+    // The parent names a config directory the explicit env map does not pass
+    // on, so the CLI uses ~/.claude. The guard's ancestor fallback (forced
+    // by a symlinked .git) must skip ~/.claude as the user's config
+    // directory, not read its user settings as project settings.
+    const fake = new FakeHost({
+      cwd: '/home/user/proj',
+      env: {
+        PATH: '/usr/bin',
+        HOME: '/home/user',
+        CLAUDE_CONFIG_DIR: '/srv/cc',
+        ANTHROPIC_API_KEY: 'sk-ant-fake-hudhud-0000000000000000',
+      },
+    });
+    fake.guardFs
+      .dir('/srv/cc')
+      .dir('/elsewhere/gitdir')
+      .link('/home/user/proj/.git', '/elsewhere/gitdir')
+      .json('/home/user/.claude/settings.json', {
+        env: { ANTHROPIC_BASE_URL: 'http://users-own.example' },
+      });
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    const captured = captureEvents(harness);
+    const session = await harness.sessions.create({
+      cwd: '/home/user/proj',
+      workspaceTrust: 'full',
+      env: {
+        PATH: '/usr/bin',
+        HOME: '/home/user',
+        ANTHROPIC_API_KEY: 'sk-ant-fake-hudhud-0000000000000000',
+      },
+    });
+    await session.close();
+    expect(fake.cli.spec.env['CLAUDE_CONFIG_DIR']).toBeUndefined();
+    expect(dataOf(diagnostic(captured[0], 'settings-guard.git-root-unresolved'))).toMatchObject({
+      reason: 'git-entry-symlink',
+    });
+    await harness[Symbol.asyncDispose]();
+  });
+
   it('the guard diagnostics of a refusing guard that passed are published too', async () => {
     const fake = new FakeHost();
     // No .git anywhere and a symlinked settings file: the fallback and the link are reported.

@@ -26,12 +26,12 @@
  *   it is open.
  * - Before `taskkill` (which takes a bare pid), a fresh snapshot must show the
  *   spawned pid with its recorded start time; when the snapshot cannot be
- *   taken, or the start time differs, `taskkill` is skipped. It is also
- *   skipped when a process in the snapshot names a member of the tree as its
- *   parent without being a verified descendant (it started before that
- *   parent, so its `ppid` is stale and names a reused pid): `taskkill /T`
- *   follows parent pids without checking start times and would kill that
- *   foreign process.
+ *   taken, or the start time differs, `taskkill` is skipped. A process whose
+ *   `ppid` names a tree member but that started before that member (a stale
+ *   `ppid`) is no reason to skip: `taskkill /T` applies the same
+ *   creation-time rule and leaves it alone (measured, review R2-2: Windows
+ *   11 26200 and the windows-2025 runner image, timing run 39059130622,
+ *   3 of 3 trials, with a control that `/T` does end a real child).
  * - Before `TerminateProcess`, a fresh snapshot that shows the pid with
  *   another start time skips the step. When no snapshot can be taken, or
  *   there is no identity to compare, the step still runs: it acts through
@@ -71,7 +71,7 @@ import { awaitIdentity, type AwaitedIdentity } from './identity.js';
 /**
  * The spawned child as the Windows ladder sees it.
  *
- * @public
+ * @beta
  */
 export interface WindowsLadderProcess {
   /** The spawned pid. */
@@ -103,7 +103,7 @@ export interface WindowsLadderProcess {
  * The job object the child was assigned to (plan §6.4; created by the job
  * addon, W3-T5).
  *
- * @public
+ * @beta
  */
 export interface JobHandle {
   /**
@@ -118,14 +118,14 @@ export interface JobHandle {
  * the CIM process table and the `taskkill` calls of `taskkill.ts` (the tree
  * kill plus the per-process kill the sweep uses).
  *
- * @public
+ * @beta
  */
 export type WindowsOsCalls = Extract<OsCalls, { readonly platform: 'win32' }>;
 
 /**
  * Dependencies of {@link runWindowsLadder}.
  *
- * @public
+ * @beta
  */
 export interface WindowsLadderDeps<Intent extends string> {
   /** The termination intent, recorded before anything is done. */
@@ -155,7 +155,7 @@ function exitDetail(exitCode: number | null): string {
  * `absent`: the snapshot lacks the pid; `unverified`: no snapshot could be
  * taken, or the spawned process has no verified identity to compare.
  */
-type IdentityCheck = 'match' | 'changed' | 'absent' | 'foreign-child' | 'unverified';
+type IdentityCheck = 'match' | 'changed' | 'absent' | 'unverified';
 
 /** Snapshot S1 and the verified identity of the spawned process it is rooted at. */
 interface S1 {
@@ -168,7 +168,7 @@ interface S1 {
  * for a failed step; each failure is recorded in the report.
  *
  * @param job - the job the child was assigned to, or `null` for best-effort
- * @public
+ * @beta
  */
 export async function runWindowsLadder<Intent extends string>(
   proc: WindowsLadderProcess,
@@ -226,8 +226,8 @@ export async function runWindowsLadder<Intent extends string>(
     proc.exited,
   );
 
-  /** Whether the snapshot still shows the spawned process (and no foreign child of its tree). */
-  const checkIdentity = async (forTaskkill: boolean): Promise<IdentityCheck> => {
+  /** Whether a fresh snapshot still shows the spawned process with its identity. */
+  const checkIdentity = async (): Promise<IdentityCheck> => {
     const awaited = await identityRead;
     if (awaited.exited || awaited.identity === null) return 'unverified';
     const spawned = awaited.identity;
@@ -239,14 +239,6 @@ export async function runWindowsLadder<Intent extends string>(
     }
     if (findIdentity(snapshot.records, spawned) === null) {
       return snapshot.records.some((record) => record.pid === spawned.pid) ? 'changed' : 'absent';
-    }
-    if (forTaskkill) {
-      const tree = descendantsOf(snapshot.records, spawned);
-      const members = new Set([spawned.pid, ...tree.descendants.map((d) => d.pid)]);
-      const foreign = snapshot.records.some(
-        (record) => members.has(record.ppid) && !members.has(record.pid),
-      );
-      if (foreign) return 'foreign-child';
     }
     return 'match';
   };
@@ -346,7 +338,7 @@ export async function runWindowsLadder<Intent extends string>(
   const terminateProcess = async (): Promise<void> => {
     const at = clock.now();
     if (observe()) return;
-    const identity = await checkIdentity(false);
+    const identity = await checkIdentity();
     if (observe()) {
       record('terminate-process', at, 'skipped', 'exited');
       return;
@@ -424,7 +416,7 @@ export async function runWindowsLadder<Intent extends string>(
 
   // Best-effort: taskkill /T /F, guarded by the identity.
   const taskkillAt = clock.now();
-  const check = await checkIdentity(true);
+  const check = await checkIdentity();
   if (observe()) {
     record('taskkill', taskkillAt, 'skipped', 'exited');
     return finish(s1);

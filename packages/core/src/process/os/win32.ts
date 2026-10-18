@@ -6,7 +6,9 @@
  * @remarks
  * The query runs a System32 binary by absolute path under `%SystemRoot%`, with
  * `shell: false`, `windowsHide: true`, not detached, stdin and stderr
- * ignored, and an explicit environment: `SystemRoot`, a `PATH` of the
+ * ignored, the current directory `%SystemRoot%\System32` (never the host's
+ * current directory, which may be an untrusted checkout in the DLL search
+ * order), and an explicit environment: `SystemRoot`, a `PATH` of the
  * System32 directories only, and for PowerShell a `PSModulePath` of the
  * in-box modules only, `WINDIR` and `USERPROFILE` equal to `SystemRoot`
  * (PowerShell aborts with an empty `USERPROFILE`), `TEMP` and `TMP` equal to
@@ -15,10 +17,15 @@
  * variable libuv would otherwise copy from the host (see
  * `WIN32_REQUIRED_ENV_NAMES` in `win32-env.ts`) set to the empty string.
  *
- * `%SystemRoot%` is read from the host environment when a call is made (not
- * when the adapter is created) and must be a plain absolute drive path
- * (`C:\Windows`): no `..`, no UNC or device prefix, no forbidden characters.
- * Anything else throws instead of running a binary from an unexpected place.
+ * `%SystemRoot%` and `powershell.exe` are resolved when a call is made (not
+ * when the adapter is created) by the injected
+ * {@link Win32AdapterOptions.powershell}: in production
+ * `resolveSystem32PowerShell` of `taskkill.ts` (wired in `spawn.ts`), the
+ * resolution every System32 call site shares: a validated, unambiguous
+ * `SystemRoot` and a realpath equal to the expected path (no junction or link
+ * redirecting `System32`), a regular file (review R1-3). A refusal throws
+ * instead of running a binary from an unexpected place. The resolution is
+ * injected because this leaf module may import nothing but Node built-ins.
  *
  * Imports only Node built-ins and `os/types.ts` (rule `os-adapters-leaf`), so
  * the small command runner repeats the one in `os/darwin.ts` on purpose.
@@ -28,31 +35,11 @@
  */
 
 import { spawn } from 'node:child_process';
-import process from 'node:process';
 
 import type { Win32CimTableCalls } from './types.js';
 
-/** A plain absolute drive path: `X:\segment[\segment...]`, no forbidden characters. */
-const PLAIN_DRIVE_PATH = /^[A-Za-z]:(?:\\[^\\/:*?"<>|\p{Cc}]+)+$/u;
-
-/**
- * The validated `%SystemRoot%` of `env` (case-insensitive name, as Windows
- * treats it).
- *
- * @internal
- */
-export function systemRootOf(env: Readonly<Record<string, string | undefined>>): string {
-  const name = Object.keys(env).find((key) => key.toUpperCase() === 'SYSTEMROOT');
-  const value = name === undefined ? undefined : env[name];
-  if (
-    value === undefined ||
-    !PLAIN_DRIVE_PATH.test(value) ||
-    value.split('\\').some((segment) => segment === '.' || segment === '..')
-  ) {
-    throw new Error('%SystemRoot% is missing or not a plain absolute drive path');
-  }
-  return value;
-}
+/** `powershell.exe` below `%SystemRoot%\System32` (Windows PowerShell 5.1). */
+export const POWERSHELL_BELOW_SYSTEM32 = 'WindowsPowerShell\\v1.0\\powershell.exe';
 
 /** The absolute paths and environment used for one `%SystemRoot%`. */
 export interface System32Layout {
@@ -65,7 +52,7 @@ export function system32Layout(systemRoot: string): System32Layout {
   const system32 = `${systemRoot}\\System32`;
   const psHome = `${system32}\\WindowsPowerShell\\v1.0`;
   return {
-    powershell: `${psHome}\\powershell.exe`,
+    powershell: `${system32}\\${POWERSHELL_BELOW_SYSTEM32}`,
     env: {
       SystemRoot: systemRoot,
       PATH: `${system32};${systemRoot};${system32}\\Wbem;${psHome}`,
@@ -165,14 +152,15 @@ export type CommandRunner = (
   file: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  cwd: string,
 ) => Promise<CommandResult>;
 
 /**
- * Runs `file` with `args` and `env`: `shell: false`, `windowsHide`, not
- * detached, stdin and stderr ignored. Resolves with the exit code (`null`
- * when the process ended by a signal) and stdout; rejects on a spawn error,
- * the timeout (the command is then ended through its own handle) or stdout
- * beyond the cap.
+ * Runs `file` with `args` and `env` in `cwd` (the host's current directory
+ * when absent): `shell: false`, `windowsHide`, not detached, stdin and
+ * stderr ignored. Resolves with the exit code (`null` when the process ended
+ * by a signal) and stdout; rejects on a spawn error, the timeout (the command
+ * is then ended through its own handle) or stdout beyond the cap.
  *
  * @internal
  */
@@ -181,6 +169,7 @@ export function runCommand(
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   limits: CommandLimits = DEFAULT_LIMITS,
+  cwd?: string,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, [...args], {
@@ -188,6 +177,7 @@ export function runCommand(
       windowsHide: true,
       windowsVerbatimArguments: false,
       detached: false,
+      ...(cwd === undefined ? {} : { cwd }),
       env: { ...env },
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -226,27 +216,53 @@ export function runCommand(
   });
 }
 
-/** Options of the Windows adapters; production uses the defaults. */
+/**
+ * The resolved `powershell.exe` of {@link Win32AdapterOptions.powershell}:
+ * the validated `SystemRoot` it lies under, or why it may not run (the shape
+ * of `resolveSystem32PowerShell` in `taskkill.ts`).
+ */
+export type CheckedPowerShell =
+  | { readonly ok: true; readonly systemRoot: string }
+  | { readonly ok: false; readonly reason: string };
+
+/** Options of the Windows adapters. */
 export interface Win32AdapterOptions {
-  /** The environment `%SystemRoot%` is read from; `process.env` by default. */
-  readonly hostEnv?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Resolves `%SystemRoot%` and checks `powershell.exe` under it, at every
+   * query; production passes `resolveSystem32PowerShell` of `taskkill.ts`
+   * over the host environment (see the module remarks). Required: this leaf
+   * module cannot import that check, and a query never runs an unchecked
+   * binary.
+   */
+  readonly powershell: () => Promise<CheckedPowerShell>;
   /** The command runner; {@link runCommand} by default. */
   readonly run?: CommandRunner;
 }
 
+const defaultRun: CommandRunner = (file, args, env, cwd) =>
+  runCommand(file, args, env, DEFAULT_LIMITS, cwd);
+
 /**
  * The Windows process table (contract on {@link Win32CimTableCalls}).
- * Rejects when PowerShell exits with a non-zero code.
+ * Rejects, running nothing, when `powershell.exe` is refused, and rejects
+ * when PowerShell exits with a non-zero code.
  *
  * @internal
  */
-export function createWin32CimTableCalls(options: Win32AdapterOptions = {}): Win32CimTableCalls {
-  const run = options.run ?? runCommand;
+export function createWin32CimTableCalls(options: Win32AdapterOptions): Win32CimTableCalls {
+  const run = options.run ?? defaultRun;
   return {
     source: 'win32-cim',
     async queryProcesses() {
-      const layout = system32Layout(systemRootOf(options.hostEnv ?? process.env));
-      const result = await run(layout.powershell, [...POWERSHELL_ARGS, CIM_SCRIPT], layout.env);
+      const checked = await options.powershell();
+      if (!checked.ok) throw new Error(`powershell.exe is unavailable: ${checked.reason}`);
+      const layout = system32Layout(checked.systemRoot);
+      const result = await run(
+        layout.powershell,
+        [...POWERSHELL_ARGS, CIM_SCRIPT],
+        layout.env,
+        `${checked.systemRoot}\\System32`,
+      );
       if (result.exitCode !== 0) {
         throw new Error(`process table query exited with ${String(result.exitCode)}`);
       }

@@ -12,11 +12,15 @@
 # builds locally with the same pin, compares (scripts/addon/manifest.mjs
 # compare), and only on a match commits the record and the table.
 #
-# Phase 2, verify (tag `v*`): the same builds must reproduce the committed
-# record of the tag's release, and `release-verify` packs the core and both
-# platform packages and hashes the packed bytes again
-# (scripts/check-tarball.mjs --release-record), then runs the full tarball
-# check of every published package (`pnpm check:tarball`, plan §4.1, §6.3).
+# Phase 2, verify (tag `v<version>`, ADR-0014 amendment 10): the same builds
+# must reproduce the committed record the core's digest table names (the
+# addon is versioned by its record: `@hudhudjs/win32-job-x64` carries the
+# record's `release`, the tag names the version of the library packages),
+# and `release-verify` packs every package and hashes the packed bytes
+# again, and checks the tag against the packed versions, the private flags,
+# the changesets and the source links (scripts/check-tarball.mjs
+# --release-tag), then runs the full tarball check of every published
+# package (`pnpm check:tarball`, plan §4.1, §6.3).
 # Publishing is not part of this workflow (it comes at open-sourcing, with
 # npm trusted publishing and provenance, ADR-0009): the platform package is
 # published first and the core second, so the core's exact optional
@@ -31,6 +35,10 @@
 # The only install on a runner is the Visual Studio installer step in
 # `build`, which adds the toolset-of-record components the image lacks
 # (exact ids from the record) and verifies them with vswhere afterwards.
+# Besides it, `build` downloads the CMake of record (the record's
+# `cmakeVersion`, Kitware's release zip checked against Kitware's SHA-256
+# list) into the runner's temporary directory and passes it to the build
+# through HUDHUD_CMAKE; nothing is installed for it (R7-4).
 # Inputs reach scripts through the environment, never by interpolation.
 #
 # Timeouts (K15): measured duration x 2, rounded up, from the first phase 1
@@ -39,6 +47,9 @@
 # - build job: 7 min 11 s (x64) and 6 min 58 s (arm64), so 15 minutes;
 # - build step: not measured on its own; under 1 min of the job (5 s and
 #   4 s locally), 5 minutes as a hang guard;
+# - CMake download and unpack steps: not measured yet (a zip of about 50
+#   MB and its unpacking); 5 minutes each as hang guards, inside the job's
+#   15, to be re-sized from the first run (FX-D);
 # - test-x64: 4 min 13 s, so 10 minutes;
 # - manifest: under 1 min, 5 minutes.
 # release-verify has not run yet (it runs on tags only): estimated about
@@ -52,8 +63,9 @@ on:
     inputs:
       release:
         description: >-
-          Release the record is written for: the version the tag will carry,
-          without the `v` (for example 0.1.0). It names the record directory
+          Release the record is written for: the version
+          @hudhudjs/win32-job-x64 will carry (for example 0.1.0; ADR-0014
+          amendment 10). It names the record directory
           native/win32-job/release/<release>/.
         type: string
         required: true
@@ -175,6 +187,74 @@ jobs:
           if ($still.Count -gt 0) { Write-Output "::error::still not installed in ${install} after the installer: $($still -join ', ')"; exit 1 }
           Write-Output "installed and verified with vswhere: $($missing -join ', ')"
 
+      # The CMake of record (review finding R7-4): `cmakeVersion` is a field
+      # that can change the bytes, so `check-toolchain` and `verify` require
+      # it exactly, while the image's CMake moves with image updates. The
+      # release build therefore uses exactly the record's version, downloaded
+      # from Kitware's GitHub release of that version and checked against
+      # the SHA-256 list Kitware publishes with it (same TLS origin: it
+      # catches a corrupt or substituted download, not a compromised
+      # release; what the build produces is held to the record's sha256 by
+      # the verify steps, and the record to an independent local build).
+      - name: Download the CMake of record and check its sha256
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          version="$(node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { DIGESTS_MODULE, parseDigestsModule, parseManifest } from "./scripts/lib/addon-digests.mjs";
+            const table = parseDigestsModule(readFileSync(DIGESTS_MODULE, "utf8"));
+            const record = parseManifest(readFileSync(table.manifest, "utf8"));
+            process.stdout.write(record.arches[process.env.ARCH].toolchain.cmakeVersion);
+          ')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the record's cmakeVersion ${version@Q} is not x.y.z"
+            exit 1
+          fi
+          zip="cmake-${version}-windows-x86_64.zip"
+          base="https://github.com/Kitware/CMake/releases/download/v${version}"
+          mkdir -p "$RUNNER_TEMP/cmake"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/cmake/$zip" "$base/$zip"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/cmake/SHA-256.txt" "$base/cmake-${version}-SHA-256.txt"
+          expected="$(awk -v name="$zip" '$2 == name { print $1 }' "$RUNNER_TEMP/cmake/SHA-256.txt")"
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Kitware's SHA-256 list of CMake ${version} names no sha256 for ${zip}"
+            exit 1
+          fi
+          # Hash stdin: given a file name with a backslash (RUNNER_TEMP is a
+          # Windows path here), GNU sha256sum escapes the line and prefixes
+          # the digest with `\` (run 39065844822).
+          actual="$(sha256sum < "$RUNNER_TEMP/cmake/$zip" | cut -d ' ' -f 1)"
+          if [[ ! "$actual" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::sha256sum gave no digest for ${zip} (${actual@Q})"
+            exit 1
+          fi
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::${zip} is sha256 ${actual}, Kitware's list names ${expected}"
+            exit 1
+          fi
+          echo "CMake ${version}: ${zip} sha256 ${actual} (matches Kitware's list)"
+          echo "CMAKE_OF_RECORD=${version}" >> "$GITHUB_ENV"
+
+      - name: Unpack the CMake of record and point the build at it
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:CMAKE_OF_RECORD
+          $dir = Join-Path $env:RUNNER_TEMP 'cmake'
+          Expand-Archive -Path (Join-Path $dir "cmake-$version-windows-x86_64.zip") -DestinationPath $dir
+          $cmake = Join-Path $dir "cmake-$version-windows-x86_64\bin\cmake.exe"
+          $banner = @(& $cmake --version)[0]
+          if ($LASTEXITCODE -ne 0 -or $banner -ne "cmake version $version") {
+            Write-Output "::error::$cmake reports '$banner', the record requires cmake version $version"
+            exit 1
+          }
+          Write-Output "$banner at $cmake"
+          "HUDHUD_CMAKE=$cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build with the toolset of record
         timeout-minutes: 5
         run: node native/win32-job/build.mjs --toolset-of-record --arch "$ARCH"
@@ -192,11 +272,11 @@ jobs:
             echo "::warning::the ${ARCH} build does not reproduce the committed record (reason above)"
           fi
 
-      - name: Require the rebuild to reproduce the tag's release record (phase 2)
+      # The record the core's digest table names: the addon release this
+      # library release ships (ADR-0014 amendment 10).
+      - name: Require the rebuild to reproduce the release record (phase 2)
         if: github.event_name == 'push'
-        run: >-
-          node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
-          --record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+        run: node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
 
       - name: Upload the build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -285,9 +365,12 @@ jobs:
         if: ${{ !cancelled() && steps.cli.outcome == 'success' }}
         run: pnpm exec vitest run --project integration packages/claude-code/test/integration/containment
 
+  # Phase 1 only: on a tag the record is committed already, and the build
+  # job has verified the rebuild against it.
   manifest:
     name: manifest
     needs: build
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     # Under 1 min in run 38947897592 (no dependency install: the tool uses
     # Node built-ins only); 5 minutes.
@@ -325,8 +408,7 @@ jobs:
           RELEASE_INPUT: ${{ inputs.release }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then release="${GITHUB_REF_NAME#v}"; else release="$RELEASE_INPUT"; fi
-          node scripts/addon/manifest.mjs write --release "$release" --dir "$RUNNER_TEMP/addon" --out "$RUNNER_TEMP/record"
+          node scripts/addon/manifest.mjs write --release "$RELEASE_INPUT" --dir "$RUNNER_TEMP/addon" --out "$RUNNER_TEMP/record"
           for file in manifest.json SHA256SUMS toolchain.json; do
             echo "== ${file}"
             cat "$RUNNER_TEMP/record/${file}"
@@ -398,10 +480,13 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Pack and hash the bytes a release would publish
+      # The packed bytes against the record the core's table names, and the
+      # tag against the packed versions, private flags, changesets and source
+      # links (ADR-0014 amendment 10, review finding R7-2).
+      - name: Pack, hash the bytes a release would publish and check the tag
         env:
           HUDHUD_TEST_ROOT: ${{ runner.temp }}
-        run: node scripts/check-tarball.mjs --release-record "native/win32-job/release/${GITHUB_REF_NAME#v}/manifest.json"
+        run: node scripts/check-tarball.mjs --release-tag "$GITHUB_REF_NAME"
 
       # The full check of every published package (plan §4.1): files, manifest,
       # README, LICENSE and NOTICE, entry points, an offline install of the

@@ -27,9 +27,18 @@ import type {
 } from '../../../packages/core/src/process/tree/types.js';
 import type { GateHost } from './host.js';
 
-/** The `ps` contract of the core (`DarwinPsTableCalls`), confirmed by gate item 2. */
+/**
+ * The `ps` contract of the core (`DarwinPsTableCalls`), confirmed by gate
+ * item 2. `-ww` as in the core (review R3-U2): the `comm` column is never
+ * cut to a terminal or default width.
+ */
 export const PS_PATH = '/bin/ps';
-export const PS_ARGS: readonly string[] = ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart=,comm='];
+export const PS_ARGS: readonly string[] = [
+  '-A',
+  '-ww',
+  '-o',
+  'pid=,ppid=,pgid=,stat=,lstart=,comm=',
+];
 export const PS_ENV: Readonly<Record<string, string>> = { LC_ALL: 'C', TZ: 'UTC0' };
 
 /** One `ps` read through the core parser. Rejects when `ps` fails. */

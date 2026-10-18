@@ -13,8 +13,10 @@
  *   the turn still settles in the background.
  * - `send()` returns a {@link Turn} whose iterator buffers the turn's events
  *   from creation with the subscriber defaults (bounded, `'error'` scoped to
- *   that iterator). An aborted signal interrupts the turn and ends its
- *   iterator with `AbortError`.
+ *   that iterator). Its signal works as `ask()`'s (R6-1): an abort interrupts
+ *   the turn and rejects `done` and the iterator with `AbortError` at once;
+ *   the turn still settles in the background. A signal already aborted at the
+ *   call sends nothing (R4-6).
  * - `close()` drains (K13); an aborted signal turns the drain into an abort
  *   and rejects with `AbortError`. `Symbol.asyncDispose` aborts.
  * - `setPermissionMode()` rejects at once with `AbortError` when its signal
@@ -65,17 +67,23 @@ export type UserInput = string | { readonly content: readonly UserContentBlock[]
  * @public
  */
 export interface SessionInfo {
+  /** The session id (a UUID). */
   readonly id: string;
-  readonly mode: 'create' | 'resume' | 'fork';
+  /** How the session started: created, resumed or forked (open). */
+  readonly mode: 'create' | 'resume' | 'fork' | (string & {});
+  /** For a fork: the id of the session it continues. */
   readonly forkedFrom?: string;
   /** The spawned pid (process identity). */
   readonly pid: number;
   /** The pid the harness reports for itself (informational). */
   readonly cliPid?: number;
+  /** The harness version, as the harness reported it at the handshake. */
   readonly version: string;
+  /** The harness's API key source, informational. */
   readonly apiKeySource?: string;
   /** The harness's token source, informational (K10). */
   readonly tokenSource?: string;
+  /** Feature strings the harness reported at the handshake (adapter-defined). */
   readonly features: readonly string[];
   /** What this session got (K2). */
   readonly containment: ProcessContainment;
@@ -92,7 +100,8 @@ export interface Turn extends AsyncIterable<HudhudEvent> {
   readonly id: string;
   /**
    * Resolves with the result of the turn, error results included (K21);
-   * rejects only for session-level failures. Never waits on a subscriber.
+   * rejects for session-level failures, and with `ABORTED` as soon as the
+   * signal given to `send` aborts. Never waits on a subscriber.
    */
   readonly done: Promise<TurnResult>;
   /** Interrupts the turn (gated until it started, ADR-0008). */
@@ -105,13 +114,24 @@ export interface Turn extends AsyncIterable<HudhudEvent> {
  * @public
  */
 export interface Session extends AsyncDisposable {
+  /** The session id (a UUID): the id to resume it by. */
   readonly id: string;
+  /** What the session learned at start. */
   readonly info: SessionInfo;
   /** Resolves once the session ended and its process tree was cleaned up. Never rejects. */
   readonly closed: Promise<void>;
-  /** Sends `prompt` and resolves with the turn's result (K21). */
+  /**
+   * Sends `prompt` and resolves with the turn's result (K21). An aborted
+   * `signal` interrupts the turn and rejects with `ABORTED` at once; one that
+   * is aborted already sends nothing.
+   */
   ask(prompt: UserInput, opts?: { readonly signal?: AbortSignal }): Promise<TurnResult>;
-  /** Sends `input` and returns the turn. */
+  /**
+   * Sends `input` and returns the turn. `signal` works as for `ask`: an
+   * abort interrupts the turn and rejects `done` and the turn's iterator
+   * with `ABORTED` at once (the turn still ends in the background); a signal
+   * aborted already sends nothing.
+   */
   send(
     input: UserInput,
     opts?: { readonly signal?: AbortSignal; readonly events?: SubscriberOptions },
@@ -130,9 +150,13 @@ export interface Session extends AsyncDisposable {
  * @public
  */
 export interface Harness extends AsyncDisposable {
+  /** What this harness can do, computed at connect. */
   readonly capabilities: HarnessCapabilities;
+  /** The binary connect found, verified and probed. */
   readonly binary: BinaryInfo;
+  /** The tested version window and where the probed version falls in it. */
   readonly compat: CompatInfo;
+  /** The security-relevant settings of connect and whether each deviates from its default (ADR-0012). */
   readonly securityPosture: SecurityPosture;
 }
 
@@ -142,11 +166,18 @@ export interface Harness extends AsyncDisposable {
  * @public
  */
 export interface BinaryInfo {
+  /** The binary that runs: its real path, after links and the launcher are resolved. */
   readonly path: string;
+  /** The path as given or found, before resolution; absent when it equals `path`. */
   readonly requestedPath?: string;
   /** From the connect probe (K4). */
   readonly version: string;
-  readonly source: 'option' | 'native-install' | 'path';
+  /**
+   * Where it was found: the `binaryPath` option, the native installer's
+   * launcher, or a `PATH` lookup (open).
+   */
+  readonly source: 'option' | 'native-install' | 'path' | (string & {});
+  /** The verification verdict. */
   readonly verification: BinaryVerification;
 }
 
@@ -176,7 +207,8 @@ export interface SessionCore {
   readonly closed: Promise<void>;
   /**
    * Starts a turn. With `iterate`, its events are buffered from now on;
-   * `signal` ends that buffer with `AbortError`.
+   * `signal` ends that buffer with `AbortError`. A `signal` aborted already
+   * sends nothing: the turn fails with `AbortError`.
    */
   sendTurn(
     input: UserInput,
@@ -373,25 +405,16 @@ class SessionHandle implements Session {
     opts: { readonly signal?: AbortSignal; readonly events?: SubscriberOptions } = {},
   ): Turn {
     const { signal } = opts;
+    // An already aborted signal: the core sends nothing and fails the turn
+    // (`done` and the iterator reject with AbortError, R4-6).
     const turn = this.#core.sendTurn(input, { iterate: true, events: opts.events, signal });
-    if (signal !== undefined) {
-      const interrupt = (): void => {
-        this.#core.interrupt(turn.id, false).catch(() => undefined);
-      };
-      if (signal.aborted) interrupt();
-      else {
-        signal.addEventListener('abort', interrupt, { once: true });
-        void turn.done.then(
-          () => {
-            signal.removeEventListener('abort', interrupt);
-          },
-          () => {
-            signal.removeEventListener('abort', interrupt);
-          },
-        );
-      }
-    }
-    return new TurnHandle(this.#core, turn);
+    if (signal === undefined || signal.aborted) return new TurnHandle(this.#core, turn);
+    // As ask(): an abort interrupts the turn (gated) and rejects `done` at
+    // once (R6-1); the turn still settles in the background.
+    const done = withSignal(handled(turn.done), signal, () => {
+      this.#core.interrupt(turn.id, false).catch(() => undefined);
+    });
+    return new TurnHandle(this.#core, { ...turn, done });
   }
 
   events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent> {

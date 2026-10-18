@@ -39,14 +39,14 @@ export type JsonObject = Readonly<Record<string, JsonValue>>;
  * structured clone and recursive consumers overflow the stack long before
  * that, so hostile nesting is refused before it is parsed.
  *
- * @public
+ * @beta
  */
 export const DEFAULT_MAX_JSON_DEPTH = 512;
 
 /**
  * Result of {@link parseJsonLine}.
  *
- * @public
+ * @beta
  */
 export type ParseJsonLineResult =
   | { readonly ok: true; readonly value: JsonObject }
@@ -61,7 +61,7 @@ export type ParseJsonLineResult =
  * are JSON all the way down; use {@link isJsonValue} for values of any other
  * origin.
  *
- * @public
+ * @beta
  */
 export function isJsonObject(value: unknown): value is JsonObject {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
@@ -79,13 +79,23 @@ export function isJsonObject(value: unknown): value is JsonObject {
  * reachable twice is refused even without a cycle: shared references can
  * expand exponentially when serialized. Use it for values that did not come
  * from `JSON.parse`, for example application-supplied permission decisions.
+ * Never throws: a getter or a proxy trap that throws makes the value not
+ * JSON.
  *
- * @public
+ * @beta
  */
 export function isJsonValue(
   value: unknown,
   maxDepth: number = DEFAULT_MAX_JSON_DEPTH,
 ): value is JsonValue {
+  try {
+    return walksAsJson(value, maxDepth);
+  } catch {
+    return false;
+  }
+}
+
+function walksAsJson(value: unknown, maxDepth: number): boolean {
   const stack: { readonly value: unknown; readonly depth: number }[] = [{ value, depth: 0 }];
   const seen = new Set<object>();
   for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
@@ -110,7 +120,7 @@ export function isJsonValue(
 /**
  * Own string property of `obj`, else `undefined`.
  *
- * @public
+ * @beta
  */
 export function ownString(obj: JsonObject, key: string): string | undefined {
   const value = own(obj, key);
@@ -120,7 +130,7 @@ export function ownString(obj: JsonObject, key: string): string | undefined {
 /**
  * Own finite number property of `obj`, else `undefined`.
  *
- * @public
+ * @beta
  */
 export function ownNumber(obj: JsonObject, key: string): number | undefined {
   const value = own(obj, key);
@@ -130,7 +140,7 @@ export function ownNumber(obj: JsonObject, key: string): number | undefined {
 /**
  * Own boolean property of `obj`, else `undefined`.
  *
- * @public
+ * @beta
  */
 export function ownBoolean(obj: JsonObject, key: string): boolean | undefined {
   const value = own(obj, key);
@@ -140,7 +150,7 @@ export function ownBoolean(obj: JsonObject, key: string): boolean | undefined {
 /**
  * Own plain-object property of `obj`, else `undefined`.
  *
- * @public
+ * @beta
  */
 export function ownObject(obj: JsonObject, key: string): JsonObject | undefined {
   const value = own(obj, key);
@@ -150,7 +160,7 @@ export function ownObject(obj: JsonObject, key: string): JsonObject | undefined 
 /**
  * Own array property of `obj`, else `undefined`.
  *
- * @public
+ * @beta
  */
 export function ownArray(obj: JsonObject, key: string): readonly JsonValue[] | undefined {
   const value = own(obj, key);
@@ -169,7 +179,7 @@ function own(obj: JsonObject, key: string): JsonValue | undefined {
  * takes precedence over `not-json`. Whitespace around the value is allowed,
  * as `JSON.parse` allows it.
  *
- * @public
+ * @beta
  */
 export function parseJsonLine(
   text: string,

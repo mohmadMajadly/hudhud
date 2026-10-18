@@ -284,6 +284,85 @@ export function checkPackedManifest(source, packed) {
   return problems;
 }
 
+/** A GitHub repository slug, `<owner>/<name>`. */
+const SLUG = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/u;
+
+/**
+ * The GitHub repository the packages are published from, as `<owner>/<name>`:
+ * `GITHUB_REPOSITORY` on GitHub Actions, else the `origin` remote's URL
+ * (`https://github.com/<owner>/<name>[.git]`; an SSH remote is not read).
+ * The slug is never committed: the repository's privacy denylist covers the
+ * owner's name, so the check reads it from where the publish runs.
+ *
+ * @param {string | undefined} githubRepository `GITHUB_REPOSITORY`
+ * @param {string | undefined} originUrl `git remote get-url origin`
+ * @returns {string | null}
+ */
+export function repositorySlug(githubRepository, originUrl) {
+  if (githubRepository !== undefined && githubRepository !== '') {
+    return SLUG.test(githubRepository) ? githubRepository : null;
+  }
+  const match = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/u.exec(
+    originUrl?.trim() ?? '',
+  );
+  const slug = match?.[1];
+  return slug !== undefined && SLUG.test(slug) ? slug : null;
+}
+
+/**
+ * Checks the source links of a published package's manifest: `repository`
+ * (git, the repository it is published from, the package's directory),
+ * `homepage` and `bugs`. npm trusted publishing requires `repository.url`
+ * to "exactly match your GitHub repository" (docs.npmjs.com, "Trusted
+ * publishing for npm packages", read 2026-10-17), and provenance
+ * verification compares it with the source repository of the build; the
+ * package pages link the source and the issue tracker through these fields
+ * (review findings R6-4, R7-3).
+ *
+ * @param {PackageJson} manifest
+ * @param {string} directory The package's directory in the repository (`packages/core`).
+ * @param {string} slug The repository, `<owner>/<name>` ({@link repositorySlug}).
+ * @returns {string[]} problems
+ */
+export function checkRepositoryFields(manifest, directory, slug) {
+  const url = `git+https://github.com/${slug}.git`;
+  const web = `https://github.com/${slug}`;
+  /** @type {string[]} */
+  const problems = [];
+  /**
+   * @param {unknown} value
+   * @param {string} key
+   * @returns {unknown}
+   */
+  const field = (value, key) =>
+    typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined;
+  /** @type {unknown} */
+  const repository = Reflect.get(manifest, 'repository');
+  if (
+    field(repository, 'type') !== 'git' ||
+    field(repository, 'url') !== url ||
+    field(repository, 'directory') !== directory
+  ) {
+    problems.push(
+      `package.json repository must be { type: "git", url: "${url}", directory: "${directory}" }, is ${JSON.stringify(repository)}`,
+    );
+  }
+  const homepage = `${web}/tree/main/${directory}#readme`;
+  /** @type {unknown} */
+  const actualHomepage = Reflect.get(manifest, 'homepage');
+  if (actualHomepage !== homepage) {
+    problems.push(
+      `package.json homepage must be ${homepage}, is ${JSON.stringify(actualHomepage)}`,
+    );
+  }
+  /** @type {unknown} */
+  const bugs = Reflect.get(manifest, 'bugs');
+  if (field(bugs, 'url') !== `${web}/issues`) {
+    problems.push(`package.json bugs.url must be ${web}/issues, is ${JSON.stringify(bugs)}`);
+  }
+  return problems;
+}
+
 // ---- files -----------------------------------------------------------------
 
 /**
@@ -318,8 +397,11 @@ export function checkRequiredFiles(paths) {
 /**
  * Compares every LICENSE and NOTICE file of a tarball (any spelling the
  * required-files check accepts) with the repository's bytes, so a package's
- * copy cannot drift from the root file. A missing file is reported by
- * {@link checkRequiredFiles}, not here.
+ * copy cannot drift from the root file: a LICENSE must equal the root file,
+ * a NOTICE must begin with it. After the root text, a package's NOTICE lists
+ * the third-party code that package includes, with its license notice
+ * (review finding R6-2; {@link checkBundledNotices}). A missing file is
+ * reported by {@link checkRequiredFiles}, not here.
  *
  * @param {readonly TarEntry[]} entries
  * @param {readonly LegalFile[]} legal
@@ -332,12 +414,62 @@ export function checkLegalFiles(entries, legal) {
     const required = REQUIRED_FILES.find((file) => file.label === label);
     if (required === undefined) throw new Error(`not a legal file: ${label}`);
     for (const entry of entries.filter(({ path }) => required.pattern.test(path))) {
-      if (!entry.data.equals(data)) {
+      if (label === 'LICENSE' && !entry.data.equals(data)) {
         problems.push(`${entry.path} differs from the repository's ${label}`);
+      }
+      if (label === 'NOTICE' && !entry.data.subarray(0, data.length).equals(data)) {
+        problems.push(`${entry.path} does not begin with the repository's ${label}`);
       }
     }
   }
   return problems;
+}
+
+/**
+ * The marker esbuild writes above each module it bundles from a dependency
+ * (`// node_modules/<package>/<file>`), as the generated validators carry
+ * it; group 1 is the package name, scoped or not.
+ */
+const BUNDLED_MODULE = /^\/\/ node_modules\/((?:@[^/\s]+\/)?[^/\s]+)\//gmu;
+
+/**
+ * The third-party packages whose code a text bundles, by esbuild's
+ * `// node_modules/<package>/` markers, sorted and unique.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function bundledPackages(text) {
+  return [...new Set([...text.matchAll(BUNDLED_MODULE)].map((match) => String(match[1])))].sort();
+}
+
+/**
+ * Requires the package's NOTICE to list every third-party package whose
+ * code its JavaScript or TypeScript files bundle, under a `--- <package> ---`
+ * heading followed by that package's license text (review finding R6-2: the
+ * MIT License asks for its notice in all copies or substantial portions).
+ * `scripts/test/package-legal.test.ts` compares the license texts with the
+ * installed packages' own.
+ *
+ * @param {readonly TarEntry[]} entries
+ * @returns {string[]} problems
+ */
+export function checkBundledNotices(entries) {
+  const notice = entries.find((entry) => entry.path === 'NOTICE')?.data.toString('utf8') ?? '';
+  /** @type {Map<string, string>} */
+  const firstFile = new Map();
+  for (const entry of entries) {
+    if (!/\.(?:[cm]?js|[cm]?ts)$/u.test(entry.path) || !looksLikeText(entry.data)) continue;
+    for (const name of bundledPackages(entry.data.toString('utf8'))) {
+      if (!firstFile.has(name)) firstFile.set(name, entry.path);
+    }
+  }
+  return [...firstFile]
+    .filter(([name]) => !notice.includes(`\n--- ${name} ---\n`))
+    .map(
+      ([name, path]) =>
+        `${path} bundles code of ${name}, which NOTICE does not list (--- ${name} --- and its license)`,
+    );
 }
 
 /** Root files npm always packs, whatever `files` says. */
@@ -441,13 +573,17 @@ export function resolveInside(from, relative) {
 
 /**
  * Checks the `sources` of a source map: relative, inside the package, no
- * machine path.
+ * machine path, and packed. The packages ship their maps and their `src`
+ * (go-to-definition and stack traces point at the TypeScript sources), so a
+ * map whose source is not in the tarball is broken for every user, for
+ * example when `src` drops out of `files` (review finding R7-6).
  *
  * @param {string} mapPath Package-relative path of the `.map` file.
  * @param {string} text Its content.
+ * @param {ReadonlySet<string>} packed Every package-relative path in the tarball.
  * @returns {string[]} problems
  */
-export function checkSourceMap(mapPath, text) {
+export function checkSourceMap(mapPath, text, packed) {
   /** @type {unknown} */
   let map;
   try {
@@ -469,8 +605,15 @@ export function checkSourceMap(mapPath, text) {
       problems.push(`${mapPath}: a source is not a string`);
     } else if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/|\\)/u.test(source) || source.includes('\\')) {
       problems.push(`${mapPath}: absolute or non-portable source ${JSON.stringify(source)}`);
-    } else if (resolveInside(mapPath, source) === null) {
-      problems.push(`${mapPath}: source ${JSON.stringify(source)} lies outside the package`);
+    } else {
+      const resolved = resolveInside(mapPath, source);
+      if (resolved === null) {
+        problems.push(`${mapPath}: source ${JSON.stringify(source)} lies outside the package`);
+      } else if (!packed.has(resolved)) {
+        problems.push(
+          `${mapPath}: source ${JSON.stringify(source)} (${resolved}) is not in the tarball`,
+        );
+      }
     }
   }
   return problems;
@@ -647,6 +790,27 @@ export function listEntryPoints(manifest, paths) {
   return { entries, problems };
 }
 
+/**
+ * Every schema a package ships must be importable by its file name, as
+ * documented (`<package>/schemas/events.schema.json`), not only by the name
+ * without `.json` (R5-6).
+ *
+ * @param {string} name The package name.
+ * @param {readonly EntryPoint[]} entries Its listed entry points.
+ * @returns {string[]} problems
+ */
+export function checkSchemaSpecifiers(name, entries) {
+  const specifiers = new Set(entries.map((entry) => entry.specifier));
+  const wanted = new Set(
+    entries
+      .filter((entry) => entry.kind === 'json' && entry.runtime?.startsWith('schemas/') === true)
+      .map((entry) => `${name}/${String(entry.runtime)}`),
+  );
+  return [...wanted]
+    .filter((specifier) => !specifiers.has(specifier))
+    .map((specifier) => `${specifier} is not importable (the exports map lacks it)`);
+}
+
 // ---- one tarball -----------------------------------------------------------
 
 /** Scripts `pnpm pack` runs in the repository before it packs. */
@@ -697,7 +861,11 @@ export function checkTarball(source, gz, forbidden, legal = []) {
   }
   const paths = entries.map((entry) => entry.path);
   /** @type {string[]} */
-  const problems = [...checkFileList(source, paths), ...checkLegalFiles(entries, legal)];
+  const problems = [
+    ...checkFileList(source, paths),
+    ...checkLegalFiles(entries, legal),
+    ...checkBundledNotices(entries),
+  ];
   const manifestEntry = entries.find((entry) => entry.path === 'package.json');
   /** @type {PackageJson | undefined} */
   let packed;
@@ -711,24 +879,27 @@ export function checkTarball(source, gz, forbidden, legal = []) {
     }
   }
   if (packed !== undefined) problems.push(...checkPackedManifest(source, packed));
+  const packedPaths = new Set(paths);
   for (const entry of entries) {
     if (entry.path.endsWith('.map')) {
-      problems.push(...checkSourceMap(entry.path, entry.data.toString('utf8')));
+      problems.push(...checkSourceMap(entry.path, entry.data.toString('utf8'), packedPaths));
     }
   }
   problems.push(...scanEntries(entries, forbidden));
   const listed = listEntryPoints(packed ?? source, paths);
   problems.push(...listed.problems);
+  problems.push(...checkSchemaSpecifiers(String((packed ?? source).name), listed.entries));
   return { problems, paths, entryPoints: listed.entries };
 }
 
 // ---- consumer project ------------------------------------------------------
 
 /**
- * Source of the child process that imports every JS entry point with Node's
- * own resolver, as a consumer's ESM code would, and reports the file each
- * resolved to (package-relative to `node_modules`) and its export names.
- * The specifiers arrive in `HUDHUD_TARBALL_SPECIFIERS` (JSON).
+ * Source of the child process that imports every JS and JSON entry point
+ * with Node's own resolver, as a consumer's ESM code would (a JSON module with
+ * the import attribute `{ type: 'json' }`), and reports the file each
+ * resolved to and its export names. The specifiers arrive in
+ * `HUDHUD_TARBALL_SPECIFIERS` (JSON).
  */
 export const IMPORT_CHILD = `
 const specifiers = JSON.parse(process.env.HUDHUD_TARBALL_SPECIFIERS);
@@ -736,7 +907,9 @@ const results = {};
 for (const specifier of specifiers) {
   try {
     const url = import.meta.resolve(specifier);
-    const namespace = await import(specifier);
+    const namespace = url.endsWith('.json')
+      ? await import(specifier, { with: { type: 'json' } })
+      : await import(specifier);
     results[specifier] = { ok: true, url, names: Object.keys(namespace).sort() };
   } catch (error) {
     results[specifier] = { ok: false, code: String(error?.code ?? error) };
@@ -783,10 +956,18 @@ export function parseImportResults(stdout) {
 }
 
 /**
- * Judges the import results: each JS entry point must import, and the file
- * must lie under the project's `node_modules` (never the repository).
+ * @typedef {EntryPoint & { packageName?: string }} ImportedEntry An entry
+ *   point with the name of its package, which pins the exact file it must
+ *   resolve to.
+ */
+
+/**
+ * Judges the import results: each entry point must import, the file must lie
+ * under the project's `node_modules` (never the repository), and, when the
+ * entry names its package and file, be exactly that file (R5-6: a specifier
+ * that resolved to another name, such as `x.json.json`, fails here).
  *
- * @param {readonly EntryPoint[]} entries JS entry points that were imported.
+ * @param {readonly ImportedEntry[]} entries Entry points that were imported.
  * @param {Record<string, ImportResult>} results
  * @param {string} modulesUrl `file:` URL of the project's `node_modules/`.
  * @returns {string[]} problems
@@ -796,11 +977,17 @@ export function checkImports(entries, results, modulesUrl) {
   const problems = [];
   for (const entry of entries) {
     const result = results[entry.specifier];
+    const expected =
+      entry.packageName === undefined || entry.runtime === undefined
+        ? undefined
+        : `${modulesUrl}${entry.packageName}/${entry.runtime}`;
     if (result === undefined) problems.push(`${entry.specifier}: not imported`);
     else if (!result.ok)
       problems.push(`${entry.specifier}: import failed (${String(result.code)})`);
     else if (typeof result.url !== 'string' || !result.url.startsWith(modulesUrl)) {
       problems.push(`${entry.specifier}: resolved outside the installed packages`);
+    } else if (expected !== undefined && result.url !== expected) {
+      problems.push(`${entry.specifier}: resolved to ${result.url}, not ${String(entry.runtime)}`);
     } else if ((result.names ?? []).length === 0) {
       problems.push(`${entry.specifier}: exports nothing`);
     }
@@ -1052,6 +1239,126 @@ export function checkReleaseRecord(manifest, manifestPath, packs) {
   } else if (compiled.version !== manifest.version || compiled.x64 !== x64) {
     problems.push(
       `@hudhudjs/core: ${DIGESTS_BUILD} holds version ${compiled.version}, x64 ${compiled.x64}; ${manifestPath} records ${want}`,
+    );
+  }
+  return problems;
+}
+
+// ---- release tag (ADR-0014 amendment 10, ADR-0004) ---------------------------
+
+/** The published addon package, versioned by its release record. */
+const X64_PACKAGE = '@hudhudjs/win32-job-x64';
+
+/** A release tag: `v` and a semver version without build metadata. */
+const RELEASE_TAG =
+  /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/u;
+
+/**
+ * The version a release tag names, or null when it is not `v<semver>`.
+ *
+ * @param {string} tag
+ * @returns {string | null}
+ */
+export function tagVersion(tag) {
+  return RELEASE_TAG.exec(tag)?.[1] ?? null;
+}
+
+/**
+ * The changesets `pnpm changeset version` has not consumed yet: every
+ * Markdown file in `.changeset/` except its README.
+ *
+ * @param {readonly string[]} names The file names in `.changeset/`.
+ * @returns {string[]}
+ */
+export function pendingChangesets(names) {
+  return names.filter((name) => name.endsWith('.md') && name !== 'README.md').sort();
+}
+
+/**
+ * @typedef {object} ReleaseTagInput
+ * @property {string} tag The pushed tag (`GITHUB_REF_NAME`).
+ * @property {string} recordRelease The `release` of the record the core's
+ *   digest table names: the version of `@hudhudjs/win32-job-x64`.
+ * @property {readonly string[]} fixed The changesets `fixed` group: the
+ *   packages released together at the tag's version.
+ * @property {readonly string[]} changesetFiles The file names in `.changeset/`.
+ * @property {readonly { directory: string, entries: readonly TarEntry[] }[]} packs
+ *   Every package under `packages/`, packed.
+ */
+
+/**
+ * The checks of a release tag before anything is published (review finding
+ * R7-2). The tag scheme (ADR-0014 amendment 10): one tag kind, `v<version>`,
+ * where `<version>` is the version of the `fixed` group (`hudhudjs`,
+ * `@hudhudjs/core`, `@hudhudjs/claude-code`). The addon package is versioned
+ * on its own by its release record: its version is the `release` of the
+ * record the core's digest table names, so a library release that does not
+ * change the addon re-publishes nothing of it.
+ *
+ * - The tag is `v<semver>`, and every package of the `fixed` group is packed
+ *   at exactly that version.
+ * - `@hudhudjs/win32-job-x64` is packed at the record's `release`.
+ * - Every package with `publishConfig` (the ones a publish takes) is not
+ *   `private`; every package without it is `private`, so a publish of the
+ *   workspace cannot take it (K17: the arm64 package).
+ * - No changeset is left unconsumed (`pnpm changeset version` ran).
+ *
+ * @param {ReleaseTagInput} input
+ * @returns {string[]} problems, each naming both values
+ */
+export function checkReleaseTag(input) {
+  /** @type {string[]} */
+  const problems = [];
+  const version = tagVersion(input.tag);
+  if (version === null) {
+    problems.push(`the tag ${JSON.stringify(input.tag)} is not v<semver> (for example v0.1.0)`);
+  }
+  if (input.fixed.length === 0) {
+    problems.push('.changeset/config.json has no fixed group: the tag names no package version');
+  }
+  /** @type {Map<string, PackageJson>} */
+  const byName = new Map();
+  for (const { directory, entries } of input.packs) {
+    const manifest = packedManifest(entries);
+    if (manifest === undefined || typeof manifest.name !== 'string') {
+      problems.push(`${directory}: the tarball has no readable package.json with a name`);
+      continue;
+    }
+    byName.set(manifest.name, manifest);
+    const published = manifest.publishConfig !== undefined;
+    if (published && manifest.private === true) {
+      problems.push(
+        `${manifest.name} is private but has publishConfig: lift "private" in the version PR (checklist 4.2)`,
+      );
+    }
+    if (!published && manifest.private !== true) {
+      problems.push(
+        `${manifest.name} has no publishConfig and is not private: a publish would take it`,
+      );
+    }
+  }
+  for (const name of input.fixed) {
+    const manifest = byName.get(name);
+    if (manifest === undefined) {
+      problems.push(`${name} (fixed group) was not packed`);
+    } else if (version !== null && manifest.version !== version) {
+      problems.push(
+        `${name} is packed at version ${String(manifest.version)}, the tag ${input.tag} names ${version}`,
+      );
+    }
+  }
+  const x64 = byName.get(X64_PACKAGE);
+  if (x64 === undefined) {
+    problems.push(`${X64_PACKAGE} was not packed`);
+  } else if (x64.version !== input.recordRelease) {
+    problems.push(
+      `${X64_PACKAGE} is packed at version ${String(x64.version)}, the release record the core's table names is ${input.recordRelease}`,
+    );
+  }
+  const pending = pendingChangesets(input.changesetFiles);
+  if (pending.length > 0) {
+    problems.push(
+      `unconsumed changesets (run pnpm changeset version in the version PR): ${pending.join(', ')}`,
     );
   }
   return problems;

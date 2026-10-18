@@ -29,7 +29,7 @@ function signallable(pid: number, hostPid: number): boolean {
 /**
  * Outcome of the K1 signal-target rule.
  *
- * @public
+ * @beta
  */
 export interface SignalTargetDecision {
   /** The process that receives SIGTERM (and SIGKILL along with the spawned pid). */
@@ -84,7 +84,7 @@ export function maySignal(
 /**
  * A process group that may be signalled with `kill(-pgid)`.
  *
- * @public
+ * @beta
  */
 export interface GroupTarget {
   readonly pgid: number;
@@ -95,7 +95,7 @@ export interface GroupTarget {
 /**
  * Why the sweep left a process alone.
  *
- * @public
+ * @beta
  */
 export type SweepSkipReason =
   /** The pid is absent from the latest snapshot. */
@@ -114,7 +114,7 @@ export type SweepSkipReason =
 /**
  * Why the sweep left a group alone.
  *
- * @public
+ * @beta
  */
 export type GroupSkipReason =
   /** The group id is 0 or 1, or the group of the host, the spawned process or the CLI. */
@@ -127,7 +127,7 @@ export type GroupSkipReason =
 /**
  * What the sweep may signal.
  *
- * @public
+ * @beta
  */
 export interface SweepPlan {
   /** Verified live (non-zombie) descendants, each with its identity from the latest snapshot, ordered by pid. */

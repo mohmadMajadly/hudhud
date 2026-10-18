@@ -83,6 +83,8 @@ export const DiagnosticCode = openEnum([
   'events.pre-handshake-truncated',
   'security.posture',
   'settings-guard.allowed',
+  'settings-guard.git-root-unresolved',
+  'settings-guard.symlink-followed',
   'session.id-in-use',
 ] as const);
 
@@ -118,7 +120,7 @@ export const CompatInfo = Type.Object({
   minTested: Type.String(),
   maxTested: Type.String(),
   knownBroken: list(Type.String()),
-  status: Type.Enum(['tested', 'untested', 'known-broken']),
+  status: openEnum(['tested', 'untested', 'known-broken'] as const),
 });
 
 /** An event arm: the shared base fields, a literal `type`, then the arm's fields. */
@@ -142,7 +144,7 @@ const optionalTurnId = Type.Optional(Type.String());
 
 export const CompatEvent = event('compat', { compat: CompatInfo, raw: optionalRaw });
 export const SessionStartedEvent = event('session.started', {
-  mode: Type.Enum(['create', 'resume', 'fork']),
+  mode: openEnum(['create', 'resume', 'fork'] as const),
   pid: Count,
   cliPid: Type.Optional(Count),
   version: Type.String(),
@@ -154,7 +156,7 @@ export const SessionStartedEvent = event('session.started', {
 export const TurnQueuedEvent = event('turn.queued', { turnId });
 export const TurnStartedEvent = event('turn.started', {
   turnId,
-  origin: Type.Enum(['application', 'harness']),
+  origin: openEnum(['application', 'harness'] as const),
   features: list(Type.String()),
   model: Type.Optional(Type.String()),
   raw,
@@ -177,14 +179,14 @@ export const ToolCallEvent = event('tool.call', {
   toolUseId: Type.String(),
   toolName: Type.String(),
   kind: ToolKind,
-  status: Type.Literal('pending'),
+  status: openEnum(['pending'] as const),
   input: JsonValueSchema,
   raw,
 });
 export const ToolResultEvent = event('tool.result', {
   turnId: optionalTurnId,
   toolUseId: Type.String(),
-  status: Type.Enum(['completed', 'failed']),
+  status: openEnum(['completed', 'failed'] as const),
   raw,
 });
 export const PermissionRequestedEvent = event('permission.requested', {
@@ -196,8 +198,8 @@ export const PermissionRequestedEvent = event('permission.requested', {
 });
 export const PermissionResolvedEvent = event('permission.resolved', {
   requestId: Type.String(),
-  behavior: Type.Enum(['allow', 'deny', 'cancelled']),
-  by: Type.Enum(['application', 'harness', 'close', 'abort']),
+  behavior: openEnum(['allow', 'deny', 'cancelled'] as const),
+  by: openEnum(['application', 'harness', 'close', 'abort'] as const),
   raw: optionalRaw,
 });
 export const PermissionDeniedEvent = event('permission.denied', {

@@ -142,6 +142,52 @@ test("C3: 'refuse' (default) stops a project redirect before spawn, by trust and
   expect(redirect.requests).toEqual([]);
 });
 
+test("R1-1: 'refuse' stops a third-party provider route before spawn (CLOUD_ML_REGION and kin)", async () => {
+  // The pinned CLI builds the Vertex host from CLOUD_ML_REGION
+  // (`https://${region}-aiplatform.googleapis.com/v1`), the Bedrock host from
+  // AWS_REGION and the Foundry host from ANTHROPIC_FOUNDRY_RESOURCE (static
+  // reading of 2.1.296, review R1-1). The guard refuses before the CLI runs,
+  // so no provider switch is needed to observe it.
+  const redirect = await suite.extraMock();
+  const host = await suite.mock();
+  const sandbox = await suite.sandbox();
+  const harness = await suite.testConnect();
+  const file = writeSettings(sandbox.dirs.work, 'settings.json', {
+    CLOUD_ML_REGION: `${redirect.url}/x?`,
+  });
+  await expectRefused(
+    harness,
+    { workspaceTrust: 'full' },
+    file,
+    ['CLOUD_ML_REGION'],
+    [host, redirect],
+  );
+  const local = writeSettings(sandbox.dirs.work, 'settings.local.json', {
+    AWS_REGION: 'x',
+    AWS_BEARER_TOKEN_BEDROCK: PROJECT_KEY,
+    ANTHROPIC_FOUNDRY_RESOURCE: 'x',
+    VERTEX_REGION_CLAUDE_HAIKU_4_5: 'x',
+    CLAUDE_CODE_OAUTH_TOKEN: PROJECT_KEY,
+    ANTHROPIC_MODEL: 'some-model',
+  });
+  await expectRefused(
+    harness,
+    { workspaceTrust: 'full' },
+    local,
+    [
+      'ANTHROPIC_FOUNDRY_RESOURCE',
+      'AWS_BEARER_TOKEN_BEDROCK',
+      'AWS_REGION',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'CLOUD_ML_REGION',
+      'VERTEX_REGION_CLAUDE_HAIKU_4_5',
+    ],
+    [host, redirect],
+  );
+  expect(host.requests).toEqual([]);
+  expect(redirect.requests).toEqual([]);
+});
+
 test("C3: 'allow' lets the redirect through, says so, and the CLI sends the turn to the second mock (07 §9 p1)", async () => {
   const redirect = await suite.extraMock();
   const host = await suite.mock();

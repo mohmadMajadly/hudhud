@@ -21,22 +21,82 @@ export function buildSnapshot(
   return { source, records: [...byPid.values()], rejected: table.rejected + duplicates };
 }
 
+/**
+ * `readStat` errors that mean "this entry is not readable by the host", not
+ * a failed table: `/proc` mounted with `hidepid=1` (`noaccess`, proc(5))
+ * lists other users' processes but refuses their `stat` with `EPERM`
+ * (review R3-2); `EACCES` is the same refusal. Such a process can never be
+ * a verified descendant, and an unprivileged host cannot signal it anyway.
+ */
+const UNREADABLE = new Set(['EPERM', 'EACCES']);
+
+function isUnreadable(error: unknown): boolean {
+  const code: unknown =
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  return typeof code === 'string' && UNREADABLE.has(code);
+}
+
+/**
+ * The most `/proc/<pid>/stat` reads in flight at once: a bound on open file
+ * descriptors on hosts with many processes. Reading one at a time made a
+ * table of 257 processes take about 90 ms in `node:22-bookworm` (review
+ * fixes, plan §5.9), and the close path reads the table before EOF and again
+ * after the exit.
+ *
+ * @internal
+ */
+export const PROC_READ_CONCURRENCY = 16;
+
+/** What one listed entry gave: a record, nothing (exited), or a rejection. */
+type EntryRead = ProcessRecord | 'gone' | 'rejected';
+
+async function readEntry(
+  calls: Extract<ProcessTableCalls, { source: 'linux-proc' }>,
+  pid: number,
+): Promise<EntryRead> {
+  if (!isPid(pid)) return 'rejected';
+  let stat: Uint8Array | null;
+  try {
+    stat = await calls.readStat(pid);
+  } catch (error) {
+    // Skipped and counted, like an unparseable entry; any other error fails the table.
+    if (!isUnreadable(error)) throw error;
+    return 'rejected';
+  }
+  if (stat === null) return 'gone'; // exited between the listing and the read
+  return parseProcStat(stat, pid) ?? 'rejected';
+}
+
 async function readLinuxTable(
   calls: Extract<ProcessTableCalls, { source: 'linux-proc' }>,
 ): Promise<ParsedProcessTable> {
+  const pids = await calls.listPids();
+  const reads: EntryRead[] = Array.from({ length: pids.length }, () => 'gone');
+  // A small pool of readers sharing one iterator (an array iterator has no
+  // `return`, so a reader that stops does not close it for the others); the
+  // first failure stops every reader from taking more.
+  const entries = pids.entries();
+  let failed = false;
+  const reader = async (): Promise<void> => {
+    for (const [index, pid] of entries) {
+      if (failed) return;
+      try {
+        reads[index] = await readEntry(calls, pid);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(PROC_READ_CONCURRENCY, pids.length) }, () => reader()),
+  );
+  // In listing order, as one reader in sequence would have produced them.
   const records: ProcessRecord[] = [];
   let rejected = 0;
-  // Sequential on purpose: bounded file descriptors on hosts with many processes.
-  for (const pid of await calls.listPids()) {
-    if (!isPid(pid)) {
-      rejected += 1;
-      continue;
-    }
-    const stat = await calls.readStat(pid);
-    if (stat === null) continue; // exited between the listing and the read
-    const record = parseProcStat(stat, pid);
-    if (record === null) rejected += 1;
-    else records.push(record);
+  for (const read of reads) {
+    if (read === 'rejected') rejected += 1;
+    else if (read !== 'gone') records.push(read);
   }
   return { records, rejected };
 }
@@ -60,7 +120,7 @@ export async function takeSnapshot(calls: ProcessTableCalls): Promise<ProcessSna
 /**
  * Dependencies of {@link snapshotDescendants}.
  *
- * @public
+ * @beta
  */
 export interface SnapshotDeps {
   readonly processTable: ProcessTableCalls;
@@ -69,7 +129,7 @@ export interface SnapshotDeps {
 /**
  * A full snapshot plus the tree under one root within it.
  *
- * @public
+ * @beta
  */
 export interface DescendantSnapshot extends DescendantTree {
   readonly snapshot: ProcessSnapshot;
@@ -81,7 +141,7 @@ export interface DescendantSnapshot extends DescendantTree {
  * selection functions also need records outside the tree (the host's
  * process group, for example).
  *
- * @public
+ * @beta
  */
 export async function snapshotDescendants(
   root: ProcessIdentity,

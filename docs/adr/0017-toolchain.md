@@ -17,8 +17,8 @@ Reasons recorded: strict non-flat `node_modules` (no phantom dependencies); inst
 
 ### Runtime and language
 
-- Node `engines`: `>=22.12.0` (F amends E6's `>=22`). Node 22 is in maintenance until 2027-04; it is dropped in a major version after its end of life. The driver is the consumer base (Electron 33+ ships Node 22).
-- CI Node matrix: 22, 24, 26 ([ADR-0014](0014-ci-strategy.md)).
+- Node `engines`: `>=22.12.0` (F amends E6's `>=22`). Node 22 is in maintenance until 2027-04; it is dropped in a major version after its end of life. The driver is the consumer base: applications on Node 22, Electron among them. Correction (pre-release review R7-U3, FX-D, 2026-10-17): the original text said "Electron 33+ ships Node 22"; the reviewer recalls that Electron 33 and 34 ship Node 20.18 and Electron 35 is the first line with Node 22 (22.14). That could not be checked here (no network access to Electron's release notes), so the ADR names no Electron line: an Electron version is supported when its bundled Node is 22.12.0 or newer, which is what `engines` states.
+- CI Node matrix: 22, 24, 26 ([ADR-0014](0014-ci-strategy.md)), plus the floor 22.12.0 exactly on Linux since the pre-release review (R7-7, ADR-0014 amendment 11), so an API newer than the floor cannot pass CI.
 - ESM-only output; TypeScript.
 
 ### Release and API discipline
@@ -33,7 +33,7 @@ TypeBox (major pinned), Ajv (standalone generation), esbuild (bundling generated
 
 ### Native build
 
-CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)). ARM64 is cross-compiled on the x64 runner and is not first-class until tested on a real arm64 runner (K17).
+CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` ([ADR-0009](0009-process-layer-windows.md)). ARM64 is cross-compiled on the x64 runner and is not first-class until tested on a real arm64 runner (K17). Release builds (`addon-prebuild.yml`) pin every toolchain field of the release record that can change the bytes: the MSVC toolset and Windows SDK through exact Visual Studio components, and, since the pre-release review (R7-4, FX-D, 2026-10-17), CMake through the record's exact version from Kitware's release, checked against Kitware's SHA-256 list. Before that the image's CMake was used, and an image update between the record and the tag would have failed `check-toolchain` (`cmakeVersion` differs) and blocked the release. Whether a CMake version change alone can change the bytes was not shown either way (both recorded builds used CMake 4.4.4, and no second version was available offline), so the field stays a byte field and is pinned instead of being ruled informational.
 
 ## Alternatives considered
 
@@ -41,7 +41,7 @@ CMake + MSVC for the Windows addon, x64 and ARM64, plain C against `node_api.h` 
 - Yarn / Bun. Not discussed in the log beyond the E3 criteria; pnpm was chosen on merit.
 - CommonJS or dual publishing. Rejected: ESM-only is the decision (A4). Dual output doubles the test matrix and the supply-chain surface [derived].
 - Supporting Node 20 or lower. Rejected: engines `>=22.12.0`.
-- Dropping Node 22 immediately. Rejected (E6): Electron 33+ consumers.
+- Dropping Node 22 immediately. Rejected (E6): consumers on Node 22, Electron lines with Node 22 among them.
 - Rush or Nx as monorepo tooling. Not adopted [derived]: pnpm workspaces and catalogs cover the need.
 
 ## Consequences

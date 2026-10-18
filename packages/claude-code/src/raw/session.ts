@@ -41,17 +41,23 @@ export type { RawFrame, RawGap, RawWireFrame } from '../raw-channel.js';
 /**
  * Spawn extras of {@link createSessionRaw} (plan §2.6).
  *
- * @public
+ * @beta
  */
 export interface RawSpawnOptions {
+  /**
+   * Extra command-line arguments, each passed as one argument. Flags hudhud
+   * sets itself, and flags that would bypass its controls, are refused with
+   * `INVALID_OPTIONS`.
+   */
   readonly extraArgs?: readonly string[];
+  /** Extra environment variables, set after `env`; variables hudhud sets itself are refused. */
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
 
 /**
  * The raw view of one session (plan §2.6).
  *
- * @public
+ * @beta
  */
 export interface RawSession {
   /** Every frame in both directions from now on, bounded like `events()`. */
@@ -77,7 +83,7 @@ function invalid(path: string, rule: string, message: string): InvalidOptionsErr
  * The raw view of a session this adapter opened.
  *
  * @throws `InvalidOptionsError` for any other value
- * @public
+ * @beta
  */
 export function raw(session: Session): RawSession {
   const channel = rawChannelOf(session);
@@ -133,7 +139,7 @@ function checkRaw(value: unknown): {
  *
  * @throws every error of `sessions.create`; `InvalidOptionsError` for refused
  *   extras or a Harness that is not this adapter's
- * @public
+ * @beta
  */
 export async function createSessionRaw(
   harness: ClaudeCodeHarness,

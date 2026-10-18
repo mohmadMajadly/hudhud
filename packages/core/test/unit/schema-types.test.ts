@@ -328,7 +328,12 @@ describe('generated neutral validators', () => {
     };
     expect(validateHarnessCapabilities(capabilities).ok).toBe(true);
     expect(validateHarnessCapabilities({ ...capabilities, reasons: { a: 1 } }).ok).toBe(false);
-    expect(validateHarnessCapabilities({ ...capabilities, fork: 'maybe' }).ok).toBe(false);
+    // Open enums (ADR-0005 §6): a value a later version adds is accepted on read.
+    expect(validateHarnessCapabilities({ ...capabilities, fork: 'maybe' }).ok).toBe(true);
+    expect(validateHarnessCapabilities({ ...capabilities, processContainment: 'sandbox' }).ok).toBe(
+      true,
+    );
+    expect(validateHarnessCapabilities({ ...capabilities, fork: 1 }).ok).toBe(false);
     const posture: SecurityPosture = {
       entries: [{ setting: 'env', value: 'harness', defaultValue: 'harness', deviates: false }],
     };

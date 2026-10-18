@@ -17,7 +17,7 @@ import type { ProcessPlatform } from './cwd.js';
  * a non-empty `SYSTEMROOT`, the one variable a child cannot run without.
  * Adapters use the same list to report what the child really receives.
  *
- * @public
+ * @beta
  */
 export const WIN32_REQUIRED_ENV_NAMES: readonly string[] = Object.freeze([
   'HOMEDRIVE',
@@ -53,7 +53,7 @@ export const WIN32_REQUIRED_ENV_NAMES: readonly string[] = Object.freeze([
  * (and verify that the value is not the host's); adapters that report what
  * the child receives name them as set by the child.
  *
- * @public
+ * @beta
  */
 export const DARWIN_CHILD_SET_ENV_NAMES: readonly string[] = Object.freeze([
   '__CF_USER_TEXT_ENCODING',
@@ -65,7 +65,7 @@ export const DARWIN_CHILD_SET_ENV_NAMES: readonly string[] = Object.freeze([
  * lacks (compared ignoring case) set to `''`, so libuv copies nothing from
  * the host. The child's environment is then a function of `env` alone.
  *
- * @public
+ * @beta
  */
 export function childEnv(
   env: Readonly<Record<string, string>>,

@@ -420,7 +420,7 @@ export function renderDigestsModule(table) {
  * architecture, plus the addon \`version\` they were built as (the loader's
  * ABI check).
  *
- * @public
+ * @beta
  */
 export interface JobAddonDigests {
   /** The addon's \`version\` constant the digests belong to. */
@@ -432,7 +432,7 @@ export interface JobAddonDigests {
 /**
  * The digest table shipped with this build of the core.
  *
- * @public
+ * @beta
  */
 export const WIN32_JOB_DIGESTS: JobAddonDigests = Object.freeze({
   version: '${table.version}',
