@@ -246,6 +246,62 @@ None of these failures surfaces to hudhud today. A host that needs to know must 
 - Writes from features these scenarios did not use (todos, file checkpointing, plugins, jobs).
 - Forged frames and anything on `/proc/<pid>/fd` of another process.
 
+## 10. Follow-up: `setpriv` probes for ADR-0019 (2026-10-18)
+
+Run after EXP-2 to settle the `setpriv` questions of [ADR-0019](../adr/0019-spawn-as.md). No Claude binary was run: the "CLI" was `cat /proc/self/status`, `sh` and `/bin/true`. Image `debian:12` (bookworm), `setpriv from util-linux 2.38.1`; each container `--rm`, `--network none`, named `hudhud-prop1-*`, under the shared Docker lock. Scripts and raw output: `S/prop1-setpriv/` (`probe.sh`, `probe-min.sh`, `selfstat.sh`, `manscan.sh`; `out-base.txt`, `out-variants.txt`, `man-debian12.txt`). The fixed flag set below is ADR-0019's: `--reuid=10001 --regid=10001 --clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all`.
+
+### 10.1 The fixed flag set, root host with Docker's default capabilities
+
+Host: uid 0, `CapEff` = `CapBnd` = `00000000a80425fb`, `CapAmb` 0, `NoNewPrivs` 0. `setpriv <fixed flags> -- cat /proc/self/status` exited 0 and printed:
+
+```
+Uid:	10001	10001	10001	10001
+Gid:	10001	10001	10001	10001
+Groups:	 
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+CapAmb:	0000000000000000
+NoNewPrivs:	1
+```
+
+### 10.2 Variants of the host
+
+| Container options | Host `CapEff` / `NoNewPrivs` | `setpriv` exit | Exec'd process |
+|---|---|---|---|
+| default (root) | `a80425fb` / 0 | 0 | as 10.1 |
+| `--cap-drop SETPCAP` | `a80424fb` / 0 | **0** | uids, gids, groups, `CapPrm`, `CapEff`, `CapAmb`, `CapInh` as 10.1 and `NoNewPrivs` 1, but **`CapBnd` `00000000a80424fb`**: the bounding set was silently left in place |
+| `--security-opt no-new-privileges` | `a80425fb` / 1 | 0 | as 10.1 |
+| `--security-opt no-new-privileges --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add SETPCAP --cap-add KILL` | `000001e0` (KILL, SETGID, SETUID, SETPCAP) / 1 | 0 | as 10.1 |
+| `--cap-drop SETUID` | `a804257b` / 0 | 127, `setpriv: setresuid failed: Operation not permitted` | not run |
+| `--user 1000:1000` (no capabilities) | `0` / 0 | 127, `setpriv: setresuid failed: Operation not permitted` | not run |
+
+The `SETPCAP` row contradicts the man page's NOTES ("If applying any specified option fails, program will not be run and setpriv will return with exit status 127"): dropping the bounding set without `CAP_SETPCAP` neither fails nor stops the program.
+
+### 10.3 Process identity, group and session across the `exec`
+
+A shell printed its own `/proc/<pid>/stat` fields, then ran `exec setpriv <fixed flags> -- sh selfstat.sh`, which printed them again from the same process:
+
+```
+self pid=29 1 1 1 33038493                     (ppid pgrp sid starttime, before the exec, as root)
+after-exec-same-pid pid=29 ppid=1 pgrp=1 sid=1 starttime=33038493 uid=10001 gid=10001 groups=10001
+```
+
+The pid, the start time, the process group and the session are unchanged; only the credentials changed. `setpriv` neither forked nor called `setsid` or `setpgid` in this run (`id -G` lists the effective gid; the `Groups:` line of 10.1 is empty).
+
+### 10.4 `--reuid=4294967295` and `--regid=4294967295`
+
+`setpriv --reuid=4294967295 --regid=10001 --clear-groups -- id` exited 0 and printed `uid=0(root) gid=10001 groups=10001`; `setpriv --reuid=10001 --regid=4294967295 --clear-groups -- id` printed `uid=10001 gid=0(root) groups=0(root)`. The value is taken as `(uid_t)-1`, "leave unchanged": the program runs as root (or with group root) with exit status 0.
+
+### 10.5 A `0711` working directory
+
+As root: `mktemp -d`, `chmod 0711` (`drwx--x--x root root`), `cd` into it, then `setpriv <fixed flags> -- sh -c …` as 10001: `pwd` and `/bin/pwd -P` printed the directory, listing it was denied, creating a file in it was denied, and `/bin/true` ran. Claude Code's own `--version` was not run.
+
+### 10.6 Man pages available offline
+
+`debian:12`, `node:22` and `node:26-bookworm` ship `setpriv(1)` only (util-linux 2.38.1, dated 2022-05-11); `execve(2)`, `kill(2)`, `proc(5)`, `capabilities(7)`, `prctl(2)`, `setgroups(2)`, `setresuid(2)`, `pidfd_send_signal(2)` and `ptrace(2)` are absent from all three (the `manpages-dev` package is not installed, and no network was used). `setpriv(1)` says: it is "a simple, non-set-user-ID wrapper around execve(2)"; `--no-new-privs` makes `execve(2)` "not grant new privileges" (set-user-ID, set-group-ID and file capabilities are disabled) and the bit "is inherited by child processes and cannot be unset"; "the kernel does not permit capabilities to be added to the bounding set"; "Setting a uid or gid does not change capabilities, although the exec call at the end might change capabilities"; and the NOTES quoted in 10.2.
+
 ## Cleanup
 
 Every container ran with `--rm`; the work volume and the tools image were removed after the last case. No process of uid B was left after any case. The shared Docker lock was taken with an owner file for each run and released after it. The user's own Claude Code install, config and credentials were not touched; only the pinned, hash-checked binary was executed, inside the container.
