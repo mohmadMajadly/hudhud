@@ -37,6 +37,7 @@ import type { RawFrame } from '../raw-channel.js';
 import { rawChannelOf } from '../session-factory.js';
 
 export type { RawFrame, RawGap, RawWireFrame } from '../raw-channel.js';
+export { RAW_CONTROL_MAX_IN_FLIGHT } from '../raw-channel.js';
 
 /**
  * Spawn extras of {@link createSessionRaw} (plan §2.6).
@@ -64,7 +65,10 @@ export interface RawSession {
   frames(opts?: SubscriberOptions): AsyncIterable<RawFrame>;
   /**
    * Sends a control request (`{ subtype, ...body }`) and resolves with the
-   * CLI's answer. Needs `claudeCode.dangerouslyAllowRawControl: true`.
+   * CLI's answer. Needs `claudeCode.dangerouslyAllowRawControl: true`. At
+   * most {@link RAW_CONTROL_MAX_IN_FLIGHT} requests wait for an answer at
+   * once; one more rejects with `ControlRequestError`
+   * (`details.cause: 'in-flight-limit'`) and writes nothing.
    */
   controlRequest(
     subtype: string,

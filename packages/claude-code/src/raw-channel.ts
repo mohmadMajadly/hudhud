@@ -38,6 +38,8 @@
  * as an unknown response (diagnostic `control.unknown-response`). It settles
  * with the CLI's answer, `CONTROL_REQUEST_FAILED` (an error answer, or its
  * `timeoutMs`), `ABORTED`, or `SESSION_CLOSED` when the session ends first.
+ * At most {@link RAW_CONTROL_MAX_IN_FLIGHT} wait at once; one more is
+ * refused with `CONTROL_REQUEST_FAILED` (`details.cause: 'in-flight-limit'`).
  *
  * @packageDocumentation
  */
@@ -117,6 +119,17 @@ export interface RawGap {
 export type RawFrame = RawWireFrame | RawGap;
 
 const encoder = new TextEncoder();
+
+/**
+ * Most raw control requests one session lets wait for an answer at once
+ * (CAPS-1). A request beyond it is refused with `CONTROL_REQUEST_FAILED`
+ * (`details.cause: 'in-flight-limit'`) and nothing is written. A raw request
+ * has no default timeout, so without the cap requests the CLI never answers
+ * would pile up for the session's lifetime.
+ *
+ * @beta
+ */
+export const RAW_CONTROL_MAX_IN_FLIGHT = 64;
 
 /** Longest CLI error text copied into an error. */
 const MAX_ECHO = 256;
@@ -354,6 +367,12 @@ export class RawChannel {
       });
     }
     if (signal?.aborted === true) throw AbortError.fromSignal(signal);
+    if (this.#pending.size >= RAW_CONTROL_MAX_IN_FLIGHT) {
+      throw new ControlRequestError(
+        `At most ${String(RAW_CONTROL_MAX_IN_FLIGHT)} raw control requests may wait for an answer at once.`,
+        { details: { cause: 'in-flight-limit', limit: RAW_CONTROL_MAX_IN_FLIGHT } },
+      );
+    }
     const id = `hudhud-raw-${String(this.#nextId)}`;
     this.#nextId += 1;
     const line = this.#encode(rawControlRequest(id, subtype, body));

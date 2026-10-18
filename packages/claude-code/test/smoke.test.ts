@@ -11,7 +11,7 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url));
 
 /** Run-time export names of each entry point (types are checked by the API reports). */
 const ROOT_NAMES = ['CLAUDE_CODE_COMPAT', 'connect', 'hudhud', 'session'];
-const RAW_NAMES = ['createSessionRaw', 'raw'];
+const RAW_NAMES = ['RAW_CONTROL_MAX_IN_FLIGHT', 'createSessionRaw', 'raw'];
 
 describe('@hudhudjs/claude-code', () => {
   it('exports exactly the planned run-time names from source', () => {
@@ -31,7 +31,7 @@ describe('@hudhudjs/claude-code', () => {
       '@hudhudjs/claude-code/raw': {
         ok: true,
         file: 'dist/raw/index.js',
-        exports: {},
+        exports: { RAW_CONTROL_MAX_IN_FLIGHT: 64 },
         names: RAW_NAMES,
       },
     });

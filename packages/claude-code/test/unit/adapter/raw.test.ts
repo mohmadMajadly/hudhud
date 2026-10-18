@@ -19,7 +19,7 @@ import { TransportWriteError, type HarnessTransport } from '@hudhudjs/core/bindi
 
 import { connectWith } from '../../../src/connect.js';
 import { RawChannel, type RawFrame } from '../../../src/raw-channel.js';
-import { createSessionRaw, raw } from '../../../src/raw/session.js';
+import { createSessionRaw, RAW_CONTROL_MAX_IN_FLIGHT, raw } from '../../../src/raw/session.js';
 import { BINARY, captureEvents, diagnosticData, FakeHost, settle } from './fake-host.js';
 
 async function harnessWith(
@@ -318,6 +318,74 @@ describe('raw control (ADR-0012 §8)', () => {
         expect(error).toBeInstanceOf(SessionClosedError);
       }
     }
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it('lets at most RAW_CONTROL_MAX_IN_FLIGHT requests wait; one more is refused, typed, unwritten', async () => {
+    const fake = new FakeHost({
+      script: {
+        // Raw requests are never answered.
+        onWrite: (frame) =>
+          frame['type'] === 'control_request' &&
+          String(frame['request_id']).startsWith('hudhud-raw-')
+            ? true
+            : undefined,
+      },
+    });
+    const harness = await harnessWith(fake, true);
+    const session = await harness.sessions.create();
+    const rawSession = raw(session);
+    const waiting = Array.from({ length: RAW_CONTROL_MAX_IN_FLIGHT }, (_, n) =>
+      rawSession.controlRequest(`silent_${String(n)}`).catch((error: unknown) => error),
+    );
+    await settle();
+    const written = fake.cli.written.length;
+    const refused = await rawSession.controlRequest('one_more').catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ControlRequestError);
+    expect(refused).toMatchObject({
+      code: 'CONTROL_REQUEST_FAILED',
+      details: { cause: 'in-flight-limit', limit: 64 },
+    });
+    expect(fake.cli.written).toHaveLength(written);
+    await session.close();
+    for (const error of await Promise.all(waiting)) {
+      expect(error).toBeInstanceOf(SessionClosedError);
+    }
+    // After the session ended a new request is SESSION_CLOSED, not the limit.
+    const after = await rawSession.controlRequest('late').catch((error: unknown) => error);
+    expect(after).toBeInstanceOf(SessionClosedError);
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it('frees a slot when a waiting request ends', async () => {
+    const fake = new FakeHost({
+      script: {
+        onWrite: (frame) =>
+          frame['type'] === 'control_request' &&
+          String(frame['request_id']).startsWith('hudhud-raw-')
+            ? true
+            : undefined,
+      },
+    });
+    const harness = await harnessWith(fake, true);
+    const session = await harness.sessions.create();
+    const rawSession = raw(session);
+    const controller = new AbortController();
+    const first = rawSession
+      .controlRequest('first', undefined, { signal: controller.signal })
+      .catch((error: unknown) => error);
+    const rest = Array.from({ length: RAW_CONTROL_MAX_IN_FLIGHT - 1 }, (_, n) =>
+      rawSession.controlRequest(`silent_${String(n)}`).catch((error: unknown) => error),
+    );
+    await settle();
+    controller.abort('done');
+    expect(await first).toBeInstanceOf(AbortError);
+    const next = rawSession.controlRequest('next').catch((error: unknown) => error);
+    await settle();
+    expect(fake.cli.written.at(-1)).toMatchObject({ request: { subtype: 'next' } });
+    await session.close();
+    expect(await next).toBeInstanceOf(SessionClosedError);
+    for (const error of await Promise.all(rest)) expect(error).toBeInstanceOf(SessionClosedError);
     await harness[Symbol.asyncDispose]();
   });
 
