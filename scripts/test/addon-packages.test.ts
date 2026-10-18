@@ -39,12 +39,12 @@ function sourceLinks(dir: string): Record<string, unknown> {
 }
 
 describe.each([
-  // x64 is published: private until the release flow lifts the flag, like
-  // every published package here (they all declare publishConfig).
+  // x64 is published (not private, publishConfig with provenance; checklist
+  // 4.2, lifted by REL-1 for the first publish).
   ['x64', 'packages/win32-job-x64', { publishConfig: { access: 'public', provenance: true } }],
   // ARM64 stays private in v1 (K17, lead ruling on A2): no publishConfig, so
   // neither the release flow nor the tarball check treats it as published.
-  ['arm64', 'packages/win32-job-arm64', {}],
+  ['arm64', 'packages/win32-job-arm64', { private: true }],
 ])('the %s platform package', (cpu, dir, publish) => {
   const pkg = manifest(dir);
 
@@ -52,9 +52,9 @@ describe.each([
     expect(pkg).toEqual({
       name: `@hudhudjs/win32-job-${cpu}`,
       // Versioned by changesets on its own, at its release record's
-      // release (ADR-0004 amendment of 2026-10-17); all 0.0.0 until then.
-      version: core['version'],
-      private: true,
+      // release (ADR-0004 amendment of 2026-10-17), so not the core's
+      // version once a library release keeps the addon.
+      version: expect.stringMatching(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u) as string,
       description: expect.any(String) as string,
       license: 'Apache-2.0',
       ...(cpu === 'x64' ? sourceLinks(dir) : {}),
