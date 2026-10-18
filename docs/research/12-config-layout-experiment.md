@@ -302,6 +302,63 @@ As root: `mktemp -d`, `chmod 0711` (`drwx--x--x root root`), `cd` into it, then 
 
 `debian:12`, `node:22` and `node:26-bookworm` ship `setpriv(1)` only (util-linux 2.38.1, dated 2022-05-11); `execve(2)`, `kill(2)`, `proc(5)`, `capabilities(7)`, `prctl(2)`, `setgroups(2)`, `setresuid(2)`, `pidfd_send_signal(2)` and `ptrace(2)` are absent from all three (the `manpages-dev` package is not installed, and no network was used). `setpriv(1)` says: it is "a simple, non-set-user-ID wrapper around execve(2)"; `--no-new-privs` makes `execve(2)` "not grant new privileges" (set-user-ID, set-group-ID and file capabilities are disabled) and the bit "is inherited by child processes and cannot be unset"; "the kernel does not permit capabilities to be added to the bounding set"; "Setting a uid or gid does not change capabilities, although the exec call at the end might change capabilities"; and the NOTES quoted in 10.2.
 
+## 11. Follow-up: Asrab-review probes (2026-10-18)
+
+A second round after the Asrab review of [ADR-0019](../adr/0019-spawn-as.md). Same rules: `debian:12`, `setpriv` 2.38.1, containers `hudhud-prop1-*`, `--rm`, `--network none`, under the shared Docker lock. No compiled helper and no Claude binary were used; the loader questions were answered with glibc's own `ld.so` diagnostics (a nonexistent library makes `ld.so` warn only if it tried to honour the variable). The fd question used a Node one-liner (`node:22`, Node 24.22.0). Scripts and output: `S/prop1-setpriv/` (`probe2.sh`, `pdeath.sh`, `fdtest.mjs`, `probe-min.sh`; `out-r2.txt`, `out-pdeath.txt`, `out-fd.txt`).
+
+### 11.1 Loader and libc environment reach a root `setpriv` child (item 1)
+
+`setpriv` is not set-user-ID, so the kernel does not set `AT_SECURE` for its child, and glibc honours the unsecure environment variables. Measured through the fixed flag set:
+
+```
+AT_SECURE:            0
+ERROR: ld.so: object '/nonexistent-xyz.so' from LD_PRELOAD cannot be preloaded ...: ignored.
+ERROR: ld.so: object '/nonexistent-xyz.so' cannot be loaded as audit interface ...; ignored.   (LD_AUDIT)
+search path=/zzz-marker-dir/... (LD_LIBRARY_PATH)   trying file=/zzz-marker-dir/.../libcap-ng.so.0
+```
+
+`ld.so` tried to load the `LD_PRELOAD` and `LD_AUDIT` objects and searched `LD_LIBRARY_PATH` (including before `libcap-ng`, which `setpriv` itself loads), so a hostile value would be honoured. `AT_SECURE` 0 means the whole glibc unsecure set (`GCONV_PATH`, `LOCPATH`, `GLIBC_TUNABLES`, `RES_OPTIONS`, …) is honoured too; glibc strips those only when `AT_SECURE` is 1.
+
+### 11.2 `--reuid`/`--regid` resolve a numeric argument as a name first (item 2)
+
+With a decoy line `10001:x:4000:4000:…` appended to `/etc/passwd`:
+
+```
+reuid=10001  -> uid=4000(10001) gid=10001 groups=10001
+reuid=+10001 -> uid=10001       gid=10001 groups=10001
+```
+
+`--reuid=10001` resolved the string `10001` through `getpwnam` and ran as **uid 4000**, the decoy's uid. The `+`-prefixed form `--reuid=+10001` forced the numeric id (util-linux `strtoui`-with-`+` convention) and ran as uid 10001. So a numeric id passed as a bare number is unsafe when the name service can be influenced; the `+` form is not.
+
+### 11.3 Node opens fds `O_CLOEXEC`; no leak into a `spawn` child (item 3)
+
+`node:22` (Node 24.22.0): `fs.openSync(path, 'r')` produced fd flags `02100000` = `O_CLOEXEC (02000000) | O_LARGEFILE`. A `child_process.spawnSync('ls', …)` child did not see that fd (`child sees the secret fd: no`); its fd table held only stdio and libuv's own `/proc/<pid>/fd` handle. A plain host fd therefore does not leak; the residual is an fd opened without `O_CLOEXEC` by native code or inherited into the Node process from its own parent.
+
+### 11.4 Full status fields (item 9)
+
+The exec'd child's `/proc/self/status` showed `TracerPid: 0`, `Seccomp: 2`, `Seccomp_filters: 2` (the container's default seccomp, not hudhud's), and the `Groups:` line was the bytes `G r o u p s : \t <space> \n` — a tab then a single trailing space before the newline, so a parser must treat `Groups:` with a trailing space as empty.
+
+### 11.5 Overflow ids, controlling tty, NNP-root capabilities (items 7, 11, 12)
+
+- `/proc/sys/kernel/overflowuid` and `overflowgid` were both `65534`.
+- The exec'd child's `tty_nr` (stat field 7) was `0`, as was the parent's: a container started without a pseudo-terminal has no controlling tty.
+- Root under `--security-opt no-new-privileges` with `CapPrm` = SETUID,SETGID,KILL (no `CAP_SETPCAP`, host `CapPrm 00000000000000e0`): `setpriv` exited 0 and the child's `CapBnd` was `00000000000000e0` — the bounding set was not dropped (the same silent skip as §10.2, now confirmed under NNP). With the same NNP set but no `CAP_SETUID`, `setpriv` exited 127 (`setresuid failed`). The granted capabilities a root `setpriv` can act on are those in `CapPrm ∩ CapBnd`.
+
+### 11.6 `--pdeathsig=KILL` is accepted but does not fire (item 13)
+
+`setpriv <fixed flags> --pdeathsig=KILL -- /bin/true` exited 0, so the flag is accepted. But when a parent started `setpriv <fixed flags> --pdeathsig=KILL -- sleep 30` and then exited, the grandchild was **still alive**, reparented to pid 1:
+
+```
+grandchild pid=9; parent exited
+RESULT pdeathsig: child STILL ALIVE state=S ppid=1
+```
+
+The parent-death signal does not survive to the exec'd CLI in this configuration. The likely cause is that the credential change (`setresuid` to uid B inside `setpriv`) clears the pending parent-death signal; the util-linux ordering and the kernel rule were not traced. The flag therefore gives no containment guarantee and is not adopted.
+
+### 11.7 The silent `CAP_SETPCAP` skip (item 15)
+
+The mechanism (whether libcap-ng's `capng_apply` silently returns without error when the bounding drop is not permitted) was **not** traced: `strace` is not installed in `debian:12` and no network was available to add it, and no compiled interposer was used in this round. The behaviour is firmly established (§10.2 and §11.5: exit 0, bounding set unchanged); the cause stays UNVERIFIED.
+
 ## Cleanup
 
 Every container ran with `--rm`; the work volume and the tools image were removed after the last case. No process of uid B was left after any case. The shared Docker lock was taken with an owner file for each run and released after it. The user's own Claude Code install, config and credentials were not touched; only the pinned, hash-checked binary was executed, inside the container.
