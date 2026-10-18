@@ -1,8 +1,8 @@
 # Architecture decision records
 
-MADR-style records for hudhud. Overview: [../architecture.md](../architecture.md). Evidence: [../research/](../research/README.md). Date of all records: 2026-10-12.
+MADR-style records for hudhud. Overview: [../architecture.md](../architecture.md). Evidence: [../research/](../research/README.md). Date of all records: 2026-10-12, except the proposals from 0019 on (each carries its own date).
 
-Status vocabulary: "Accepted" is decided; "Accepted — pending X" is decided but gated on the named item (all pre-v1 spikes except the macOS gate are done, see [../research/07-pre-v1-spikes.md](../research/07-pre-v1-spikes.md)); "owner decision N" refers to the owner decisions in [../architecture.md](../architecture.md#owner-decisions).
+Status vocabulary: "Accepted" is decided; "Accepted — pending X" is decided but gated on the named item (all pre-v1 spikes except the macOS gate are done, see [../research/07-pre-v1-spikes.md](../research/07-pre-v1-spikes.md)); "Proposed (version)" is a design proposal for that release, neither decided nor implemented; "owner decision N" refers to the owner decisions in [../architecture.md](../architecture.md#owner-decisions).
 
 | ADR | Title | Status | Negotiation log items |
 |---|---|---|---|
@@ -24,6 +24,7 @@ Status vocabulary: "Accepted" is decided; "Accepted — pending X" is decided bu
 | [0016](0016-observability.md) | Observability | Accepted | A18 |
 | [0017](0017-toolchain.md) | Toolchain | Accepted | E3, E6, A4 |
 | [0018](0018-scope-and-roadmap.md) | Scope, roadmap and pre-v1 gates | Accepted | A19, G3, G4 |
+| [0019](0019-spawn-as.md) | Running Claude Code as another user (`spawnAs`: Linux, exec-only `setpriv`, verified credentials) | Proposed (0.2.0) | none (post-v1 proposal) |
 
 ## Precedence used when reading the negotiation log
 
