@@ -125,7 +125,27 @@ describe('connect errors', () => {
         data: expect.objectContaining({ status: 'unverified', mode: 'advisory' }) as unknown,
       }),
     );
+    // The untested version is a typed warning too (ADR-0004 §4, rolling window).
+    expect(captured[0]).toContainEqual(
+      expect.objectContaining({
+        type: 'diagnostic',
+        code: 'compat.untested',
+        data: { ...harness.compat },
+      }),
+    );
     await session.close();
+    await harness[Symbol.asyncDispose]();
+  });
+
+  it('a version inside the tested window publishes no compat.untested', async () => {
+    const fake = new FakeHost();
+    const harness = await connectWith({ binaryPath: BINARY }, fake.make);
+    expect(harness.compat.status).toBe('tested');
+    const captured = captureEvents(harness);
+    const session = await harness.sessions.create();
+    await session.close();
+    expect(captured[0]?.some((event) => event.type === 'diagnostic')).toBe(true);
+    expect(captured[0]).not.toContainEqual(expect.objectContaining({ code: 'compat.untested' }));
     await harness[Symbol.asyncDispose]();
   });
 
