@@ -29,7 +29,7 @@ import { childEnv } from '../win32-env.js';
 /**
  * One bounded command.
  *
- * @public
+ * @beta
  */
 export interface BoundedCommand {
   /** Absolute path of the executable. */
@@ -56,7 +56,7 @@ export interface BoundedCommand {
 /**
  * How a {@link BoundedCommand} ended.
  *
- * @public
+ * @beta
  */
 export type CommandOutcome =
   | {
@@ -76,7 +76,7 @@ export type CommandOutcome =
  * `child_process.spawn` as used by {@link runBoundedCommand}; injectable for
  * tests.
  *
- * @public
+ * @beta
  */
 export type BoundedSpawn = (
   file: string,
@@ -98,7 +98,7 @@ const nodeSpawn: BoundedSpawn = (file, args, options) =>
 /**
  * Runs one command within its bounds (see the module remarks).
  *
- * @public
+ * @beta
  */
 export function runBoundedCommand(
   command: BoundedCommand,

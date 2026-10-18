@@ -74,7 +74,7 @@ import {
 /**
  * One frame on the wire (plan §2.6).
  *
- * @public
+ * @beta
  */
 export interface RawWireFrame {
   readonly kind: 'frame';
@@ -92,7 +92,7 @@ export interface RawWireFrame {
  * review of W5-T1, Q8b), numbered like the `gap` event: `seq` is that of the
  * first frame left out, `dropped` how many.
  *
- * @public
+ * @beta
  */
 export interface RawGap {
   readonly kind: 'gap';
@@ -104,7 +104,7 @@ export interface RawGap {
 /**
  * What `frames()` yields: a frame on the wire, or the gap of a drop.
  *
- * @public
+ * @beta
  */
 export type RawFrame = RawWireFrame | RawGap;
 

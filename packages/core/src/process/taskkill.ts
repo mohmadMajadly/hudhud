@@ -55,14 +55,14 @@ import type { TaskkillResult, Win32TerminateCalls } from './os/types.js';
 /**
  * `SystemRoot` used when the environment does not define it.
  *
- * @public
+ * @beta
  */
 export const WIN32_DEFAULT_SYSTEM_ROOT = 'C:\\Windows';
 
 /**
  * Upper bound on one `taskkill` run before it is killed.
  *
- * @public
+ * @beta
  */
 export const DEFAULT_TASKKILL_TIMEOUT_MS = 10_000;
 
@@ -77,7 +77,7 @@ const DRIVE_ROOT = /^[A-Za-z]:\\/;
 /**
  * Why `taskkill.exe` cannot be used.
  *
- * @public
+ * @beta
  */
 export type TaskkillRefusal =
   /** `SystemRoot` is not a plain drive-absolute directory path. */
@@ -94,7 +94,7 @@ export type TaskkillRefusal =
 /**
  * Thrown (as a rejection of `taskkillTree`) when `taskkill.exe` is refused.
  *
- * @public
+ * @beta
  */
 export class TaskkillUnavailableError extends Error {
   override readonly name = 'TaskkillUnavailableError';
@@ -110,7 +110,7 @@ export class TaskkillUnavailableError extends Error {
 /**
  * Filesystem calls used to resolve `taskkill.exe`; injectable for tests.
  *
- * @public
+ * @beta
  */
 export interface TaskkillFs {
   realpath(path: string): Promise<string>;
@@ -120,7 +120,7 @@ export interface TaskkillFs {
 /**
  * Options passed to {@link TaskkillExecFile}; a subset of Node's `execFile` options.
  *
- * @public
+ * @beta
  */
 export interface TaskkillExecOptions {
   readonly shell: false;
@@ -138,7 +138,7 @@ export interface TaskkillExecOptions {
  * code (a number) when the process exited non-zero, or an errno string when
  * it could not run or was killed.
  *
- * @public
+ * @beta
  */
 export interface TaskkillExecError {
   readonly code?: number | string | null | undefined;
@@ -147,7 +147,7 @@ export interface TaskkillExecError {
 /**
  * Node's `child_process.execFile`, narrowed; injectable for tests.
  *
- * @public
+ * @beta
  */
 export type TaskkillExecFile = (
   file: string,
@@ -159,7 +159,7 @@ export type TaskkillExecFile = (
 /**
  * Dependencies of {@link createTaskkillCalls}.
  *
- * @public
+ * @beta
  */
 export interface TaskkillDeps {
   /** The host environment, read only for `SystemRoot`. */
@@ -173,7 +173,7 @@ export interface TaskkillDeps {
 /**
  * The host's filesystem and `execFile`.
  *
- * @public
+ * @beta
  */
 export const nodeTaskkillDeps: Omit<TaskkillDeps, 'env'> = {
   fs: { realpath, lstat },
@@ -183,7 +183,7 @@ export const nodeTaskkillDeps: Omit<TaskkillDeps, 'env'> = {
 /**
  * The validated `SystemRoot`, or the refusal.
  *
- * @public
+ * @beta
  */
 export function systemRootFrom(
   env: Readonly<Record<string, string | undefined>>,
@@ -293,7 +293,7 @@ export function resolveSystem32PowerShell(
  *
  * @returns the realpath to execute and the validated `SystemRoot`
  * @throws {@link TaskkillUnavailableError}
- * @public
+ * @beta
  */
 export async function resolveTaskkillPath(
   deps: Pick<TaskkillDeps, 'env' | 'fs'>,
@@ -321,7 +321,7 @@ function checkPid(pid: number): string {
  * `tree: false`, a kill of that one process (`/F /PID <pid>`).
  *
  * @throws RangeError when `pid` is not a positive safe integer, or is 0 or 4
- * @public
+ * @beta
  */
 export function taskkillArgv(pid: number, tree = true): readonly string[] {
   const value = checkPid(pid);
@@ -333,7 +333,7 @@ export function taskkillArgv(pid: number, tree = true): readonly string[] {
  * one process (no `/T`), used by the sweep for identity-verified
  * descendants. The same contract as the `terminate` calls of `OsCalls`.
  *
- * @public
+ * @beta
  */
 export type TaskkillCalls = Win32TerminateCalls;
 
@@ -344,7 +344,7 @@ export type TaskkillCalls = Win32TerminateCalls;
  * {@link TaskkillUnavailableError} when the executable is refused, and with
  * `RangeError` for a refused pid; nothing is spawned then.
  *
- * @public
+ * @beta
  */
 export function createTaskkillCalls(deps: TaskkillDeps): TaskkillCalls {
   const run = async (args: readonly string[]): Promise<TaskkillResult> => {

@@ -120,7 +120,7 @@ export async function takeSnapshot(calls: ProcessTableCalls): Promise<ProcessSna
 /**
  * Dependencies of {@link snapshotDescendants}.
  *
- * @public
+ * @beta
  */
 export interface SnapshotDeps {
   readonly processTable: ProcessTableCalls;
@@ -129,7 +129,7 @@ export interface SnapshotDeps {
 /**
  * A full snapshot plus the tree under one root within it.
  *
- * @public
+ * @beta
  */
 export interface DescendantSnapshot extends DescendantTree {
   readonly snapshot: ProcessSnapshot;
@@ -141,7 +141,7 @@ export interface DescendantSnapshot extends DescendantTree {
  * selection functions also need records outside the tree (the host's
  * process group, for example).
  *
- * @public
+ * @beta
  */
 export async function snapshotDescendants(
   root: ProcessIdentity,

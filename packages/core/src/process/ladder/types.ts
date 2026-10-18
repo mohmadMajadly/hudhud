@@ -15,7 +15,7 @@ import type { ProcessIdentity } from '../tree/types.js';
  * Ladders await it only right before their first step that needs it, so
  * the interrupt and EOF steps never wait for it.
  *
- * @public
+ * @beta
  */
 export type LadderIdentity = PromiseLike<ProcessIdentity | null>;
 
@@ -24,7 +24,7 @@ export type LadderIdentity = PromiseLike<ProcessIdentity | null>;
  * its own subset: POSIX `interruptWaitMs`, `eofGraceMs`, `termGraceMs`;
  * Windows `interruptWaitMs`, `eofGraceMs`, `taskkillGraceMs`.
  *
- * @public
+ * @beta
  */
 export interface LadderTiming {
   /** Longest wait for the interrupt acknowledgement before EOF. */
@@ -40,7 +40,7 @@ export interface LadderTiming {
 /**
  * Initial, tunable defaults (plan §1.7, H5; option `termination.*`).
  *
- * @public
+ * @beta
  */
 export const DEFAULT_LADDER_TIMING: LadderTiming = Object.freeze({
   interruptWaitMs: 1000,
@@ -52,14 +52,14 @@ export const DEFAULT_LADDER_TIMING: LadderTiming = Object.freeze({
 /**
  * Result of the interrupt hook (plan §1.7: supplied by the driver from the machine).
  *
- * @public
+ * @beta
  */
 export type InterruptOutcome = 'acknowledged' | 'timeout' | 'not-applicable';
 
 /**
  * Every step a ladder can take, in the order the ladders may take them.
  *
- * @public
+ * @beta
  */
 export type LadderStepName =
   | 'intent'
@@ -77,7 +77,7 @@ export type LadderStepName =
 /**
  * One step as it was taken. JSON data.
  *
- * @public
+ * @beta
  */
 export interface LadderStep {
   readonly name: LadderStepName;
@@ -95,7 +95,7 @@ export interface LadderStep {
 /**
  * Summary of a sweep (POSIX).
  *
- * @public
+ * @beta
  */
 export interface LadderSweepSummary {
   readonly processesSignalled: number;
@@ -109,7 +109,7 @@ export interface LadderSweepSummary {
  * `TerminationIntent`, kept generic here so the process layer does not
  * depend on the protocol layer's outcome module.
  *
- * @public
+ * @beta
  */
 export interface LadderReport<Intent extends string = string> {
   readonly intent: Intent;
@@ -132,7 +132,7 @@ export interface LadderReport<Intent extends string = string> {
 /**
  * Hooks the driver gives a ladder.
  *
- * @public
+ * @beta
  */
 export interface LadderHooks {
   /**
@@ -149,7 +149,7 @@ export interface LadderHooks {
  * Time source and one-shot timers of both ladders, injected so tests never
  * use real timers.
  *
- * @public
+ * @beta
  */
 export interface LadderClock {
   /** Current time in milliseconds (any epoch; only differences are used). */

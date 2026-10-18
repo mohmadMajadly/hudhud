@@ -62,7 +62,7 @@ import type {
 /**
  * The spawned process as the POSIX ladder sees it.
  *
- * @public
+ * @beta
  */
 export interface PosixLadderProcess {
   /** The spawned pid (the host's own child). */
@@ -86,14 +86,14 @@ export interface PosixLadderProcess {
 /**
  * The operating-system calls of a POSIX host.
  *
- * @public
+ * @beta
  */
 export type PosixOsCalls = Extract<OsCalls, { readonly platform: 'linux' | 'darwin' }>;
 
 /**
  * Dependencies of {@link runPosixLadder}.
  *
- * @public
+ * @beta
  */
 export interface PosixLadderDeps<Intent extends string = string> {
   /** The termination intent, recorded before any signal (ADR-0008 E8). */
@@ -128,7 +128,7 @@ const ERRNO: Readonly<Record<Exclude<SignalOutcome, 'sent'>, string>> = {
  * @param deps - intent, OS calls and clock.
  * @returns what the ladder did. Never rejects for an OS or hook failure.
  *
- * @public
+ * @beta
  */
 export async function runPosixLadder<Intent extends string>(
   proc: PosixLadderProcess,

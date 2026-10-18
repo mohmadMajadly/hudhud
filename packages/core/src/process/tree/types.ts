@@ -3,7 +3,7 @@
  * sources are not comparable, except that every Windows source uses the
  * canonical microseconds (see `tree/start-time.ts`).
  *
- * @public
+ * @beta
  */
 export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
 
@@ -11,7 +11,7 @@ export type ProcessTableSource = 'linux-proc' | 'darwin-ps' | 'win32-cim';
  * Identity of a process: its pid plus its start time (ADR-0010, ADR-0011
  * J9). A pid alone is never an identity, because pids are reused.
  *
- * @public
+ * @beta
  */
 export interface ProcessIdentity {
   readonly pid: number;
@@ -29,7 +29,7 @@ export interface ProcessIdentity {
 /**
  * One row of a process-table snapshot.
  *
- * @public
+ * @beta
  */
 export interface ProcessRecord extends ProcessIdentity {
   readonly ppid: number;
@@ -56,7 +56,7 @@ export interface ProcessRecord extends ProcessIdentity {
 /**
  * A process table read at one instant from one source.
  *
- * @public
+ * @beta
  */
 export interface ProcessSnapshot {
   readonly source: ProcessTableSource;
@@ -73,7 +73,7 @@ export interface ProcessSnapshot {
 /**
  * Output of a process-table parser before pid deduplication.
  *
- * @public
+ * @beta
  */
 export interface ParsedProcessTable {
   readonly records: readonly ProcessRecord[];

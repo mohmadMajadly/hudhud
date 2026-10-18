@@ -17,7 +17,7 @@
  * Why hudhud ended the process, recorded before any signal or job
  * termination. `none` means hudhud did not end it.
  *
- * @public
+ * @beta
  */
 export type TerminationIntent =
   | 'none'
@@ -33,7 +33,7 @@ export type TerminationIntent =
 /**
  * Every termination intent, in declaration order.
  *
- * @public
+ * @beta
  */
 export const TERMINATION_INTENTS: readonly TerminationIntent[] = [
   'none',
@@ -50,7 +50,7 @@ export const TERMINATION_INTENTS: readonly TerminationIntent[] = [
 /**
  * How the process ended, as the OS reported it.
  *
- * @public
+ * @beta
  */
 export interface ExitObservation {
   readonly code: number | null;
@@ -60,7 +60,7 @@ export interface ExitObservation {
 /**
  * How a session ended.
  *
- * @public
+ * @beta
  */
 export type SessionOutcome =
   'closed' | 'aborted' | 'failed' | 'crashed' | 'killed-externally' | 'unknown';
@@ -68,7 +68,7 @@ export type SessionOutcome =
 /**
  * The input of {@link classifyExit}.
  *
- * @public
+ * @beta
  */
 export interface ClassifyExitInput {
   readonly intent: TerminationIntent;
@@ -88,7 +88,7 @@ export interface ClassifyExitInput {
  *   `watchdog` and `handshake-failed`: the handshake error).
  * - an error code: the machine builds an error with that code.
  *
- * @public
+ * @beta
  */
 export type ExitError =
   'none' | 'recorded' | 'PROCESS_EXITED' | 'AUTHENTICATION_FAILED' | 'OVERSIZED_FRAME';
@@ -96,7 +96,7 @@ export type ExitError =
 /**
  * The result of {@link classifyExit}.
  *
- * @public
+ * @beta
  */
 export interface ExitClassification {
   readonly outcome: SessionOutcome;
@@ -112,7 +112,7 @@ export interface ExitClassification {
  * The exit code Windows reports for a process that ended with `-1`, seen
  * under VS Code on native Windows (01 §3). Always `unknown`.
  *
- * @public
+ * @beta
  */
 export const UNKNOWN_EXIT_CODE = 4294967295;
 
@@ -152,7 +152,7 @@ const REQUESTED_INTENTS: ReadonlySet<TerminationIntent> = new Set([
  *   foreign `TerminateProcess` reports a `signal` and these codes are
  *   ordinary exit codes.
  *
- * @public
+ * @beta
  */
 export function classifyExit(input: ClassifyExitInput): ExitClassification {
   const { intent, exit, turnActive } = input;

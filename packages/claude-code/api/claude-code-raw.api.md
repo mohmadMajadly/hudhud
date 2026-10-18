@@ -46,7 +46,7 @@ export interface ClaudeCodeSessionOptions {
     readonly settingSources?: readonly SettingSource[];
 }
 
-// @public
+// @beta
 export function createSessionRaw(harness: ClaudeCodeHarness, opts: SessionOptions & {
     readonly raw: RawSpawnOptions;
 }): Promise<Session>;
@@ -61,13 +61,13 @@ export type EnvOption = 'harness' | 'inherit' | Readonly<Record<string, string>>
 // @public
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions';
 
-// @public
+// @beta
 export function raw(session: Session): RawSession;
 
-// @public
+// @beta
 export type RawFrame = RawWireFrame | RawGap;
 
-// @public
+// @beta
 export interface RawGap {
     // (undocumented)
     readonly dropped: number;
@@ -79,7 +79,7 @@ export interface RawGap {
     readonly ts: string;
 }
 
-// @public
+// @beta
 export interface RawSession {
     controlRequest(subtype: string, body?: JsonObject, opts?: {
         readonly signal?: AbortSignal;
@@ -89,7 +89,7 @@ export interface RawSession {
     writeFrame(frame: JsonObject): Promise<void>;
 }
 
-// @public
+// @beta
 export interface RawSpawnOptions {
     // (undocumented)
     readonly extraArgs?: readonly string[];
@@ -97,7 +97,7 @@ export interface RawSpawnOptions {
     readonly extraEnv?: Readonly<Record<string, string>>;
 }
 
-// @public
+// @beta
 export interface RawWireFrame {
     readonly bytes: number;
     // (undocumented)

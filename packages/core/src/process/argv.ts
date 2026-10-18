@@ -30,7 +30,7 @@
 /**
  * Why argv input was refused.
  *
- * @public
+ * @beta
  */
 export type ArgvProblem =
   'invalid-name' | 'nul' | 'ill-formed' | 'reserved-flag' | 'end-of-options' | 'not-a-string';
@@ -39,7 +39,7 @@ export type ArgvProblem =
  * Thrown by the argv primitives. The adapter maps it to the public
  * `InvalidOptionsError` (plan §3.1, §2.6).
  *
- * @public
+ * @beta
  */
 export class ArgvError extends Error {
   override readonly name = 'ArgvError';
@@ -68,7 +68,7 @@ const FLAG_NAME = /^[a-z][a-z0-9-]*$/;
  * Whether `name` fits the flag name grammar of {@link formatFlag}: lower-case
  * kebab case, `^[a-z][a-z0-9-]*$`.
  *
- * @public
+ * @beta
  */
 export function isFlagName(name: string): boolean {
   return FLAG_NAME.test(name);
@@ -87,7 +87,7 @@ function stringProblem(value: string): 'nul' | 'ill-formed' | undefined {
  * @param name - satisfies {@link isFlagName}
  * @param value - any string without NUL and without lone surrogates; kept verbatim
  * @throws {@link ArgvError} `invalid-name`, `nul` or `ill-formed`
- * @public
+ * @beta
  */
 export function formatFlag(name: string, value?: string): string {
   if (!isFlagName(name)) {
@@ -110,7 +110,7 @@ function problemText(problem: 'nul' | 'ill-formed'): string {
  * of {@link formatFlag}.
  *
  * @returns `undefined` when the element is not a well-formed long flag
- * @public
+ * @beta
  */
 export function parseFlag(
   element: string,
@@ -154,7 +154,7 @@ function canonical(name: string): string {
  * one-letter short names (`p`).
  *
  * @throws {@link ArgvError} on the first refused element; `index` and `flag` name it
- * @public
+ * @beta
  */
 export function assertNoReservedFlags(args: readonly string[], reserved: readonly string[]): void {
   const long = new Map<string, string>();

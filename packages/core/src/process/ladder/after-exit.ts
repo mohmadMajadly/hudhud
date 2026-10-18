@@ -86,7 +86,7 @@ import type { LadderIdentity, LadderSweepSummary } from './types.js';
  * The descendants of the spawned process when stdin was ended, rooted at
  * its verified identity.
  *
- * @public
+ * @beta
  */
 export interface EofSnapshot {
   readonly root: ProcessIdentity;
@@ -99,7 +99,7 @@ export interface EofSnapshot {
  * (it already exited), or the table cannot be read. Never rejects.
  *
  * @param identity - the spawned process's identity read (`HarnessProcess.identity` as `LadderIdentity`)
- * @public
+ * @beta
  */
 export async function snapshotAtEof(
   pid: number,
@@ -126,7 +126,7 @@ export async function snapshotAtEof(
 /**
  * Why `sweepAfterExit` signalled nothing.
  *
- * @public
+ * @beta
  */
 export type AfterExitSkipReason =
   /** No EOF snapshot (no identity, root gone, table unreadable). */
@@ -145,7 +145,7 @@ export type AfterExitSkipReason =
 /**
  * One kill of the sweep after the exit, by pid.
  *
- * @public
+ * @beta
  */
 export interface AfterExitKill {
   readonly pid: number;
@@ -158,7 +158,7 @@ export interface AfterExitKill {
 /**
  * What `sweepAfterExit` did. JSON data.
  *
- * @public
+ * @beta
  */
 export type AfterExitSweepReport =
   | { readonly status: 'skipped'; readonly reason: AfterExitSkipReason }
@@ -183,7 +183,7 @@ export type AfterExitSweepReport =
 /**
  * Dependencies of {@link sweepAfterExit}.
  *
- * @public
+ * @beta
  */
 export interface AfterExitDeps {
   readonly os: OsCalls;
@@ -325,7 +325,7 @@ function summarize(kills: readonly AfterExitKill[], base?: LadderSweepSummary): 
  * survivors it can identify soundly. Never rejects; every failure is in the
  * report.
  *
- * @public
+ * @beta
  */
 export async function sweepAfterExit(
   eof: EofSnapshot | null,

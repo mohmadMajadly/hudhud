@@ -42,7 +42,7 @@ import type { ExecutableIdentity, PathProblem, ProcessPlatform } from './cwd.js'
 /**
  * A validated executable.
  *
- * @public
+ * @beta
  */
 export interface ResolvedExecutable {
   /** The path as the caller passed it. */
@@ -62,7 +62,7 @@ export interface ResolvedExecutable {
 /**
  * Why an executable path is refused.
  *
- * @public
+ * @beta
  */
 export type ExecutableRefusal =
   PathProblem | 'batch-file' | 'not-exe' | 'not-regular-file' | 'not-executable' | 'unresolvable';
@@ -71,7 +71,7 @@ export type ExecutableRefusal =
  * Thrown by {@link resolveExecutable}. The adapter maps `code` to the public
  * `BinaryNotFoundError` / `BinaryRefusedError` (plan §3.1).
  *
- * @public
+ * @beta
  */
 export class ExecutableResolutionError extends Error {
   override readonly name = 'ExecutableResolutionError';
@@ -111,7 +111,7 @@ const WIN32_EXE = /\.exe$/i;
  * The pure executable rule, applied to the requested and to the resolved path.
  *
  * @returns the first refusal found, or `undefined` when the string is acceptable
- * @public
+ * @beta
  */
 export function checkExecutablePath(
   value: string,
@@ -129,7 +129,7 @@ export function checkExecutablePath(
 /**
  * Filesystem calls used by {@link resolveExecutable}; injectable for tests.
  *
- * @public
+ * @beta
  */
 export interface ExecutableFs {
   realpath(value: string): Promise<string>;
@@ -150,7 +150,7 @@ const nodeExecutableFs: ExecutableFs = {
 /**
  * Options of {@link resolveExecutable}.
  *
- * @public
+ * @beta
  */
 export interface ResolveExecutableOptions {
   /** Path semantics; the host's by default. */
@@ -164,7 +164,7 @@ export interface ResolveExecutableOptions {
  * module remarks for the guarantees and their limits.
  *
  * @throws {@link ExecutableResolutionError}
- * @public
+ * @beta
  */
 export async function resolveExecutable(
   requested: string,
@@ -215,7 +215,7 @@ export async function resolveExecutable(
  * double quote are dropped (quoting is a shell convention, not a path).
  * Duplicates are removed, keeping the first. Pure.
  *
- * @public
+ * @beta
  */
 export function safeSearchPathEntries(
   value: string | undefined,

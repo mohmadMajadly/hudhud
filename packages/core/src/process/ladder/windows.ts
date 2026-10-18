@@ -71,7 +71,7 @@ import { awaitIdentity, type AwaitedIdentity } from './identity.js';
 /**
  * The spawned child as the Windows ladder sees it.
  *
- * @public
+ * @beta
  */
 export interface WindowsLadderProcess {
   /** The spawned pid. */
@@ -103,7 +103,7 @@ export interface WindowsLadderProcess {
  * The job object the child was assigned to (plan §6.4; created by the job
  * addon, W3-T5).
  *
- * @public
+ * @beta
  */
 export interface JobHandle {
   /**
@@ -118,14 +118,14 @@ export interface JobHandle {
  * the CIM process table and the `taskkill` calls of `taskkill.ts` (the tree
  * kill plus the per-process kill the sweep uses).
  *
- * @public
+ * @beta
  */
 export type WindowsOsCalls = Extract<OsCalls, { readonly platform: 'win32' }>;
 
 /**
  * Dependencies of {@link runWindowsLadder}.
  *
- * @public
+ * @beta
  */
 export interface WindowsLadderDeps<Intent extends string> {
   /** The termination intent, recorded before anything is done. */
@@ -168,7 +168,7 @@ interface S1 {
  * for a failed step; each failure is recorded in the report.
  *
  * @param job - the job the child was assigned to, or `null` for best-effort
- * @public
+ * @beta
  */
 export async function runWindowsLadder<Intent extends string>(
   proc: WindowsLadderProcess,

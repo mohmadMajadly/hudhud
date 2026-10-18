@@ -38,7 +38,7 @@ import path from 'node:path';
 /**
  * Path semantics a check applies. `posix` covers Linux and macOS.
  *
- * @public
+ * @beta
  */
 export type ProcessPlatform = 'win32' | 'posix';
 
@@ -46,7 +46,7 @@ export type ProcessPlatform = 'win32' | 'posix';
  * Maps a Node platform name to the path semantics hudhud applies.
  *
  * @param nodePlatform - defaults to the host's `process.platform`
- * @public
+ * @beta
  */
 export function hostPlatform(nodePlatform: NodeJS.Platform = process.platform): ProcessPlatform {
   return nodePlatform === 'win32' ? 'win32' : 'posix';
@@ -56,14 +56,14 @@ export function hostPlatform(nodePlatform: NodeJS.Platform = process.platform): 
  * Longest cwd, in UTF-16 code units, that a plain Windows spawn accepts
  * (07 §6: 258 works, 259 fails with `ENOENT`).
  *
- * @public
+ * @beta
  */
 export const WIN32_CWD_MAX_LENGTH = 258;
 
 /**
  * Why a path string is refused before the filesystem is consulted.
  *
- * @public
+ * @beta
  */
 export type PathProblem =
   | 'empty'
@@ -90,7 +90,7 @@ const WIN32_RESERVED_NAME = /^(?:con|prn|aux|nul|conin\$|conout\$|(?:com|lpt)[0-
  * spellings Windows rewrites silently (see the module remarks).
  *
  * @returns the first problem found, or `undefined` when the string is acceptable
- * @public
+ * @beta
  */
 export function pathProblem(value: string, platform: ProcessPlatform): PathProblem | undefined {
   if (value.length === 0) return 'empty';
@@ -116,7 +116,7 @@ export function pathProblem(value: string, platform: ProcessPlatform): PathProbl
 /**
  * Why a cwd is refused by the pure rule {@link checkCwdPath}.
  *
- * @public
+ * @beta
  */
 export type CwdProblem = PathProblem | 'too-long';
 
@@ -125,7 +125,7 @@ export type CwdProblem = PathProblem | 'too-long';
  * win32, the length limit of {@link WIN32_CWD_MAX_LENGTH} UTF-16 code units.
  * Apply it to the string that will be passed to spawn.
  *
- * @public
+ * @beta
  */
 export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProblem | undefined {
   const problem = pathProblem(value, platform);
@@ -137,7 +137,7 @@ export function checkCwdPath(value: string, platform: ProcessPlatform): CwdProbl
 /**
  * Why {@link validateCwd} refused a cwd.
  *
- * @public
+ * @beta
  */
 export type CwdErrorReason = CwdProblem | 'not-found' | 'not-directory' | 'unresolvable';
 
@@ -145,7 +145,7 @@ export type CwdErrorReason = CwdProblem | 'not-found' | 'not-directory' | 'unres
  * Thrown by {@link validateCwd}. The adapter maps `code` to the public
  * `CwdInvalidError` / `CwdTooLongError` (plan §3.1).
  *
- * @public
+ * @beta
  */
 export class CwdValidationError extends Error {
   override readonly name = 'CwdValidationError';
@@ -191,7 +191,7 @@ function cwdMessage(reason: CwdErrorReason, cwdPath: string, resolved?: string):
  * Identity facts of a filesystem entry, as `stat(path, { bigint: true })`
  * returns them.
  *
- * @public
+ * @beta
  */
 export interface FileIdentity {
   isFile(): boolean;
@@ -211,7 +211,7 @@ export interface FileIdentity {
  * change time, which a writer can set, so it is compared but is not a
  * security property there.
  *
- * @public
+ * @beta
  */
 export interface ExecutableIdentity extends FileIdentity {
   readonly mtimeNs: bigint;
@@ -221,7 +221,7 @@ export interface ExecutableIdentity extends FileIdentity {
 /**
  * Filesystem calls used by {@link validateCwd}; injectable for tests.
  *
- * @public
+ * @beta
  */
 export interface CwdFs {
   realpath(value: string): Promise<string>;
@@ -258,7 +258,7 @@ const NOT_FOUND = new Set(['ENOENT', 'ENOTDIR']);
  * @param fs - filesystem calls; the host filesystem by default
  * @returns the path to pass as the child's cwd
  * @throws {@link CwdValidationError}
- * @public
+ * @beta
  */
 export async function validateCwd(
   cwd: string,

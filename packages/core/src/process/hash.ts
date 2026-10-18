@@ -45,7 +45,7 @@ import { open } from 'node:fs/promises';
 /**
  * Options of {@link sha256File}.
  *
- * @public
+ * @beta
  */
 export interface Sha256FileOptions {
   /** Read buffer size in bytes, a positive safe integer; default 4194304 (4 MiB). */
@@ -55,7 +55,7 @@ export interface Sha256FileOptions {
 /**
  * Thrown by {@link sha256File} when the path does not name a regular file.
  *
- * @public
+ * @beta
  */
 export class NotRegularFileError extends Error {
   override readonly name = 'NotRegularFileError';
@@ -70,7 +70,7 @@ export class NotRegularFileError extends Error {
 /**
  * Thrown by {@link sha256File} when the file changed while it was read.
  *
- * @public
+ * @beta
  */
 export class FileChangedError extends Error {
   override readonly name = 'FileChangedError';
@@ -86,7 +86,7 @@ export class FileChangedError extends Error {
  * Result of {@link sha256File}: the digest bound to the identity of the file
  * it was computed from.
  *
- * @public
+ * @beta
  */
 export interface FileDigest {
   /** SHA-256 as 64 lower-case hex characters. */
@@ -138,7 +138,7 @@ const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
  * @throws {@link NotRegularFileError}, {@link FileChangedError}, a
  * `RangeError` for an invalid `chunkBytes`, or the filesystem error of
  * `open`/`read`
- * @public
+ * @beta
  */
 export async function sha256File(
   filePath: string,

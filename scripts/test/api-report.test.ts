@@ -8,7 +8,15 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { checkReports, entryPoints, isJsonSubpath, isNativeSubpath } from '../api-report.mjs';
+import {
+  checkReports,
+  checkTiers,
+  committedReports,
+  entryPoints,
+  isJsonSubpath,
+  isNativeSubpath,
+  reportTags,
+} from '../api-report.mjs';
 
 let root: string;
 
@@ -132,5 +140,79 @@ describe('checkReports', () => {
       `lib: exported entry point ${path.join('packages', 'lib', 'dist', 'index.d.ts')} has no API Extractor config`,
       'lib/api/stale.api.md: report without a config (stale?)',
     ]);
+  });
+});
+
+// R5-1: the release tags of the committed reports match the tiers.
+describe('release tiers', () => {
+  const report = (...items: string[]) =>
+    ['## API Report File', '', '```ts', '', ...items, '```', ''].join('\n');
+  const item = (tag: string, declaration: string) => `// @${tag}\nexport ${declaration};\n`;
+
+  it('reads the release tag of every top-level item', () => {
+    const text = report(
+      item('public', 'interface A {\n    // (undocumented)\n    readonly a: string;\n}'),
+      '// @public (undocumented)\nexport const B = 1;\n',
+      item('beta', 'function c(): void'),
+      item('public', 'abstract class D'),
+      item('beta', 'type E = string'),
+    );
+    expect([...reportTags(text)]).toEqual([
+      ['A', 'public'],
+      ['B', 'public'],
+      ['c', 'beta'],
+      ['D', 'public'],
+      ['E', 'beta'],
+    ]);
+  });
+
+  const tiers = {
+    'packages/p/api/p.api.md': { tier: 'stable' as const },
+    'packages/p/api/p-adapter.api.md': { tier: 'beta' as const, stable: ['shown'] },
+  };
+
+  it('accepts beta items, public items stable in the package root and listed ones', () => {
+    expect(
+      checkTiers(
+        {
+          'packages/p/api/p.api.md': report(
+            item('public', 'type T = 1'),
+            item('beta', 'type U = 2'),
+          ),
+          'packages/p/api/p-adapter.api.md': report(
+            item('public', 'type T = 1'),
+            item('public', 'function shown(): void'),
+            item('beta', 'function hidden(): void'),
+          ),
+        },
+        tiers,
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a public item of a beta entry, a stale listing, a report without a tier and a missing report', () => {
+    expect(
+      checkTiers(
+        {
+          'packages/p/api/p.api.md': report(item('beta', 'type U = 2')),
+          'packages/p/api/p-adapter.api.md': report(
+            item('public', 'type U = 2'),
+            item('beta', 'function shown(): void'),
+          ),
+          'packages/q/api/q.api.md': report(),
+        },
+        { ...tiers, 'packages/r/api/r.api.md': { tier: 'stable' as const } },
+      ),
+    ).toEqual([
+      'packages/q/api/q.api.md: no release tier (add it to REPORT_TIERS in scripts/api-report.mjs)',
+      'packages/p/api/p-adapter.api.md: U is @public in a beta entry point; tag it @beta, or make it stable on purpose (REPORT_TIERS)',
+      'packages/p/api/p-adapter.api.md: shown is listed as stable but is not @public there',
+      'packages/r/api/r.api.md: listed in REPORT_TIERS, no such report',
+    ]);
+  });
+
+  it('holds for the committed reports', () => {
+    const repo = path.resolve(import.meta.dirname, '..', '..');
+    expect(checkTiers(committedReports(repo))).toEqual([]);
   });
 });

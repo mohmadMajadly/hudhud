@@ -4,6 +4,11 @@
  * errors as data, capability and posture types, and the event vocabulary.
  *
  * @remarks
+ * Stable for applications: `sanitizeForDisplay` and its options, the
+ * error-data helpers `parseErrorData` (with `ErrorDataFailure`) and
+ * `isRetryable`, and the types shared with the root entry. Everything else
+ * here is `@beta`, for adapter authors (ADR-0004 amendment, R5-1).
+ *
  * Harness-neutral (K3): no harness protocol lives here. Code under this
  * directory stays free of I/O, host globals and ambient time or randomness
  * (ADR-0006); ESLint and dependency-cruiser enforce that boundary.

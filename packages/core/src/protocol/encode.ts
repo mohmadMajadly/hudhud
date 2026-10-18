@@ -13,14 +13,14 @@ import { DEFAULT_MAX_JSON_DEPTH, nestingExceeds, type JsonObject } from './json.
 /**
  * Default outbound line cap: 32 MiB (ADR-0011 §7).
  *
- * @public
+ * @beta
  */
 export const DEFAULT_MAX_OUTBOUND_FRAME_BYTES: number = 32 * 1024 * 1024;
 
 /**
  * Result of {@link encodeJsonLine}.
  *
- * @public
+ * @beta
  */
 export type EncodeJsonLineResult =
   | { readonly ok: true; readonly line: string; readonly bytes: number }
@@ -128,7 +128,7 @@ function protocolError(reason: string): EncodeJsonLineResult {
  * @param maxBytes - The outbound cap in bytes, a positive safe integer; usually
  * {@link DEFAULT_MAX_OUTBOUND_FRAME_BYTES}.
  * @throws RangeError when `maxBytes` is not a positive safe integer.
- * @public
+ * @beta
  */
 export function encodeJsonLine(value: JsonObject, maxBytes: number): EncodeJsonLineResult {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {

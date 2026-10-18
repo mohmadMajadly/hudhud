@@ -51,7 +51,7 @@ import { WIN32_JOB_DIGESTS, type JobAddonDigests } from './win32-job-digests.js'
  * The only specifier the loader resolves (x64, the one first-class
  * architecture in v1, K17).
  *
- * @public
+ * @beta
  */
 export const WIN32_JOB_ADDON_SPECIFIER = '@hudhudjs/win32-job-x64/hudhud_win32_job.node';
 
@@ -60,7 +60,7 @@ const ADDON_FILE_NAME = 'hudhud_win32_job.node';
 /**
  * Upper bound of `listPids` (the addon's buffer bound, plan §6.1).
  *
- * @public
+ * @beta
  */
 export const JOB_MAX_LISTED_PIDS = 65_536;
 
@@ -69,14 +69,14 @@ export const JOB_MAX_LISTED_PIDS = 65_536;
  * job close does (05 §9): exit codes prove nothing, the termination intent
  * recorded before the kill does (ADR-0008 E8).
  *
- * @public
+ * @beta
  */
 export const JOB_TERMINATE_EXIT_CODE = 0;
 
 /**
  * Why the addon was not loaded (plan §6.4).
  *
- * @public
+ * @beta
  */
 export type JobAddonUnavailableReason =
   | 'not-windows'
@@ -90,7 +90,7 @@ export type JobAddonUnavailableReason =
 /**
  * The module object `dlopen` fills (`process.dlopen`'s first argument).
  *
- * @public
+ * @beta
  */
 export interface JobAddonModuleObject {
   exports: unknown;
@@ -99,7 +99,7 @@ export interface JobAddonModuleObject {
 /**
  * What {@link loadJobAddon} reads from the host; injected for tests.
  *
- * @public
+ * @beta
  */
 export interface JobAddonDeps {
   readonly platform: NodeJS.Platform;
@@ -118,7 +118,7 @@ export interface JobAddonDeps {
  * A job object created by the addon. The handle the Windows ladder takes
  * ({@link JobHandle}).
  *
- * @public
+ * @beta
  */
 export interface JobObject extends JobHandle {
   /**
@@ -144,7 +144,7 @@ export interface JobObject extends JobHandle {
 /**
  * The loaded, checked addon.
  *
- * @public
+ * @beta
  */
 export interface JobAddon {
   /** The addon's `version` constant. */
@@ -160,7 +160,7 @@ export interface JobAddon {
 /**
  * Result of {@link loadJobAddon}.
  *
- * @public
+ * @beta
  */
 export type JobAddonLoad =
   | { readonly status: 'loaded'; readonly addon: JobAddon }
@@ -177,7 +177,7 @@ export type JobAddonLoad =
  * (`ERR_JOB_ADDON_OUTPUT`). `ERR_JOB_ADDON` when the native error had no
  * usable code.
  *
- * @public
+ * @beta
  */
 export class JobAddonError extends Error {
   override readonly name = 'JobAddonError';
@@ -195,14 +195,14 @@ export class JobAddonError extends Error {
 /**
  * Containment a job addon load can give (a subset of `ProcessContainment`).
  *
- * @public
+ * @beta
  */
 export type JobContainment = 'job' | 'best-effort';
 
 /**
  * The Harness capability part that depends on the addon (K2).
  *
- * @public
+ * @beta
  */
 export interface JobContainmentCapability {
   readonly processContainment: JobContainment;
@@ -361,7 +361,7 @@ function unavailable(reason: JobAddonUnavailableReason, detail: string): JobAddo
  * Loads the job addon, or says why not (plan §6.4; see the module remarks).
  * Never throws.
  *
- * @public
+ * @beta
  */
 export function loadJobAddon(deps: JobAddonDeps): JobAddonLoad {
   if (deps.platform !== 'win32') return unavailable('not-windows', deps.platform);
@@ -417,7 +417,7 @@ export function loadJobAddon(deps: JobAddonDeps): JobAddonLoad {
  * resolution from this package, `readFileSync`, `process.dlopen` and the
  * shipped digest table. Creating them loads nothing.
  *
- * @public
+ * @beta
  */
 export function hostJobAddonDeps(): JobAddonDeps {
   const require = createRequire(import.meta.url);
@@ -439,7 +439,7 @@ let hostLoad: JobAddonLoad | undefined;
  * {@link loadJobAddon} with {@link hostJobAddonDeps}, once per process (a
  * native module is opened once). Never throws.
  *
- * @public
+ * @beta
  */
 export function loadHostJobAddon(): JobAddonLoad {
   hostLoad ??= loadJobAddon(hostJobAddonDeps());
@@ -450,7 +450,7 @@ export function loadHostJobAddon(): JobAddonLoad {
  * The Harness capability `processContainment` for a load (K2): `'job'` only
  * when the addon loaded, else `'best-effort'` with a `reasons` entry.
  *
- * @public
+ * @beta
  */
 export function jobContainmentCapability(load: JobAddonLoad): JobContainmentCapability {
   if (load.status === 'loaded') return { processContainment: 'job', reasons: {} };

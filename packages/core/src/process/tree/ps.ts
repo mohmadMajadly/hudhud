@@ -29,7 +29,7 @@ const MONTHS = [
  * - `procps`: procps-ng on Linux. `lstart` has width 24: the date is
  *   followed by the separator only.
  *
- * @public
+ * @beta
  */
 export type PsDialect = 'bsd' | 'procps';
 
@@ -131,7 +131,7 @@ function parseLine(line: string, pattern: RegExp): ProcessRecord | null {
  * and `buildSnapshot` drops every duplicated pid. Start times are seconds
  * since the epoch (one-second resolution).
  *
- * @public
+ * @beta
  */
 export function parsePsOutput(output: Uint8Array, dialect: PsDialect = 'bsd'): ParsedProcessTable {
   const pattern = LINES[dialect];

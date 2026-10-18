@@ -2,7 +2,7 @@
  * Unstable raw tier of the Claude Code adapter.
  *
  * @remarks
- * Exempt from compatibility promises (ADR-0004): the wire frames of the
+ * Beta and exempt from compatibility promises (ADR-0004): the wire frames of the
  * Claude Code CLI as they are, and, only when the Harness was connected with
  * `claudeCode.dangerouslyAllowRawControl`, raw control requests and frames.
  *

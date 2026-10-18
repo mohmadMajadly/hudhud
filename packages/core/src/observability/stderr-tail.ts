@@ -30,14 +30,14 @@ import { Utf8StreamDecoder } from './utf8.js';
 /**
  * Marker appended to a line whose remainder was dropped (over `maxLineChars`).
  *
- * @public
+ * @beta
  */
 export const TRUNCATED = '<truncated>';
 
 /**
  * Options of {@link StderrTail}.
  *
- * @public
+ * @beta
  */
 export interface StderrTailOptions {
   /** Known secret values, typically `secretsFromEnv(childEnv)`. */
@@ -88,7 +88,7 @@ const BREAK = /[\r\n]/g;
  * const text = tail.read(); // safe to attach to an error
  * ```
  *
- * @public
+ * @beta
  */
 export class StderrTail {
   readonly #secrets: readonly string[];
