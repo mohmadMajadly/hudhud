@@ -129,7 +129,15 @@ env: { preset: 'harness', remove: ['HTTPS_PROXY'], add: { GIT_AUTHOR_NAME: 'Buil
 
 ## Config directory and bare mode
 
-By default Claude Code uses the user's own configuration directory, with their login and settings; hudhud reads only `settings.json` from it (to report `managedPolicy`) and never writes it. `claudeCode.configDir` points Claude Code at another directory (`CLAUDE_CONFIG_DIR`), for example an isolated one for a service account. `claudeCode.bare: true` passes Claude Code's `--bare` flag, which changes what Claude Code loads at start (see its documentation). Both are connect options and are listed in the posture.
+By default Claude Code uses the user's own configuration directory, with their login and settings; hudhud reads only `settings.json` from it (to report `managedPolicy`) and never writes it. `claudeCode.configDir` points Claude Code at another directory (`CLAUDE_CONFIG_DIR`), for example a separate one for a service account. `claudeCode.bare: true` passes Claude Code's `--bare` flag, which changes what Claude Code loads at start (see its documentation). Both are connect options and are listed in the posture.
+
+A different config directory does not isolate everything Claude Code reads. Measured with Claude Code 2.1.296 on Linux, with `claudeCode.configDir` set, Claude Code still accessed these paths in the home directory at every start:
+
+- `~/.config/anthropic/active_config`
+- `~/.config/anthropic/configs/default.json`
+- `~/.claude/state/unattended-serving-consent.json`
+
+It also tried to open `~/.claude/state/settings-review.json`, and the tools it runs read their own files there (git reads `~/.gitconfig` and `~/.config/git/config`, bash reads `~/.bashrc`). The `'harness'` environment preset passes `HOME` (on Windows `USERPROFILE`) through unchanged, so these are the files of the user hudhud runs as. The posture value `'isolated'` only means that a config directory was set; it is not a claim that the session is isolated from the user's home directory. To keep a session away from the user's files, also give Claude Code a different home directory (for example `env: { preset: 'harness', add: { HOME: '/srv/agent-home' } }`) or run the host process as another user. These paths were measured on Linux only; Windows and macOS were not measured, and the list can change with any Claude Code release.
 
 ## Binary verification
 
