@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { WIN32_JOB_ADDON_SPECIFIER } from '../../packages/core/src/process/containment/win32-job.js';
-import { isPublishable } from '../lib/tarball.mjs';
+import { isPublishable, MICROSOFT_NOTICE_HEADING } from '../lib/tarball.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -89,7 +89,11 @@ describe.each([
 
   it('carries the repository license and notice and never commits the addon', () => {
     expect(read(`${dir}/LICENSE`)).toBe(read('LICENSE'));
-    expect(read(`${dir}/NOTICE`)).toBe(read('NOTICE'));
+    // The root NOTICE, then the Microsoft Distributable Code section of the
+    // statically linked C runtime (ADR-0015 item 12; package-legal.test.ts).
+    expect(read(`${dir}/NOTICE`).startsWith(`${read('NOTICE')}${MICROSOFT_NOTICE_HEADING}`)).toBe(
+      true,
+    );
     const ignored = read(`${dir}/.gitignore`)
       .split('\n')
       .filter((line) => line !== '' && !line.startsWith('#'));

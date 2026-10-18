@@ -4,8 +4,8 @@
 // For every publishable package under packages/ (a `publishConfig` or not
 // private): `pnpm pack` it, check the tarball (files list with a README, a
 // LICENSE byte-equal to the repository's and a NOTICE that begins with the
-// repository's and lists the third-party code the package bundles,
-// manifest, source maps and their packed sources, privacy scan, entry points;
+// repository's and lists the third-party code the package bundles (for a
+// native addon, the Microsoft Distributable Code section), manifest, source maps and their packed sources, privacy scan, entry points;
 // scripts/lib/tarball.mjs), install all tarballs into a fresh project
 // outside the repository with `npm install --omit=dev --ignore-scripts`,
 // import every JS entry point with Node's own ESM resolver, parse every JSON
@@ -96,6 +96,7 @@ import {
 import {
   checkImports,
   checkLegalFiles,
+  checkNativeNotice,
   checkReleaseRecord,
   checkReleaseTag,
   checkRepositoryFields,
@@ -424,9 +425,11 @@ function fullCheck(given) {
         const entries = readTarGz(readFileSync(file));
         const paths = entries.map((entry) => entry.path);
         problems.push(
-          ...[...checkRequiredFiles(paths), ...checkLegalFiles(entries, legal)].map(
-            (problem) => `${name}: ${problem}`,
-          ),
+          ...[
+            ...checkRequiredFiles(paths),
+            ...checkLegalFiles(entries, legal),
+            ...checkNativeNotice(manifest, entries),
+          ].map((problem) => `${name}: ${problem}`),
         );
         packed.push({ manifest, file, entryPoints: [], installable: false });
         process.stdout.write(`skipped ${name} (${skipped}; README, LICENSE and NOTICE checked)\n`);
