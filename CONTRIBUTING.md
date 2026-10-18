@@ -65,6 +65,26 @@ It must pass from a clean clone on Windows (after `pnpm addon:stage`, below) and
 
 The design documents under `docs/` are covered by the link checker and the privacy scan but not yet by markdownlint or Prettier: they predate the tooling and have open lint findings. Bringing them in is a separate, owner-reviewed change.
 
+### Property tests and their seeds
+
+The property tests (fast-check, in the `unit` project) draw a fresh random seed on every run, on purpose: each run explores new inputs, and a fixed seed would hide the bugs it never reaches. The price is that a rare counterexample appears as a single red run. Treat it as a defect until it is proven otherwise, never as flakiness, and never rerun it away.
+
+A failing property prints its seed and path, for example:
+
+```text
+Error: Property failed after 1 tests
+{ seed: -279742588, path: "201:29:29:29:29", endOnFailure: true }
+Counterexample: [Uint8Array.from([239,187,191]),0,0,0,0n,"S"]
+```
+
+To replay it, set `FC_SEED` to the printed seed and run the failing file:
+
+```sh
+FC_SEED=-279742588 pnpm vitest run --project unit packages/core/test/process/tree/proc-stat.test.ts
+```
+
+The `unit` project's setup file applies `FC_SEED` to every property, so the run takes the same inputs and shrinks to the same counterexample (in PowerShell, set `$env:FC_SEED = '-279742588'` first). A value that is not a 32-bit integer stops the run instead of silently using a fresh seed. To jump straight to the shrunk counterexample of one property, pass both values to its `fc.assert` in a local edit, `{ ...params, seed: -279742588, path: '201:29:29:29:29' }`, and do not commit it. Then add a deterministic test for the counterexample that fails on the unfixed code, and fix whichever side is wrong: the product or the test's oracle.
+
 ### The job-object addon on Windows
 
 On Windows x64, `pnpm check` and the integration suites need the job-object addon built and staged in `packages/win32-job-x64` first. Windows checks always exercise the real addon: the suites run under `'job'` containment through the core's real loader (plan §6.2). Linux and macOS need nothing.

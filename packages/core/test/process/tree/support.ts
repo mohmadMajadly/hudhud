@@ -19,9 +19,16 @@ export function fcParams<T>(numRuns = 500): fc.Parameters<T> {
   return seed === undefined ? { numRuns } : { numRuns, seed: Number(seed) };
 }
 
-const utf8 = new TextDecoder('utf-8', { fatal: false });
+// `ignoreBOM: true`, as in the product: a process name is the process's comm
+// bytes, so a leading EF BB BF is data and decodes to U+FEFF. The WHATWG
+// default (`ignoreBOM: false`) strips it, which made this oracle expect `''`
+// for a name that is exactly a BOM (CI run 39085765979, seed -279742588).
+const utf8 = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
 
-/** Node's WHATWG decoder, the reference for the hand-written one. */
+/**
+ * Node's WHATWG decoder with replacement, configured as the product's
+ * decoder: the oracle for every name the parsers return.
+ */
 export function referenceDecode(bytes: Uint8Array): string {
   return utf8.decode(bytes);
 }

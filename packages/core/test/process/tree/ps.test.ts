@@ -197,6 +197,31 @@ describe('parsePsOutput line validation', () => {
   });
 });
 
+describe('parsePsOutput on names that are not plain text', () => {
+  // The name is what ps printed for comm: a byte order mark is kept, as in
+  // parseProcStat (regression of CI run 39085765979, seed -279742588).
+  const cases: [string, number[], string][] = [
+    ['a lone byte order mark', [0xef, 0xbb, 0xbf], '﻿'],
+    ['a leading byte order mark', [0xef, 0xbb, 0xbf, 0x78], '﻿x'],
+    ['a byte order mark in the middle', [0x61, 0xef, 0xbb, 0xbf, 0x62], 'a﻿b'],
+    ['ill-formed sequences', [0xc0, 0x80, 0xef, 0xbb, 0xff], '����'],
+  ];
+  const lstart = 'Tue Oct 13 12:01:57 2026';
+  for (const dialect of ['bsd', 'procps'] as const) {
+    for (const [label, name, expected] of cases) {
+      it(`${dialect}: keeps ${label} as the name`, () => {
+        const head = bytes(line(dialect, { pid: 9, ppid: 1, pgid: 9, stat: 'S', lstart }));
+        expect(parsePsOutput(new Uint8Array([...head, ...name, 0x0a]), dialect)).toEqual({
+          records: [
+            { pid: 9, ppid: 1, pgid: 9, startTime: utc('2026-10-13T12:01:57'), name: expected },
+          ],
+          rejected: 0,
+        });
+      });
+    }
+  }
+});
+
 describe('parsePsOutput on arbitrary names', () => {
   const stats = fc.constantFrom('S', 'Ss', 'R+', 'Z', 'S<+Ns', 'U', 'I', 'T');
   for (const dialect of ['bsd', 'procps'] as const) {
