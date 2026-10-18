@@ -33,6 +33,7 @@
       "default": "./dist/binding/index.js"
     },
     "./schemas/*": "./schemas/*.json",
+    "./schemas/*.json": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "files": [

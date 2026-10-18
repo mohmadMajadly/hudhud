@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -34,6 +35,29 @@ describe('@hudhudjs/claude-code', () => {
         names: RAW_NAMES,
       },
     });
+  });
+
+  // R5-6: the documented specifier names the schema file (`.json`); the one
+  // without `.json` resolves to the same file.
+  it('imports every schema by its file name and without .json', () => {
+    const names = readdirSync(new URL('../schemas/', import.meta.url)).filter((name) =>
+      name.endsWith('.json'),
+    );
+    expect(names).toContain('options.schema.json');
+    const forms = (name: string) => [
+      `@hudhudjs/claude-code/schemas/${name}`,
+      `@hudhudjs/claude-code/schemas/${name.slice(0, -'.json'.length)}`,
+    ];
+    const results = importBuilt(packageDir, names.flatMap(forms));
+    for (const name of names) {
+      for (const specifier of forms(name)) {
+        expect(results[specifier]).toMatchObject({
+          ok: true,
+          file: `schemas/${name}`,
+          names: ['default'],
+        });
+      }
+    }
   });
 
   it('keeps the public bundle and the tested window consistent', () => {

@@ -409,19 +409,15 @@ function installAndImport(root, installed, otherPlatform, problems) {
   );
 
   const modules = path.join(project, 'node_modules');
-  const js = installed.flatMap(({ entryPoints }) =>
-    entryPoints.filter((entry) => entry.kind === 'js'),
+  // JS and JSON entry points are imported by their specifiers with Node's own
+  // resolver, each pinned to the file the exports map names (R5-6).
+  const imported = installed.flatMap(({ manifest, entryPoints }) =>
+    entryPoints
+      .filter((entry) => entry.kind === 'js' || entry.kind === 'json')
+      .map((entry) => ({ ...entry, packageName: String(manifest.name) })),
   );
+  const js = imported.filter((entry) => entry.kind === 'js');
   for (const { manifest, entryPoints } of installed) {
-    for (const entry of entryPoints.filter((candidate) => candidate.kind === 'json')) {
-      try {
-        JSON.parse(
-          readFileSync(path.join(modules, String(manifest.name), entry.runtime ?? ''), 'utf8'),
-        );
-      } catch {
-        problems.push(`${entry.specifier}: the installed JSON file is missing or invalid`);
-      }
-    }
     // A native addon is loaded by its consumer with `process.dlopen`, never
     // imported; the installed package must carry the file the subpath names.
     for (const entry of entryPoints.filter((candidate) => candidate.kind === 'native')) {
@@ -433,11 +429,16 @@ function installAndImport(root, installed, otherPlatform, problems) {
 
   const output = run(process.execPath, ['--input-type=module', '--eval', IMPORT_CHILD], {
     cwd: project,
-    env: { ...env, HUDHUD_TARBALL_SPECIFIERS: JSON.stringify(js.map((entry) => entry.specifier)) },
+    env: {
+      ...env,
+      HUDHUD_TARBALL_SPECIFIERS: JSON.stringify(imported.map((entry) => entry.specifier)),
+    },
   });
   const modulesUrl = `${pathToFileURL(modules).href}/`;
-  problems.push(...checkImports(js, parseImportResults(output), modulesUrl));
-  process.stdout.write(`imported ${String(js.length)} entry points from the installed tarballs\n`);
+  problems.push(...checkImports(imported, parseImportResults(output), modulesUrl));
+  process.stdout.write(
+    `imported ${String(imported.length)} entry points (${String(js.length)} JS) from the installed tarballs\n`,
+  );
 
   const typed = js.filter((entry) => entry.types !== undefined).map((entry) => entry.specifier);
   const typeRoot = path.join(REPO, 'node_modules', '@types').replaceAll('\\', '/');

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkFileList,
   checkImports,
+  checkSchemaSpecifiers,
   bundledPackages,
   checkLegalFiles,
   checkPackedManifest,
@@ -583,6 +584,7 @@ describe('listEntryPoints', () => {
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
       './raw': { types: { types: './dist/raw.d.ts' }, default: { default: './dist/raw.js' } },
       './schemas/*': './schemas/*.json',
+      './schemas/*.json': './schemas/*.json',
       './package.json': './package.json',
     },
   };
@@ -605,6 +607,8 @@ describe('listEntryPoints', () => {
         { specifier: '@s/p/raw', kind: 'js', runtime: 'dist/raw.js', types: 'dist/raw.d.ts' },
         { specifier: '@s/p/schemas/a', kind: 'json', runtime: 'schemas/a.json' },
         { specifier: '@s/p/schemas/b', kind: 'json', runtime: 'schemas/b.json' },
+        { specifier: '@s/p/schemas/a.json', kind: 'json', runtime: 'schemas/a.json' },
+        { specifier: '@s/p/schemas/b.json', kind: 'json', runtime: 'schemas/b.json' },
         { specifier: '@s/p/package.json', kind: 'json', runtime: 'package.json' },
       ],
     });
@@ -618,6 +622,7 @@ describe('listEntryPoints', () => {
       'exports ./raw: dist/raw.js is not in the tarball',
       'exports ./raw: types dist/raw.d.ts is not in the tarball',
       'exports ./schemas/* matches no file',
+      'exports ./schemas/*.json matches no file',
     ]);
     expect(listEntryPoints({ name: 'p' }, []).problems).toEqual([
       'exports must be an object of subpaths',
@@ -686,6 +691,28 @@ describe('listEntryPoints', () => {
     expect(listEntryPoints(platform, ['package.json', 'bin/b.node']).problems).toEqual([
       'exports ./a.node: a.node is not in the tarball',
     ]);
+  });
+});
+
+describe('checkSchemaSpecifiers', () => {
+  const a = { specifier: 'p/schemas/a', kind: 'json' as const, runtime: 'schemas/a.json' };
+  const aJson = { specifier: 'p/schemas/a.json', kind: 'json' as const, runtime: 'schemas/a.json' };
+
+  it('wants every schema importable by its file name', () => {
+    expect(checkSchemaSpecifiers('p', [a, aJson])).toEqual([]);
+    expect(checkSchemaSpecifiers('p', [a])).toEqual([
+      'p/schemas/a.json is not importable (the exports map lacks it)',
+    ]);
+  });
+
+  it('ignores files outside schemas/ and entries that are not JSON', () => {
+    expect(
+      checkSchemaSpecifiers('p', [
+        { specifier: 'p/package.json', kind: 'json', runtime: 'package.json' },
+        { specifier: 'p', kind: 'js', runtime: 'dist/index.js' },
+        { specifier: 'p/x', kind: 'json' },
+      ]),
+    ).toEqual([]);
   });
 });
 
@@ -938,6 +965,40 @@ describe('parseImportResults and checkImports', () => {
   it('ships a child that imports with the resolver of the consumer', () => {
     expect(IMPORT_CHILD).toContain('import.meta.resolve(specifier)');
     expect(IMPORT_CHILD).toContain('HUDHUD_TARBALL_SPECIFIERS');
+    expect(IMPORT_CHILD).toContain("{ with: { type: 'json' } }");
+  });
+
+  // R5-6: `./schemas/*` mapped `x.json` to `x.json.json`; an import pinned to
+  // the file the exports map names catches a specifier that resolves elsewhere.
+  it('pins an entry that names its package to the exact file', () => {
+    const json = {
+      specifier: '@s/p/schemas/a.json',
+      kind: 'json' as const,
+      runtime: 'schemas/a.json',
+      packageName: '@s/p',
+    };
+    expect(
+      checkImports(
+        [json],
+        { [json.specifier]: { ok: true, url: `${base}@s/p/schemas/a.json`, names: ['default'] } },
+        base,
+      ),
+    ).toEqual([]);
+    expect(
+      checkImports(
+        [json],
+        {
+          [json.specifier]: {
+            ok: true,
+            url: `${base}@s/p/schemas/a.json.json`,
+            names: ['default'],
+          },
+        },
+        base,
+      ),
+    ).toEqual([
+      `@s/p/schemas/a.json: resolved to ${base}@s/p/schemas/a.json.json, not schemas/a.json`,
+    ]);
   });
 });
 

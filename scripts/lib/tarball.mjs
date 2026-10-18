@@ -790,6 +790,27 @@ export function listEntryPoints(manifest, paths) {
   return { entries, problems };
 }
 
+/**
+ * Every schema a package ships must be importable by its file name, as
+ * documented (`<package>/schemas/events.schema.json`), not only by the name
+ * without `.json` (R5-6).
+ *
+ * @param {string} name The package name.
+ * @param {readonly EntryPoint[]} entries Its listed entry points.
+ * @returns {string[]} problems
+ */
+export function checkSchemaSpecifiers(name, entries) {
+  const specifiers = new Set(entries.map((entry) => entry.specifier));
+  const wanted = new Set(
+    entries
+      .filter((entry) => entry.kind === 'json' && entry.runtime?.startsWith('schemas/') === true)
+      .map((entry) => `${name}/${String(entry.runtime)}`),
+  );
+  return [...wanted]
+    .filter((specifier) => !specifiers.has(specifier))
+    .map((specifier) => `${specifier} is not importable (the exports map lacks it)`);
+}
+
 // ---- one tarball -----------------------------------------------------------
 
 /** Scripts `pnpm pack` runs in the repository before it packs. */
@@ -867,16 +888,18 @@ export function checkTarball(source, gz, forbidden, legal = []) {
   problems.push(...scanEntries(entries, forbidden));
   const listed = listEntryPoints(packed ?? source, paths);
   problems.push(...listed.problems);
+  problems.push(...checkSchemaSpecifiers(String((packed ?? source).name), listed.entries));
   return { problems, paths, entryPoints: listed.entries };
 }
 
 // ---- consumer project ------------------------------------------------------
 
 /**
- * Source of the child process that imports every JS entry point with Node's
- * own resolver, as a consumer's ESM code would, and reports the file each
- * resolved to (package-relative to `node_modules`) and its export names.
- * The specifiers arrive in `HUDHUD_TARBALL_SPECIFIERS` (JSON).
+ * Source of the child process that imports every JS and JSON entry point
+ * with Node's own resolver, as a consumer's ESM code would (a JSON module with
+ * the import attribute `{ type: 'json' }`), and reports the file each
+ * resolved to and its export names. The specifiers arrive in
+ * `HUDHUD_TARBALL_SPECIFIERS` (JSON).
  */
 export const IMPORT_CHILD = `
 const specifiers = JSON.parse(process.env.HUDHUD_TARBALL_SPECIFIERS);
@@ -884,7 +907,9 @@ const results = {};
 for (const specifier of specifiers) {
   try {
     const url = import.meta.resolve(specifier);
-    const namespace = await import(specifier);
+    const namespace = url.endsWith('.json')
+      ? await import(specifier, { with: { type: 'json' } })
+      : await import(specifier);
     results[specifier] = { ok: true, url, names: Object.keys(namespace).sort() };
   } catch (error) {
     results[specifier] = { ok: false, code: String(error?.code ?? error) };
@@ -931,10 +956,18 @@ export function parseImportResults(stdout) {
 }
 
 /**
- * Judges the import results: each JS entry point must import, and the file
- * must lie under the project's `node_modules` (never the repository).
+ * @typedef {EntryPoint & { packageName?: string }} ImportedEntry An entry
+ *   point with the name of its package, which pins the exact file it must
+ *   resolve to.
+ */
+
+/**
+ * Judges the import results: each entry point must import, the file must lie
+ * under the project's `node_modules` (never the repository), and, when the
+ * entry names its package and file, be exactly that file (R5-6: a specifier
+ * that resolved to another name, such as `x.json.json`, fails here).
  *
- * @param {readonly EntryPoint[]} entries JS entry points that were imported.
+ * @param {readonly ImportedEntry[]} entries Entry points that were imported.
  * @param {Record<string, ImportResult>} results
  * @param {string} modulesUrl `file:` URL of the project's `node_modules/`.
  * @returns {string[]} problems
@@ -944,11 +977,17 @@ export function checkImports(entries, results, modulesUrl) {
   const problems = [];
   for (const entry of entries) {
     const result = results[entry.specifier];
+    const expected =
+      entry.packageName === undefined || entry.runtime === undefined
+        ? undefined
+        : `${modulesUrl}${entry.packageName}/${entry.runtime}`;
     if (result === undefined) problems.push(`${entry.specifier}: not imported`);
     else if (!result.ok)
       problems.push(`${entry.specifier}: import failed (${String(result.code)})`);
     else if (typeof result.url !== 'string' || !result.url.startsWith(modulesUrl)) {
       problems.push(`${entry.specifier}: resolved outside the installed packages`);
+    } else if (expected !== undefined && result.url !== expected) {
+      problems.push(`${entry.specifier}: resolved to ${result.url}, not ${String(entry.runtime)}`);
     } else if ((result.names ?? []).length === 0) {
       problems.push(`${entry.specifier}: exports nothing`);
     }

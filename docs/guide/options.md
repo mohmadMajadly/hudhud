@@ -77,4 +77,4 @@ The "Posture" column says whether the option appears in the [security posture](s
 | `spawn-spec`             | An environment that cannot start a process, for example an explicit `env` map without `SYSTEMROOT` on Windows                                   |
 | `schema`                 | An unknown key, a wrong type, or a value outside its range (`details.keyword` names the JSON Schema keyword)                                    |
 
-The JSON Schema of the options ships in the package as `schemas/options.schema.json`; import it as `@hudhudjs/claude-code/schemas/options.schema` (the `exports` map adds the `.json`), with an import attribute `{ type: 'json' }`.
+The JSON Schema of the options ships in the package as `schemas/options.schema.json`; import it as `@hudhudjs/claude-code/schemas/options.schema.json` (the form without `.json` resolves to the same file), with an import attribute `{ type: 'json' }`.

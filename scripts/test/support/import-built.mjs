@@ -30,7 +30,10 @@ const results = {};
 for (const specifier of specifiers) {
   try {
     const url = import.meta.resolve(specifier);
-    const namespace = await import(specifier);
+    // A JSON module needs its import attribute, as in a consumer's code.
+    const namespace = url.endsWith('.json')
+      ? await import(specifier, { with: { type: 'json' } })
+      : await import(specifier);
     results[specifier] = { ok: true, url, exports: { ...namespace }, names: Object.keys(namespace).sort() };
   } catch (error) {
     results[specifier] = { ok: false, code: String(error?.code ?? error) };

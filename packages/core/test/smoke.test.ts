@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -244,6 +244,38 @@ describe('@hudhudjs/core', () => {
     });
     expect(results['@hudhudjs/core/process']).toMatchObject({
       exports: { DEFAULT_MAX_INBOUND_FRAME_BYTES: 67_108_864, WIN32_CWD_MAX_LENGTH: 258 },
+    });
+  });
+
+  // R5-6: `./schemas/*` alone mapped `events.schema.json` to
+  // `events.schema.json.json`; the documented specifier names the file.
+  it('imports every schema by its file name and without .json', () => {
+    const names = readdirSync(new URL('../schemas/', import.meta.url)).filter((name) =>
+      name.endsWith('.json'),
+    );
+    expect(names).toContain('events.schema.json');
+    const specifiers = names.flatMap((name) => [
+      `@hudhudjs/core/schemas/${name}`,
+      `@hudhudjs/core/schemas/${name.slice(0, -'.json'.length)}`,
+    ]);
+    const results = importBuilt(packageDir, specifiers);
+    for (const name of names) {
+      for (const specifier of [
+        `@hudhudjs/core/schemas/${name}`,
+        `@hudhudjs/core/schemas/${name.slice(0, -'.json'.length)}`,
+      ]) {
+        expect(results[specifier]).toMatchObject({
+          ok: true,
+          file: `schemas/${name}`,
+          names: ['default'],
+        });
+      }
+    }
+    expect(results['@hudhudjs/core/schemas/events.schema.json']).toMatchObject({
+      exports: { default: { title: 'hudhud events' } },
+    });
+    expect(results['@hudhudjs/core/schemas/version.json']).toMatchObject({
+      exports: { default: { wireSchemaVersion } },
     });
   });
 
