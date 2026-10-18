@@ -710,8 +710,9 @@ export function scanEntries(entries, forbidden) {
 /**
  * @typedef {object} EntryPoint
  * @property {string} specifier What a consumer imports.
- * @property {'js' | 'json' | 'native'} kind `native`: a Node-API addon (`.node`),
- *   which is loaded with `process.dlopen`, never imported.
+ * @property {'js' | 'json' | 'native' | 'data'} kind `native`: a Node-API addon (`.node`),
+ *   which is loaded with `process.dlopen`, never imported; `data`: a JSON
+ *   Lines file (`.jsonl`, the conformance streams), read, never imported.
  * @property {string} [runtime] Package-relative file the runtime import resolves to.
  * @property {string} [types] Package-relative declaration file (the `types` condition).
  */
@@ -722,6 +723,7 @@ export function scanEntries(entries, forbidden) {
  */
 function entryKind(runtime) {
   if (runtime.endsWith('.json')) return 'json';
+  if (runtime.endsWith('.jsonl')) return 'data';
   return runtime.endsWith('.node') ? 'native' : 'js';
 }
 
@@ -1321,7 +1323,7 @@ export function pendingChangesets(names) {
  * The checks of a release tag before anything is published (review finding
  * R7-2). The tag scheme (ADR-0014 amendment 10): one tag kind, `v<version>`,
  * where `<version>` is the version of the `fixed` group (`hudhudjs`,
- * `@hudhudjs/core`, `@hudhudjs/claude-code`). The addon package is versioned
+ * `@hudhudjs/core`, `@hudhudjs/claude-code`, `@hudhudjs/conformance`). The addon package is versioned
  * on its own by its release record: its version is the `release` of the
  * record the core's digest table names, so a library release that does not
  * change the addon re-publishes nothing of it.

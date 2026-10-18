@@ -1,0 +1,36 @@
+{
+  "name": "@hudhudjs/conformance",
+  "version": "0.0.0",
+  "description": "Expected event streams of hudhud's Claude Code conformance suite, as data: byte-identical to what this exact hudhud version asserts.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohmadMajadly/hudhud.git",
+    "directory": "packages/conformance"
+  },
+  "homepage": "https://github.com/mohmadMajadly/hudhud/tree/main/packages/conformance#readme",
+  "bugs": {
+    "url": "https://github.com/mohmadMajadly/hudhud/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./streams/*.expect.jsonl": "./dist/streams/*.expect.jsonl",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

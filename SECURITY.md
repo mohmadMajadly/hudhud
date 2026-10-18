@@ -8,7 +8,7 @@ Report it privately through GitHub private vulnerability reporting: on the repos
 
 ## Supported versions
 
-hudhud's packages (`hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` and `@hudhudjs/win32-job-x64`) receive security fixes in their newest published version only. A fix is released as a new version of all three library packages together; older versions are deprecated on npm with a pointer to the fixed one when the problem is serious.
+hudhud's packages (`hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code`, `@hudhudjs/conformance` and `@hudhudjs/win32-job-x64`) receive security fixes in their newest published version only. A fix is released as a new version of the four packages of the release group together; older versions are deprecated on npm with a pointer to the fixed one when the problem is serious.
 
 ## What happens after a report
 

@@ -14,12 +14,15 @@ import { tagVersion } from './tarball.mjs';
 /**
  * The publish order (release checklist 4.5): the platform package first, so
  * the core's exact optional dependency on it always resolves, then the core,
- * the adapter that depends on it, and the umbrella that depends on both.
+ * the adapter that depends on it, the conformance data released with the
+ * adapter (no dependencies), and the umbrella last, so `npm install hudhudjs`
+ * never sees a release before all of it is on the registry.
  */
 export const PUBLISH_ORDER = Object.freeze([
   '@hudhudjs/win32-job-x64',
   '@hudhudjs/core',
   '@hudhudjs/claude-code',
+  '@hudhudjs/conformance',
   'hudhudjs',
 ]);
 
