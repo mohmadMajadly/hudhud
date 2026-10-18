@@ -94,13 +94,14 @@ export type VerificationMode = 'advisory' | 'strict';
  * @public
  */
 export interface BinaryVerification {
-  readonly status: 'verified' | 'unverified' | 'failed';
+  /** The verdict (open: later versions may add values). */
+  readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
   /**
    * What decided the status: `os-signature` when the signature check failed,
    * `sha256-manifest` when the digest table was compared, `none` when the
-   * table had nothing to compare with.
+   * table had nothing to compare with. Open: later versions may add values.
    */
-  readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+  readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
   readonly mode: VerificationMode;
   /** Human-readable reason; names versions and checks, never secrets. */
   readonly detail?: string;

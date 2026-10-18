@@ -156,7 +156,8 @@ export interface CompatInfo {
   readonly minTested: string;
   readonly maxTested: string;
   readonly knownBroken: readonly string[];
-  readonly status: 'tested' | 'untested' | 'known-broken';
+  /** Where the version falls (open: later versions may add values). */
+  readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
 }
 
 /**
@@ -169,7 +170,7 @@ export type HudhudEvent =
   | (EventBase & { readonly type: 'compat'; readonly compat: CompatInfo; readonly raw?: JsonValue })
   | (EventBase & {
       readonly type: 'session.started';
-      readonly mode: 'create' | 'resume' | 'fork';
+      readonly mode: 'create' | 'resume' | 'fork' | (string & {});
       readonly pid: number;
       readonly cliPid?: number;
       readonly version: string;
@@ -182,7 +183,7 @@ export type HudhudEvent =
   | (EventBase & {
       readonly type: 'turn.started';
       readonly turnId: string;
-      readonly origin: 'application' | 'harness';
+      readonly origin: 'application' | 'harness' | (string & {});
       readonly features: readonly string[];
       readonly model?: string;
       readonly raw: JsonValue;
@@ -208,7 +209,7 @@ export type HudhudEvent =
       readonly toolUseId: string;
       readonly toolName: string;
       readonly kind: ToolKind;
-      readonly status: 'pending';
+      readonly status: 'pending' | (string & {});
       readonly input: JsonValue;
       readonly raw: JsonValue;
     })
@@ -216,7 +217,7 @@ export type HudhudEvent =
       readonly type: 'tool.result';
       readonly turnId?: string;
       readonly toolUseId: string;
-      readonly status: 'completed' | 'failed';
+      readonly status: 'completed' | 'failed' | (string & {});
       readonly raw: JsonValue;
     })
   | (EventBase & {
@@ -230,8 +231,8 @@ export type HudhudEvent =
   | (EventBase & {
       readonly type: 'permission.resolved';
       readonly requestId: string;
-      readonly behavior: 'allow' | 'deny' | 'cancelled';
-      readonly by: 'application' | 'harness' | 'close' | 'abort';
+      readonly behavior: 'allow' | 'deny' | 'cancelled' | (string & {});
+      readonly by: 'application' | 'harness' | 'close' | 'abort' | (string & {});
       readonly raw?: JsonValue;
     })
   | (EventBase & {

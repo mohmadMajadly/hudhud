@@ -68,7 +68,7 @@ export type UserInput = string | { readonly content: readonly UserContentBlock[]
  */
 export interface SessionInfo {
   readonly id: string;
-  readonly mode: 'create' | 'resume' | 'fork';
+  readonly mode: 'create' | 'resume' | 'fork' | (string & {});
   readonly forkedFrom?: string;
   /** The spawned pid (process identity). */
   readonly pid: number;
@@ -158,7 +158,7 @@ export interface BinaryInfo {
   readonly requestedPath?: string;
   /** From the connect probe (K4). */
   readonly version: string;
-  readonly source: 'option' | 'native-install' | 'path';
+  readonly source: 'option' | 'native-install' | 'path' | (string & {});
   readonly verification: BinaryVerification;
 }
 

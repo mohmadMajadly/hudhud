@@ -75,7 +75,36 @@
             "frame.skipped-oversized",
             "interrupt.still-queued-retry",
             "session.id-mismatch",
-            "control.unknown-response"
+            "control.unknown-response",
+            "control.late-response",
+            "control.duplicate-request",
+            "control.unknown-cancel",
+            "control.unsupported-request",
+            "control.unanswered-request",
+            "control.malformed-request",
+            "control.answer-not-pending",
+            "control.answer-failed",
+            "permission.malformed-request",
+            "permission.duplicate-request",
+            "permission.unknown-request",
+            "permission.invalid-decision",
+            "permission.handler-failed",
+            "permission.updates-stripped",
+            "permission.ignored-after-abort",
+            "permission.duplicate-request-id",
+            "stdin.error",
+            "turn.unmatched-result",
+            "turn.dropped",
+            "stdout.error",
+            "termination.ladder",
+            "termination.sweep-after-exit",
+            "binding.machine-error",
+            "events.pre-handshake-truncated",
+            "security.posture",
+            "settings-guard.allowed",
+            "settings-guard.git-root-unresolved",
+            "settings-guard.symlink-followed",
+            "session.id-in-use"
           ]
         },
         {
@@ -206,10 +235,17 @@
           }
         },
         "status": {
-          "enum": [
-            "tested",
-            "untested",
-            "known-broken"
+          "anyOf": [
+            {
+              "enum": [
+                "tested",
+                "untested",
+                "known-broken"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         }
       }
@@ -272,10 +308,17 @@
           "const": "session.started"
         },
         "mode": {
-          "enum": [
-            "create",
-            "resume",
-            "fork"
+          "anyOf": [
+            {
+              "enum": [
+                "create",
+                "resume",
+                "fork"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "pid": {
@@ -290,6 +333,9 @@
           "type": "string"
         },
         "apiKeySource": {
+          "type": "string"
+        },
+        "tokenSource": {
           "type": "string"
         },
         "permissionMode": {
@@ -358,9 +404,16 @@
           "type": "string"
         },
         "origin": {
-          "enum": [
-            "application",
-            "harness"
+          "anyOf": [
+            {
+              "enum": [
+                "application",
+                "harness"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "features": {
@@ -506,8 +559,16 @@
           "$ref": "#/$defs/ToolKind"
         },
         "status": {
-          "type": "string",
-          "const": "pending"
+          "anyOf": [
+            {
+              "enum": [
+                "pending"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "input": {},
         "raw": {}
@@ -546,9 +607,16 @@
           "type": "string"
         },
         "status": {
-          "enum": [
-            "completed",
-            "failed"
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "failed"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "raw": {}
@@ -626,18 +694,32 @@
           "type": "string"
         },
         "behavior": {
-          "enum": [
-            "allow",
-            "deny",
-            "cancelled"
+          "anyOf": [
+            {
+              "enum": [
+                "allow",
+                "deny",
+                "cancelled"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "by": {
-          "enum": [
-            "application",
-            "harness",
-            "close",
-            "abort"
+          "anyOf": [
+            {
+              "enum": [
+                "application",
+                "harness",
+                "close",
+                "abort"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "raw": {}
@@ -1029,16 +1111,20 @@
           "const": "session.terminated"
         },
         "intent": {
-          "type": "string"
+          "type": "string",
+          "description": "The termination intent hudhud recorded before any signal (none when hudhud did not end the process). Deterministic."
         },
         "outcome": {
-          "type": "string"
+          "type": "string",
+          "description": "How the session ended, classified from the intent and the exit. Deterministic: decide on this."
         },
         "exitCode": {
-          "type": "integer"
+          "type": "integer",
+          "description": "The raw exit code as the OS reported it: an observation that can differ by race, never a verdict. Decide on outcome."
         },
         "signal": {
-          "type": "string"
+          "type": "string",
+          "description": "The raw signal as the OS reported it: an observation like exitCode."
         },
         "raw": {}
       }

@@ -5,7 +5,7 @@
 ```ts
 
 // @public
-export type Capability = 'supported' | 'emulated' | 'unsupported';
+export type Capability = 'supported' | 'emulated' | 'unsupported' | (string & {});
 
 // @public
 export function classifyExit(input: ClassifyExitInput): ExitClassification;
@@ -64,8 +64,7 @@ export interface CompatInfo {
     readonly maxTested: string;
     // (undocumented)
     readonly minTested: string;
-    // (undocumented)
-    readonly status: 'tested' | 'untested' | 'known-broken';
+    readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
     // (undocumented)
     readonly version: string;
 }
@@ -181,7 +180,7 @@ export type HudhudEvent = (EventBase & {
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'session.started';
-    readonly mode: 'create' | 'resume' | 'fork';
+    readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly cliPid?: number;
     readonly version: string;
@@ -195,7 +194,7 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'turn.started';
     readonly turnId: string;
-    readonly origin: 'application' | 'harness';
+    readonly origin: 'application' | 'harness' | (string & {});
     readonly features: readonly string[];
     readonly model?: string;
     readonly raw: JsonValue;
@@ -218,14 +217,14 @@ export type HudhudEvent = (EventBase & {
     readonly toolUseId: string;
     readonly toolName: string;
     readonly kind: ToolKind;
-    readonly status: 'pending';
+    readonly status: 'pending' | (string & {});
     readonly input: JsonValue;
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'tool.result';
     readonly turnId?: string;
     readonly toolUseId: string;
-    readonly status: 'completed' | 'failed';
+    readonly status: 'completed' | 'failed' | (string & {});
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.requested';
@@ -237,8 +236,8 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'permission.resolved';
     readonly requestId: string;
-    readonly behavior: 'allow' | 'deny' | 'cancelled';
-    readonly by: 'application' | 'harness' | 'close' | 'abort';
+    readonly behavior: 'allow' | 'deny' | 'cancelled' | (string & {});
+    readonly by: 'application' | 'harness' | 'close' | 'abort' | (string & {});
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.denied';
@@ -508,7 +507,7 @@ export interface PermissionRequestData {
 }
 
 // @public
-export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup' | (string & {});
 
 // @public
 export function sanitizeForDisplay(text: string, options?: SanitizeForDisplayOptions): string;

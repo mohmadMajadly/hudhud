@@ -52,7 +52,7 @@ export function logTools(event: HudhudEvent): void {
 }
 ```
 
-The same holds for other open values: `ToolKind`, `StopReason`, `TurnOutcome`, `DiagnosticCode`, `session.state` and `message.delta`'s `deltaType` each list the known values and accept new ones.
+The same holds for every other value from a fixed list in an event or a result: `ToolKind`, `StopReason`, `TurnOutcome`, `DiagnosticCode`, `session.state`, `message.delta`'s `deltaType`, `session.started`'s `mode`, `turn.started`'s `origin`, the `status` of `tool.call` and `tool.result`, `permission.resolved`'s `behavior` and `by`, `compat.status`, the `Capability` values and `ProcessContainment`, `SessionInfo.mode`, `BinaryInfo.source` and `BinaryVerification`'s `status` and `method`. Each lists the known values and accepts new ones, which a minor release may add: give every `switch` over them a `default` branch.
 
 ## Event types
 

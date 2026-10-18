@@ -13,19 +13,19 @@ import type { JsonValue } from './json.js';
 
 /**
  * How a harness provides a feature: natively, emulated by hudhud, or not at
- * all.
+ * all. Open: later versions may add values (ADR-0005 §6).
  *
  * @public
  */
-export type Capability = 'supported' | 'emulated' | 'unsupported';
+export type Capability = 'supported' | 'emulated' | 'unsupported' | (string & {});
 
 /**
  * Process-tree containment: a Windows job object, best-effort tree tracking,
- * or a cgroup.
+ * or a cgroup. Open: later versions may add values (ADR-0005 §6).
  *
  * @public
  */
-export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup' | (string & {});
 
 /**
  * What a harness can do, computed at connect.

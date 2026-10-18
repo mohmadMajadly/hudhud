@@ -21,6 +21,7 @@ import {
   diffSchema,
   formatViolations,
   updateBaseline,
+  WIDENING_ALLOWED,
 } from '../lib/schema/diff.mjs';
 
 type Schema = Parameters<typeof diffSchema>[1];
@@ -74,11 +75,16 @@ function baseline(): Schema {
 
 type Defs = Record<string, Record<string, unknown>>;
 
-/** Applies `change` to a fresh baseline copy and diffs. */
-function diffAfter(change: (defs: Defs, doc: Schema) => void): string[] {
+/**
+ * Applies `change` to a fresh baseline copy and diffs, as a schema that
+ * applications read unless `wideningAllowed`.
+ */
+function diffAfter(change: (defs: Defs, doc: Schema) => void, wideningAllowed = false): string[] {
   const current = structuredClone(baseline());
   change(current['$defs'] as Defs, current);
-  return diffSchema('f.schema.json', baseline(), current).map((v) => `${v.pointer} ${v.kind}`);
+  return diffSchema('f.schema.json', baseline(), current, wideningAllowed).map(
+    (v) => `${v.pointer} ${v.kind}`,
+  );
 }
 
 const frame = (defs: Defs): Record<string, Record<string, unknown>> =>
@@ -291,10 +297,9 @@ describe('diffSchema: additive changes pass', () => {
     ['no change', () => undefined],
     ['a new optional property', (d) => (frame(d)['later'] = { type: 'string' })],
     ['a new definition', (d) => (d['Later'] = { type: 'object' })],
-    ['a widened enum', (d) => (frame(d)['mode'] = { enum: ['x', 'y', 'z'] })],
     [
-      'a const widened to an enum',
-      (d) => (frame(d)['type'] = { type: 'string', enum: ['frame', 'other'] }),
+      'a new known value of an open enum',
+      (d) => (d['Kind'] = { anyOf: [{ enum: ['a', 'b', 'c'] }, { type: 'string' }] }),
     ],
     [
       'integer widened to number',
@@ -362,6 +367,88 @@ describe('diffSchema: additive changes pass', () => {
 
   it('treats a missing $defs as empty', () => {
     expect(diffSchema('e.schema.json', { type: 'object' }, { type: 'object' })).toEqual([]);
+  });
+});
+
+// R5-4 (ADR-0005 §6): in a schema that applications read, a closed enum must
+// not widen; where only hudhud reads (options, the harness wire) it may.
+describe('diffSchema: widening a closed enum', () => {
+  it.each<[string, (defs: Defs) => void, string]>([
+    [
+      'a value added to a closed enum',
+      (d) => (frame(d)['mode'] = { enum: ['x', 'y', 'z'] }),
+      '/$defs/Frame/properties/mode enum-widened',
+    ],
+    [
+      'a const widened to an enum',
+      (d) => (frame(d)['type'] = { type: 'string', enum: ['frame', 'other'] }),
+      '/$defs/Frame/properties/type enum-widened',
+    ],
+    [
+      'a closed enum opened',
+      (d) => (frame(d)['mode'] = { anyOf: [{ enum: ['x', 'y'] }, { type: 'string' }] }),
+      '/$defs/Frame/properties/mode enum-widened',
+    ],
+    [
+      'a const opened',
+      (d) => (frame(d)['type'] = { anyOf: [{ enum: ['frame'] }, { type: 'string' }] }),
+      '/$defs/Frame/properties/type enum-widened',
+    ],
+    [
+      'a closed enum dropped',
+      (d) => (frame(d)['mode'] = {}),
+      '/$defs/Frame/properties/mode enum-widened',
+    ],
+  ])(
+    'fails on %s in a read schema and passes where widening is allowed',
+    (_name, change, expected) => {
+      expect(diffAfter(change)).toEqual([expected]);
+      expect(diffAfter(change, true)).toEqual([]);
+    },
+  );
+
+  it('names the values in the violation', () => {
+    const current = structuredClone(baseline());
+    frame(current['$defs'] as Defs)['mode'] = { enum: ['x', 'y', 'z'] };
+    expect(diffSchema('f.schema.json', baseline(), current)).toEqual([
+      {
+        file: 'f.schema.json',
+        pointer: '/$defs/Frame/properties/mode',
+        kind: 'enum-widened',
+        detail:
+          'now also allows "z"; readers of a closed enum may not handle it (make it an open enum)',
+      },
+    ]);
+  });
+
+  it('reports a non-string value an opened enum no longer accepts', () => {
+    const base: Schema = { $defs: { N: { enum: [1, 'a'] } } };
+    const current: Schema = { $defs: { N: { anyOf: [{ enum: ['a'] }, { type: 'string' }] } } };
+    expect(diffSchema('n.schema.json', base, current, true).map((v) => v.kind)).toEqual([
+      'enum-narrowed',
+    ]);
+    const kept: Schema = { $defs: { N: { anyOf: [{ enum: [1, 'a'] }, { type: 'string' }] } } };
+    expect(diffSchema('n.schema.json', base, kept, true)).toEqual([]);
+  });
+
+  it('lets the known values of an open enum grow in a read schema', () => {
+    expect(
+      diffAfter((d) => (d['Kind'] = { anyOf: [{ enum: ['a', 'b', 'c'] }, { type: 'string' }] })),
+    ).toEqual([]);
+  });
+
+  it('allows widening only for the schemas hudhud alone reads, and those exist', () => {
+    expect([...WIDENING_ALLOWED].sort()).toEqual([
+      'packages/claude-code/schemas/options.schema.json',
+      'packages/claude-code/schemas/wire-inbound.schema.json',
+      'packages/claude-code/schemas/wire-outbound.schema.json',
+    ]);
+    const repo = path.resolve(import.meta.dirname, '..', '..');
+    for (const file of WIDENING_ALLOWED) expect(existsSync(path.join(repo, file))).toBe(true);
+    const base: Schema = { $defs: { M: { enum: ['a'] } } };
+    const wider: Schema = { $defs: { M: { enum: ['a', 'b'] } } };
+    expect(diffSchema('packages/claude-code/schemas/options.schema.json', base, wider)).toEqual([]);
+    expect(diffSchema('packages/core/schemas/events.schema.json', base, wider)).toHaveLength(1);
   });
 });
 

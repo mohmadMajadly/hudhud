@@ -57,7 +57,7 @@ export interface BinaryInfo {
     // (undocumented)
     readonly requestedPath?: string;
     // (undocumented)
-    readonly source: 'option' | 'native-install' | 'path';
+    readonly source: 'option' | 'native-install' | 'path' | (string & {});
     // (undocumented)
     readonly verification: BinaryVerification;
     readonly version: string;
@@ -66,11 +66,10 @@ export interface BinaryInfo {
 // @public
 export interface BinaryVerification {
     readonly detail?: string;
-    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
     // (undocumented)
     readonly mode: VerificationMode;
-    // (undocumented)
-    readonly status: 'verified' | 'unverified' | 'failed';
+    readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
 }
 
@@ -85,7 +84,7 @@ export interface BindingDiagnostic {
 }
 
 // @public
-export type Capability = 'supported' | 'emulated' | 'unsupported';
+export type Capability = 'supported' | 'emulated' | 'unsupported' | (string & {});
 
 // @beta
 export interface Clock {
@@ -136,8 +135,7 @@ export interface CompatInfo {
     readonly maxTested: string;
     // (undocumented)
     readonly minTested: string;
-    // (undocumented)
-    readonly status: 'tested' | 'untested' | 'known-broken';
+    readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
     // (undocumented)
     readonly version: string;
 }
@@ -400,7 +398,7 @@ export type HudhudEvent = (EventBase & {
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'session.started';
-    readonly mode: 'create' | 'resume' | 'fork';
+    readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly cliPid?: number;
     readonly version: string;
@@ -414,7 +412,7 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'turn.started';
     readonly turnId: string;
-    readonly origin: 'application' | 'harness';
+    readonly origin: 'application' | 'harness' | (string & {});
     readonly features: readonly string[];
     readonly model?: string;
     readonly raw: JsonValue;
@@ -437,14 +435,14 @@ export type HudhudEvent = (EventBase & {
     readonly toolUseId: string;
     readonly toolName: string;
     readonly kind: ToolKind;
-    readonly status: 'pending';
+    readonly status: 'pending' | (string & {});
     readonly input: JsonValue;
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'tool.result';
     readonly turnId?: string;
     readonly toolUseId: string;
-    readonly status: 'completed' | 'failed';
+    readonly status: 'completed' | 'failed' | (string & {});
     readonly raw: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.requested';
@@ -456,8 +454,8 @@ export type HudhudEvent = (EventBase & {
 }) | (EventBase & {
     readonly type: 'permission.resolved';
     readonly requestId: string;
-    readonly behavior: 'allow' | 'deny' | 'cancelled';
-    readonly by: 'application' | 'harness' | 'close' | 'abort';
+    readonly behavior: 'allow' | 'deny' | 'cancelled' | (string & {});
+    readonly by: 'application' | 'harness' | 'close' | 'abort' | (string & {});
     readonly raw?: JsonValue;
 }) | (EventBase & {
     readonly type: 'permission.denied';
@@ -966,7 +964,7 @@ export const PRE_HANDSHAKE_MAX_BYTES = 1048576;
 export const PRE_HANDSHAKE_MAX_EVENTS = 256;
 
 // @public
-export type ProcessContainment = 'job' | 'best-effort' | 'cgroup';
+export type ProcessContainment = 'job' | 'best-effort' | 'cgroup' | (string & {});
 
 // @public
 export interface ProcessExit {
@@ -1129,7 +1127,7 @@ export interface SessionInfo {
     // (undocumented)
     readonly id: string;
     // (undocumented)
-    readonly mode: 'create' | 'resume' | 'fork';
+    readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly tokenSource?: string;
     // (undocumented)

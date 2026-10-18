@@ -120,11 +120,10 @@ export class BinaryNotVerifiedError extends Error {
 // @public
 export interface BinaryVerification {
     readonly detail?: string;
-    readonly method: 'os-signature' | 'sha256-manifest' | 'none';
+    readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
     // (undocumented)
     readonly mode: VerificationMode;
-    // (undocumented)
-    readonly status: 'verified' | 'unverified' | 'failed';
+    readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
 }
 

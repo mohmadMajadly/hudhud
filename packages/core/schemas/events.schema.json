@@ -235,10 +235,17 @@
           }
         },
         "status": {
-          "enum": [
-            "tested",
-            "untested",
-            "known-broken"
+          "anyOf": [
+            {
+              "enum": [
+                "tested",
+                "untested",
+                "known-broken"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         }
       }
@@ -301,10 +308,17 @@
           "const": "session.started"
         },
         "mode": {
-          "enum": [
-            "create",
-            "resume",
-            "fork"
+          "anyOf": [
+            {
+              "enum": [
+                "create",
+                "resume",
+                "fork"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "pid": {
@@ -390,9 +404,16 @@
           "type": "string"
         },
         "origin": {
-          "enum": [
-            "application",
-            "harness"
+          "anyOf": [
+            {
+              "enum": [
+                "application",
+                "harness"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "features": {
@@ -538,8 +559,16 @@
           "$ref": "#/$defs/ToolKind"
         },
         "status": {
-          "type": "string",
-          "const": "pending"
+          "anyOf": [
+            {
+              "enum": [
+                "pending"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "input": {},
         "raw": {}
@@ -578,9 +607,16 @@
           "type": "string"
         },
         "status": {
-          "enum": [
-            "completed",
-            "failed"
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "failed"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "raw": {}
@@ -658,18 +694,32 @@
           "type": "string"
         },
         "behavior": {
-          "enum": [
-            "allow",
-            "deny",
-            "cancelled"
+          "anyOf": [
+            {
+              "enum": [
+                "allow",
+                "deny",
+                "cancelled"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "by": {
-          "enum": [
-            "application",
-            "harness",
-            "close",
-            "abort"
+          "anyOf": [
+            {
+              "enum": [
+                "application",
+                "harness",
+                "close",
+                "abort"
+              ]
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "raw": {}

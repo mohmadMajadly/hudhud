@@ -6,17 +6,31 @@
   "$ref": "#/$defs/HarnessCapabilities",
   "$defs": {
     "Capability": {
-      "enum": [
-        "supported",
-        "emulated",
-        "unsupported"
+      "anyOf": [
+        {
+          "enum": [
+            "supported",
+            "emulated",
+            "unsupported"
+          ]
+        },
+        {
+          "type": "string"
+        }
       ]
     },
     "ProcessContainment": {
-      "enum": [
-        "job",
-        "best-effort",
-        "cgroup"
+      "anyOf": [
+        {
+          "enum": [
+            "job",
+            "best-effort",
+            "cgroup"
+          ]
+        },
+        {
+          "type": "string"
+        }
       ]
     },
     "HarnessCapabilities": {
