@@ -76,6 +76,7 @@ export const DiagnosticCode = openEnum([
   'stdin.error',
   'turn.unmatched-result',
   'turn.dropped',
+  'turn.repeated-init',
   'stdout.error',
   'termination.ladder',
   'termination.sweep-after-exit',
