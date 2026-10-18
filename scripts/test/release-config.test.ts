@@ -44,6 +44,31 @@ describe('release versioning', () => {
     expect(arm64.publishConfig).toBeUndefined();
   });
 
+  it('publishes the four packages publicly with provenance, and nothing else (checklist 4.2)', () => {
+    expect((config as { access?: unknown }).access).toBe('public');
+    for (const dir of [
+      'packages/hudhud',
+      'packages/core',
+      'packages/claude-code',
+      'packages/win32-job-x64',
+    ]) {
+      const manifest = read(`${dir}/package.json`) as {
+        private?: unknown;
+        publishConfig?: unknown;
+      };
+      expect(manifest.private, dir).toBeUndefined();
+      expect(manifest.publishConfig, dir).toEqual({ access: 'public', provenance: true });
+    }
+    for (const dir of ['packages/win32-job-arm64', 'tooling/test-support', '.']) {
+      const manifest = read(`${dir}/package.json`) as {
+        private?: unknown;
+        publishConfig?: unknown;
+      };
+      expect(manifest.private, dir).toBe(true);
+      expect(manifest.publishConfig, dir).toBeUndefined();
+    }
+  });
+
   it('gives the three library packages one version today', () => {
     const versions = ['packages/hudhud', 'packages/core', 'packages/claude-code'].map(
       (dir) => (read(`${dir}/package.json`) as { version?: unknown }).version,
