@@ -44,7 +44,13 @@ export type { RawFrame, RawGap, RawWireFrame } from '../raw-channel.js';
  * @beta
  */
 export interface RawSpawnOptions {
+  /**
+   * Extra command-line arguments, each passed as one argument. Flags hudhud
+   * sets itself, and flags that would bypass its controls, are refused with
+   * `INVALID_OPTIONS`.
+   */
   readonly extraArgs?: readonly string[];
+  /** Extra environment variables, set after `env`; variables hudhud sets itself are refused. */
   readonly extraEnv?: Readonly<Record<string, string>>;
 }
 

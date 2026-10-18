@@ -107,9 +107,13 @@ export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>> = {
  * @public
  */
 export interface ErrorData {
+  /** The error code; open, since data from a newer peer may carry a code this version does not know. */
   readonly code: HudhudErrorCode | (string & {});
+  /** Human-readable text; names variables and files, never secret values. */
   readonly message: string;
+  /** Whether repeating the same call with the same inputs may succeed. */
   readonly retryable: boolean;
+  /** Plain JSON facts about the failure, if any. */
   readonly details?: JsonObject;
 }
 
@@ -136,7 +140,13 @@ export function isHudhudErrorCode(value: unknown): value is HudhudErrorCode {
 }
 
 /**
- * Whether a code is retryable.
+ * Whether an error with this code is retryable: repeating the same call with
+ * the same inputs may succeed without a change by the application (plan
+ * §3.1). Fixed per code; a `HudhudError` carries the same value as
+ * `retryable`.
+ *
+ * @param code - A known error code.
+ * @returns The code's retryability.
  *
  * @public
  */

@@ -52,13 +52,9 @@ export type AfterExitSweepReport = {
 
 // @public
 export interface BinaryInfo {
-    // (undocumented)
     readonly path: string;
-    // (undocumented)
     readonly requestedPath?: string;
-    // (undocumented)
     readonly source: 'option' | 'native-install' | 'path' | (string & {});
-    // (undocumented)
     readonly verification: BinaryVerification;
     readonly version: string;
 }
@@ -67,7 +63,6 @@ export interface BinaryInfo {
 export interface BinaryVerification {
     readonly detail?: string;
     readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
-    // (undocumented)
     readonly mode: VerificationMode;
     readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
@@ -127,16 +122,11 @@ export type CommandInput = {
 
 // @public
 export interface CompatInfo {
-    // (undocumented)
     readonly harness: string;
-    // (undocumented)
     readonly knownBroken: readonly string[];
-    // (undocumented)
     readonly maxTested: string;
-    // (undocumented)
     readonly minTested: string;
     readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
-    // (undocumented)
     readonly version: string;
 }
 
@@ -194,20 +184,15 @@ export interface DriverOptions<State, Config> {
 
 // @public
 export interface ErrorData {
-    // (undocumented)
     readonly code: HudhudErrorCode | (string & {});
-    // (undocumented)
     readonly details?: JsonObject;
-    // (undocumented)
     readonly message: string;
-    // (undocumented)
     readonly retryable: boolean;
 }
 
 // @public
 export interface EventBase {
     readonly seq: number;
-    // (undocumented)
     readonly sessionId: string;
     readonly ts: string;
 }
@@ -270,13 +255,9 @@ export interface GroupTarget {
 
 // @public
 export interface Harness extends AsyncDisposable {
-    // (undocumented)
     readonly binary: BinaryInfo;
-    // (undocumented)
     readonly capabilities: HarnessCapabilities;
-    // (undocumented)
     readonly compat: CompatInfo;
-    // (undocumented)
     readonly securityPosture: SecurityPosture;
 }
 
@@ -301,19 +282,13 @@ export class HarnessBase implements Harness {
 
 // @public
 export interface HarnessCapabilities {
-    // (undocumented)
     readonly fork: Capability;
-    // (undocumented)
     readonly interrupt: Capability;
-    // (undocumented)
     readonly multiTurn: Capability;
-    // (undocumented)
     readonly permissionsInBand: Capability;
     readonly processContainment: ProcessContainment;
     readonly reasons: Readonly<Record<string, string>>;
-    // (undocumented)
     readonly resume: Capability;
-    // (undocumented)
     readonly workspaceTrust: {
         readonly none: Capability;
         readonly context: Capability;
@@ -891,29 +866,18 @@ export type PermissionHandler = (request: PermissionRequest, ctx: {
 
 // @public
 export interface PermissionRequest {
-    // (undocumented)
     readonly blockedPath?: string;
     readonly decisionReason?: string;
-    // (undocumented)
     readonly description?: string;
-    // (undocumented)
     readonly displayName?: string;
-    // (undocumented)
     readonly input: JsonValue;
-    // (undocumented)
     readonly raw: JsonValue;
-    // (undocumented)
     readonly requestId: string;
-    // (undocumented)
     readonly sessionId: string;
     readonly suggestions: readonly JsonValue[];
-    // (undocumented)
     readonly title?: string;
-    // (undocumented)
     readonly toolName: string;
-    // (undocumented)
     readonly toolUseId: string;
-    // (undocumented)
     readonly turnId?: string;
 }
 
@@ -997,19 +961,14 @@ export interface ProcessTransportOptions {
 
 // @public
 export interface SecurityPosture {
-    // (undocumented)
     readonly entries: readonly SecurityPostureEntry[];
 }
 
 // @public
 export interface SecurityPostureEntry {
-    // (undocumented)
     readonly defaultValue: JsonValue;
-    // (undocumented)
     readonly deviates: boolean;
-    // (undocumented)
     readonly setting: string;
-    // (undocumented)
     readonly value: JsonValue;
 }
 
@@ -1031,9 +990,7 @@ export interface Session extends AsyncDisposable {
     }): Promise<void>;
     readonly closed: Promise<void>;
     events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent>;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
     readonly info: SessionInfo;
     send(input: UserInput, opts?: {
         readonly signal?: AbortSignal;
@@ -1116,21 +1073,15 @@ export interface SessionEnd {
 
 // @public
 export interface SessionInfo {
-    // (undocumented)
     readonly apiKeySource?: string;
     readonly cliPid?: number;
     readonly containment: ProcessContainment;
-    // (undocumented)
     readonly features: readonly string[];
-    // (undocumented)
     readonly forkedFrom?: string;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
     readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly tokenSource?: string;
-    // (undocumented)
     readonly version: string;
 }
 
@@ -1337,33 +1288,21 @@ export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'm
 
 // @public
 export interface TurnResult {
-    // (undocumented)
     readonly apiErrorStatus?: number;
-    // (undocumented)
     readonly errors?: readonly string[];
-    // (undocumented)
     readonly isError: boolean;
-    // (undocumented)
     readonly outcome: TurnOutcome;
-    // (undocumented)
     readonly permissionDenials: readonly {
         readonly toolName: string;
         readonly toolUseId: string;
     }[];
-    // (undocumented)
     readonly raw?: JsonValue;
-    // (undocumented)
     readonly sessionId: string;
-    // (undocumented)
     readonly stopReason?: StopReason;
     readonly synthesized: boolean;
-    // (undocumented)
     readonly terminalReason?: string;
-    // (undocumented)
     readonly text?: string;
-    // (undocumented)
     readonly turnId: string;
-    // (undocumented)
     readonly usage?: UsageTotals;
 }
 
@@ -1372,15 +1311,10 @@ export type TurnResultData = TurnResult;
 
 // @public
 export interface UsageTotals {
-    // (undocumented)
     readonly cacheCreationInputTokens?: number;
-    // (undocumented)
     readonly cacheReadInputTokens?: number;
-    // (undocumented)
     readonly costUsd?: number;
-    // (undocumented)
     readonly inputTokens?: number;
-    // (undocumented)
     readonly outputTokens?: number;
 }
 

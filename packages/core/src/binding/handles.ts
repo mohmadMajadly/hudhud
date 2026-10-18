@@ -67,17 +67,23 @@ export type UserInput = string | { readonly content: readonly UserContentBlock[]
  * @public
  */
 export interface SessionInfo {
+  /** The session id (a UUID). */
   readonly id: string;
+  /** How the session started: created, resumed or forked (open). */
   readonly mode: 'create' | 'resume' | 'fork' | (string & {});
+  /** For a fork: the id of the session it continues. */
   readonly forkedFrom?: string;
   /** The spawned pid (process identity). */
   readonly pid: number;
   /** The pid the harness reports for itself (informational). */
   readonly cliPid?: number;
+  /** The harness version, as the harness reported it at the handshake. */
   readonly version: string;
+  /** The harness's API key source, informational. */
   readonly apiKeySource?: string;
   /** The harness's token source, informational (K10). */
   readonly tokenSource?: string;
+  /** Feature strings the harness reported at the handshake (adapter-defined). */
   readonly features: readonly string[];
   /** What this session got (K2). */
   readonly containment: ProcessContainment;
@@ -108,7 +114,9 @@ export interface Turn extends AsyncIterable<HudhudEvent> {
  * @public
  */
 export interface Session extends AsyncDisposable {
+  /** The session id (a UUID): the id to resume it by. */
   readonly id: string;
+  /** What the session learned at start. */
   readonly info: SessionInfo;
   /** Resolves once the session ended and its process tree was cleaned up. Never rejects. */
   readonly closed: Promise<void>;
@@ -142,9 +150,13 @@ export interface Session extends AsyncDisposable {
  * @public
  */
 export interface Harness extends AsyncDisposable {
+  /** What this harness can do, computed at connect. */
   readonly capabilities: HarnessCapabilities;
+  /** The binary connect found, verified and probed. */
   readonly binary: BinaryInfo;
+  /** The tested version window and where the probed version falls in it. */
   readonly compat: CompatInfo;
+  /** The security-relevant settings of connect and whether each deviates from its default (ADR-0012). */
   readonly securityPosture: SecurityPosture;
 }
 
@@ -154,11 +166,18 @@ export interface Harness extends AsyncDisposable {
  * @public
  */
 export interface BinaryInfo {
+  /** The binary that runs: its real path, after links and the launcher are resolved. */
   readonly path: string;
+  /** The path as given or found, before resolution; absent when it equals `path`. */
   readonly requestedPath?: string;
   /** From the connect probe (K4). */
   readonly version: string;
+  /**
+   * Where it was found: the `binaryPath` option, the native installer's
+   * launcher, or a `PATH` lookup (open).
+   */
   readonly source: 'option' | 'native-install' | 'path' | (string & {});
+  /** The verification verdict. */
   readonly verification: BinaryVerification;
 }
 

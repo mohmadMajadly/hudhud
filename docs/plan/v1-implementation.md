@@ -557,7 +557,7 @@ As built (Wave 6, harness additions; W6-Z closer rulings 1-5). All in `launcher/
 
 ## 2. Public API for v1
 
-Stability tags follow ADR-0003: §2.2-§2.5 are the stable tier (`@public`); `claudeCode` options are the harness-namespaced tier; §2.6 is `/raw` (unstable). Declarations are complete for v1; JSDoc is omitted here and required in code.
+Stability tags follow ADR-0003: §2.2-§2.5 are the stable tier (`@public`); `claudeCode` options are the harness-namespaced tier; §2.6 is `/raw` (unstable). Declarations are complete for v1; JSDoc is omitted here and required in code. As built (pre-release review R5-8, FX-E): every exported item and member of the stable roots `@hudhudjs/core` and `@hudhudjs/claude-code` has TSDoc (meaning, default, units and limits, taken from the code and the options schema); API Extractor's `ae-undocumented` is an error for those two entry points, so an undocumented addition fails `pnpm api:check`. The beta entry points are exempt.
 
 ### 2.1 Entry points
 

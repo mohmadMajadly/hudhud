@@ -56,16 +56,11 @@ export type CommandInput = {
 
 // @public
 export interface CompatInfo {
-    // (undocumented)
     readonly harness: string;
-    // (undocumented)
     readonly knownBroken: readonly string[];
-    // (undocumented)
     readonly maxTested: string;
-    // (undocumented)
     readonly minTested: string;
     readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
-    // (undocumented)
     readonly version: string;
 }
 
@@ -96,13 +91,9 @@ export const ERROR_RETRYABLE: Readonly<Record<HudhudErrorCode, boolean>>;
 
 // @public
 export interface ErrorData {
-    // (undocumented)
     readonly code: HudhudErrorCode | (string & {});
-    // (undocumented)
     readonly details?: JsonObject;
-    // (undocumented)
     readonly message: string;
-    // (undocumented)
     readonly retryable: boolean;
 }
 
@@ -112,7 +103,6 @@ export type ErrorDataFailure = 'not-object' | 'unknown-code' | 'bad-message' | '
 // @public
 export interface EventBase {
     readonly seq: number;
-    // (undocumented)
     readonly sessionId: string;
     readonly ts: string;
 }
@@ -139,19 +129,13 @@ export interface ExitObservation {
 
 // @public
 export interface HarnessCapabilities {
-    // (undocumented)
     readonly fork: Capability;
-    // (undocumented)
     readonly interrupt: Capability;
-    // (undocumented)
     readonly multiTurn: Capability;
-    // (undocumented)
     readonly permissionsInBand: Capability;
     readonly processContainment: ProcessContainment;
     readonly reasons: Readonly<Record<string, string>>;
-    // (undocumented)
     readonly resume: Capability;
-    // (undocumented)
     readonly workspaceTrust: {
         readonly none: Capability;
         readonly context: Capability;
@@ -519,19 +503,14 @@ export interface SanitizeForDisplayOptions {
 
 // @public
 export interface SecurityPosture {
-    // (undocumented)
     readonly entries: readonly SecurityPostureEntry[];
 }
 
 // @public
 export interface SecurityPostureEntry {
-    // (undocumented)
     readonly defaultValue: JsonValue;
-    // (undocumented)
     readonly deviates: boolean;
-    // (undocumented)
     readonly setting: string;
-    // (undocumented)
     readonly value: JsonValue;
 }
 
@@ -613,33 +592,21 @@ export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'm
 
 // @public
 export interface TurnResult {
-    // (undocumented)
     readonly apiErrorStatus?: number;
-    // (undocumented)
     readonly errors?: readonly string[];
-    // (undocumented)
     readonly isError: boolean;
-    // (undocumented)
     readonly outcome: TurnOutcome;
-    // (undocumented)
     readonly permissionDenials: readonly {
         readonly toolName: string;
         readonly toolUseId: string;
     }[];
-    // (undocumented)
     readonly raw?: JsonValue;
-    // (undocumented)
     readonly sessionId: string;
-    // (undocumented)
     readonly stopReason?: StopReason;
     readonly synthesized: boolean;
-    // (undocumented)
     readonly terminalReason?: string;
-    // (undocumented)
     readonly text?: string;
-    // (undocumented)
     readonly turnId: string;
-    // (undocumented)
     readonly usage?: UsageTotals;
 }
 
@@ -651,15 +618,10 @@ export const UNKNOWN_EXIT_CODE = 4294967295;
 
 // @public
 export interface UsageTotals {
-    // (undocumented)
     readonly cacheCreationInputTokens?: number;
-    // (undocumented)
     readonly cacheReadInputTokens?: number;
-    // (undocumented)
     readonly costUsd?: number;
-    // (undocumented)
     readonly inputTokens?: number;
-    // (undocumented)
     readonly outputTokens?: number;
 }
 

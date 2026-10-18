@@ -102,6 +102,7 @@ export interface BinaryVerification {
    * table had nothing to compare with. Open: later versions may add values.
    */
   readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
+  /** The `binaryVerification` mode in effect. */
   readonly mode: VerificationMode;
   /** Human-readable reason; names versions and checks, never secrets. */
   readonly detail?: string;

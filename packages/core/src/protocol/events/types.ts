@@ -23,6 +23,7 @@ export interface EventBase {
   readonly seq: number;
   /** ISO-8601 timestamp. */
   readonly ts: string;
+  /** The id of the session the event belongs to. */
   readonly sessionId: string;
 }
 
@@ -57,10 +58,15 @@ export type StopReason =
  * @public
  */
 export interface UsageTotals {
+  /** Input tokens, as the harness reported them. */
   readonly inputTokens?: number;
+  /** Output tokens, as the harness reported them. */
   readonly outputTokens?: number;
+  /** Tokens written to the prompt cache, as the harness reported them. */
   readonly cacheCreationInputTokens?: number;
+  /** Tokens read from the prompt cache, as the harness reported them. */
   readonly cacheReadInputTokens?: number;
+  /** Cost in US dollars, as the harness estimated it (a client-side estimate). */
   readonly costUsd?: number;
 }
 
@@ -78,19 +84,35 @@ export type TurnOutcome =
  * @public
  */
 export interface TurnResult {
+  /** The turn id: a UUID hudhud generated for the turn. */
   readonly turnId: string;
+  /** The id of the session the turn ran in. */
   readonly sessionId: string;
+  /** How the turn ended (open). */
   readonly outcome: TurnOutcome;
+  /** Whether the turn ended with an error; it is still a result, not a failure (K21). */
   readonly isError: boolean;
+  /** The final text of the turn, when the harness reported one. Untrusted. */
   readonly text?: string;
+  /** Why the model stopped (open). */
   readonly stopReason?: StopReason;
+  /** The harness's own reason for ending the turn, as reported. */
   readonly terminalReason?: string;
+  /** Error messages the harness reported for the turn. Untrusted. */
   readonly errors?: readonly string[];
+  /** The HTTP status of a failed model API request, as the harness reported it. */
   readonly apiErrorStatus?: number;
+  /**
+   * Token and cost figures as the harness reported them, unchanged; which
+   * span they cover (the turn or the session) is the harness's, and the
+   * adapter's documentation says.
+   */
   readonly usage?: UsageTotals;
+  /** The tool calls the harness denied during the turn. */
   readonly permissionDenials: readonly { readonly toolName: string; readonly toolUseId: string }[];
   /** True when hudhud synthesized the result (no harness result arrived). */
   readonly synthesized: boolean;
+  /** The harness's own result frame; absent when the result was synthesized. */
   readonly raw?: JsonValue;
 }
 
@@ -151,10 +173,15 @@ export type DiagnosticCode =
  * @public
  */
 export interface CompatInfo {
+  /** The harness, for example `claude-code`. */
   readonly harness: string;
+  /** The probed version of the harness binary. */
   readonly version: string;
+  /** The oldest version the adapter was tested with. */
   readonly minTested: string;
+  /** The newest version the adapter was tested with. */
   readonly maxTested: string;
+  /** Versions listed as known broken: refused at connect unless the adapter's opt-in is set. */
   readonly knownBroken: readonly string[];
   /** Where the version falls (open: later versions may add values). */
   readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});

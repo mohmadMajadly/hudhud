@@ -107,6 +107,7 @@ export interface ClaudeCodeHarness extends Harness {
    * runs (see {@link ClaudeCodeHarness.binary}).
    */
   readonly compat: CompatInfo;
+  /** Opens sessions on this harness; disposing the harness disposes them. */
   readonly sessions: {
     /** Starts a new session (`--session-id` with a fresh UUID). */
     create(opts?: SessionOptions): Promise<Session>;

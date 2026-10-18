@@ -77,13 +77,17 @@ import {
  * @beta
  */
 export interface RawWireFrame {
+  /** Discriminates a frame from a gap. */
   readonly kind: 'frame';
+  /** `in`: from Claude Code; `out`: written by hudhud. */
   readonly direction: 'in' | 'out';
   /** Gapless from 1 per session, across both directions. */
   readonly seq: number;
+  /** ISO-8601 time the frame was read or written. */
   readonly ts: string;
   /** The line's byte length. */
   readonly bytes: number;
+  /** The frame, parsed. */
   readonly frame: JsonValue;
 }
 
@@ -95,9 +99,13 @@ export interface RawWireFrame {
  * @beta
  */
 export interface RawGap {
+  /** Discriminates a gap from a frame. */
   readonly kind: 'gap';
+  /** The `seq` of the first frame left out. */
   readonly seq: number;
+  /** ISO-8601 time the gap reached this subscriber. */
   readonly ts: string;
+  /** How many frames were left out. */
   readonly dropped: number;
 }
 

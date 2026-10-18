@@ -7,9 +7,7 @@
 // @public
 export class AbortError extends HudhudError {
     constructor(message?: string, options?: HudhudErrorOptions);
-    // (undocumented)
     static readonly code = "ABORTED";
-    // (undocumented)
     static readonly errorName = "AbortError";
     static fromSignal(signal: AbortSignal): AbortError;
 }
@@ -19,9 +17,7 @@ export const adapterApiVersion = 1;
 
 // @public
 export class AdapterApiVersionError extends HudhudError {
-    // (undocumented)
     static readonly code = "ADAPTER_API_VERSION_MISMATCH";
-    // (undocumented)
     static readonly errorName = "AdapterApiVersionError";
 }
 
@@ -33,46 +29,34 @@ export interface AdapterDefinition {
 
 // @public
 export class AuthenticationFailedError extends HudhudError {
-    // (undocumented)
     static readonly code = "AUTHENTICATION_FAILED";
-    // (undocumented)
     static readonly errorName = "AuthenticationFailedError";
 }
 
 // @public
 export interface BinaryInfo {
-    // (undocumented)
     readonly path: string;
-    // (undocumented)
     readonly requestedPath?: string;
-    // (undocumented)
     readonly source: 'option' | 'native-install' | 'path' | (string & {});
-    // (undocumented)
     readonly verification: BinaryVerification;
     readonly version: string;
 }
 
 // @public
 export class BinaryNotFoundError extends HudhudError {
-    // (undocumented)
     static readonly code = "BINARY_NOT_FOUND";
-    // (undocumented)
     static readonly errorName = "BinaryNotFoundError";
 }
 
 // @public
 export class BinaryProbeError extends HudhudError {
-    // (undocumented)
     static readonly code = "BINARY_PROBE_FAILED";
-    // (undocumented)
     static readonly errorName = "BinaryProbeError";
 }
 
 // @public
 export class BinaryRefusedError extends HudhudError {
-    // (undocumented)
     static readonly code = "BINARY_REFUSED";
-    // (undocumented)
     static readonly errorName = "BinaryRefusedError";
 }
 
@@ -80,7 +64,6 @@ export class BinaryRefusedError extends HudhudError {
 export interface BinaryVerification {
     readonly detail?: string;
     readonly method: 'os-signature' | 'sha256-manifest' | 'none' | (string & {});
-    // (undocumented)
     readonly mode: VerificationMode;
     readonly status: 'verified' | 'unverified' | 'failed' | (string & {});
     readonly transient?: true;
@@ -88,9 +71,7 @@ export interface BinaryVerification {
 
 // @public
 export class BinaryVerificationError extends HudhudError {
-    // (undocumented)
     static readonly code = "BINARY_VERIFICATION_FAILED";
-    // (undocumented)
     static readonly errorName = "BinaryVerificationError";
 }
 
@@ -102,32 +83,23 @@ export type Capability = 'supported' | 'emulated' | 'unsupported' | (string & {}
 
 // @public
 export class CapabilityUnsupportedError extends HudhudError {
-    // (undocumented)
     static readonly code = "CAPABILITY_UNSUPPORTED";
-    // (undocumented)
     static readonly errorName = "CapabilityUnsupportedError";
 }
 
 // @public
 export interface CompatInfo {
-    // (undocumented)
     readonly harness: string;
-    // (undocumented)
     readonly knownBroken: readonly string[];
-    // (undocumented)
     readonly maxTested: string;
-    // (undocumented)
     readonly minTested: string;
     readonly status: 'tested' | 'untested' | 'known-broken' | (string & {});
-    // (undocumented)
     readonly version: string;
 }
 
 // @public
 export class ControlRequestError extends HudhudError {
-    // (undocumented)
     static readonly code = "CONTROL_REQUEST_FAILED";
-    // (undocumented)
     static readonly errorName = "ControlRequestError";
 }
 
@@ -136,17 +108,13 @@ export function credentialEnvNames(env: EnvMap): readonly string[];
 
 // @public
 export class CwdInvalidError extends HudhudError {
-    // (undocumented)
     static readonly code = "CWD_INVALID";
-    // (undocumented)
     static readonly errorName = "CwdInvalidError";
 }
 
 // @public
 export class CwdTooLongError extends HudhudError {
-    // (undocumented)
     static readonly code = "CWD_TOO_LONG";
-    // (undocumented)
     static readonly errorName = "CwdTooLongError";
 }
 
@@ -161,67 +129,48 @@ export type EnvMap = Readonly<Record<string, string | undefined>>;
 
 // @public
 export interface ErrorData {
-    // (undocumented)
     readonly code: HudhudErrorCode | (string & {});
-    // (undocumented)
     readonly details?: JsonObject;
-    // (undocumented)
     readonly message: string;
-    // (undocumented)
     readonly retryable: boolean;
 }
 
 // @public
 export interface EventBase {
     readonly seq: number;
-    // (undocumented)
     readonly sessionId: string;
     readonly ts: string;
 }
 
 // @public
 export class HandshakeError extends HudhudError {
-    // (undocumented)
     static readonly code = "HANDSHAKE_FAILED";
-    // (undocumented)
     static readonly errorName = "HandshakeError";
 }
 
 // @public
 export class HandshakeTimeoutError extends HudhudError {
-    // (undocumented)
     static readonly code = "HANDSHAKE_TIMEOUT";
-    // (undocumented)
     static readonly errorName = "HandshakeTimeoutError";
 }
 
 // @public
 export interface Harness extends AsyncDisposable {
-    // (undocumented)
     readonly binary: BinaryInfo;
-    // (undocumented)
     readonly capabilities: HarnessCapabilities;
-    // (undocumented)
     readonly compat: CompatInfo;
-    // (undocumented)
     readonly securityPosture: SecurityPosture;
 }
 
 // @public
 export interface HarnessCapabilities {
-    // (undocumented)
     readonly fork: Capability;
-    // (undocumented)
     readonly interrupt: Capability;
-    // (undocumented)
     readonly multiTurn: Capability;
-    // (undocumented)
     readonly permissionsInBand: Capability;
     readonly processContainment: ProcessContainment;
     readonly reasons: Readonly<Record<string, string>>;
-    // (undocumented)
     readonly resume: Capability;
-    // (undocumented)
     readonly workspaceTrust: {
         readonly none: Capability;
         readonly context: Capability;
@@ -231,17 +180,13 @@ export interface HarnessCapabilities {
 
 // @public
 export class HarnessDisposedError extends HudhudError {
-    // (undocumented)
     static readonly code = "HARNESS_DISPOSED";
-    // (undocumented)
     static readonly errorName = "HarnessDisposedError";
 }
 
 // @public
 export class HarnessVersionKnownBrokenError extends HudhudError {
-    // (undocumented)
     static readonly code = "HARNESS_VERSION_KNOWN_BROKEN";
-    // (undocumented)
     static readonly errorName = "HarnessVersionKnownBrokenError";
 }
 
@@ -252,13 +197,10 @@ export const HUDHUD_ERROR_CODES: readonly ["INVALID_OPTIONS", "CAPABILITY_UNSUPP
 export abstract class HudhudError extends Error {
     constructor(message: string, options?: HudhudErrorOptions);
     static readonly code: HudhudErrorCode;
-    // (undocumented)
     readonly code: HudhudErrorCode;
-    // (undocumented)
     readonly details?: HudhudErrorDetails;
     static readonly errorName: string;
     static fromData(data: KnownErrorData): HudhudError;
-    // (undocumented)
     readonly retryable: boolean;
     toData(): KnownErrorData;
     toJSON(): KnownErrorData;
@@ -421,9 +363,7 @@ export type HudhudEventOf<T extends string> = T extends unknown ? [Extract<Hudhu
 
 // @public
 export class InvalidOptionsError extends HudhudError {
-    // (undocumented)
     static readonly code = "INVALID_OPTIONS";
-    // (undocumented)
     static readonly errorName = "InvalidOptionsError";
 }
 
@@ -460,9 +400,7 @@ export const MIN_ENV_SECRET_LENGTH = 8;
 
 // @public
 export class OutboundFrameTooLargeError extends HudhudError {
-    // (undocumented)
     static readonly code = "OUTBOUND_FRAME_TOO_LARGE";
-    // (undocumented)
     static readonly errorName = "OutboundFrameTooLargeError";
 }
 
@@ -471,9 +409,7 @@ export type OverflowPolicy = 'error' | 'drop-oldest-with-gap-marker' | 'block';
 
 // @public
 export class OversizedFrameError extends ProtocolError {
-    // (undocumented)
     static readonly code = "OVERSIZED_FRAME";
-    // (undocumented)
     static readonly errorName = "OversizedFrameError";
 }
 
@@ -508,29 +444,18 @@ export type PermissionHandler = (request: PermissionRequest, ctx: {
 
 // @public
 export interface PermissionRequest {
-    // (undocumented)
     readonly blockedPath?: string;
     readonly decisionReason?: string;
-    // (undocumented)
     readonly description?: string;
-    // (undocumented)
     readonly displayName?: string;
-    // (undocumented)
     readonly input: JsonValue;
-    // (undocumented)
     readonly raw: JsonValue;
-    // (undocumented)
     readonly requestId: string;
-    // (undocumented)
     readonly sessionId: string;
     readonly suggestions: readonly JsonValue[];
-    // (undocumented)
     readonly title?: string;
-    // (undocumented)
     readonly toolName: string;
-    // (undocumented)
     readonly toolUseId: string;
-    // (undocumented)
     readonly turnId?: string;
 }
 
@@ -552,37 +477,28 @@ export type ProcessContainment = 'job' | 'best-effort' | 'cgroup' | (string & {}
 
 // @public
 export class ProcessExitedError extends HudhudError {
-    // (undocumented)
     static readonly code = "PROCESS_EXITED";
-    // (undocumented)
     static readonly errorName = "ProcessExitedError";
 }
 
 // @public
 export class ProjectCredentialEnvError extends HudhudError {
-    // (undocumented)
     static readonly code = "PROJECT_CREDENTIAL_ENV";
-    // (undocumented)
     static readonly errorName = "ProjectCredentialEnvError";
     static fromFindings(findings: ProjectCredentialFindings): ProjectCredentialEnvError;
 }
 
 // @public
 export interface ProjectCredentialFindings {
-    // (undocumented)
     readonly apiKeyHelper: boolean;
-    // (undocumented)
     readonly files: readonly string[];
-    // (undocumented)
     readonly unparseable: readonly string[];
     readonly variables: readonly string[];
 }
 
 // @public
 export class ProtocolError extends HudhudError {
-    // (undocumented)
     static readonly code: HudhudErrorCode;
-    // (undocumented)
     static readonly errorName: string;
 }
 
@@ -611,19 +527,14 @@ export function secretsFromEnv(env: EnvMap): readonly string[];
 
 // @public
 export interface SecurityPosture {
-    // (undocumented)
     readonly entries: readonly SecurityPostureEntry[];
 }
 
 // @public
 export interface SecurityPostureEntry {
-    // (undocumented)
     readonly defaultValue: JsonValue;
-    // (undocumented)
     readonly deviates: boolean;
-    // (undocumented)
     readonly setting: string;
-    // (undocumented)
     readonly value: JsonValue;
 }
 
@@ -640,9 +551,7 @@ export interface Session extends AsyncDisposable {
     }): Promise<void>;
     readonly closed: Promise<void>;
     events(opts?: SubscriberOptions): AsyncIterable<HudhudEvent>;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
     readonly info: SessionInfo;
     send(input: UserInput, opts?: {
         readonly signal?: AbortSignal;
@@ -655,61 +564,45 @@ export interface Session extends AsyncDisposable {
 
 // @public
 export class SessionClosedError extends HudhudError {
-    // (undocumented)
     static readonly code = "SESSION_CLOSED";
-    // (undocumented)
     static readonly errorName = "SessionClosedError";
 }
 
 // @public
 export class SessionIdInUseError extends HudhudError {
-    // (undocumented)
     static readonly code = "SESSION_ID_IN_USE";
-    // (undocumented)
     static readonly errorName = "SessionIdInUseError";
 }
 
 // @public
 export interface SessionInfo {
-    // (undocumented)
     readonly apiKeySource?: string;
     readonly cliPid?: number;
     readonly containment: ProcessContainment;
-    // (undocumented)
     readonly features: readonly string[];
-    // (undocumented)
     readonly forkedFrom?: string;
-    // (undocumented)
     readonly id: string;
-    // (undocumented)
     readonly mode: 'create' | 'resume' | 'fork' | (string & {});
     readonly pid: number;
     readonly tokenSource?: string;
-    // (undocumented)
     readonly version: string;
 }
 
 // @public
 export class SessionNotFoundError extends HudhudError {
-    // (undocumented)
     static readonly code = "SESSION_NOT_FOUND";
-    // (undocumented)
     static readonly errorName = "SessionNotFoundError";
 }
 
 // @public
 export class SessionPoisonedError extends HudhudError {
-    // (undocumented)
     static readonly code = "SESSION_POISONED";
-    // (undocumented)
     static readonly errorName = "SessionPoisonedError";
 }
 
 // @public
 export class SpawnError extends HudhudError {
-    // (undocumented)
     static readonly code = "SPAWN_FAILED";
-    // (undocumented)
     static readonly errorName = "SpawnError";
 }
 
@@ -726,9 +619,7 @@ export interface SubscriberOptions {
 
 // @public
 export class SubscriberOverflowError extends HudhudError {
-    // (undocumented)
     static readonly code = "SUBSCRIBER_OVERFLOW";
-    // (undocumented)
     static readonly errorName = "SubscriberOverflowError";
 }
 
@@ -746,9 +637,7 @@ export interface Turn extends AsyncIterable<HudhudEvent> {
 
 // @public
 export class TurnDroppedError extends HudhudError {
-    // (undocumented)
     static readonly code = "TURN_DROPPED";
-    // (undocumented)
     static readonly errorName = "TurnDroppedError";
 }
 
@@ -757,47 +646,30 @@ export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'max-turns' | 'm
 
 // @public
 export interface TurnResult {
-    // (undocumented)
     readonly apiErrorStatus?: number;
-    // (undocumented)
     readonly errors?: readonly string[];
-    // (undocumented)
     readonly isError: boolean;
-    // (undocumented)
     readonly outcome: TurnOutcome;
-    // (undocumented)
     readonly permissionDenials: readonly {
         readonly toolName: string;
         readonly toolUseId: string;
     }[];
-    // (undocumented)
     readonly raw?: JsonValue;
-    // (undocumented)
     readonly sessionId: string;
-    // (undocumented)
     readonly stopReason?: StopReason;
     readonly synthesized: boolean;
-    // (undocumented)
     readonly terminalReason?: string;
-    // (undocumented)
     readonly text?: string;
-    // (undocumented)
     readonly turnId: string;
-    // (undocumented)
     readonly usage?: UsageTotals;
 }
 
 // @public
 export interface UsageTotals {
-    // (undocumented)
     readonly cacheCreationInputTokens?: number;
-    // (undocumented)
     readonly cacheReadInputTokens?: number;
-    // (undocumented)
     readonly costUsd?: number;
-    // (undocumented)
     readonly inputTokens?: number;
-    // (undocumented)
     readonly outputTokens?: number;
 }
 
