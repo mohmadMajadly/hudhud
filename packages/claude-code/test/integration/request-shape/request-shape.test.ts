@@ -15,6 +15,18 @@
 // - 07 §1 (resume matrix) a2/a8: `--resume` loads the history, so the
 //   request carries every earlier message.
 // - 05 §14: the same scenario on Linux and Windows.
+//
+// The snapshots follow the pin (2.1.302 since COMPAT-1, 2026-10-18). The
+// one change from 2.1.296: from 2.1.299 on the CLI no longer sends the
+// anthropic-beta value mid-conversation-system-2026-04-07, while the
+// requests still carry the mid-conversation role:"system" messages (the
+// bundle registers the feature without a header: 2.1.296
+// `v("mid_conversation_system","mid-conversation-system-2026-04-07")`,
+// 2.1.299 `Wy("mid_conversation_system")` = `{ header: null }`). Measured on
+// Linux and Windows for 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302:
+// 2.1.299 to 2.1.302 send identical shapes. A run against 2.1.296 now reports
+// the extra value as an additive finding (a warning), as the rolling window
+// expects of an older admitted release (ADR-0004 §4).
 
 import { expect, test } from 'vitest';
 

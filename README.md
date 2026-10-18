@@ -28,7 +28,7 @@ hudhud has not been released yet: every package is at version `0.0.0` and none i
 npm install hudhudjs
 ```
 
-`hudhudjs` re-exports `@hudhudjs/core` and `@hudhudjs/claude-code`, which can also be installed directly. Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296. See [Getting started](docs/guide/getting-started.md).
+`hudhudjs` re-exports `@hudhudjs/core` and `@hudhudjs/claude-code`, which can also be installed directly. Requirements: Node.js 22.12.0 or newer, and Claude Code installed and signed in by whoever runs your application; hudhud does not bundle or install it. Tested with Claude Code 2.1.296 to 2.1.302. See [Getting started](docs/guide/getting-started.md).
 
 ## What it does
 

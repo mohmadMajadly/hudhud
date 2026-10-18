@@ -28,7 +28,7 @@ try {
 
 - Node.js 22.12.0 or newer.
 - Claude Code, installed and signed in by whoever runs your application. hudhud does not bundle, install or update it, and has no login flow. Embedding or running Claude Code in a product is subject to Anthropic's terms.
-- Tested with Claude Code 2.1.296 (`CLAUDE_CODE_COMPAT`); other versions run with a warning.
+- Tested with Claude Code 2.1.296 to 2.1.302 (`CLAUDE_CODE_COMPAT`); other versions run with a warning.
 - Windows x64, Linux x64 and macOS arm64 are tested end to end; macOS x64 passed the macOS gate; Windows and Linux arm64 are not tested.
 
 ## What is exported
