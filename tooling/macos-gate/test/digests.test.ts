@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -18,6 +20,7 @@ import {
   type Release,
 } from '../../test-support/test/cli/fake-registry.js';
 import {
+  DEFAULT_SDK_CLI_VERSION,
   DEFAULT_SDK_VERSION,
   digestRecord,
   fetchGateBinary,
@@ -26,6 +29,7 @@ import {
 
 const VERSION = '2.1.296';
 const SDK_VERSION = '0.3.296';
+const PIN_PATH = fileURLToPath(new URL('../../cli-pin.json', import.meta.url));
 const NOW = new Date('2026-10-12T17:00:00.000Z');
 const HOST = process.platform;
 
@@ -190,8 +194,12 @@ describe('sdkCrossCheck with the explicit SDK version of the gate', () => {
       sdkVersion,
     );
 
-  it('defaults to the SDK release that bundles CLI 2.1.296 (research 05 §1)', () => {
-    expect(DEFAULT_SDK_VERSION).toBe(SDK_VERSION);
+  it('defaults to the SDK release that bundles the pinned CLI (research 05 §1)', () => {
+    // npm view @anthropic-ai/claude-agent-sdk@0.3.302 claudeCodeVersion: 2.1.302
+    expect(DEFAULT_SDK_VERSION).toBe('0.3.302');
+    expect(DEFAULT_SDK_CLI_VERSION).toBe('2.1.302');
+    const pin = JSON.parse(readFileSync(PIN_PATH, 'utf8')) as { version: string };
+    expect(DEFAULT_SDK_CLI_VERSION).toBe(pin.version);
   });
 
   it('refuses an invalid SDK version before any request', async () => {

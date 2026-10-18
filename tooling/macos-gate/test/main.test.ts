@@ -80,7 +80,7 @@ describe('parseGateArgs', () => {
     ).toEqual({
       out: '/o/res',
       expectArch: 'arm64',
-      sdkVersion: '0.3.296',
+      sdkVersion: '0.3.302',
       pin: '/repo/tooling/cli-pin.json',
       cache: '/o/cli-cache',
       summary: undefined,

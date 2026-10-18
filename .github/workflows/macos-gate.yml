@@ -35,10 +35,12 @@ on:
     inputs:
       sdk-version:
         description: >-
-          @anthropic-ai/claude-agent-sdk version whose manifest.json describes the
-          pinned CLI (0.3.296 bundles CLI 2.1.296)
+          Optional: the @anthropic-ai/claude-agent-sdk version whose
+          manifest.json describes the pinned CLI. Empty: the gate's default,
+          the SDK release that bundles the pin (DEFAULT_SDK_VERSION in
+          tooling/macos-gate/src/digests.ts, tested against the pin)
         type: string
-        default: '0.3.296'
+        default: ''
 
 permissions: {}
 
@@ -99,7 +101,7 @@ jobs:
           --out "$RUNNER_TEMP/macos-gate/results"
           --cache "$RUNNER_TEMP/macos-gate/cli-cache"
           --expect-arch "$EXPECT_ARCH"
-          --sdk-version "$SDK_VERSION"
+          ${SDK_VERSION:+--sdk-version "$SDK_VERSION"}
 
       - name: Print the results into the log
         if: always()
