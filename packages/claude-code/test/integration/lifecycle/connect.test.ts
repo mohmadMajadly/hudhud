@@ -149,6 +149,10 @@ test('version drift reporting: no drift between the probe and the running CLI', 
     expect(diagnostics(events, 'binary.version-changed')).toEqual([]);
     expect(ofType(events, 'session.started')[0]?.version).toBe(harness.binary.version);
     expect(ofType(events, 'compat')[0]?.compat.status).toBe(suite.expectedCompatStatus);
+    // An untested CLI (a canary's newer one) is also a typed start diagnostic.
+    expect(diagnostics(events, 'compat.untested')).toHaveLength(
+      suite.expectedCompatStatus === 'untested' ? 1 : 0,
+    );
     const turnStarted = ofType(events, 'turn.started')[0];
     expect(JSON.stringify(turnStarted?.raw)).toContain(
       `"claude_code_version":"${harness.binary.version}"`,
