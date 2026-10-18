@@ -1,0 +1,196 @@
+# Release: verify, then publish to npm with trusted publishing (ADR-0014
+# amendment 12; release runbook: docs/plan/v1-release-checklist.md §7).
+#
+# A tag `v<version>` (the version of the changesets fixed group hudhudjs,
+# @hudhudjs/core, @hudhudjs/claude-code; ADR-0014 amendment 10) runs:
+#
+#   verify ── addon-prebuild.yml phase 2 (workflow_call): the addon builds
+#     │       must reproduce the release record, test-x64, and release-verify:
+#     │       the tag check over the packed bytes (check-tarball --release-tag)
+#     │       and the full tarball check over the same tarballs, which it
+#     │       keeps as the artifact `release-tarballs`
+#   gate ──── the tagged commit is on main and its ci.yml push run passed
+#     │
+#     └─ publish (needs both; environment `npm-publish`, the only job with
+#        id-token: write): the pinned npm, then scripts/release.mjs publish:
+#        the checked tarballs in order (@hudhudjs/win32-job-x64, @hudhudjs/core,
+#        @hudhudjs/claude-code, hudhudjs), each version only if the registry
+#        does not hold it yet (same bytes: skipped; other bytes: stop), with
+#        provenance; a failure stops it and the job summary gives the
+#        recovery steps.
+#
+# Every other trigger is a dry run of the same graph that publishes nothing:
+# a push to a `release-dry/**` branch (works before this file is on main) or
+# a dispatch (only once it is on main, which GitHub requires). release-verify
+# then simulates the version PR in its working copy (scripts/release.mjs
+# simulate-version: changeset version, and a record for the addon version it
+# gives when the committed one is another; nothing is committed) and checks
+# the tag that version PR would get, the gate only reports, and
+# `publish-dry-run` runs `npm publish --dry-run` on every checked tarball.
+#
+# Security (ADR-0014): no secret and no npm token anywhere; the publish job
+# authenticates by OIDC (npm trusted publishing: this repository, this file
+# `release.yml`, the environment `npm-publish`), and scripts/release.mjs
+# refuses a real publish off its tag, without an OIDC token or with any npm
+# token in its environment. Only the publish job holds id-token: write; every
+# job holds contents: read, the gate also actions: read. Never on a fork.
+# Actions pinned by full commit SHA; checkout keeps no credentials; no cache;
+# artifact downloads verify their digest; the npm CLI is the pinned version,
+# its tarball checked against the pinned sha512 before it is installed.
+# Inputs reach scripts through the environment, never by interpolation.
+#
+# Timeouts (K15): the jobs of this file have not run yet; estimates x 2 until
+# measured: gate under 1 min (5); publish about 3 min (npm install, four
+# publishes with provenance) (10); publish-dry-run about 1 min (10). verify:
+# addon-prebuild.yml's timeouts.
+#
+# Cost of a run: addon-prebuild phase 2 (two Windows builds, test-x64,
+# release-verify on Windows) plus three short Linux jobs: about 25 Windows
+# minutes, so about 55 Linux-equivalent minutes (planning multipliers of 04
+# §1), plus ci.yml FULL for a tag.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['release-dry/**']
+  workflow_dispatch:
+
+permissions: {}
+
+# One release at a time: a second tag waits for the first and is never
+# cancelled; a dry run waits per branch.
+concurrency:
+  group: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'release-publish' || format('release-dry-{0}', github.ref) }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # npm trusted publishing needs npm 11.5.1 or later on Node 22.14.0 or later
+  # (docs.npmjs.com, "Trusted publishing for npm packages", read 2026-10-18).
+  # 11.21.0 (2026-09-30; engines ^20.17.0 || >=22.9.0), dist.integrity from
+  # https://registry.npmjs.org/npm (read 2026-10-18).
+  NPM_VERSION: 11.21.0
+  NPM_INTEGRITY: sha512-Zov8KhamNneiLdELtj5YALtNmJW4L4fCLTzjfpzXG2w6MSHcf0UxgdlK5uloCuksWT+7mGUU7wi79cO6RqivPg==
+
+jobs:
+  verify:
+    name: verify
+    if: ${{ !github.event.repository.fork }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/addon-prebuild.yml
+    with:
+      phase: verify
+      tag: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || '' }}
+      dry_run: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
+
+  gate:
+    name: gate (on main, CI green)
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    # Two GitHub API requests; under 1 min estimated, x 2 and margin.
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: The tagged commit is on main and its ci.yml push run passed
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release.mjs gate --tag "$GITHUB_REF_NAME"
+
+      - name: Report what the gate would decide (dry run)
+        if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release.mjs gate --tag "$GITHUB_REF_NAME" --report-only
+
+  publish:
+    name: publish to npm
+    needs: [verify, gate]
+    if: ${{ !github.event.repository.fork && github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-24.04
+    # Not measured yet: about 3 min estimated (npm install, four publishes
+    # with provenance), x 2 and margin. Waiting for the environment's
+    # approval does not count.
+    timeout-minutes: 10
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install the pinned npm (sha512 checked)
+        run: node scripts/release.mjs install-npm
+
+      - name: Download the checked tarballs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/release-tarballs
+          digest-mismatch: error
+
+      - name: Publish in order (versions already on the registry are skipped)
+        run: node scripts/release.mjs publish --tarballs "$RUNNER_TEMP/release-tarballs" --tag "$GITHUB_REF_NAME"
+
+  publish-dry-run:
+    name: publish (dry run)
+    needs: [verify, gate]
+    if: ${{ !github.event.repository.fork && !(github.event_name == 'push' && github.ref_type == 'tag') }}
+    runs-on: ubuntu-24.04
+    # Not measured yet: about 1 min estimated; the publish job's 10.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install the pinned npm (sha512 checked)
+        run: node scripts/release.mjs install-npm
+
+      - name: Download the checked tarballs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarballs
+          path: ${{ runner.temp }}/release-tarballs
+          digest-mismatch: error
+
+      - name: npm publish --dry-run of every checked tarball, in order
+        env:
+          DRY_TAG: ${{ needs.verify.outputs.tag }}
+        run: node scripts/release.mjs publish --tarballs "$RUNNER_TEMP/release-tarballs" --tag "$DRY_TAG" --dry-run
