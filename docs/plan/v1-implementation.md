@@ -1435,6 +1435,33 @@ FX-F (a random property failure, and the Dependabot pins), as built:
 - `FC_SEED` reproduces every property (§4.1 claimed it, but 26 test files with their own `fc.assert` parameters ignored it): the `unit` setup file sets fast-check's global seed from it (`tooling/test-support/src/fast-check-seed.ts`; a malformed value stops the run). Runs stay random when it is unset; fast-check prints `{ seed, path }` on every failure. CONTRIBUTING "Property tests and their seeds" documents the replay.
 - Dependabot PRs #1 to #3 are replaced by one commit that bumps all 19 pins under `.github` (they missed the ones added since they were opened): `actions/setup-node` v7.1.0 (`949feb2…`, 11 pins) and `actions/upload-artifact` v7.0.2 (`cf430e0…`, 8 pins); actionlint 1.7.12 is clean.
 
+#### COMPAT-1: the CLI versions users have installed (owner decision 2026-10-18), as built
+
+- Versions. The npm registry document of `@anthropic-ai/claude-code`, read through `scripts/lib/nightly.mjs` `readRegistry` on 2026-10-18, lists 2.1.299, 2.1.300, 2.1.301 and 2.1.302 after the pin 2.1.296 (2.1.297 and 2.1.298 were never published). `latest` is 2.1.302. The Agent SDK releases 0.3.299 to 0.3.302 each bundle the CLI of the same patch number (`claudeCodeVersion`).
+- Root cause of the weekly canary's `mock-inadequate` on 2.1.302 (run 39007231457): a request-shape snapshot finding, not a gap in the mock. From 2.1.299 on, the CLI no longer sends the `anthropic-beta` value `mid-conversation-system-2026-04-07`. The requests still carry the mid-conversation `role:"system"` messages, and the mock answers them as before. In the bundled code the feature is registered without a header: 2.1.296 has `v("mid_conversation_system","mid-conversation-system-2026-04-07")`, 2.1.299 has `Wy("mid_conversation_system")`, which is `{ name, header: null }`. Measured through the canary path (`fetch-cli --channel newest --version`, `HUDHUD_CLI_CHANNEL=newest`) on Windows and in `node:22-bookworm`, for 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302:
+  - 2.1.296 matches the committed snapshots;
+  - 2.1.299 to 2.1.302 differ from them only by that value, 7 removals per platform, and are identical to each other;
+  - the mock, the egress trap and the request-shape assertions are unchanged.
+  The snapshots of 2.1.302 replace the old ones (linux and win32 from the update mode; darwin by the same 7 removals, confirmed by the bump PR's macOS run). A run against 2.1.296 now reports the extra value as an additive finding.
+- The bump. `pnpm cli:bump` ran four times in order, each with the SDK release that bundles the version. All 16 platform binaries were cross-check `verified`. `KNOWN_BINARIES` holds 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302 for all four platforms. `CLAUDE_CODE_COMPAT` is 2.1.296 to 2.1.302. `Get-AuthenticodeSignature` reads the pinned subject and the same leaf certificate (60C2D9C5…, valid to 2027-10-29) on the four new win32-x64 binaries.
+- Conformance. The fixtures were re-recorded at 2.1.302 on Windows (subst-drive root) and Linux (`node:22-bookworm`): 37 cases each, 0 egress violations, 0 leaks, 0 outside writes, and the plain copies privacy-scanned clean. The frame changes are additive only:
+  - `system/init` gains `original_cwd`, `additional_directories`, `user_message_uuids` and the capability `mcp_call_result_not_for_model_v1`, which hudhud passes through in `session.info.features`;
+  - `initialize`'s models gain `supportsThinkingOff`;
+  - a synthetic error `assistant` gains `api_error_status`.
+  The update mode rewrote the expect files. Every case's declared outcome summary is unchanged. Four files order the graceful close differently, because the recorder's EOF came before the CLI's idle frame and the drain now ends stdin at idle. This is a recording timing difference with the same outcomes.
+- Verification of the window (bump commit, local). The whole integration project ran against each of the five versions: the pin 2.1.302 through the pinned channel, the others through the canary path.
+  - Windows 11, job addon staged: 94 passed and 7 skipped (POSIX-only) for every version, about 5 min each.
+  - Linux, `node:22-bookworm`: 96 passed for every version, about 2.5 min each.
+  - Zero failures, empty test roots. The only findings are the 4 additive request-shape warnings of 2.1.296.
+  - macOS: the bump PR's FULL run (2.1.302) and weekly canary dispatches with `version` for 2.1.296 (already gated), 2.1.299, 2.1.300 and 2.1.301 (checklist 1.8).
+- Environment names (checklist 1.14) of 2.1.302 against 2.1.296, read from the binaries' strings, never run: 22 new and 2 gone. None is a new provider switch, a refused family or credential-shaped; the list and a ruling request are in the checklist.
+- Rolling window ([ADR-0004](../adr/0004-packages-and-versioning.md) §4 amendment, [ADR-0013](../adr/0013-testing-strategy.md) §12, [ADR-0014](../adr/0014-ci-strategy.md) amendment 12):
+  - `maxTested` is the pin and `minTested` the oldest kept release, with every release in between admitted and in the digest table;
+  - admission is a green integration run on Linux, Windows and macOS; the canaries give it for the newest release, and a dispatch with the new `version` input gives it for any release;
+  - retention is 30 days of publication before the pin;
+  - before each release, the lead dispatches a window run of `minTested` (checklist 1.15).
+  The integration harness judges `compat` and `binary.verification` by the committed window and table. An untested version stays a warning. It is now also a typed start diagnostic, `compat.untested` (`data`: the `compat` object), and the connect suite asserts it against the CLI under test.
+
 ### 5.10 Summary table
 
 | Wave | Tasks (parallel) | Model mix | Ends with |
