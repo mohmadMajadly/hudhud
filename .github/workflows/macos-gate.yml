@@ -91,6 +91,19 @@ jobs:
           pnpm exec esbuild tooling/macos-gate/bin/macos-gate.mjs --bundle --platform=node
           --format=esm --target=node22 --outfile="$RUNNER_TEMP/macos-gate/macos-gate.mjs"
 
+      - name: Warm the per-user xcrun lookup cache (ADR-0010 residual 1)
+        # A fresh macOS runner has no xcrun lookup cache: the CLI's first
+        # /usr/bin/git makes the xcrun shim run `sh -c xcodebuild -find git`
+        # (0.4 to 1.6 s measured, diag runs 39167046805 to 39167200234; more on
+        # a slow runner) and cache the answer in the per-user temp directory
+        # (getconf DARWIN_USER_TEMP_DIR, not TMPDIR). When the shim ends before
+        # that lookup, the lookup outlives it reparented to init, which hudhud
+        # cannot tie to the session (ADR-0010 residual 1); main push run
+        # 39164377983 failed on it twice. A user's cache is warm after the
+        # first git; this gives the runner that state. The leak check is
+        # unchanged.
+        run: /usr/bin/git --version
+
       - name: Run the seven gate items
         timeout-minutes: 35
         env:
@@ -193,6 +206,19 @@ jobs:
           pnpm exec esbuild tooling/macos-gate/bin/integration-evidence.mjs --bundle
           --platform=node --format=esm --target=node22
           --outfile="$RUNNER_TEMP/integration-evidence.mjs"
+
+      - name: Warm the per-user xcrun lookup cache (ADR-0010 residual 1)
+        # A fresh macOS runner has no xcrun lookup cache: the CLI's first
+        # /usr/bin/git makes the xcrun shim run `sh -c xcodebuild -find git`
+        # (0.4 to 1.6 s measured, diag runs 39167046805 to 39167200234; more on
+        # a slow runner) and cache the answer in the per-user temp directory
+        # (getconf DARWIN_USER_TEMP_DIR, not TMPDIR). When the shim ends before
+        # that lookup, the lookup outlives it reparented to init, which hudhud
+        # cannot tie to the session (ADR-0010 residual 1); main push run
+        # 39164377983 failed on it twice. A user's cache is warm after the
+        # first git; this gives the runner that state. The leak check is
+        # unchanged.
+        run: /usr/bin/git --version
 
       - name: 'Part 1: the integration project'
         id: integration

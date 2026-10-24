@@ -210,6 +210,19 @@ jobs:
         id: fetch
         run: node tooling/test-support/bin/fetch-cli.mjs --channel newest --version "$CANARY_VERSION"
 
+      - name: Warm the per-user xcrun lookup cache (ADR-0010 residual 1)
+        # A fresh macOS runner has no xcrun lookup cache: the CLI's first
+        # /usr/bin/git makes the xcrun shim run `sh -c xcodebuild -find git`
+        # (0.4 to 1.6 s measured, diag runs 39167046805 to 39167200234; more on
+        # a slow runner) and cache the answer in the per-user temp directory
+        # (getconf DARWIN_USER_TEMP_DIR, not TMPDIR). When the shim ends before
+        # that lookup, the lookup outlives it reparented to init, which hudhud
+        # cannot tie to the session (ADR-0010 residual 1); main push run
+        # 39164377983 failed on it twice. A user's cache is warm after the
+        # first git; this gives the runner that state. The leak check is
+        # unchanged.
+        run: /usr/bin/git --version
+
       - name: Integration suite against it (includes the settings lookup check)
         run: |
           mkdir -m 700 "$HUDHUD_TEST_ROOT"
