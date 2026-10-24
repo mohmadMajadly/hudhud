@@ -5,6 +5,9 @@ import { CLAUDE_TOOL_KINDS, claudeToolKind } from '../../../src/protocol/events/
 const TABLE: readonly (readonly [string, string])[] = [
   ['Bash', 'execute'],
   ['PowerShell', 'execute'],
+  // CLI 2.1.310: a command started in the background, like Bash with
+  // run_in_background.
+  ['Monitor', 'execute'],
   ['Read', 'read'],
   ['NotebookRead', 'read'],
   ['Edit', 'edit'],
@@ -17,6 +20,10 @@ const TABLE: readonly (readonly [string, string])[] = [
   ['Task', 'other'],
   ['Skill', 'other'],
   ['TodoWrite', 'other'],
+  ['ToolSearch', 'other'],
+  ['TaskStop', 'other'],
+  ['EnterPlanMode', 'other'],
+  ['monitor', 'other'],
   ['mcp__server__tool', 'other'],
   ['bash', 'other'],
   ['read', 'other'],

@@ -355,7 +355,7 @@ Phases: `created -> handshaking -> ready <-> (turns active) -> draining -> termi
 
 #### `protocol/events/normalize.ts`, `tool-kind.ts` (internal)
 
-`normalizeFrame(frame, ctx) -> HudhudEventData[]` into the neutral vocabulary. Claude tool mapping: Bash, PowerShell -> execute; Read, NotebookRead -> read; Edit, Write, NotebookEdit -> edit; Glob, Grep -> search; WebFetch, WebSearch -> fetch; everything else -> other. Every event built from a frame carries `raw`; unmapped frames emit `harness.frame`.
+`normalizeFrame(frame, ctx) -> HudhudEventData[]` into the neutral vocabulary. Claude tool mapping: Bash, PowerShell, Monitor (added by fix/cli-2.1.310: CLI 2.1.310 enables it by default) -> execute; Read, NotebookRead -> read; Edit, Write, NotebookEdit -> edit; Glob, Grep -> search; WebFetch, WebSearch -> fetch; everything else -> other. Every event built from a frame carries `raw`; unmapped frames emit `harness.frame`.
 
 As built (W2-T5): `normalizeFrame` emits no turn or permission events. `system/init` yields nothing and `result` yields only `usage.update`; the turn machine builds `turn.started` and `turn.completed`, the permission machine `permission.requested`. `classifyResult(frame): { outcome, isError, stopReason? }` is exported for the turn machine (ruling C).
 

@@ -84,6 +84,21 @@ Every event has `seq` (a gapless number per session, starting at 0), `ts` (an IS
 
 No frame is dropped silently: a frame hudhud does not model arrives as `harness.frame`.
 
+### Tool kinds
+
+`tool.call`'s `kind` says what a tool does, in the vocabulary of the Agent Client Protocol, so an application can show or police tool calls without knowing every Claude Code tool by name. The Claude Code adapter maps by the exact tool name:
+
+| Claude Code tool                | `kind`      |
+| ------------------------------- | ----------- |
+| `Bash`, `PowerShell`, `Monitor` | `'execute'` |
+| `Read`, `NotebookRead`          | `'read'`    |
+| `Edit`, `Write`, `NotebookEdit` | `'edit'`    |
+| `Glob`, `Grep`                  | `'search'`  |
+| `WebFetch`, `WebSearch`         | `'fetch'`   |
+| every other tool, MCP tools too | `'other'`   |
+
+A tool gets the kind of its effect on your machine or the world. `Monitor` (on by default from Claude Code 2.1.310) runs a command in the background and reports each line it prints, as a Bash call with `run_in_background` does, so it is `'execute'`, its rarer WebSocket form included. Tools whose effect stays inside Claude Code, such as subagents, tasks, plan mode, `ToolSearch` and `AskUserQuestion`, are `'other'`. A later release may give a tool a more precise kind; handle unknown kinds as `'other'`.
+
 ## What a new subscriber receives first
 
 Some events happen before `create()` or `resume()` has returned the session to you, for example `session.started` and the diagnostics about the environment and the security posture. hudhud keeps them, and every `events()` subscriber receives, in `seq` order:
