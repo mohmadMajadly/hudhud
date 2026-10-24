@@ -264,6 +264,10 @@ describe('bumpReport', () => {
     expect(report).toContain(
       'HUDHUD_REQUEST_SHAPE_UPDATE=1 pnpm vitest run --project integration packages/claude-code/test/integration/request-shape',
     );
+    expect(report).toContain(
+      'a shape era to packages/claude-code/test/integration/request-shape/snapshots/eras.json',
+    );
+    expect(report).toContain("set the newest era's recordedWith to the new version");
     expect(report).toContain('dispatch .github/workflows/macos-gate.yml on it');
     expect(report).toContain('CLAUDE_CODE_PUBLISHER.darwinTeamId');
     expect(report).toContain('compare them with PROVIDER_FAMILIES');

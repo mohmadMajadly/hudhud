@@ -1,0 +1,11 @@
+{
+  "$comment": "Shape eras of the request-shape snapshots (ADR-0004 section 4, amendment of 2026-10-25; tooling/test-support/src/snapshots/shape-eras.ts). An era is a run of consecutive Claude Code releases that send the same request shapes; its snapshots live in the directory named by its first release (from) and were written by the update mode against recordedWith. A run judges the CLI under test against the era whose from is the last not above its version; a release newer than the newest recordedWith is judged against the newest era (the canary reports drift), one older than the first era against the first. A bump that changes the shapes semantically adds an era; one that does not re-records the newest era at the new pin.",
+  "format": 1,
+  "eras": [
+    {
+      "from": "2.1.296",
+      "recordedWith": "2.1.302",
+      "change": "The first era of the tested window (COMPAT-1, 2026-10-18): the shapes of 2.1.299 to 2.1.302, identical to each other. 2.1.296 also sends the anthropic-beta value mid-conversation-system-2026-04-07, which 2.1.299 dropped; against this set that is an additive finding (a warning)."
+    }
+  ]
+}

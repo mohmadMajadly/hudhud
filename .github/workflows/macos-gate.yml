@@ -148,7 +148,8 @@ jobs:
   #    research 11); a failure fails the job and is listed with its first
   #    line.
   # 2. The request-shape suite in update mode (HUDHUD_REQUEST_SHAPE_UPDATE=1):
-  #    every test writes its darwin snapshot and then fails on purpose; the
+  #    every test writes its darwin snapshot (in the snapshot set of the
+  #    pin's shape era) and then fails on purpose; the
   #    step passes only when every test failed for exactly that reason, one
   #    darwin snapshot exists per Linux scenario, and the written snapshots
   #    equal the committed ones byte for byte (the CLI's requests did not
@@ -254,13 +255,18 @@ jobs:
         timeout-minutes: 2
         run: |
           set +e
+          snapshots=packages/claude-code/test/integration/request-shape/snapshots
+          # The update run writes the snapshot set of the pin's shape era
+          # (snapshots/<era>/, ADR-0004 section 4, amendment of 2026-10-25).
+          if ! era=$(node "$RUNNER_TEMP/integration-evidence.mjs" era "$snapshots" "$GITHUB_WORKSPACE"); then
+            echo "The shape era of the pin could not be determined." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           node "$RUNNER_TEMP/integration-evidence.mjs" shapes "$EVIDENCE/request-shape-update.json" \
-            packages/claude-code/test/integration/request-shape/snapshots "$GITHUB_WORKSPACE" \
+            "$era" "$GITHUB_WORKSPACE" \
             | tee -a "$GITHUB_STEP_SUMMARY"
           status=${PIPESTATUS[0]}
-          cp packages/claude-code/test/integration/request-shape/snapshots/*.darwin.shape \
-            "$EVIDENCE/request-shape/" || true
-          snapshots=packages/claude-code/test/integration/request-shape/snapshots
+          cp "$era"/*.darwin.shape "$EVIDENCE/request-shape/" || true
           if ! git diff --exit-code --stat -- "$snapshots"; then
             echo "The update run changed committed snapshots (diff above)." | tee -a "$GITHUB_STEP_SUMMARY"
             status=1

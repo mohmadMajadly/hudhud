@@ -1,10 +1,14 @@
 // Request-shape snapshots (plan §4.4 "request-shape snapshots"; ADR-0013 §4).
 //
-// What the pinned CLI sends to the mock Messages API for representative
+// What the CLI under test sends to the mock Messages API for representative
 // hudhud scenarios, as normalized structural snapshots committed next to
-// this file (snapshots/*.<platform>.shape; the tool list differs between Linux and Windows). A semantic change fails, an additive change
-// warns; see support.ts for the rules and the update mode
-// (HUDHUD_REQUEST_SHAPE_UPDATE=1, which also fails the run).
+// this file: one set per shape era (snapshots/<era>/*.<platform>.shape; the
+// tool list differs between Linux and Windows), the era chosen by the CLI
+// version from snapshots/eras.json (ADR-0004 §4, amendment of 2026-10-25),
+// so every admitted release is judged against the shapes recorded for it. A
+// semantic change fails, an additive change warns; see support.ts for the
+// rules and the update mode (HUDHUD_REQUEST_SHAPE_UPDATE=1, which also fails
+// the run and writes the set of the era of the CLI under test).
 //
 // Evidence of the shapes, all for CLI 2.1.296:
 // - 05 §2 "Every endpoint the CLI hit": only POST /v1/messages?beta=true
@@ -16,8 +20,8 @@
 //   request carries every earlier message.
 // - 05 §14: the same scenario on Linux and Windows.
 //
-// The snapshots follow the pin (2.1.302 since COMPAT-1, 2026-10-18). The
-// one change from 2.1.296: from 2.1.299 on the CLI no longer sends the
+// The newest era is recorded at the pin (2.1.302 since COMPAT-1,
+// 2026-10-18), and it is the only era so far. The one change from 2.1.296: from 2.1.299 on the CLI no longer sends the
 // anthropic-beta value mid-conversation-system-2026-04-07, while the
 // requests still carry the mid-conversation role:"system" messages (the
 // bundle registers the feature without a header: 2.1.296
