@@ -47,6 +47,10 @@ test('text-turn: one user message, one streamed request (05 §2)', async () => {
   const result = await session.ask(`${TEXT} hello`);
   expect(result).toMatchObject({ outcome: 'completed', isError: false });
   await session.close();
+  // The control of session-options below: by default WebFetch is offered,
+  // as a tool or, under tool search (2.1.304 on), as a deferred tool.
+  const [request] = (await suite.mock()).requests;
+  expect(JSON.stringify(request?.body)).toContain('WebFetch');
   await checkRequestShape(suite, 'text-turn', 1);
 });
 
@@ -92,6 +96,12 @@ test('session-options: model, tool removal and appended system prompt reach the 
   expect(names).not.toContain('WebFetch');
   expect(names).not.toContain('WebSearch');
   expect(names).toContain('Bash');
+  // Under tool search a deferred tool is not in body.tools at all, so the
+  // check above alone would pass without the option: a disallowed tool must
+  // not be offered in any form, neither as a tool nor in the list of
+  // deferred tools (measured on 2.1.310: the list then omits both).
+  expect(JSON.stringify(body)).not.toContain('WebFetch');
+  expect(JSON.stringify(body)).not.toContain('WebSearch');
   await checkRequestShape(suite, 'session-options', 1);
 });
 
