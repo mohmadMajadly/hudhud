@@ -51,6 +51,25 @@ export function b64(text: string): string {
   return Buffer.from(text, 'utf8').toString('base64');
 }
 
+/**
+ * The command of a long foreground workload: `sleep <tag>` behind a no-op
+ * first statement.
+ *
+ * From CLI 2.1.310 on, the Bash tool refuses a foreground command whose
+ * first statement is `sleep N` with N >= 25 (`Blocked: standalone sleep N`,
+ * a `tool_use_error`, so no process starts) unless background tasks are
+ * disabled; it points the model to `run_in_background` and the Monitor
+ * tool. 2.1.296 to 2.1.309 carry the same check behind a feature flag
+ * (`tengu_amber_sentinel`) that is off without the CLI's remote
+ * configuration; 2.1.310 removed the flag (static reading of the bundles;
+ * measured with the mock on Windows and Linux). The check reads only the
+ * first statement, so `true && sleep <tag>` runs the same `sleep` child of
+ * the tool's shell on every version of the tested window.
+ */
+export function foregroundSleep(tag: string): string {
+  return `true && sleep ${tag}`;
+}
+
 /** The `[[mock:tool name=Bash ...]]` marker of a Bash tool call with the given input. */
 export function bashTool(input: {
   readonly command: string;
