@@ -720,6 +720,7 @@ describe('cross-field rules (plan §2.3)', () => {
     'TRACEPARENT',
     'TRACESTATE',
     'CLAUDE_CODE_SDK_READS_SESSION_STATE',
+    'CLAUDE_CODE_SDK_READS_STARTUP_MARKS',
     'disable_autoupdater',
     'Traceparent',
   ])('refuses the pinned key %s in add, remove and an explicit map', (name) => {

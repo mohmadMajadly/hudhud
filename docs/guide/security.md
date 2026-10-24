@@ -112,11 +112,16 @@ Never inherited by either preset: `NODE_OPTIONS`, `CLAUDECODE`, `CLAUDE_CODE_ENT
 - `CLAUDE_CODE_REMOTE_MCP_CONFIG` (a file of MCP servers that Claude Code loads in that mode);
 - `CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR` (a plugin directory it loads);
 - `CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN` (turns off a Windows sandbox protection);
-- `CLAUDE_CODE_CCR_WORKER_SOCKET` (a cloud runner's socket).
+- `CLAUDE_CODE_CCR_WORKER_SOCKET` (a cloud runner's socket);
+
+and, from Claude Code 2.1.310:
+
+- `CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT` (turns off the permission prompt before a dangerous `rm` on a mounted drive);
+- `CLAUDE_CODE_DISABLE_ULTRAREVIEW_TRUST_CHECK` (skips the workspace trust check of `claude ultrareview`).
 
 The rule: a variable that loads code or configuration, re-routes traffic or weakens a protection never arrives silently from your process's environment; such names are reported in `env.dropped`. Add one explicitly if you need it (`env.add` or an explicit map); the security posture then lists it under `env.credentialAndRoutingVariables`.
 
-hudhud then sets its own variables in every form, and refuses options that name them: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (from `claudeCode.backgroundWaitCeilingMs`), `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless their options say `'harness-default'`), `CLAUDE_CONFIG_DIR` (only with `claudeCode.configDir`), `TRACEPARENT` and `TRACESTATE` (only with `trace`, else removed). `CLAUDE_CODE_SDK_READS_SESSION_STATE` is always removed.
+hudhud then sets its own variables in every form, and refuses options that name them: `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`, `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (from `claudeCode.backgroundWaitCeilingMs`), `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless their options say `'harness-default'`), `CLAUDE_CONFIG_DIR` (only with `claudeCode.configDir`), `TRACEPARENT` and `TRACESTATE` (only with `trace`, else removed). `CLAUDE_CODE_SDK_READS_SESSION_STATE` and `CLAUDE_CODE_SDK_READS_STARTUP_MARKS` are always removed: they are the Agent SDK's own switches and change what Claude Code writes on its output (the second makes Claude Code 2.1.310 write start-up marks before its handshake).
 
 Diagnostics report names, never values: `env.dropped` (variables of your process's environment that the preset filtered out or hudhud always removes and that are absent from Claude Code's final environment; a variable hudhud pins, such as `DISABLE_AUTOUPDATER`, or one you add back is not listed, because Claude Code has it), `env.added` and `env.removed`. Credential and routing variables you set explicitly are listed in the posture (`env.credentialAndRoutingVariables`). On Windows, variable names compare case-insensitively, and two names in your options that differ only in case are refused. An explicit map that leaves out a variable Windows needs to start a process fails with `INVALID_OPTIONS` (`details.rule: 'spawn-spec'`).
 

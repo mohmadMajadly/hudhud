@@ -735,18 +735,22 @@ describe('name classifiers', () => {
   });
 });
 
-describe('the never-inherited names of CLI 2.1.302 (lead ruling, COMPAT-1)', () => {
+describe('the never-inherited names of CLI 2.1.302 and 2.1.310 (lead rulings)', () => {
   /**
    * Each loads code or configuration, re-routes traffic or weakens a
    * protection (checklist 1.14), so it never arrives from the parent.
    */
   const NAMES = [
+    // CLI 2.1.302 (COMPAT-1).
     'CLAUDE_CODE_REMOTE',
     'CLAUDE_CODE_ENVIRONMENT_KIND',
     'CLAUDE_CODE_REMOTE_MCP_CONFIG',
     'CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR',
     'CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN',
     'CLAUDE_CODE_CCR_WORKER_SOCKET',
+    // CLI 2.1.310 (fix/cli-2.1.310): each turns off a prompt or a trust check.
+    'CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT',
+    'CLAUDE_CODE_DISABLE_ULTRAREVIEW_TRUST_CHECK',
   ];
   const cases = NAMES.flatMap((name) =>
     (['posix', 'win32'] as const).map((platform) => [name, platform] as const),
@@ -780,6 +784,20 @@ describe('the never-inherited names of CLI 2.1.302 (lead ruling, COMPAT-1)', () 
       expect(postureValue(options, 'env.credentialAndRoutingVariables')).toEqual([name]);
     },
   );
+
+  it('keeps the allowed 2.1.310 names passing, the stricter trust switch included', () => {
+    for (const name of [
+      'CLAUDE_CODE_IGNORE_PERSISTED_TRUST',
+      'CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS',
+      'CLAUDE_CODE_SKIP_PLUGIN_MCP_BUNDLES',
+      'CLAUDE_CODE_WARN_DISK_FREE_GIB',
+    ]) {
+      const result = child({ env: 'harness' }, { ...POSIX_PARENT, [name]: '1' }, 'posix');
+      expect(result.env[name]).toBe('1');
+      expect(isNeverInherited(name, 'posix')).toBe(false);
+      expect(isCredentialOrRoutingEnvName(name)).toBe(false);
+    }
+  });
 
   it('keeps the allowed 2.1.302 names passing, unlisted', () => {
     for (const name of [
@@ -870,5 +888,42 @@ describe('properties', () => {
         expect(result.dropped).toEqual([...new Set(expected)].sort());
       }),
     );
+  });
+});
+
+describe('CLAUDE_CODE_SDK_READS_STARTUP_MARKS (CLI 2.1.310, lead ruling)', () => {
+  // With it, the CLI writes `keep_alive` lines carrying a `startup_mark`
+  // before the `initialize` response: a switch of the Agent SDK that changes
+  // the stream hudhud parses, so it is always removed, like
+  // CLAUDE_CODE_SDK_READS_SESSION_STATE (D11).
+  const NAME = 'CLAUDE_CODE_SDK_READS_STARTUP_MARKS';
+  const FORMS: readonly (readonly [string, unknown])[] = [
+    ['default', undefined],
+    ['harness', 'harness'],
+    ['inherit', 'inherit'],
+    ['harness with add', { preset: 'harness', add: { EXTRA: '1' } }],
+    ['inherit with remove', { preset: 'inherit', remove: ['EDITOR'] }],
+  ];
+
+  it.each(FORMS)('an inherited value never reaches the CLI (env %s)', (_label, env) => {
+    for (const [platform, base, spelling] of [
+      ['posix', POSIX_PARENT, NAME],
+      ['win32', WIN32_PARENT, NAME],
+      ['win32', WIN32_PARENT, 'Claude_Code_Sdk_Reads_Startup_Marks'],
+    ] as const) {
+      const result = child(
+        env === undefined ? {} : { env },
+        { ...base, [spelling]: '1' },
+        platform,
+      );
+      expect(Object.keys(result.env).map((key) => key.toUpperCase())).not.toContain(NAME);
+      expect(result.dropped).toContain(spelling);
+    }
+  });
+
+  it('is pinned: an option may not name it', () => {
+    expect(PINNED_ENV_NAMES).toContain(NAME);
+    expect(envNameIsPinned(NAME)).toBe(true);
+    expect(envNameIsPinned(NAME.toLowerCase())).toBe(true);
   });
 });
