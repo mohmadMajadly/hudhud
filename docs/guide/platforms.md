@@ -2,7 +2,7 @@
 
 ## Support matrix
 
-hudhud is tested end to end, against the real Claude Code in a sandbox (every release of the tested window, 2.1.296 to 2.1.302; see [Compatibility](compatibility.md)), on Windows x64, Linux x64 and macOS arm64. The table states what holds today.
+hudhud is tested end to end, against the real Claude Code in a sandbox (every release of the tested window, 2.1.296 to 2.1.310; see [Compatibility](compatibility.md)), on Windows x64, Linux x64 and macOS arm64. The table states what holds today.
 
 | Platform      | Status                                                                                  | Process containment                          | Binary digest in the committed table |
 | ------------- | --------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------ |

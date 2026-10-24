@@ -45,27 +45,27 @@ function code(fn: () => unknown): string {
 }
 
 describe('the committed pin (tooling/cli-pin.json)', () => {
-  // The record of `pnpm cli:bump 2.1.302 --sdk 0.3.302` (COMPAT-1, 2026-10-18):
+  // The record of `pnpm cli:bump 2.1.310 --sdk 0.3.310` (fix/cli-2.1.310, 2026-10-24):
   // registry integrity, tarball verified against it, binary equal to the
-  // Agent SDK 0.3.302 manifest.json.
-  it('pins 2.1.302 with the recorded digests for linux-x64 and win32-x64', async () => {
+  // Agent SDK 0.3.310 manifest.json.
+  it('pins 2.1.310 with the recorded digests for linux-x64 and win32-x64', async () => {
     const pin = await loadPin(PIN_FILE);
-    expect(pin.version).toBe('2.1.302');
+    expect(pin.version).toBe('2.1.310');
     expect(requirePinned(pin, 'linux-x64')).toEqual({
       package: '@anthropic-ai/claude-code-linux-x64',
       file: 'claude',
       integrity:
-        'sha512-+d4RUq3E3K+3/J4MysB3z4QXA4rkDNt70VYpTLE6kJCnUe/Z6SB8VJsVJG/NV4bECrvkxkLHjXk+vrgBstfZkw==',
-      sha256: '60d7eb7f12fbb28a52533fe8be5884097403562aa02dc73991a021c7067e29a5',
-      size: 285793528,
+        'sha512-CuzpJrMBbqaR3+1SiLrBtPV3w/cFvcqBfhe9kNskzZ2Fm6KXa7v0l7tM+Ln6l5QLb79WoU0CcacXnYtsygbe6A==',
+      sha256: 'b73676430af12f97316a798b8371f81d640f90a58bdcb8f3ce56a835bb47df56',
+      size: 291638640,
     });
     expect(requirePinned(pin, 'win32-x64')).toEqual({
       package: '@anthropic-ai/claude-code-win32-x64',
       file: 'claude.exe',
       integrity:
-        'sha512-XvgQZTaVb0uu5bN7ZImXuy0iqolox0Or5yAemsgfKJ87183l2FBosSi7wUhIX5dEsGjN41z0vQ1pvrZ39rV/ZA==',
-      sha256: '3ab075f78998efef8b87f491c2e4a39c309dddf44e51d0103eba4f3713d2a0ae',
-      size: 290211488,
+        'sha512-h1whtXm0n7w9qxgsEP/2Yowamvg2YfzrVHgks8PR+JYacDtRLl8pmUg2vi0h4ZJN86OHpiqvAx0+y9mSdtUhIQ==',
+      sha256: 'f9a3920634ae3b961ee92c2eb58d0051f5f8852b120983d0a4f57b6a5efeba61',
+      size: 296791712,
     });
   });
 
@@ -75,17 +75,17 @@ describe('the committed pin (tooling/cli-pin.json)', () => {
       package: '@anthropic-ai/claude-code-darwin-arm64',
       file: 'claude',
       integrity:
-        'sha512-h0MlQtldJnHXdPB6KGQ6rYQocvNTEXBI+NW4791OD2mIZcq6fHrV4PsM+XK297OL0+wVENlDHtlBj1BL/3S52A==',
-      sha256: '5262ce9de86243fed0d21edc39b271555d56780d0112e2b194439fe1c6662d37',
-      size: 267956720,
+        'sha512-1HkmRv3tvMTjTrsW5J17S3NtjFjEDC8nnhduNT0klPStHes8/FRX1YFv7UwnfC6fuwd31kFuzWLyNn2IN07JtQ==',
+      sha256: 'ffb64331bc0ee1b69efb7c2c428bd3ab516bc31b75bf60886b356c97c1c25ffd',
+      size: 274068224,
     });
     expect(requirePinned(pin, 'darwin-x64')).toMatchObject({
       package: '@anthropic-ai/claude-code-darwin-x64',
       file: 'claude',
       integrity:
-        'sha512-8+BmqtIpJ/TLXG/jEkUoHH0obT+YtrI6u5xBhkqpnOB6LGt/DNJ+iWOX/Sc1xebAnyV/rPuhAX0jDbRm/SLYfw==',
-      sha256: 'b9a913114f42870ec8e38848c88c855d73f73187871ec2e1ad05bbe54029d9ac',
-      size: 279242736,
+        'sha512-7httDzvIQv+LZF7cSdTu6/hCeOVEbUKmeQ1D1yv0OV1cWH6yjthUucbSFmQKKCUjXmKyI2iomunw+W9Rvbyo5g==',
+      sha256: '28fdbed5a84ef7d4205b5751c7f021e79151c4e319c4a401e48fe6aae86bbb39',
+      size: 285291472,
     });
   });
 });

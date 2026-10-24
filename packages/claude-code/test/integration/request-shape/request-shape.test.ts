@@ -20,17 +20,31 @@
 //   request carries every earlier message.
 // - 05 §14: the same scenario on Linux and Windows.
 //
-// The newest era is recorded at the pin (2.1.302 since COMPAT-1,
-// 2026-10-18), and it is the only era so far. The one change from 2.1.296: from 2.1.299 on the CLI no longer sends the
-// anthropic-beta value mid-conversation-system-2026-04-07, while the
-// requests still carry the mid-conversation role:"system" messages (the
-// bundle registers the feature without a header: 2.1.296
-// `v("mid_conversation_system","mid-conversation-system-2026-04-07")`,
-// 2.1.299 `Wy("mid_conversation_system")` = `{ header: null }`). Measured on
-// Linux and Windows for 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302:
-// 2.1.299 to 2.1.302 send identical shapes. A run against 2.1.296 now reports
-// the extra value as an additive finding (a warning), as the rolling window
-// expects of an older admitted release (ADR-0004 §4).
+// The eras of the window (snapshots/eras.json; read from the bundles and
+// measured with the mock on Linux and Windows):
+// - from 2.1.296, recorded with 2.1.302 (COMPAT-1). 2.1.299 dropped the
+//   anthropic-beta value mid-conversation-system-2026-04-07 (the bundle
+//   registers the feature without a header: 2.1.296
+//   `v("mid_conversation_system","mid-conversation-system-2026-04-07")`,
+//   2.1.299 `Wy("mid_conversation_system")` = `{ header: null }`), while the
+//   requests still carry the mid-conversation role:"system" messages; a run
+//   against 2.1.296 reports the extra value as an additive finding. 2.1.299
+//   to 2.1.303 send identical shapes.
+// - from 2.1.304, recorded with 2.1.304: tool search on behind a custom
+//   ANTHROPIC_BASE_URL, which the mock is (changelog: "Changed tool search to
+//   be on by default behind a custom ANTHROPIC_BASE_URL; a 400 or 422 from
+//   the gateway is retried without it"; 2.1.303 still had the branch that
+//   turned it off for a base URL that is not an Anthropic host). The
+//   requests gain the beta value advanced-tool-use-2025-11-20 and the tools
+//   ToolSearch and DeferredToolPlaceholder (defer_loading); the deferred
+//   tools (CronCreate, NotebookEdit, WebFetch, WebSearch and others) leave
+//   body.tools and are named in a system-reminder, which in session-options
+//   is one more user content block (9 instead of 8). A real first-party
+//   session had tool search on before as well. 2.1.304 to 2.1.306 send
+//   identical shapes.
+// - from 2.1.307, recorded with the pin 2.1.310: no anthropic-beta value
+//   prompt-caching-scope-2026-01-05 behind a custom ANTHROPIC_BASE_URL
+//   (changelog of 2.1.307). 2.1.307 to 2.1.310 send identical shapes.
 
 import { expect, test } from 'vitest';
 

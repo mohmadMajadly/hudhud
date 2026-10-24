@@ -38,10 +38,10 @@ import type { RegistryOptions } from '../../test-support/src/cli/registry.js';
  * changes both constants: a test fails while `DEFAULT_SDK_CLI_VERSION` differs
  * from `tooling/cli-pin.json`. Another version is passed with `--sdk-version`.
  */
-export const DEFAULT_SDK_VERSION = '0.3.302';
+export const DEFAULT_SDK_VERSION = '0.3.310';
 
 /** The CLI version that {@link DEFAULT_SDK_VERSION} bundles. */
-export const DEFAULT_SDK_CLI_VERSION = '2.1.302';
+export const DEFAULT_SDK_CLI_VERSION = '2.1.310';
 
 /** The darwin platforms of the gate (ADR-0014 item 1: both are hashed on every runner). */
 export const DARWIN_PLATFORMS = ['darwin-arm64', 'darwin-x64'] as const;
