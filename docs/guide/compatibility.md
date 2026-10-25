@@ -9,12 +9,19 @@ Claude Code releases often. hudhud does not refuse a version because it is new; 
 | Field         | Value in this version |
 | ------------- | --------------------- |
 | `minTested`   | `'2.1.296'`           |
-| `maxTested`   | `'2.1.302'`           |
+| `maxTested`   | `'2.1.310'`           |
 | `knownBroken` | `[]`                  |
 
-The window spans several Claude Code releases, so the versions users actually have installed are covered, not only the newest. Every published release from `minTested` to `maxTested` was tested: in this version 2.1.296, 2.1.299, 2.1.300, 2.1.301 and 2.1.302 (2.1.297 and 2.1.298 were never published). For each of them hudhud carries the digests of the official binaries of every platform, so `binary.verification` is `'verified'` for any of them without `claudeCode.binaryDigests` ([Security](security.md#binary-verification)).
+The window spans several Claude Code releases, so the versions users actually have installed are covered, not only the newest. Every published release from `minTested` to `maxTested` was tested: in this version 2.1.296, 2.1.299 to 2.1.310 (2.1.297 and 2.1.298 were never published). For each of them hudhud carries the digests of the official binaries of every platform, so `binary.verification` is `'verified'` for any of them without `claudeCode.binaryDigests` ([Security](security.md#binary-verification)).
 
 The window moves only with a reviewed hudhud release. It rolls: a new Claude Code release joins at the top once hudhud's integration suite passed against it on Linux, Windows and macOS, usually within a week of its publication, and releases older than about 30 days before the newest leave at the bottom ([ADR-0004](../adr/0004-packages-and-versioning.md#versioning-layers), rolling-window amendment).
+
+## Changes of Claude Code inside the window
+
+Some releases of the window change what Claude Code does by default. hudhud passes these changes through; none of them changes hudhud's API, permission handling, interrupt or containment:
+
+- **2.1.304: tool search behind a custom `ANTHROPIC_BASE_URL`.** Claude Code now defers rarely used tools (for example `WebFetch`, `WebSearch`, `NotebookEdit`, the cron and worktree tools) behind its `ToolSearch` tool also when `ANTHROPIC_BASE_URL` names a gateway or proxy, as it already did against the Anthropic API. The model loads a deferred tool by name before it calls it; `ToolSearch` itself asks no permission. Tools removed with `claudeCode.disallowedTools` are neither offered nor loadable. A gateway that refuses tool search (HTTP 400 or 422) gets the request again without it, and Claude Code remembers that for a day. To turn tool search off, pass `ENABLE_TOOL_SEARCH=false` through `env` (for example `env: { preset: 'harness', add: { ENABLE_TOOL_SEARCH: 'false' } }`).
+- **2.1.310: the `Monitor` tool, and long leading `sleep` refused.** The `Monitor` tool is on by default: it runs a command in the background and reports each line it prints. Its process behaves like a background shell: after the input ended, Claude Code waits for it, so `close()` ends at `closeTimeoutMs` and the termination ladder ends the process, and `dispose` interrupts; measured on Linux and on Windows with the job object, nothing of it survives either way, while Windows best effort leaves the same residual as for a background shell ([Sessions](sessions.md#close-drain), [Platforms](platforms.md#process-containment)). The Bash tool now refuses a foreground command that starts with `sleep N` for N of 25 seconds or more (the model gets a tool error pointing to `run_in_background` and `Monitor`), unless background tasks are disabled (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`).
 
 ## Status of the running version
 

@@ -13,10 +13,12 @@
  *    `CLAUDE_CODE_ENVIRONMENT_KIND`, `CLAUDE_CODE_REMOTE_MCP_CONFIG`,
  *    `CLAUDE_CODE_DESKTOP_SKILLS_PLUGIN_DIR`,
  *    `CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN`,
- *    `CLAUDE_CODE_CCR_WORKER_SOCKET`): they would change how the CLI runs,
- *    load code or configuration, re-route traffic, weaken a protection or
- *    make the CLI believe it is nested, and an application that wants one
- *    adds it (the posture lists it).
+ *    `CLAUDE_CODE_CCR_WORKER_SOCKET`, and since CLI 2.1.310
+ *    `CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT`,
+ *    `CLAUDE_CODE_DISABLE_ULTRAREVIEW_TRUST_CHECK`): they would change how
+ *    the CLI runs, load code or configuration, re-route traffic, weaken a
+ *    protection or make the CLI believe it is nested, and an application that
+ *    wants one adds it (the posture lists it).
  * 2. Object form: `remove` names are deleted, then `add` entries are set.
  * 3. hudhud's pinned variables override in every form:
  *    `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`,
@@ -24,7 +26,8 @@
  *    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (unless the option is
  *    `'harness-default'`), `CLAUDE_CONFIG_DIR` (only with `configDir`),
  *    `TRACEPARENT`/`TRACESTATE` (only with `trace`). Always removed:
- *    `CLAUDE_CODE_SDK_READS_SESSION_STATE` (D11), and `TRACEPARENT`/
+ *    `CLAUDE_CODE_SDK_READS_SESSION_STATE` (D11),
+ *    `CLAUDE_CODE_SDK_READS_STARTUP_MARKS` (CLI 2.1.310), and `TRACEPARENT`/
  *    `TRACESTATE` unless `trace` is set. hudhud never sets
  *    `CLAUDE_CODE_ENTRYPOINT` (ADR-0001 §4).
  *
@@ -49,8 +52,13 @@ import { isProjectCredentialEnvName } from './settings-guard.js';
 /**
  * Variables hudhud sets or removes itself. Options can neither add nor
  * remove them (compared case-insensitively); each has its own option.
- * `CLAUDE_CODE_SDK_READS_SESSION_STATE` is always removed, so adding it
- * would be ignored silently: it is refused as well.
+ * `CLAUDE_CODE_SDK_READS_SESSION_STATE` and
+ * `CLAUDE_CODE_SDK_READS_STARTUP_MARKS` are always removed, so adding one
+ * would be ignored silently: they are refused as well. Both are switches the
+ * Agent SDK sets for itself, and each changes the stream hudhud parses: the
+ * first marks `session_state_changed` frames `sdk_host_only` (D11); with the
+ * second, CLI 2.1.310 writes `keep_alive` lines carrying a `startup_mark`
+ * before the `initialize` response (lead ruling, checklist 1.14).
  */
 export const PINNED_ENV_NAMES: readonly string[] = [
   'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS',
@@ -61,6 +69,7 @@ export const PINNED_ENV_NAMES: readonly string[] = [
   'TRACEPARENT',
   'TRACESTATE',
   'CLAUDE_CODE_SDK_READS_SESSION_STATE',
+  'CLAUDE_CODE_SDK_READS_STARTUP_MARKS',
 ];
 
 const PINNED = new Set(PINNED_ENV_NAMES);
@@ -72,7 +81,8 @@ export function envNameIsPinned(name: string): boolean {
 
 /**
  * Parent variables no preset passes on. The rule (lead ruling on the CLI
- * 2.1.302 names, COMPAT-1, ADR-0012 §4): a variable that loads code or
+ * 2.1.302 names, COMPAT-1, ADR-0012 §4; applied again to the 2.1.310 names,
+ * fix/cli-2.1.310): a variable that loads code or
  * configuration, re-routes traffic or weakens a protection never arrives
  * silently from the parent environment; an application that wants one sets
  * it with `env.add` (or an explicit map), and the posture lists it
@@ -97,6 +107,13 @@ const NEVER_INHERITED = new Set([
   'CLAUDE_CODE_SANDBOX_LEAVE_DENIES_TO_SRT_WIN',
   // A worker socket of the cloud runner: a route.
   'CLAUDE_CODE_CCR_WORKER_SOCKET',
+  // CLI 2.1.310 (static reading): turns off the Bash check that asks before
+  // a dangerous `rm` on a mounted drive, so fewer tool calls reach
+  // `onPermission`.
+  'CLAUDE_CODE_DISABLE_MOUNTED_DRIVE_RM_PROMPT',
+  // Skips the workspace trust check of `claude ultrareview` (a subcommand
+  // hudhud never runs; the rule keeps it explicit).
+  'CLAUDE_CODE_DISABLE_ULTRAREVIEW_TRUST_CHECK',
 ]);
 const NEVER_INHERITED_PREFIX = 'CLAUDE_AGENT_SDK_';
 
@@ -434,6 +451,7 @@ export function buildChildEnv(
   };
 
   drop('CLAUDE_CODE_SDK_READS_SESSION_STATE');
+  drop('CLAUDE_CODE_SDK_READS_STARTUP_MARKS');
   pin('CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS', '1');
   pin('CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS', String(session.claudeCode.backgroundWaitCeilingMs));
   if (session.autoUpdate === 'disabled') pin('DISABLE_AUTOUPDATER', '1');

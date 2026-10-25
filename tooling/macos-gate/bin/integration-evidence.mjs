@@ -5,6 +5,7 @@
 // summary. Run as an esbuild bundle, like bin/macos-gate.mjs:
 //
 //   node <bundle> report <vitest-report.json> <repo-root> <title>
+//   node <bundle> era <snapshot-root> <repo-root>
 //   node <bundle> shapes <vitest-report.json> <snapshot-dir> <repo-root>
 //   node <bundle> samples <samples.jsonl> <name> <minimum>
 //
@@ -12,10 +13,12 @@
 // (`report` exits 1 when a test failed), 2 on a usage error.
 
 import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
 
 import {
   checkShapeUpdate,
+  pinShapeEra,
   reportMarkdown,
   samplesMarkdown,
   summarizeReport,
@@ -40,6 +43,15 @@ if (command === 'report' && args.length === 3) {
   const summary = summarizeReport(await readReport(file), repoRoot);
   process.stdout.write(reportMarkdown(title, summary));
   process.exit(summary.failed > 0 || summary.failures.length > 0 || summary.total === 0 ? 1 : 0);
+} else if (command === 'era' && args.length === 2) {
+  // Prints the snapshot directory of the pin's shape era.
+  const [snapshotRoot = '', repoRoot = ''] = args;
+  const era = pinShapeEra(
+    await readFile(path.join(snapshotRoot, 'eras.json'), 'utf8'),
+    await readFile(path.join(repoRoot, 'tooling', 'cli-pin.json'), 'utf8'),
+  );
+  process.stdout.write(`${path.join(snapshotRoot, era)}\n`);
+  process.exit(0);
 } else if (command === 'shapes' && args.length === 3) {
   const [file = '', snapshotDir = '', repoRoot = ''] = args;
   const report = await readReport(file);
@@ -63,6 +75,7 @@ if (command === 'report' && args.length === 3) {
 } else {
   process.stderr.write(
     'usage: integration-evidence report <report.json> <repo-root> <title>\n' +
+      '       integration-evidence era <snapshot-root> <repo-root>\n' +
       '       integration-evidence shapes <report.json> <snapshot-dir> <repo-root>\n' +
       '       integration-evidence samples <samples.jsonl> <name> <minimum>\n',
   );

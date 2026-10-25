@@ -2,8 +2,9 @@
 //
 // Takes what the mock captured in the current test, normalizes it into a
 // structural snapshot, refuses to keep one that carries a secret or a path
-// of this machine, and compares it with the committed file next to this one
-// (snapshots/<scenario>.<platform>.shape):
+// of this machine, and compares it with the committed file of its shape era
+// (snapshots/<era>/<scenario>.<platform>.shape; the era of the CLI under
+// test, snapshots/eras.json):
 //
 // - semantic change (removed key, changed literal or type, other number of
 //   messages or requests): the test fails with the findings;
@@ -34,9 +35,16 @@ import {
   updateRequested,
   UPDATE_ENV,
 } from '../../../../../tooling/test-support/src/snapshots/request-shape.js';
+import {
+  eraFallbackNote,
+  parseShapeEras,
+  shapeEraFor,
+} from '../../../../../tooling/test-support/src/snapshots/shape-eras.js';
 import type { ClaudeIntegrationSuite } from '../support/harness.js';
 
 const SNAPSHOT_DIR = path.join(import.meta.dirname, 'snapshots');
+/** The committed shape eras (ADR-0004 §4, amendment of 2026-10-25). */
+export const ERAS_FILE = path.join(SNAPSHOT_DIR, 'eras.json');
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
 
 /**
@@ -46,10 +54,21 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..'
  * diff). The files are per platform because the CLI's tool list is: measured
  * by this suite on CLI 2.1.296, the Linux build sends no `Glob` and no `Grep`
  * tool and the Windows build sends both; every other part of the requests is
- * equal on the two.
+ * equal on the two. The directory is the shape era of `version`, the CLI
+ * under test (`snapshots/eras.json`, `shape-eras.ts`): each admitted release
+ * is judged against the shapes recorded for its era; a release newer than
+ * the newest recording is judged against the newest era, so the canary
+ * still reports drift, and the run says so.
  */
-export function snapshotFile(scenario: string): string {
-  return path.join(SNAPSHOT_DIR, `${scenario}.${process.platform}.shape`);
+export function snapshotFile(
+  scenario: string,
+  version: string,
+): { readonly file: string; readonly note: string | undefined } {
+  const choice = shapeEraFor(parseShapeEras(readFileSync(ERAS_FILE, 'utf8')), version);
+  return {
+    file: path.join(SNAPSHOT_DIR, choice.era.from, `${scenario}.${process.platform}.shape`),
+    note: eraFallbackNote(version, choice),
+  };
 }
 
 function readCommitted(file: string): string | undefined {
@@ -113,9 +132,10 @@ export async function checkRequestShape(
     );
   }
 
-  const file = snapshotFile(scenario);
+  const { file, note } = snapshotFile(scenario, sandbox.cli.version);
+  if (note !== undefined) console.warn(note);
   if (updateRequested(process.env)) {
-    mkdirSync(SNAPSHOT_DIR, { recursive: true });
+    mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, text);
     throw new RequestShapeError(
       `request-shape ${scenario}: snapshot written to ${path.relative(REPO_ROOT, file)}; review the diff, then run without ${UPDATE_ENV}`,

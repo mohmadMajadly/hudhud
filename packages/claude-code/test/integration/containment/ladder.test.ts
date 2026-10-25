@@ -17,6 +17,7 @@ import {
   bashTool,
   CONTAINMENT_MODES,
   collectEvents,
+  foregroundSleep,
   killEach,
   ladderSteps,
   onlyDiagnostic,
@@ -115,7 +116,7 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     });
     expect(session.info.containment).toBe(containment);
     const { events, done } = collectEvents(session);
-    const asked = session.ask(`${bashTool({ command: `sleep ${tag}` })} run it`);
+    const asked = session.ask(`${bashTool({ command: foregroundSleep(tag) })} run it`);
     const workload = await waitForSleep(tag, TOOL_START_GUARD_MS);
 
     await session[Symbol.asyncDispose]();

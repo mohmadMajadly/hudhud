@@ -60,7 +60,7 @@ export const CLAUDE_CODE_COMPAT: {
   readonly knownBroken: readonly string[];
 } = Object.freeze({
   minTested: '2.1.296',
-  maxTested: '2.1.302',
+  maxTested: '2.1.310',
   knownBroken: Object.freeze(listedVersions(CLAUDE_CODE_KNOWN_BROKEN)),
 });
 

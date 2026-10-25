@@ -31,6 +31,7 @@ import {
   bashTool,
   CONTAINMENT_MODES,
   descendantsOf,
+  foregroundSleep,
   isListed,
   killEach,
   readUntil,
@@ -50,7 +51,9 @@ const TOOL_START_GUARD_MS = 30_000;
  * The tool of 07 §2 (`t12-host.mjs` state `tool`: Bash `sleep 15`) on Linux,
  * where its duration bounds the CLI's drain; on Windows the CLI dies with
  * the host whatever the tool does, and a longer `sleep` keeps the residual
- * observable for the whole check.
+ * observable for the whole check. The command is {@link foregroundSleep}:
+ * from CLI 2.1.310 on, a leading foreground `sleep` of 25 s or more is
+ * refused by the Bash tool, which the Windows 60 s would hit.
  */
 const TOOL_SECONDS = WINDOWS ? 60 : 15;
 /**
@@ -98,7 +101,7 @@ describe.each(CONTAINMENT_MODES)('addon $jobAddon ($containment)', ({ jobAddon, 
     const tag = suite.workloadTag(TOOL_SECONDS);
     const host = await startCrashHost(
       suite,
-      `${bashTool({ command: `sleep ${tag}` })} run it`,
+      `${bashTool({ command: foregroundSleep(tag) })} run it`,
       jobAddon,
     );
     const session = await host.next('session', HOST_READY_GUARD_MS);

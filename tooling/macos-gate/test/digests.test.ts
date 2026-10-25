@@ -195,9 +195,9 @@ describe('sdkCrossCheck with the explicit SDK version of the gate', () => {
     );
 
   it('defaults to the SDK release that bundles the pinned CLI (research 05 §1)', () => {
-    // npm view @anthropic-ai/claude-agent-sdk@0.3.302 claudeCodeVersion: 2.1.302
-    expect(DEFAULT_SDK_VERSION).toBe('0.3.302');
-    expect(DEFAULT_SDK_CLI_VERSION).toBe('2.1.302');
+    // npm view @anthropic-ai/claude-agent-sdk@0.3.310 claudeCodeVersion: 2.1.310
+    expect(DEFAULT_SDK_VERSION).toBe('0.3.310');
+    expect(DEFAULT_SDK_CLI_VERSION).toBe('2.1.310');
     const pin = JSON.parse(readFileSync(PIN_PATH, 'utf8')) as { version: string };
     expect(DEFAULT_SDK_CLI_VERSION).toBe(pin.version);
   });

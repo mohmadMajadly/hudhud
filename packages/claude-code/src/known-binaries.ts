@@ -25,10 +25,15 @@
  *   bundles in `claudeCodeVersion`). The win32-x64 binaries of all four carry
  *   the same Authenticode signer subject and leaf certificate as 2.1.296
  *   (read with `Get-AuthenticodeSignature`, never executed). The macOS
- *   gate's item 1 checks the pin's darwin binaries (2.1.302) against this
- *   table and the Team ID on every gate run; the darwin binaries of the
- *   three versions in between rest on the two digest sources, and strict
- *   mode checks their signature against the Team ID when they run.
+ *   gate's item 1 checks the pin's darwin binaries against this table and
+ *   the Team ID on every gate run; the darwin binaries of the versions below
+ *   the pin rest on the two digest sources, and strict mode checks their
+ *   signature against the Team ID when they run.
+ * - 2.1.303 to 2.1.310 (fix/cli-2.1.310, 2026-10-24): every platform
+ *   recorded by `pnpm cli:bump` in order against the Agent SDK releases
+ *   0.3.303 to 0.3.310 (all 32 binaries cross-check `verified`). The
+ *   win32-x64 binaries of all eight carry the pinned Authenticode signer
+ *   subject and the same leaf certificate as 2.1.296.
  * - Publisher (W3-Z ruling 9): strict mode requires the Authenticode signer
  *   subject below on Windows, read-only from the pinned win32-x64 2.1.296
  *   binary with `Get-AuthenticodeSignature` (the binary was never executed).
@@ -159,6 +164,150 @@ export const KNOWN_BINARIES: Readonly<Record<string, Readonly<Record<string, Kno
       'darwin-x64': Object.freeze({
         sha256: 'b9a913114f42870ec8e38848c88c855d73f73187871ec2e1ad05bbe54029d9ac',
         size: 279242736,
+      }),
+    }),
+    '2.1.303': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '375988f457756524234695cf2d8f64ace99c5f68682e47ea24862a843c191450',
+        size: 285809912,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: '1787c60619bad78543c67e4d9d8a868869c35a904f2a85eb9ea46c4808af196b',
+        size: 290228384,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'd2da3b003dc08b88b7230469014fe3e1dc6fe94bc8f648e89b34175d30269370',
+        size: 267973136,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: '6c5d63b43568c5d60963d40f05b0087cb03ba44a90740d27adc505f4157806db',
+        size: 279275760,
+      }),
+    }),
+    '2.1.304': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: 'ea0f135784631619a7a409d07322ecec964f9cc4fd377508ed1ba3f141f27912',
+        size: 288730480,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: '019e5174d5d954585edb1a946fe280e44a973050b4897034adf0e16306f85fdd',
+        size: 293227168,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a',
+        size: 271161296,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: 'f2ae409b46b1bdc1dec7afa12c6a094ff64e7d4ca272ca09f69dd0080c846703',
+        size: 282334128,
+      }),
+    }),
+    '2.1.305': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '86cb722ab68348877dba7971e4d0c659919e05e6228c05e006e83da320e656ef',
+        size: 290532720,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: '0ce7a3942cdd0c89b3e32173362b713aea9e8c24e1219976bad3984e8efadfd1',
+        size: 295628448,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'ea3ea3c08d2a9634a4651e687fcf900d410c489bce2b00f22bd7352b91ba704f',
+        size: 272984176,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: 'af7ad8d6d8b1e49059988f6657d91bb8b9feac127bf8bec005c4c27d0093f153',
+        size: 284167840,
+      }),
+    }),
+    '2.1.306': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe',
+        size: 290532720,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: 'f6bc9de38f507c36c9a3bb0085a59a27e32156e2208252bf1707c4e3ef309114',
+        size: 295628960,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'b5d795b7760032d79954b55a9cd1876dcf3a8dc9608fd6bb9f618593f69fd44b',
+        size: 272984176,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: 'fc273f4caaeb11189bfed82251496728cf1e650563cb9b5f70d91ec6bec42c17',
+        size: 284167840,
+      }),
+    }),
+    '2.1.307': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '6021eb72d20d0682b720bdc63acd2a5cd2270895d1f10d9ca2a88cbfa7b9dd0e',
+        size: 291974512,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: '9537b37daacedc5a21f0f35e04d4fa6759c0bd969ddf2e56052810f63b27c918',
+        size: 297079456,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: '5b113a7752119470f1da419cb0e608af3361cae25b614216b13022093958fb2a',
+        size: 274428784,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: 'f569c691f072acf92d3e11ca46c8de34a267157f3c80f3a3e6b5267478f52dfe',
+        size: 285620896,
+      }),
+    }),
+    '2.1.308': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '356733f185fa988e6bf3aa9a555269fdd167982a2e2a80d3c8a78037bb92ad58',
+        size: 292232560,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: 'c9796ba22a9221586b36371b36f5b66198d66eb4badf6a4cf4a5f7b07becea53',
+        size: 297376928,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'ca923c86ac84b30574a82331a05b6e066c27477a926ceaffe46a845a33e4dd37',
+        size: 274675680,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: '9a0bc140f5fb06e6366624d770371ef290e6731d1e84c4def5daf4df946d1b59',
+        size: 285902384,
+      }),
+    }),
+    '2.1.309': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: '4d704a8aecbe038affa3000f498ae17c1b4f753add8facb8764120affc99b658',
+        size: 293469552,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: '5441781f2b6bbd07354b4a74560ee88c68c9bf05d6db3c7e24c452c91673dc53',
+        size: 298624160,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: '5eadc0009cdcdbc0d06e58110d7b2baf88ced6088b1c33a60a21217fe410619c',
+        size: 275923296,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: '200e0d775ae55c040db3bb8db8de3e22efcddbd7e0abff5ab50dd10f6853425d',
+        size: 287157296,
+      }),
+    }),
+    '2.1.310': Object.freeze({
+      'linux-x64': Object.freeze({
+        sha256: 'b73676430af12f97316a798b8371f81d640f90a58bdcb8f3ce56a835bb47df56',
+        size: 291638640,
+      }),
+      'win32-x64': Object.freeze({
+        sha256: 'f9a3920634ae3b961ee92c2eb58d0051f5f8852b120983d0a4f57b6a5efeba61',
+        size: 296791712,
+      }),
+      'darwin-arm64': Object.freeze({
+        sha256: 'ffb64331bc0ee1b69efb7c2c428bd3ab516bc31b75bf60886b356c97c1c25ffd',
+        size: 274068224,
+      }),
+      'darwin-x64': Object.freeze({
+        sha256: '28fdbed5a84ef7d4205b5751c7f021e79151c4e319c4a401e48fe6aae86bbb39',
+        size: 285291472,
       }),
     }),
   });

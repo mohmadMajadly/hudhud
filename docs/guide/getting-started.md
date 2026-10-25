@@ -7,7 +7,7 @@
 - **A supported platform.** Windows x64, Linux x64 and macOS arm64 are tested end to end, and macOS x64 passed the macOS gate. Windows arm64 and Linux arm64 are not tested, and process containment differs per platform; [Platforms](platforms.md) lists the limits, so read it before you ship.
 - **TypeScript (optional).** Type declarations are included. They use Node's `AbortSignal`, so install `@types/node`; the repository checks the published declarations with TypeScript 6.0 under `strict` and `module: nodenext`.
 
-hudhud is tested against Claude Code 2.1.296 to 2.1.302 (every release in between). Other versions run, with a warning; see [Compatibility](compatibility.md).
+hudhud is tested against Claude Code 2.1.296 to 2.1.310 (every release in between). Other versions run, with a warning; see [Compatibility](compatibility.md).
 
 ## Install
 

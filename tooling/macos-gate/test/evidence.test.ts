@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   checkShapeUpdate,
+  pinShapeEra,
   reportMarkdown,
   samplesMarkdown,
   summarizeReport,
@@ -192,5 +193,30 @@ describe('summarizeSamples', () => {
     for (const minimum of [Number.NaN, 0, 1.5]) {
       expect(() => summarizeSamples(line(NAME, 1), NAME, minimum)).toThrow(/positive integer/);
     }
+  });
+});
+
+describe('pinShapeEra', () => {
+  const ERAS = JSON.stringify({
+    format: 1,
+    eras: [
+      { from: '2.1.296', recordedWith: '2.1.302', change: 'a' },
+      { from: '2.1.304', recordedWith: '2.1.310', change: 'b' },
+    ],
+  });
+  const pin = (version: string): string => JSON.stringify({ version, platforms: {} });
+
+  it('names the era directory the update run against the pin writes', () => {
+    expect(pinShapeEra(ERAS, pin('2.1.310'))).toBe('2.1.304');
+    expect(pinShapeEra(ERAS, pin('2.1.302'))).toBe('2.1.296');
+  });
+
+  it('refuses a pin outside the recorded eras and malformed files', () => {
+    expect(() => pinShapeEra(ERAS, pin('2.1.311'))).toThrow(
+      'the pin 2.1.311 lies outside the recorded shape eras (newer-than-recorded)',
+    );
+    expect(() => pinShapeEra(ERAS, pin('2.1.295'))).toThrow(/older-than-first/);
+    expect(() => pinShapeEra('{', pin('2.1.310'))).toThrow(/not JSON/);
+    expect(() => pinShapeEra(ERAS, '{"platforms":{}}')).toThrow();
   });
 });

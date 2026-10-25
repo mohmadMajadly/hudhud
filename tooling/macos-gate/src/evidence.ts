@@ -11,12 +11,37 @@
  *   after writing its snapshot; the run counts only when every test failed
  *   for exactly that reason and one darwin snapshot exists per scenario that
  *   has a committed Linux snapshot.
+ * - {@link pinShapeEra}: the shape era of the pinned CLI, whose snapshot
+ *   directory the update run writes (ADR-0004 §4, amendment of 2026-10-25).
  * - {@link summarizeSamples}: the close-abort overrun samples
  *   (`HUDHUD_TIMING_LOG`, written by the integration suites' recorder
  *   `support/timing.ts`), at least the required number, with their
  *   minimum, median and maximum and the bound 3x the maximum would give
  *   (plan §4.4); the closer sizes the bound, this only reports it.
  */
+
+import { parsePin } from '../../test-support/src/cli/pin.js';
+import { parseShapeEras, shapeEraFor } from '../../test-support/src/snapshots/shape-eras.js';
+
+/**
+ * The shape era of the pinned CLI: the name of the snapshot directory an
+ * update-mode run of the request-shape suite against the pin writes.
+ *
+ * @param erasText - the committed era table (`snapshots/eras.json`)
+ * @param pinText - `tooling/cli-pin.json`
+ * @throws Error when either file is malformed, or when the pin lies outside
+ *   the recorded eras (a pin is always recorded: its era's `recordedWith`)
+ */
+export function pinShapeEra(erasText: string, pinText: string): string {
+  const pin = parsePin(JSON.parse(pinText) as unknown, 'cli-pin.json');
+  const choice = shapeEraFor(parseShapeEras(erasText), pin.version);
+  if (choice.fallback !== 'none') {
+    throw new Error(
+      `the pin ${pin.version} lies outside the recorded shape eras (${choice.fallback})`,
+    );
+  }
+  return choice.era.from;
+}
 
 /** The parts of a Vitest JSON report (Jest-compatible) that are read. */
 export interface VitestReport {

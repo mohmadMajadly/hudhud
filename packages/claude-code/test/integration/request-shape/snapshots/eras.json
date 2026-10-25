@@ -1,0 +1,21 @@
+{
+  "$comment": "Shape eras of the request-shape snapshots (ADR-0004 section 4, amendment of 2026-10-25; tooling/test-support/src/snapshots/shape-eras.ts). An era is a run of consecutive Claude Code releases that send the same request shapes; its snapshots live in the directory named by its first release (from) and were written by the update mode against recordedWith. A run judges the CLI under test against the era whose from is the last not above its version; a release newer than the newest recordedWith is judged against the newest era (the canary reports drift), one older than the first era against the first. A bump that changes the shapes semantically adds an era; one that does not re-records the newest era at the new pin.",
+  "format": 1,
+  "eras": [
+    {
+      "from": "2.1.296",
+      "recordedWith": "2.1.302",
+      "change": "The first era of the tested window (COMPAT-1, 2026-10-18): the shapes of 2.1.299 to 2.1.302, identical to each other. 2.1.296 also sends the anthropic-beta value mid-conversation-system-2026-04-07, which 2.1.299 dropped; against this set that is an additive finding (a warning)."
+    },
+    {
+      "from": "2.1.304",
+      "recordedWith": "2.1.304",
+      "change": "Tool search on behind a custom ANTHROPIC_BASE_URL (bundled changelog of 2.1.304: \"Changed tool search to be on by default behind a custom ANTHROPIC_BASE_URL; a 400 or 422 from the gateway is retried without it\"; 2.1.303 still turned it off for a base URL that is not an Anthropic host). The requests gain the anthropic-beta value advanced-tool-use-2025-11-20 and the tools ToolSearch and DeferredToolPlaceholder; the deferred tools leave body.tools and are named in a system-reminder (in session-options one more user content block). Measured with the mock on Linux and Windows: 2.1.304, 2.1.305 and 2.1.306 send identical shapes."
+    },
+    {
+      "from": "2.1.307",
+      "recordedWith": "2.1.310",
+      "change": "No anthropic-beta value prompt-caching-scope-2026-01-05 behind a custom ANTHROPIC_BASE_URL (bundled changelog of 2.1.307; measured on Windows: 2.1.304 and 2.1.306 send it, 2.1.307 does not). Measured with the mock on Linux and Windows: 2.1.307 to 2.1.310 send identical shapes."
+    }
+  ]
+}
