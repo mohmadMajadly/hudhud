@@ -34,6 +34,7 @@ import {
   sha256Hex,
   TOOLCHAIN_FIELDS,
   toolchainDifferences,
+  toolchainIdentity,
   UsageError,
   writeDigests,
   type Options,
@@ -284,6 +285,26 @@ describe('toolchains', () => {
     expect(checkToolchain({ ...toolchainOf('x64'), clVersion: 19 })).toBe(
       'clVersion is not a value',
     );
+  });
+
+  it('accepts an input identity after the fields, checks it and keeps it apart', () => {
+    const identity = {
+      visualStudio: '17.14.37710.0',
+      windowsSdkBuild: '10.1.26100.7705',
+      files: { 'msvc/bin/hostx64/x64/cl.exe': 'a'.repeat(64) },
+    };
+    const value = { ...toolchainOf('x64'), identity };
+    expect(checkToolchain(value)).toEqual(toolchainOf('x64'));
+    expect(toolchainIdentity(value)).toEqual(identity);
+    expect(toolchainIdentity(toolchainOf('x64'))).toBeUndefined();
+    expect(toolchainIdentity(null)).toBeUndefined();
+    expect(toolchainIdentity('x')).toBeUndefined();
+    const broken = { ...toolchainOf('x64'), identity: { ...identity, visualStudio: '17' } };
+    expect(checkToolchain(broken)).toBe('identity: visualStudio is not a version');
+    expect(toolchainIdentity(broken)).toBeUndefined();
+    const rendered = renderToolchain(toolchainOf('x64'), identity);
+    expect(Object.keys(JSON.parse(rendered) as object)).toEqual([...TOOLCHAIN_FIELDS, 'identity']);
+    expect(renderToolchain(toolchainOf('x64'))).not.toContain('identity');
   });
 
   it('names the byte-changing fields in which two toolchains differ, in field order', () => {

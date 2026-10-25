@@ -29,6 +29,25 @@
 # Phase 2 runs only through release.yml (one tag run, publish after it);
 # this file has no tag trigger of its own.
 #
+# Canary (`workflow_call` with `phase: canary` from addon-canary.yml, weekly):
+# `build` only, with the same pinned inputs, required to reproduce the
+# record the digest table names; a failure names the inputs that drifted.
+#
+# Pinned inputs (ADR-0014 amendment 14, after release dry run 40161785779
+# failed: a runner image update moved the machine-wide Windows SDK from
+# 10.1.26100.8249 to .9457 under the same 10.0.26100.0 directory, and its
+# kernel32.lib, and for arm64 libucrt.lib, changed the bytes): `build`
+# never reads the image's Windows SDK. It unpacks the Windows SDK payloads
+# of native/win32-job/toolchain-pin.json (size and sha256 checked,
+# `msiexec /a`: extraction only, nothing installed) into C:\hvsdk, and
+# build.mjs points MSBuild and CMake at it. The MSVC toolset comes from the
+# image's Visual Studio Enterprise 2022 17.14 instance, chosen explicitly:
+# that installation is the licensing basis of the static runtime the addon
+# links (ADR-0015 item 12). Each build records its input identity (the
+# sha256 of every file the compiler and the linker read, MSVC's included)
+# in its toolchain.json; on a mismatch `manifest.mjs verify` names the
+# inputs that differ from the record. The gate stays the bytes.
+#
 # Security (ADR-0014): triggered only by a dispatch or a call from
 # release.yml, never by pull_request_target; every job holds `contents:
 # read` only, no secret is referenced, so the tag jobs hold no write token
@@ -39,19 +58,22 @@
 # written; artifacts are kept 3 days (`release-tarballs` 7, so the publish
 # job can wait for its environment's approval) and downloads verify their
 # digest.
-# The only install on a runner is the Visual Studio installer step in
-# `build`, which adds the toolset-of-record components the image lacks
-# (exact ids from the record) and verifies them with vswhere afterwards.
-# Besides it, `build` downloads the CMake of record (the record's
-# `cmakeVersion`, Kitware's release zip checked against Kitware's SHA-256
-# list) into the runner's temporary directory and passes it to the build
-# through HUDHUD_CMAKE; nothing is installed for it (R7-4).
+# Nothing is installed on a runner, and the image's Visual Studio instance
+# is not modified. `build` unpacks the pinned SDK (every payload checked
+# against the pin's size and sha256) and downloads the CMake of record (the
+# record's `cmakeVersion`, Kitware's release zip checked against Kitware's
+# SHA-256 list) into directories of its own, and passes them to the build
+# through HUDHUD_WINDOWS_SDK and HUDHUD_CMAKE; nothing is registered for
+# them (R7-4).
 # Inputs reach scripts through the environment, never by interpolation.
 #
 # Timeouts (K15): measured duration x 2, rounded up, from the first phase 1
 # run (Addon prebuild run 38947897592, 2026-10-16):
-# - installer step: 335 s (x64) and 317 s (arm64), so 12 minutes;
-# - build job: 7 min 11 s (x64) and 6 min 58 s (arm64), so 15 minutes;
+# - SDK step: not measured yet (316 MB from Microsoft's CDN, 9 MSIs
+#   unpacked in 15 s locally); 10 minutes as a hang guard;
+# - build job: 7 min 11 s (x64) and 6 min 58 s (arm64) with the former
+#   installer step (252 to 476 s, now gone), so 15 minutes, plus the SDK
+#   guard: 25 minutes until the first run is measured;
 # - build step: not measured on its own; under 1 min of the job (5 s and
 #   4 s locally), 5 minutes as a hang guard;
 # - CMake download and unpack steps: not measured yet (a zip of about 50
@@ -81,7 +103,9 @@ on:
   workflow_call:
     inputs:
       phase:
-        description: Always `verify` (phase 2); phase 1 is a dispatch of this file.
+        description: >-
+          `verify` (phase 2, from release.yml) or `canary` (the weekly drift
+          canary, from addon-canary.yml); phase 1 is a dispatch of this file.
         type: string
         required: true
       tag:
@@ -115,9 +139,16 @@ defaults:
 jobs:
   build:
     name: build (${{ matrix.arch }})
-    runs-on: windows-2025
-    # Measured 7 min 11 s (x64) and 6 min 58 s (arm64), run 38947897592; x 2.
-    timeout-minutes: 15
+    # windows-2022 carries Visual Studio Enterprise 2022 17.14 with the MSVC
+    # 14.44 tools and Spectre libraries of both architectures, so nothing
+    # is installed into it (windows-2025 now carries Visual Studio 2026,
+    # where 14.44 is a side-by-side toolset whose Spectre libraries had to
+    # be installed on every run). Another image is a change of this line and
+    # the selection step, proven by the weekly canary.
+    runs-on: windows-2022
+    # 15 minutes measured x 2 (run 38947897592) plus the SDK guard (10);
+    # re-size from the first run.
+    timeout-minutes: 25
     permissions:
       contents: read
     strategy:
@@ -144,78 +175,47 @@ jobs:
       - name: Install dependencies (frozen lockfile, no scripts, no cache)
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Record the toolchain on the image
+      # Reported for the log: the image's Visual Studio instances and its
+      # Windows SDKs (the build of record never reads the latter).
+      - name: Report the toolchain on the image
         run: |
           set -euo pipefail
           vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
-          cmake --version | head -n 1
-          install="$("$vswhere" -latest -products '*' -property installationPath)"
-          if [[ -z "$install" ]]; then
-            echo "::error::no Visual Studio instance on this image"
+          if [[ -f "$vswhere" ]]; then
+            "$vswhere" -all -products '*' -nologo -format text \
+              | grep -E '^(installationPath|installationVersion|productId):' || true
+          fi
+          echo "machine Windows SDKs: $(find '/c/Program Files (x86)/Windows Kits/10/Lib' -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null || true)"
+
+      # The image's Visual Studio Enterprise instance: the licensing basis of
+      # the static MSVC runtime the addon links (ADR-0015 item 12). Chosen
+      # explicitly (product and the Visual Studio 2022 17.14 line, whose
+      # toolset is MSVC 14.44), never "the latest"; build.mjs then requires
+      # the record's toolset and its Spectre libraries in it, and the input
+      # identity names any change of its files. Nothing is installed into it.
+      - name: Select the image's Visual Studio Enterprise instance
+        run: |
+          set -euo pipefail
+          vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          mapfile -t found < <("$vswhere" -products Microsoft.VisualStudio.Product.Enterprise -version '[17.14,17.15)' -property installationPath | tr -d '\r')
+          if [[ "${#found[@]}" -ne 1 || -z "${found[0]}" ]]; then
+            echo "::error::expected exactly one Visual Studio Enterprise 17.14 instance on the image, found ${#found[@]}: ${found[*]-}"
             exit 1
           fi
-          echo "Visual Studio $("$vswhere" -latest -products '*' -property catalog_productDisplayVersion) at ${install}"
-          root="$(cygpath -u "$install")"
-          echo "default MSVC toolset $(tr -d '\r\n' < "${root}/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")"
-          echo "MSVC toolsets: $(find "${root}/VC/Tools/MSVC" -mindepth 1 -maxdepth 1 -printf '%f ')"
-          echo "Windows SDKs: $(find '/c/Program Files (x86)/Windows Kits/10/Lib' -mindepth 1 -maxdepth 1 -printf '%f ')"
-          # The record's components for this arch, and the image's default
-          # tools for it (K17: reported, the pinned build does not use them).
-          default_tools=Microsoft.VisualStudio.Component.VC.Tools.x86.x64
-          [[ "$ARCH" == arm64 ]] && default_tools=Microsoft.VisualStudio.Component.VC.Tools.ARM64
-          for component in $(node scripts/addon/manifest.mjs components --arch "$ARCH") "$default_tools"; do
-            if [[ -n "$("$vswhere" -latest -products '*' -requires "$component" -property installationPath)" ]]; then
-              echo "component ${component}: installed"
-            else
-              echo "component ${component}: NOT installed"
-            fi
-          done
+          version="$("$vswhere" -path "${found[0]}" -property installationVersion | tr -d '\r')"
+          echo "Visual Studio Enterprise ${version} at ${found[0]}"
+          echo "HUDHUD_VS_INSTALL=${found[0]}" >> "$GITHUB_ENV"
 
-      # The only install of this workflow, and only here: the components of
-      # the toolset of record the image lacks, by exact id, into the image's
-      # Visual Studio instance. A failure names the installer's exit code,
-      # its log tail and every id still missing.
-      - name: Install the missing toolset-of-record components
-        # Measured 335 s (x64) and 317 s (arm64), run 38947897592; x 2.
-        timeout-minutes: 12
+      # The Windows SDK of record: the pin's MSIs and cabinets (size and
+      # sha256 checked), unpacked with `msiexec /a` into C:\hvsdk; nothing is
+      # installed or registered, and the machine's SDK is never read.
+      - name: Provision the pinned Windows SDK
+        timeout-minutes: 10
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $dir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
-          $vswhere = Join-Path $dir 'vswhere.exe'
-          $installer = Join-Path $dir 'setup.exe'
-          $install = & $vswhere -latest -products '*' -property installationPath
-          $ids = @(node scripts/addon/manifest.mjs components --arch $env:ARCH)
-          if ($LASTEXITCODE -ne 0 -or $ids.Count -eq 0) { Write-Output '::error::the components of the toolset of record could not be read'; exit 1 }
-          function Get-Missing {
-            @($ids | Where-Object { @(& $vswhere -all -products '*' -requires $_ -property installationPath) -notcontains $install })
-          }
-          $missing = Get-Missing
-          if ($missing.Count -eq 0) { Write-Output "all components of the toolset of record are installed in $install"; exit 0 }
-          Write-Output "installing into ${install}: $($missing -join ', ')"
-          $arguments = @('modify', '--installPath', "`"$install`"", '--passive', '--norestart') + @($missing | ForEach-Object { '--add', $_ })
-          $started = Get-Date
-          $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
-          # Wait for any installer process that outlived its parent.
-          $deadline = (Get-Date).AddMinutes(10)
-          while (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dir\*" }).Count -gt 0) {
-            if ((Get-Date) -gt $deadline) { Write-Output '::error::Visual Studio installer processes still running 10 minutes after the installer returned'; exit 1 }
-            Start-Sleep -Seconds 5
-          }
-          $seconds = [int]((Get-Date) - $started).TotalSeconds
-          Write-Output "installer exit code $($process.ExitCode) after $seconds s"
-          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
-            Get-ChildItem $env:TEMP -Filter 'dd_*.log' | Sort-Object LastWriteTime | Select-Object -Last 2 | ForEach-Object {
-              Write-Output "== $($_.Name) (tail)"
-              Get-Content $_.FullName -Tail 40
-            }
-            Write-Output "::error::the Visual Studio installer failed with exit code $($process.ExitCode) adding $($missing -join ', ')"
-            exit 1
-          }
-          if ($process.ExitCode -eq 3010) { Write-Output '::notice::the installer reports that a restart is required (3010); the components are verified next' }
-          $still = Get-Missing
-          if ($still.Count -gt 0) { Write-Output "::error::still not installed in ${install} after the installer: $($still -join ', ')"; exit 1 }
-          Write-Output "installed and verified with vswhere: $($missing -join ', ')"
+          node scripts/addon/toolchain.mjs provision-sdk --downloads "$env:RUNNER_TEMP\sdk" --out 'C:\hvsdk'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          'HUDHUD_WINDOWS_SDK=C:\hvsdk' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # The CMake of record (review finding R7-4): `cmakeVersion` is a field
       # that can change the bytes, so `check-toolchain` and `verify` require
@@ -296,17 +296,30 @@ jobs:
       # difference from the committed record is reported, not fatal here:
       # test-x64 (record check) and the lead's local compare decide.
       - name: Compare with the record the digest table names (phase 1)
-        if: inputs.phase != 'verify'
+        if: inputs.phase != 'verify' && inputs.phase != 'canary'
         run: |
           if ! node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"; then
             echo "::warning::the ${ARCH} build does not reproduce the committed record (reason above)"
           fi
 
       # The record the core's digest table names: the addon release this
-      # library release ships (ADR-0014 amendment 10).
-      - name: Require the rebuild to reproduce the release record (phase 2)
-        if: inputs.phase == 'verify'
-        run: node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH"
+      # library release ships (ADR-0014 amendment 10). A mismatch names the
+      # inputs that differ from the record; the result goes to the job
+      # summary too (the canary's report).
+      - name: Require the rebuild to reproduce the release record (phase 2, canary)
+        if: inputs.phase == 'verify' || inputs.phase == 'canary'
+        run: |
+          set -uo pipefail
+          status=0
+          node scripts/addon/manifest.mjs verify --dir "$RUNNER_TEMP/addon/$ARCH" > "$RUNNER_TEMP/verify-$ARCH.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/verify-$ARCH.txt"
+          {
+            echo "### ${ARCH}: rebuild against the release record"
+            echo '```'
+            cat "$RUNNER_TEMP/verify-$ARCH.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Upload the build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -319,6 +332,7 @@ jobs:
   test-x64:
     name: test (x64)
     needs: build
+    if: inputs.phase != 'canary'
     runs-on: windows-2025
     # Measured 4 min 13 s with every step run, run 38947897592; x 2, rounded.
     timeout-minutes: 10
@@ -400,7 +414,7 @@ jobs:
   manifest:
     name: manifest
     needs: build
-    if: inputs.phase != 'verify'
+    if: inputs.phase != 'verify' && inputs.phase != 'canary'
     runs-on: ubuntu-24.04
     # Under 1 min in run 38947897592 (no dependency install: the tool uses
     # Node built-ins only); 5 minutes.

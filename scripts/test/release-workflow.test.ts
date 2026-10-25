@@ -151,7 +151,36 @@ describe('addon-prebuild.yml', () => {
     expect(PREBUILD).toContain('  workflow_call:\n');
     expect(PREBUILD).not.toContain('github.event_name');
     expect(job(PREBUILD, 'release-verify')).toContain("if: inputs.phase == 'verify'");
-    expect(job(PREBUILD, 'manifest')).toContain("if: inputs.phase != 'verify'");
+    expect(job(PREBUILD, 'manifest')).toContain(
+      "if: inputs.phase != 'verify' && inputs.phase != 'canary'",
+    );
+    expect(job(PREBUILD, 'test-x64')).toContain("if: inputs.phase != 'canary'");
+  });
+
+  it('builds with the pinned SDK and the explicitly chosen Enterprise instance (ADR-0014 amendment 14)', () => {
+    const build = job(PREBUILD, 'build');
+    // Multi-line steps: positions in the job's text.
+    const select = build.indexOf(
+      `"$vswhere" -products Microsoft.VisualStudio.Product.Enterprise -version '[17.14,17.15)' -property installationPath`,
+    );
+    const provision = build.indexOf(
+      `\n          node scripts/addon/toolchain.mjs provision-sdk --downloads "$env:RUNNER_TEMP\\sdk" --out 'C:\\hvsdk'\n`,
+    );
+    const compile = build.indexOf(
+      'run: node native/win32-job/build.mjs --toolset-of-record --arch "$ARCH"\n',
+    );
+    expect(select).toBeGreaterThan(-1);
+    expect(provision).toBeGreaterThan(select);
+    expect(compile).toBeGreaterThan(provision);
+    expect(build).toContain('echo "HUDHUD_VS_INSTALL=${found[0]}" >> "$GITHUB_ENV"');
+    expect(build).toContain("'HUDHUD_WINDOWS_SDK=C:\\hvsdk' | Out-File -FilePath $env:GITHUB_ENV");
+    // Nothing is installed into the image's Visual Studio instance, and no
+    // other instance is installed (ADR-0015 item 12: its licence is the basis).
+    expect(build).not.toMatch(/setup\.exe|'modify'|vs_BuildTools|manifest\.mjs components/u);
+    expect(build).toContain('runs-on: windows-2022');
+    // Phase 2 and the canary require the reproduction; phase 1 reports it.
+    expect(build).toContain("if: inputs.phase == 'verify' || inputs.phase == 'canary'");
+    expect(build).toContain("if: inputs.phase != 'verify' && inputs.phase != 'canary'");
   });
 
   it('checks the tag over the packed bytes, then the full check over the same tarballs it uploads', () => {
@@ -168,5 +197,23 @@ describe('addon-prebuild.yml', () => {
     expect(verify.indexOf('simulate-version')).toBeLessThan(verify.indexOf('pnpm run build'));
     expect(verify).toContain('name: release-tarballs');
     expect(verify).toContain('retention-days: 7');
+  });
+});
+
+describe('addon-canary.yml', () => {
+  const CANARY = workflow('addon-canary.yml');
+
+  it('rebuilds weekly through addon-prebuild with the canary phase, read-only, never on a fork', () => {
+    expect(CANARY).toMatch(
+      /^on:\n {2}schedule:\n {4}- cron: '\d+ \d+ \* \* \d'\n {2}workflow_dispatch:\n/mu,
+    );
+    expect(CANARY).toContain('\npermissions: {}\n');
+    expect(jobNames(CANARY)).toEqual(['rebuild']);
+    const rebuild = job(CANARY, 'rebuild');
+    expect(rebuild).toContain('if: ${{ !github.event.repository.fork }}');
+    expect(rebuild).toContain(
+      'permissions:\n      contents: read\n    uses: ./.github/workflows/addon-prebuild.yml\n',
+    );
+    expect(rebuild).toContain('      phase: canary\n      dry_run: false');
   });
 });

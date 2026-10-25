@@ -43,6 +43,7 @@ import {
   type Manifest,
   type ReleaseArch,
 } from '../lib/addon-digests.mjs';
+import { renderManifest } from '../lib/addon-manifest.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -84,7 +85,7 @@ describe('the release record and the committed table', () => {
     const dir = path.posix.dirname(manifestPath);
     expect(read(`${dir}/SHA256SUMS`)).toBe(renderReleaseSums(manifest));
     expect(read(`${dir}/toolchain.json`)).toBe(renderReleaseToolchains(manifest));
-    expect(read(`${dir}/manifest.json`)).toBe(`${JSON.stringify(manifest, null, 2)}\n`);
+    expect(read(`${dir}/manifest.json`)).toBe(renderManifest(manifest));
   });
 });
 
