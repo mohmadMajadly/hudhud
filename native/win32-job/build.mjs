@@ -16,18 +16,31 @@
 //   and their Spectre-mitigated libraries; anything else is refused.
 // - Without --toolset-of-record the instance's default toolset and the
 //   newest Windows SDK are used (staging, `pnpm addon:stage`).
-// - With --toolset-of-record the MSVC toolset and Windows SDK of the release
-//   record the core's digest table was written from are pinned
-//   (`-T v143,version=<VCToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<SDK>`); a
-//   missing toolset, Spectre library or SDK fails the build and names the
-//   Visual Studio component ids to install (scripts/lib/addon-manifest.mjs
-//   derives them from the record). The instance's default toolset is then
-//   not required. Nothing is ever installed here; the release workflow
-//   (.github/workflows/addon-prebuild.yml) installs missing components on
-//   its runner before it builds.
+// - With --toolset-of-record the inputs of the release record the core's
+//   digest table was written from are used (ADR-0014 amendment 14):
+//   - the Visual Studio instance at HUDHUD_VS_INSTALL (the release workflow
+//     names the runner image's Visual Studio Enterprise instance, the
+//     licensing basis of the static runtime, ADR-0015 item 12), else the
+//     only instance that holds the record's MSVC toolset; never the latest
+//     or default instance;
+//   - its MSVC toolset of the record (`-T v143,version=<VCToolsVersion>`);
+//   - the Windows SDK of the pin, unpacked by
+//     `scripts/addon/toolchain.mjs provision-sdk` into the directory
+//     HUDHUD_WINDOWS_SDK names; MSBuild (WindowsSdkDir_10,
+//     UniversalCRTSdkDir_10, UCRTContentRoot) and CMake
+//     (CMAKE_WINDOWS_KITS_10_DIR) are pointed at it, so the machine's SDK,
+//     whatever its servicing build, is never read;
+//   - `-DCMAKE_SYSTEM_VERSION=<SDK>` of the record.
+//   A missing piece fails the build and names how to provide it. Nothing is
+//   ever installed here; the release workflow
+//   (.github/workflows/addon-prebuild.yml) provisions the SDK first.
 // - toolchain.json records what changes the bytes: arch, generator,
 //   VCToolsVersion, cl version, Windows SDK, CMake and node-api-headers
-//   versions.
+//   versions; and, diagnostic only, the input identity: the Visual Studio
+//   build, the SDK servicing build and the sha256 of every file the compiler,
+//   linker and lib.exe read under the toolset, the SDK and node-api-headers
+//   (from MSBuild's FileTracker logs), plus the tools themselves
+//   (scripts/lib/addon-identity.mjs).
 //
 // Tools are never taken from the working directory: CMake is the first
 // cmake.exe found in an absolute PATH entry, or the HUDHUD_CMAKE absolute
@@ -39,7 +52,15 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
@@ -51,7 +72,20 @@ import {
   parseManifest,
   renderToolchain,
 } from '../../scripts/lib/addon-digests.mjs';
+import {
+  checkIdentity,
+  identityInputs,
+  parseTlogReads,
+} from '../../scripts/lib/addon-identity.mjs';
 import { toolsetOfRecord } from '../../scripts/lib/addon-manifest.mjs';
+import {
+  checkSdkMarker,
+  kitsRoot,
+  parsePin,
+  PIN_FILE,
+  SDK_MARKER,
+  selectInstance,
+} from '../../scripts/lib/addon-pin.mjs';
 
 const HERE = import.meta.dirname;
 const REPO = path.resolve(HERE, '..', '..');
@@ -89,6 +123,31 @@ const GENERATORS = Object.freeze({ 17: 'Visual Studio 17 2022', 18: 'Visual Stud
 
 /** A usage or setup error (exit code 2). */
 class SetupError extends Error {}
+
+/**
+ * Environment variables of a Visual Studio developer prompt that would point
+ * a build at other SDK or toolset directories; removed for a build of record.
+ */
+const DEV_PROMPT_VARIABLES = Object.freeze([
+  'INCLUDE',
+  'LIB',
+  'LIBPATH',
+  'WindowsSdkDir',
+  'WindowsSdkBinPath',
+  'WindowsSdkVerBinPath',
+  'WindowsSDKLibVersion',
+  'WindowsSDKVersion',
+  'WindowsLibPath',
+  'UniversalCRTSdkDir',
+  'UCRTVersion',
+  'VCToolsInstallDir',
+  'VCToolsVersion',
+  'VCINSTALLDIR',
+  'VSINSTALLDIR',
+]);
+
+/** The MSVC tools whose bytes the identity records, besides what the tlogs name. */
+const TOOL_FILES = Object.freeze(['cl.exe', 'c1.dll', 'c2.dll', 'link.exe', 'lib.exe']);
 
 /**
  * @param {readonly string[]} argv
@@ -130,7 +189,7 @@ function parseArgs(argv) {
  *
  * @param {string} file
  * @param {readonly string[]} args
- * @param {{ capture?: boolean }} [options]
+ * @param {{ capture?: boolean, env?: NodeJS.ProcessEnv | undefined }} [options]
  * @returns {{ status: number | null; stdout: string; stderr: string }}
  */
 function run(file, args, options = {}) {
@@ -141,6 +200,7 @@ function run(file, args, options = {}) {
     timeout: TOOL_TIMEOUT_MS,
     maxBuffer: MAX_OUTPUT,
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   if (result.error !== undefined) {
     throw new SetupError(`${path.basename(file)} could not run: ${result.error.message}`);
@@ -202,20 +262,35 @@ function programFilesX86() {
 }
 
 /**
- * The Visual Studio instance and its CMake generator. Without the pin it
- * must have the default MSVC tools and Spectre-mitigated libraries of the
- * architecture. With `--toolset-of-record` the default toolset is not used,
- * so it is not required: the pinned toolset, its Spectre libraries and the
- * SDK are checked on disk instead, because their component ids differ by
- * instance (Build Tools 17.14 ships MSVC 14.44 as its default
- * `VC.Tools.x86.x64`, Visual Studio 2026 as the side-by-side
- * `VC.14.44.17.14.x86.x64`), while the files do not.
+ * Whether a Visual Studio instance holds an MSVC toolset for the target:
+ * its compiler and its Spectre-mitigated libraries.
+ *
+ * @param {string} install
+ * @param {string} vcTools
+ * @param {Target} target
+ * @returns {boolean}
+ */
+function holdsToolset(install, vcTools, target) {
+  const msvc = path.join(install, 'VC', 'Tools', 'MSVC', vcTools);
+  return (
+    existsSync(path.join(msvc, 'bin', hostDir(), target.clDir, 'cl.exe')) &&
+    existsSync(path.join(msvc, 'lib', 'spectre', target.clDir))
+  );
+}
+
+/**
+ * The Visual Studio instance, its version and its CMake generator. Without
+ * the pin: the latest instance with the default MSVC tools and
+ * Spectre-mitigated libraries of the architecture. For a build of record
+ * (`--toolset-of-record`, `vcRecord` given): the instance at
+ * HUDHUD_VS_INSTALL, else the only one that holds the record's toolset
+ * (scripts/lib/addon-pin.mjs selectInstance); never the latest or default.
  *
  * @param {Target} target
- * @param {boolean} ofRecord
- * @returns {{ install: string; generator: string }}
+ * @param {string | undefined} vcRecord The record's VCToolsVersion.
+ * @returns {{ install: string; version: string; generator: string }}
  */
-function findVisualStudio(target, ofRecord) {
+function findVisualStudio(target, vcRecord) {
   const vswhere = path.win32.join(
     programFilesX86(),
     'Microsoft Visual Studio',
@@ -223,30 +298,162 @@ function findVisualStudio(target, ofRecord) {
     'vswhere.exe',
   );
   if (!existsSync(vswhere)) throw new SetupError('vswhere.exe not found (install Visual Studio)');
-  const args = [
-    '-latest',
-    '-products',
-    '*',
-    ...(ofRecord ? [] : ['-requires', target.component, target.spectre]),
-  ];
-  const install = run(vswhere, [...args, '-property', 'installationPath'], { capture: true });
-  const version = run(vswhere, [...args, '-property', 'installationVersion'], { capture: true });
-  if (install.status !== 0 || install.stdout.trim() === '') {
-    throw new SetupError(
-      ofRecord
-        ? 'no Visual Studio instance found'
-        : `no Visual Studio instance has both ${target.component} and ${target.spectre} (the Spectre-mitigated libraries /Qspectre links against)`,
+  /** @type {string} */
+  let install;
+  /** @type {string} */
+  let version;
+  if (vcRecord !== undefined) {
+    const listed = run(vswhere, ['-all', '-products', '*', '-format', 'json', '-utf8'], {
+      capture: true,
+    });
+    const wanted = process.env['HUDHUD_VS_INSTALL'];
+    const chosen = selectInstance(listed.status === 0 ? listed.stdout : '', {
+      wanted: wanted === undefined || wanted === '' ? undefined : wanted,
+      toolset: `MSVC ${vcRecord} for ${target.clDir} with its Spectre-mitigated libraries`,
+      hasToolset: (dir) => holdsToolset(dir, vcRecord, target),
+    });
+    if (typeof chosen === 'string') throw new SetupError(chosen);
+    install = chosen.path;
+    version = chosen.version;
+    process.stdout.write(
+      `Visual Studio instance of record: ${chosen.product} ${version} at ${install}\n`,
     );
+  } else {
+    const args = ['-latest', '-products', '*', '-requires', target.component, target.spectre];
+    const found = run(vswhere, [...args, '-property', 'installationPath'], { capture: true });
+    const versionOf = run(vswhere, [...args, '-property', 'installationVersion'], {
+      capture: true,
+    });
+    if (found.status !== 0 || found.stdout.trim() === '') {
+      throw new SetupError(
+        `no Visual Studio instance has both ${target.component} and ${target.spectre} (the Spectre-mitigated libraries /Qspectre links against)`,
+      );
+    }
+    install = found.stdout.trim();
+    version = versionOf.stdout.trim();
   }
-  const major = /^(\d+)\./.exec(version.stdout.trim())?.[1];
+  const major = /^(\d+)\./.exec(version)?.[1];
   /** @type {unknown} */
   const generator = major === undefined ? undefined : Reflect.get(GENERATORS, major);
   if (typeof generator !== 'string') {
     throw new SetupError(
-      `Visual Studio ${version.stdout.trim()} is not supported: use Visual Studio 2022 (17.x) or 2026 (18.x)`,
+      `Visual Studio ${version} is not supported: use Visual Studio 2022 (17.x) or 2026 (18.x)`,
     );
   }
-  return { install: install.stdout.trim(), generator };
+  return { install, version, generator };
+}
+
+/** @returns {import('../../scripts/lib/addon-pin.mjs').Pin} the committed pin */
+function readPin() {
+  const pin = parsePin(readFileSync(path.join(REPO, PIN_FILE), 'utf8'));
+  if (typeof pin === 'string') throw new SetupError(`${PIN_FILE}: ${pin}`);
+  return pin;
+}
+
+/**
+ * The pinned Windows SDK that HUDHUD_WINDOWS_SDK names: its Windows Kits
+ * root and servicing build, after checking its marker against the pin.
+ *
+ * @param {import('../../scripts/lib/addon-pin.mjs').Pin} pin
+ * @returns {{ kits: string; build: string }}
+ */
+function pinnedSdk(pin) {
+  const dir = process.env['HUDHUD_WINDOWS_SDK'];
+  const how = `provision it: node scripts/addon/toolchain.mjs provision-sdk --downloads <dir> --out <dir>, then set HUDHUD_WINDOWS_SDK to the --out directory`;
+  if (dir === undefined || dir === '' || !path.win32.isAbsolute(dir)) {
+    throw new SetupError(`a build of record needs the pinned Windows SDK (${PIN_FILE}); ${how}`);
+  }
+  const marker = path.win32.join(dir, SDK_MARKER);
+  if (!existsSync(marker)) {
+    throw new SetupError(`${dir} is not a provisioned Windows SDK (no ${SDK_MARKER}); ${how}`);
+  }
+  const checked = checkSdkMarker(readFileSync(marker, 'utf8'), pin);
+  if (typeof checked === 'string') throw new SetupError(`${dir}: ${checked}; ${how}`);
+  return { kits: kitsRoot(dir), build: checked.build };
+}
+
+/**
+ * The environment of the configure and build processes of a build of
+ * record: the developer-prompt variables removed, MSBuild's SDK roots and
+ * CMake's Windows Kits directory pointed at the pinned SDK.
+ *
+ * @param {string} kits
+ * @returns {NodeJS.ProcessEnv}
+ */
+function pinnedEnvironment(kits) {
+  /** @type {NodeJS.ProcessEnv} */
+  const env = {};
+  const removed = new Set(DEV_PROMPT_VARIABLES.map((name) => name.toLowerCase()));
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!removed.has(name.toLowerCase())) env[name] = value;
+  }
+  env['WindowsSdkDir_10'] = kits;
+  env['UniversalCRTSdkDir_10'] = kits;
+  env['UCRTContentRoot'] = kits;
+  env['CMAKE_WINDOWS_KITS_10_DIR'] = kits;
+  return env;
+}
+
+/**
+ * The input identity of a finished build: the files its compiler, linker
+ * and lib.exe read (FileTracker read logs of the addon target) under the
+ * toolset, the SDK and node-api-headers, plus the MSVC tools, each with its
+ * sha256.
+ *
+ * @param {{ buildDir: string; msvc: string; bin: string; kits: string; headers: string;
+ *   visualStudio: string; windowsSdkBuild: string }} where
+ * @returns {import('../../scripts/lib/addon-identity.mjs').Identity}
+ */
+function buildIdentity(where) {
+  const tlogs = path.join(
+    where.buildDir,
+    'hudhud_win32_job.dir',
+    'Release',
+    'hudhud_win32_job.tlog',
+  );
+  if (!existsSync(tlogs)) throw new SetupError(`no FileTracker logs at ${tlogs}`);
+  /** @type {string[]} */
+  const files = TOOL_FILES.map((name) => path.join(where.bin, name));
+  for (const name of readdirSync(tlogs).sort()) {
+    // The compiler's and the linker's read logs (UTF-16LE with a byte order
+    // mark); the custom-build logs name CMake's own regeneration inputs.
+    if (!/^(?:cl|link)\.read\.\d+\.tlog$/iu.test(name)) continue;
+    const bytes = readFileSync(path.join(tlogs, name));
+    const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : 'utf-8';
+    files.push(...parseTlogReads(new TextDecoder(encoding).decode(bytes)));
+  }
+  const inputs = identityInputs(
+    files,
+    [
+      { name: 'msvc', dir: where.msvc },
+      { name: 'sdk', dir: where.kits },
+      { name: 'node-api-headers', dir: where.headers },
+    ],
+    // The repository's own files, and Windows' (the OS's locale and time
+    // zone data the tools open; they vary with the runner's OS build).
+    [where.buildDir, HERE, windowsDir()],
+  );
+  /** @type {Record<string, string>} */
+  const hashes = {};
+  for (const [key, file] of inputs) {
+    if (!existsSync(file)) throw new SetupError(`the build read ${file}, which is gone`);
+    hashes[key] = createHash('sha256').update(readFileSync(file)).digest('hex');
+  }
+  const identity = checkIdentity({
+    visualStudio: where.visualStudio,
+    windowsSdkBuild: where.windowsSdkBuild,
+    files: hashes,
+  });
+  if (typeof identity === 'string') throw new SetupError(`input identity: ${identity}`);
+  return identity;
+}
+
+/** @returns {string} the absolute Windows directory (%SystemRoot%) */
+function windowsDir() {
+  const dir = process.env['SystemRoot'];
+  if (dir === undefined || !path.win32.isAbsolute(dir))
+    throw new SetupError('%SystemRoot% is not set');
+  return dir;
 }
 
 /** @returns {string} the root of the pinned node-api-headers package */
@@ -315,50 +522,55 @@ function main() {
   if (target === undefined) throw new SetupError(`unknown arch ${arch}`);
   const cmake = findCmake();
   const cmakeInfo = cmakeVersion(cmake);
-  const { install, generator } = findVisualStudio(target, ofRecord);
+  const record = ofRecord ? recordToolchain(arch) : undefined;
+  const pin = ofRecord ? readPin() : undefined;
+  const {
+    install,
+    version: vsVersion,
+    generator,
+  } = findVisualStudio(
+    target,
+    record === undefined ? undefined : String(record.toolchain['vcToolsVersion']),
+  );
+  const sdkPin = pin === undefined ? undefined : pinnedSdk(pin);
+  const env = sdkPin === undefined ? undefined : pinnedEnvironment(sdkPin.kits);
   const headers = nodeApiHeaders();
   /** @type {unknown} */
   const headersManifest = JSON.parse(readFileSync(path.join(headers, 'package.json'), 'utf8'));
   const headersVersion = String(Reflect.get(Object(headersManifest), 'version'));
 
   /** @type {string[]} */
-  const pin = [];
+  const cmakePin = [];
   let vcTools = readFileSync(
     path.join(install, 'VC', 'Auxiliary', 'Build', 'Microsoft.VCToolsVersion.default.txt'),
     'utf8',
   ).trim();
-  if (ofRecord) {
-    const record = recordToolchain(arch);
+  if (record !== undefined) {
     const vcRecord = String(record.toolchain['vcToolsVersion']);
     const sdkRecord = String(record.toolchain['windowsSdkVersion']);
     const toolset = toolsetOfRecord(record.toolchain);
     if (typeof toolset === 'string') throw new SetupError(`${record.manifest}: ${toolset}`);
-    const msvc = path.join(install, 'VC', 'Tools', 'MSVC', vcRecord);
-    const kits = path.win32.join(programFilesX86(), 'Windows Kits', '10');
-    /** @type {string[]} */
-    const missing = [];
-    if (!existsSync(path.join(msvc, 'bin', hostDir(), target.clDir, 'cl.exe'))) {
-      missing.push(`${toolset.tools} (MSVC ${vcRecord})`);
-    }
-    if (!existsSync(path.join(msvc, 'lib', 'spectre', target.clDir))) {
-      missing.push(`${toolset.spectre} (its Spectre-mitigated libraries)`);
-    }
-    if (!existsSync(path.win32.join(kits, 'Lib', sdkRecord, 'ucrt', target.clDir))) {
-      missing.push(`${toolset.sdk} (Windows SDK ${sdkRecord})`);
-    }
-    if (missing.length > 0) {
+    const sdkPinned = /** @type {{ kits: string; build: string }} */ (sdkPin);
+    const pinnedVersion = /** @type {import('../../scripts/lib/addon-pin.mjs').Pin} */ (pin)
+      .windowsSdk.version;
+    if (pinnedVersion !== sdkRecord) {
       throw new SetupError(
-        `the toolset of record (${record.manifest}) is not installed in ${install}; install these Visual Studio components:\n  ${missing.join('\n  ')}`,
+        `${PIN_FILE} pins Windows SDK ${pinnedVersion}, the record (${record.manifest}) was built with ${sdkRecord}`,
+      );
+    }
+    if (!existsSync(path.win32.join(sdkPinned.kits, 'Lib', sdkRecord, 'ucrt', target.clDir))) {
+      throw new SetupError(
+        `the pinned SDK at ${sdkPinned.kits} has no ${sdkRecord} ${arch} libraries`,
       );
     }
     vcTools = vcRecord;
-    pin.push(
+    cmakePin.push(
       '-T',
       `${toolset.platformToolset},version=${vcRecord}`,
       `-DCMAKE_SYSTEM_VERSION=${sdkRecord}`,
     );
     process.stdout.write(
-      `toolset of record: MSVC ${vcRecord}, Windows SDK ${sdkRecord} (${record.manifest})\n`,
+      `toolset of record: Visual Studio ${vsVersion} at ${install}, MSVC ${vcRecord}, Windows SDK ${sdkRecord} build ${sdkPinned.build} at ${sdkPinned.kits} (${record.manifest}, ${PIN_FILE})\n`,
     );
   }
   const cl = clVersion(install, vcTools, target);
@@ -366,33 +578,41 @@ function main() {
   rmSync(buildDir, { recursive: true, force: true });
   mkdirSync(buildDir, { recursive: true });
 
-  const configure = run(cmake, [
-    '-S',
-    HERE,
-    '-B',
-    buildDir,
-    '-G',
-    generator,
-    '-A',
-    target.platform,
-    ...pin,
-    `-DCMAKE_GENERATOR_INSTANCE=${install}`,
-    `-DNODE_API_HEADERS_DIR=${headers}`,
-    cmakeInfo.authorFlag,
-    '-Werror=deprecated',
-  ]);
+  const configure = run(
+    cmake,
+    [
+      '-S',
+      HERE,
+      '-B',
+      buildDir,
+      '-G',
+      generator,
+      '-A',
+      target.platform,
+      ...cmakePin,
+      `-DCMAKE_GENERATOR_INSTANCE=${install}`,
+      `-DNODE_API_HEADERS_DIR=${headers}`,
+      cmakeInfo.authorFlag,
+      '-Werror=deprecated',
+    ],
+    { env },
+  );
   if (configure.status !== 0) return 1;
 
-  const build = run(cmake, [
-    '--build',
-    buildDir,
-    '--config',
-    'Release',
-    '--',
-    '/nologo',
-    '/warnaserror',
-    '/verbosity:minimal',
-  ]);
+  const build = run(
+    cmake,
+    [
+      '--build',
+      buildDir,
+      '--config',
+      'Release',
+      '--',
+      '/nologo',
+      '/warnaserror',
+      '/verbosity:minimal',
+    ],
+    { env },
+  );
   if (build.status !== 0) return 1;
 
   const project = readFileSync(path.join(buildDir, 'hudhud_win32_job.vcxproj'), 'utf8');
@@ -408,13 +628,24 @@ function main() {
     nodeApiHeadersVersion: headersVersion,
   });
   if (typeof toolchain === 'string') throw new SetupError(`toolchain.json: ${toolchain}`);
+  const msvcDir = path.join(install, 'VC', 'Tools', 'MSVC', vcTools);
+  const identity = buildIdentity({
+    buildDir,
+    msvc: msvcDir,
+    bin: path.join(msvcDir, 'bin', hostDir(), target.clDir),
+    kits: sdkPin?.kits ?? path.win32.join(programFilesX86(), 'Windows Kits', '10'),
+    headers,
+    visualStudio: vsVersion,
+    windowsSdkBuild: sdkPin?.build ?? 'unpinned',
+  });
+  writeFileSync(path.join(buildDir, 'toolchain.json'), renderToolchain(toolchain, identity));
   const text = renderToolchain(toolchain);
-  writeFileSync(path.join(buildDir, 'toolchain.json'), text);
 
   const addon = path.join(buildDir, 'Release', ADDON);
   const sha256 = createHash('sha256').update(readFileSync(addon)).digest('hex');
   process.stdout.write(
-    `\n${arch} ${ADDON}\n  path   ${addon}\n  sha256 ${sha256}\n  toolchain ${path.join(buildDir, 'toolchain.json')}\n${text}`,
+    `\n${arch} ${ADDON}\n  path   ${addon}\n  sha256 ${sha256}\n  toolchain ${path.join(buildDir, 'toolchain.json')}\n${text}` +
+      `  inputs: Visual Studio ${identity.visualStudio}, Windows SDK build ${identity.windowsSdkBuild}, ${String(Object.keys(identity.files).length)} files hashed (identity in toolchain.json)\n`,
   );
   return 0;
 }
