@@ -38,6 +38,7 @@ import {
   VERSION_FILE,
   type Options,
 } from '../lib/addon-manifest.mjs';
+import type { Identity } from '../lib/addon-identity.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const ROOT = path.resolve('/repo');
@@ -107,11 +108,14 @@ function artifact(
   dir: string,
   bytes: Uint8Array,
   arch: string,
-  options: { version?: string; toolchain?: Record<string, string> } = {},
+  options: { version?: string; toolchain?: Record<string, string>; identity?: Identity } = {},
 ): Record<string, Uint8Array | string> {
   return {
     [`${dir}/${ADDON_FILE}`]: bytes,
-    [`${dir}/toolchain.json`]: renderToolchain(options.toolchain ?? toolchainOf(arch)),
+    [`${dir}/toolchain.json`]: renderToolchain(
+      options.toolchain ?? toolchainOf(arch),
+      options.identity,
+    ),
     [`${dir}/SHA256SUMS`]: renderSha256Sums(sha256Hex(bytes)),
     ...(options.version === undefined
       ? {}
@@ -124,10 +128,11 @@ function buildTree(
   arch: string,
   bytes: Uint8Array,
   toolchain = toolchainOf(arch),
+  identity?: Identity,
 ): Record<string, Uint8Array | string> {
   return {
     [`native/win32-job/build/${arch}/Release/${ADDON_FILE}`]: bytes,
-    [`native/win32-job/build/${arch}/toolchain.json`]: renderToolchain(toolchain),
+    [`native/win32-job/build/${arch}/toolchain.json`]: renderToolchain(toolchain, identity),
   };
 }
 
@@ -635,6 +640,7 @@ describe('verify (release phase 2: the rebuild reproduces the committed record)'
     expect(result.code).toBe(1);
     expect(result.fs.err).toEqual([
       `manifest: x64: the rebuild does not reproduce ${RECORD}: sha256 ${sha256Hex(other)} (record ${X64_SHA}), size ${String(other.length)} (record ${String(X64.length)})`,
+      'manifest: x64: inputs: the record names no input identity',
       `manifest: x64: the rebuild reports version 0.2.0 (record ${VERSION})`,
     ]);
     const versionOnly = run(
@@ -842,6 +848,7 @@ describe('compare (the lead checks CI against an independent local build)', () =
       `arm64: MATCH sha256 ${ARM64_SHA} size ${String(ARM64.length)}`,
       'x64: TOOLCHAIN MISMATCH (not the same toolchain of record): cmakeVersion local 4.4.5 (CI 4.4.4)',
       `x64: MISMATCH local sha256 ${sha256Hex(other)} size ${String(other.length)}, CI sha256 ${X64_SHA} size ${String(X64.length)}`,
+      'x64: inputs: the CI names no input identity',
     ]);
     expect(result.err).toBe(`manifest: 2 of 2 architectures do not match ${ci}`);
   });
@@ -856,7 +863,8 @@ describe('compare (the lead checks CI against an independent local build)', () =
     expect(result.fs.out[1]).toBe(
       `arm64: MISMATCH local sha256 ${sha256Hex(other)} size ${String(other.length)}, CI sha256 ${ARM64_SHA} size ${String(ARM64.length)}`,
     );
-    expect(result.fs.out[2]?.replaceAll('\\', '/')).toBe(
+    expect(result.fs.out[2]).toBe('arm64: inputs: the CI names no input identity');
+    expect(result.fs.out[3]?.replaceAll('\\', '/')).toBe(
       `x64: NO LOCAL BUILD (cannot read native/win32-job/build/x64/Release/${ADDON_FILE} (ENOENT)); run node native/win32-job/build.mjs --toolset-of-record --arch x64`,
     );
     expect(result.err).toBe(`manifest: 2 of 2 architectures do not match ${ci}`);
@@ -885,5 +893,177 @@ describe('the command line', () => {
     expect(result.status).toBe(2);
     expect(result.stdout).toBe('');
     expect(result.stderr).toMatch(/^manifest: collect needs --out\nusage: manifest\.mjs/u);
+  });
+});
+
+describe('the input identity (diagnostic only; the gate stays the bytes)', () => {
+  const KERNEL32 = 'sdk/lib/10.0.26100.0/um/x64/kernel32.lib';
+  const CL = 'msvc/bin/hostx64/x64/cl.exe';
+  function identityOf(overrides: Partial<Identity> = {}): Identity {
+    return {
+      visualStudio: '17.14.37710.0',
+      windowsSdkBuild: '10.1.26100.7705',
+      files: { [CL]: 'a'.repeat(64), [KERNEL32]: 'b'.repeat(64) },
+      ...overrides,
+    };
+  }
+  const drifted = identityOf({
+    windowsSdkBuild: '10.1.26100.9457',
+    files: { [CL]: 'a'.repeat(64), [KERNEL32]: 'c'.repeat(64) },
+  });
+  const withIdentity = manifestOf({
+    arches: { arm64: ARM64_ENTRY, x64: { ...X64_ENTRY, identity: identityOf() } },
+  });
+  const dir = 'D:/a/_temp/addon/x64';
+
+  it('round-trips through the committed record format', () => {
+    const text = renderManifest(withIdentity);
+    const parsed = parseManifest(text);
+    expect(parsed).toEqual(withIdentity);
+    expect(renderManifest(parsed as Manifest)).toBe(text);
+    const toolchain = (JSON.parse(text) as { arches: { x64: { toolchain: object } } }).arches.x64
+      .toolchain;
+    expect(Object.keys(toolchain).at(-1)).toBe('identity');
+    expect(JSON.parse(renderReleaseToolchains(parsed as Manifest))).toHaveProperty(
+      'x64.identity.windowsSdkBuild',
+      '10.1.26100.7705',
+    );
+  });
+
+  it('names the inputs that differ when the rebuild does not reproduce the record', () => {
+    const other = fakePe(0x8664, 'drifted');
+    const result = run(
+      { command: 'verify', dir, record: RECORD },
+      {
+        files: {
+          ...recordFiles(withIdentity),
+          ...artifact(dir, other, 'x64', { version: VERSION, identity: drifted }),
+        },
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.fs.err).toEqual([
+      `manifest: x64: the rebuild does not reproduce ${RECORD}: sha256 ${sha256Hex(other)} (record ${X64_SHA}), size ${String(other.length)} (record ${String(X64.length)})`,
+      'manifest: x64: inputs: Windows SDK build 10.1.26100.9457 (record 10.1.26100.7705)',
+      `manifest: x64: inputs: ${KERNEL32}: sha256 ${'c'.repeat(64)} (record ${'b'.repeat(64)})`,
+    ]);
+  });
+
+  it('says so when no recorded input differs, and when the rebuild records none', () => {
+    const other = fakePe(0x8664, 'drifted');
+    const same = run(
+      { command: 'verify', dir, record: RECORD },
+      {
+        files: {
+          ...recordFiles(withIdentity),
+          ...artifact(dir, other, 'x64', { identity: identityOf() }),
+        },
+      },
+    );
+    expect(same.fs.err.slice(1)).toEqual([
+      'manifest: x64: inputs: none of the recorded inputs differs from the record; the change is in an input the identity does not cover',
+    ]);
+    const none = run(
+      { command: 'verify', dir, record: RECORD },
+      { files: { ...recordFiles(withIdentity), ...artifact(dir, other, 'x64') } },
+    );
+    expect(none.fs.err.slice(1)).toEqual([
+      'manifest: x64: inputs: the rebuild names no input identity (record has one)',
+    ]);
+  });
+
+  it('reports differing inputs as information when the bytes reproduce', () => {
+    const result = run(
+      { command: 'verify', dir, record: RECORD },
+      {
+        files: {
+          ...recordFiles(withIdentity),
+          ...artifact(dir, X64, 'x64', { identity: drifted }),
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(result.fs.out.slice(0, 2)).toEqual([
+      'x64: inputs (information only, the bytes reproduce): Windows SDK build 10.1.26100.9457 (record 10.1.26100.7705)',
+      `x64: inputs (information only, the bytes reproduce): ${KERNEL32}: sha256 ${'c'.repeat(64)} (record ${'b'.repeat(64)})`,
+    ]);
+  });
+
+  it('reports differing inputs in the toolchain check as information', () => {
+    const file = 'D:/a/_temp/addon/x64/toolchain.json';
+    const result = run(
+      { command: 'check-toolchain', toolchain: file },
+      {
+        files: {
+          ...recordFiles(withIdentity),
+          [file]: renderToolchain(toolchainOf('x64'), drifted),
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(result.fs.out.slice(0, 2)).toEqual([
+      'inputs (information only): Windows SDK build 10.1.26100.9457 (record 10.1.26100.7705)',
+      `inputs (information only): ${KERNEL32}: sha256 ${'c'.repeat(64)} (record ${'b'.repeat(64)})`,
+    ]);
+  });
+
+  it('keeps the identity when it collects a build and writes a record', () => {
+    const collected = run(
+      { command: 'collect', arch: 'x64', out: 'out/x64' },
+      { files: buildTree('x64', X64, toolchainOf('x64'), identityOf()) },
+    );
+    expect(collected.code).toBe(0);
+    expect(text(collected.fs, 'out/x64/toolchain.json')).toBe(
+      renderToolchain(toolchainOf('x64'), identityOf()),
+    );
+    const out = 'record';
+    const written = run(
+      { command: 'write', release: '0.1.0', dir: 'D:/a/_temp/addon', out },
+      {
+        files: {
+          ...artifact('D:/a/_temp/addon/x64', X64, 'x64', {
+            version: VERSION,
+            identity: identityOf(),
+          }),
+          ...artifact('D:/a/_temp/addon/arm64', ARM64, 'arm64'),
+        },
+      },
+    );
+    expect(written.code).toBe(0);
+    expect(text(written.fs, `${out}/manifest.json`)).toBe(renderManifest(withIdentity));
+  });
+
+  it('compares identities with a CI manifest', () => {
+    const ci = 'E:/downloads/addon-record/manifest.json';
+    const ciFiles = { [ci]: renderManifest(withIdentity) };
+    const other = fakePe(0x8664, 'local x64');
+    const matched = run(
+      { command: 'compare', manifest: ci },
+      {
+        files: {
+          ...ciFiles,
+          ...buildTree('x64', X64, toolchainOf('x64'), drifted),
+          ...buildTree('arm64', ARM64),
+        },
+      },
+    );
+    expect(matched.code).toBe(0);
+    expect(matched.fs.out).toContain(
+      `x64: inputs (information only): ${KERNEL32}: sha256 ${'c'.repeat(64)} (CI ${'b'.repeat(64)})`,
+    );
+    const mismatched = run(
+      { command: 'compare', manifest: ci },
+      {
+        files: {
+          ...ciFiles,
+          ...buildTree('x64', other, toolchainOf('x64'), drifted),
+          ...buildTree('arm64', ARM64),
+        },
+      },
+    );
+    expect(mismatched.code).toBe(1);
+    expect(mismatched.fs.out).toContain(
+      `x64: inputs: ${KERNEL32}: sha256 ${'c'.repeat(64)} (CI ${'b'.repeat(64)})`,
+    );
   });
 });

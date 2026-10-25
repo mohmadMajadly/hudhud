@@ -47,15 +47,18 @@ import {
   renderSha256Sums,
   renderToolchain,
   sha256Hex,
-  TOOLCHAIN_FIELDS,
   informationalDifferences,
+  orderedToolchain,
   toolchainDifferences,
+  toolchainIdentity,
   UsageError,
 } from './addon-digests.mjs';
+import { identityDifferences } from './addon-identity.mjs';
 
 /** @typedef {import('./addon-digests.mjs').Manifest} Manifest */
 /** @typedef {import('./addon-digests.mjs').ReleaseArch} ReleaseArch */
 /** @typedef {import('./addon-digests.mjs').Toolchain} Toolchain */
+/** @typedef {import('./addon-identity.mjs').Identity} Identity */
 
 /** The addon's ABI version file in an artifact directory (`<version>\n`). */
 export const VERSION_FILE = 'version';
@@ -114,7 +117,8 @@ export function toolsetOfRecord(toolchain) {
 
 /**
  * A release manifest as committed: arches sorted, toolchain fields in
- * {@link TOOLCHAIN_FIELDS} order, two-space JSON and a final newline.
+ * TOOLCHAIN_FIELDS order (then the input identity, when recorded),
+ * two-space JSON and a final newline.
  *
  * @param {Manifest} manifest
  * @returns {string}
@@ -127,9 +131,7 @@ export function renderManifest(manifest) {
     arches[arch] = {
       sha256: entry.sha256,
       size: entry.size,
-      toolchain: Object.fromEntries(
-        TOOLCHAIN_FIELDS.map((field) => [field, entry.toolchain[field]]),
-      ),
+      toolchain: orderedToolchain(entry.toolchain, entry.identity),
     };
   }
   return `${JSON.stringify({ release: manifest.release, version: manifest.version, arches }, null, 2)}\n`;
@@ -248,6 +250,7 @@ export function parseArgs(argv) {
  * @property {string} sha256
  * @property {number} size
  * @property {Toolchain} toolchain
+ * @property {Identity | undefined} identity Its input identity, when recorded.
  * @property {string | undefined} version Its ABI version, when recorded.
  */
 
@@ -372,7 +375,16 @@ class Context {
         version = match;
       }
     }
-    return { arch, bytes: addon.bytes, sha256, size: addon.bytes.length, toolchain, version };
+    const identity = toolchainIdentity(parsed);
+    return {
+      arch,
+      bytes: addon.bytes,
+      sha256,
+      size: addon.bytes.length,
+      toolchain,
+      identity,
+      version,
+    };
   }
 
   /**
@@ -416,6 +428,22 @@ function describeDifferences(reference, toolchain, label, own = '') {
       (field) => `${line(field)}, information only: it does not change the bytes`,
     ),
   };
+}
+
+/**
+ * The input differences worth reporting as information when the bytes
+ * match: only when both sides record an identity (a record without one says
+ * nothing about its inputs; a mismatch reports that instead).
+ *
+ * @param {Identity | undefined} reference
+ * @param {Identity | undefined} build
+ * @param {string} label
+ * @returns {string[]}
+ */
+function knownDifferences(reference, build, label) {
+  return reference === undefined || build === undefined
+    ? []
+    : identityDifferences(reference, build, label);
 }
 
 /**
@@ -490,7 +518,10 @@ function collect(arch, out, context) {
   const dir = context.resolve(out);
   context.io.makeDir(dir);
   context.io.writeFile(path.join(dir, ADDON_FILE), build.bytes);
-  context.io.writeFile(path.join(dir, 'toolchain.json'), renderToolchain(build.toolchain));
+  context.io.writeFile(
+    path.join(dir, 'toolchain.json'),
+    renderToolchain(build.toolchain, build.identity),
+  );
   context.io.writeFile(path.join(dir, 'SHA256SUMS'), renderSha256Sums(build.sha256));
   if (version !== undefined) context.io.writeFile(path.join(dir, VERSION_FILE), `${version}\n`);
   context.io.log(
@@ -525,6 +556,9 @@ function checkRecordToolchain(file, context) {
   }
   const differs = describeDifferences(entry.toolchain, toolchain, 'record');
   for (const line of differs.info) context.io.log(`toolchain differs from the record: ${line}`);
+  for (const line of knownDifferences(entry.identity, toolchainIdentity(parsed), 'record')) {
+    context.io.log(`inputs (information only): ${line}`);
+  }
   if (differs.bytes.length > 0) {
     return context.refuse(
       `${file} is not the toolchain of record (${record.path}), so the record check would be skipped; differing fields: ${differs.bytes.join(', ')}`,
@@ -588,10 +622,20 @@ function verify(dir, recordPath, context) {
       `${build.arch}: the rebuild was not built with the toolchain of record (${wanted}); differing fields: ${differs.bytes.join(', ')}`,
     );
   }
+  const inputs = identityDifferences(entry.identity, build.identity, 'record');
   if (build.sha256 !== entry.sha256 || build.size !== entry.size) {
     problems.push(
       `${build.arch}: the rebuild does not reproduce ${wanted}: sha256 ${build.sha256} (record ${entry.sha256}), size ${String(build.size)} (record ${String(entry.size)})`,
+      ...(inputs.length === 0
+        ? [
+            `${build.arch}: inputs: none of the recorded inputs differs from the record; the change is in an input the identity does not cover`,
+          ]
+        : inputs.map((line) => `${build.arch}: inputs: ${line}`)),
     );
+  } else {
+    for (const line of knownDifferences(entry.identity, build.identity, 'record')) {
+      context.io.log(`${build.arch}: inputs (information only, the bytes reproduce): ${line}`);
+    }
   }
   if (build.version !== undefined && build.version !== record.version) {
     problems.push(
@@ -621,7 +665,12 @@ function write(options, context) {
   for (const arch of RELEASE_ARCHES) {
     const build = context.artifact(path.join(options.dir, arch), arch);
     if (typeof build === 'string') return context.refuse(build);
-    arches[arch] = { sha256: build.sha256, size: build.size, toolchain: build.toolchain };
+    arches[arch] = {
+      sha256: build.sha256,
+      size: build.size,
+      toolchain: build.toolchain,
+      ...(build.identity === undefined ? {} : { identity: build.identity }),
+    };
     versions[arch] = build.version;
   }
   const version = versions['x64'];
@@ -687,12 +736,17 @@ function compare(file, context) {
         `${arch}: TOOLCHAIN MISMATCH (not the same toolchain of record): ${differs.bytes.join(', ')}`,
       );
     }
+    const inputs = identityDifferences(entry.identity, local.identity, 'CI');
     if (sameBytes) {
       context.io.log(`${arch}: MATCH sha256 ${entry.sha256} size ${String(entry.size)}`);
+      for (const line of knownDifferences(entry.identity, local.identity, 'CI')) {
+        context.io.log(`${arch}: inputs (information only): ${line}`);
+      }
     } else {
       context.io.log(
         `${arch}: MISMATCH local sha256 ${local.sha256} size ${String(local.size)}, CI sha256 ${entry.sha256} size ${String(entry.size)}`,
       );
+      for (const line of inputs) context.io.log(`${arch}: inputs: ${line}`);
     }
     for (const line of differs.info) context.io.log(`${arch}: toolchain differs: ${line}`);
   }

@@ -16,6 +16,10 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { checkIdentity, orderedIdentity } from './addon-identity.mjs';
+
+/** @typedef {import('./addon-identity.mjs').Identity} Identity */
+
 /** The addon's file name, in the build tree and in the platform packages. */
 export const ADDON_FILE = 'hudhud_win32_job.node';
 
@@ -39,7 +43,8 @@ export const ARCHES = Object.freeze({
  * The fields of a `toolchain.json`: everything that changes the bytes of a
  * build (lead ruling on A2), plus the generator, which is recorded but
  * shown not to (see {@link INFORMATIONAL_FIELDS}).
- * `native/win32-job/build.mjs` writes one for every build.
+ * `native/win32-job/build.mjs` writes one for every build, with the
+ * optional {@link IDENTITY_FIELD} after them.
  */
 export const TOOLCHAIN_FIELDS = Object.freeze([
   'arch',
@@ -196,17 +201,28 @@ export function parseSha256Sums(text) {
  */
 
 /**
+ * The optional field of a `toolchain.json` that records the build's input
+ * identity (scripts/lib/addon-identity.mjs): diagnostic only, never compared
+ * as a gate (ADR-0014 amendment 14).
+ */
+export const IDENTITY_FIELD = 'identity';
+
+/**
  * Checks a parsed `toolchain.json`: exactly {@link TOOLCHAIN_FIELDS}, each a
- * short printable string.
+ * short printable string, and optionally an {@link IDENTITY_FIELD}, which is
+ * checked too but is not part of the returned toolchain (see
+ * {@link toolchainIdentity}).
  *
  * @param {unknown} value
- * @returns {Toolchain | string} the toolchain, or what is wrong with it
+ * @returns {Toolchain | string} the toolchain fields, or what is wrong with the file
  */
 export function checkToolchain(value) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return 'not an object';
   }
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value)
+    .filter((key) => key !== IDENTITY_FIELD)
+    .sort();
   const expected = [...TOOLCHAIN_FIELDS].sort();
   if (JSON.stringify(keys) !== JSON.stringify(expected)) {
     return `fields ${keys.join(', ')} are not ${expected.join(', ')}`;
@@ -216,7 +232,43 @@ export function checkToolchain(value) {
     const field = Reflect.get(value, key);
     if (typeof field !== 'string' || !TOOLCHAIN_VALUE.test(field)) return `${key} is not a value`;
   }
-  return /** @type {Toolchain} */ (value);
+  if (Object.hasOwn(value, IDENTITY_FIELD)) {
+    const identity = checkIdentity(Reflect.get(value, IDENTITY_FIELD));
+    if (typeof identity === 'string') return `${IDENTITY_FIELD}: ${identity}`;
+  }
+  return /** @type {Toolchain} */ (
+    Object.fromEntries(TOOLCHAIN_FIELDS.map((key) => [key, String(Reflect.get(value, key))]))
+  );
+}
+
+/**
+ * The input identity of a `toolchain.json` that {@link checkToolchain}
+ * accepted, if it records one.
+ *
+ * @param {unknown} value
+ * @returns {Identity | undefined}
+ */
+export function toolchainIdentity(value) {
+  if (typeof value !== 'object' || value === null || !Object.hasOwn(value, IDENTITY_FIELD)) {
+    return undefined;
+  }
+  const identity = checkIdentity(Reflect.get(value, IDENTITY_FIELD));
+  return typeof identity === 'string' ? undefined : identity;
+}
+
+/**
+ * A toolchain as an object in the committed order: {@link TOOLCHAIN_FIELDS},
+ * then the identity when there is one.
+ *
+ * @param {Toolchain} toolchain
+ * @param {Identity | undefined} identity
+ * @returns {Record<string, unknown>}
+ */
+export function orderedToolchain(toolchain, identity) {
+  return {
+    ...Object.fromEntries(TOOLCHAIN_FIELDS.map((field) => [field, toolchain[field]])),
+    ...(identity === undefined ? {} : { [IDENTITY_FIELD]: orderedIdentity(identity) }),
+  };
 }
 
 /**
@@ -265,17 +317,15 @@ export function informationalDifferences(a, b) {
 }
 
 /**
- * A toolchain as written to disk (fields in {@link TOOLCHAIN_FIELDS} order).
+ * A toolchain as written to disk (fields in {@link TOOLCHAIN_FIELDS} order,
+ * then the identity when there is one).
  *
  * @param {Toolchain} toolchain
+ * @param {Identity} [identity]
  * @returns {string}
  */
-export function renderToolchain(toolchain) {
-  return `${JSON.stringify(
-    Object.fromEntries(TOOLCHAIN_FIELDS.map((field) => [field, toolchain[field]])),
-    null,
-    2,
-  )}\n`;
+export function renderToolchain(toolchain, identity) {
+  return `${JSON.stringify(orderedToolchain(toolchain, identity), null, 2)}\n`;
 }
 
 // ---- release record --------------------------------------------------------
@@ -285,6 +335,7 @@ export function renderToolchain(toolchain) {
  * @property {string} sha256
  * @property {number} size
  * @property {Toolchain} toolchain
+ * @property {Identity} [identity] The build's input identity, when recorded (diagnostic only).
  */
 
 /**
@@ -341,10 +392,13 @@ export function parseManifest(text) {
     if (typeof size !== 'number' || !Number.isSafeInteger(size) || size <= 0) {
       return `${arch}.size is not a size`;
     }
-    const toolchain = checkToolchain(Reflect.get(entry, 'toolchain'));
+    /** @type {unknown} */
+    const toolchainValue = Reflect.get(entry, 'toolchain');
+    const toolchain = checkToolchain(toolchainValue);
     if (typeof toolchain === 'string') return `${arch}.toolchain: ${toolchain}`;
     if (toolchain['arch'] !== arch) return `${arch}.toolchain.arch is ${String(toolchain['arch'])}`;
-    checked[arch] = { sha256, size, toolchain };
+    const identity = toolchainIdentity(toolchainValue);
+    checked[arch] = { sha256, size, toolchain, ...(identity === undefined ? {} : { identity }) };
   }
   if (checked['x64'] === undefined) return 'no x64 build';
   return { release, version, arches: checked };
@@ -373,8 +427,8 @@ export function renderReleaseToolchains(manifest) {
   /** @type {Record<string, unknown>} */
   const byArch = {};
   for (const arch of Object.keys(manifest.arches).sort()) {
-    const toolchain = /** @type {ReleaseArch} */ (manifest.arches[arch]).toolchain;
-    byArch[arch] = Object.fromEntries(TOOLCHAIN_FIELDS.map((field) => [field, toolchain[field]]));
+    const entry = /** @type {ReleaseArch} */ (manifest.arches[arch]);
+    byArch[arch] = orderedToolchain(entry.toolchain, entry.identity);
   }
   return `${JSON.stringify(byArch, null, 2)}\n`;
 }
@@ -606,6 +660,7 @@ function stage(options, io, refuse, read) {
   }
   const toolchain = checkToolchain(parsed);
   if (typeof toolchain === 'string') return refuse(`${toolchainPath}: ${toolchain}`);
+  const identity = toolchainIdentity(parsed);
   if (toolchain['arch'] !== options.arch) {
     return refuse(`${toolchainPath} describes a ${String(toolchain['arch'])} build`);
   }
@@ -639,7 +694,7 @@ function stage(options, io, refuse, read) {
   const packageDir = path.join(io.root, target.packageDir);
   io.writeFile(path.join(packageDir, ADDON_FILE), bytes);
   io.writeFile(path.join(packageDir, 'SHA256SUMS'), renderSha256Sums(sha256));
-  io.writeFile(path.join(packageDir, 'toolchain.json'), renderToolchain(toolchain));
+  io.writeFile(path.join(packageDir, 'toolchain.json'), renderToolchain(toolchain, identity));
   io.log(
     `staged ${options.arch} ${ADDON_FILE} (sha256 ${sha256}, version ${version}) in ${target.packageDir}`,
   );
