@@ -1,0 +1,44 @@
+# Weekly addon drift canary (ADR-0014 amendment 14): rebuilds the Windows
+# job addon, x64 and arm64, with the pinned inputs of the toolset of record
+# (addon-prebuild.yml `phase: canary`: the same `build` job a release runs)
+# and requires the rebuild to reproduce the release record the core's
+# digest table names. A red run is the warning a tag would otherwise give:
+# its log and job summary name the inputs that differ from the record
+# (scripts/lib/addon-identity.mjs; release dry run 40161785779 is the case
+# it is for). With the Windows SDK pinned, a red run means a pinned download
+# changed or disappeared, the image's MSVC files changed (the image's
+# Visual Studio Enterprise instance is used, not pinned: ADR-0015 item 12),
+# or the image lost that instance.
+#
+# Security: as addon-prebuild.yml (every job `contents: read`, no secret, no
+# cache, actions pinned by SHA); never on a fork.
+#
+# Cost (plan 5.9 W7-T2 formula, Windows minutes count 2x): estimated, not
+# yet measured (K15), two Windows jobs of about 5 min each (setup and
+# install 2 min, SDK download and unpack 1 min, CMake 0.5 min, build 0.5
+# min, upload and margin 1 min), about 10 Windows minutes or 20
+# Linux-equivalent minutes a run; 4.3 runs a month are about 90
+# Linux-equivalent minutes. Re-size from the first runs.
+name: Addon canary
+
+on:
+  schedule:
+    - cron: '23 5 * * 2'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: addon-canary
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    name: rebuild
+    if: ${{ !github.event.repository.fork }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/addon-prebuild.yml
+    with:
+      phase: canary
+      dry_run: false
