@@ -48,15 +48,36 @@ node native/win32-job/build.mjs --arch x64 --toolset-of-record
 
 `build.mjs` deletes and recreates `native/win32-job/build/<arch>` (gitignored). It then configures that directory with CMake's Visual Studio generator and builds Release with MSBuild warnings as errors. The generator follows the Visual Studio instance: `Visual Studio 17 2022` for 17.x, `Visual Studio 18 2026` for 18.x; any other version is refused. Finally it writes `build/<arch>/toolchain.json` and prints it with the path and sha256 of `build/<arch>/Release/hudhud_win32_job.node`. Add `--build-dir <name>` to use `build/<name>` instead, for example to compare two builds.
 
-`toolchain.json` records what changes the bytes: `arch`, `generator`, `vcToolsVersion` (the MSVC toolset), `clVersion`, `windowsSdkVersion` (the static `/MT` runtime takes the UCRT from the SDK), `cmakeVersion` and `nodeApiHeadersVersion`.
+`toolchain.json` records what changes the bytes: `arch`, `generator`, `vcToolsVersion` (the MSVC toolset), `clVersion`, `windowsSdkVersion` (the static `/MT` runtime takes the UCRT from the SDK), `cmakeVersion` and `nodeApiHeadersVersion`. After them comes `identity`, which is diagnostic only and never a gate (ADR-0014 amendment 14):
 
-Without `--toolset-of-record` the build uses the instance's default MSVC toolset and the newest Windows SDK, so its bytes depend on the machine. With it, the build pins the MSVC toolset and Windows SDK of the release record that the committed digest table was written from (`-T v143,version=<vcToolsVersion>`, `-DCMAKE_SYSTEM_VERSION=<windowsSdkVersion>`). If that toolset, its Spectre libraries or that SDK is not installed, the build fails and names the Visual Studio component ids to install, for example `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64` and `Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre`. It checks the files, not the component ids, because the ids differ by instance: Build Tools 17.14 ships MSVC 14.44 as its default `VC.Tools.x86.x64`, Visual Studio 2026 as the side-by-side `VC.14.44.17.14.x86.x64`. The instance's default toolset is not required with the pin. Releases use it (see [Releasing](#releasing)).
+- `visualStudio`, the instance's `installationVersion`;
+- `windowsSdkBuild`, the servicing build of the pinned SDK (`10.1.26100.7705`), or `unpinned`;
+- `files`, the sha256 of every file the compiler and the linker read under the MSVC toolset (`msvc/...`), the Windows SDK (`sdk/...`) and node-api-headers (`node-api-headers/...`), from MSBuild's FileTracker logs (`CL.read.*.tlog`, `link.read.*.tlog`), plus `cl.exe`, `c1.dll`, `c2.dll`, `link.exe` and `lib.exe`. The repository's own files and Windows' own files are left out; any other input appears as `other/<file name>`.
+
+The directory names `14.44.35207` and `10.0.26100.0` stay the same when Microsoft services the files inside them, so the version fields alone cannot show such a change. The identity can.
+
+Without `--toolset-of-record` the build uses the latest instance with the default MSVC toolset and the newest installed Windows SDK, so its bytes depend on the machine. With it, the build uses the inputs of the release record that the committed digest table was written from:
+
+- **Visual Studio.** The instance at `HUDHUD_VS_INSTALL`. Without it, the build takes the only complete instance that holds the record's MSVC toolset and its Spectre libraries for the architecture, and refuses when there are several. It never uses "the latest" or the default instance. The release workflow names the runner image's Visual Studio Enterprise instance, whose licence is the basis on which the addon redistributes the static runtime (ADR-0015 item 12).
+- **MSVC.** The toolset of the record, `-T v143,version=<vcToolsVersion>`.
+- **Windows SDK.** The SDK of [`toolchain-pin.json`](toolchain-pin.json), servicing build `10.1.26100.7705`. `scripts/addon/toolchain.mjs provision-sdk` unpacks it into the directory that `HUDHUD_WINDOWS_SDK` names. The build points MSBuild (`WindowsSdkDir_10`, `UniversalCRTSdkDir_10`, `UCRTContentRoot`) and CMake (`CMAKE_WINDOWS_KITS_10_DIR`) at it, and passes `-DCMAKE_SYSTEM_VERSION=<windowsSdkVersion>`. The machine's own SDK is never read, whatever its servicing build. The variables of a Visual Studio developer prompt (`INCLUDE`, `LIB`, `WindowsSdkDir`, ...) are removed for the build.
+
+If the instance, its toolset or Spectre libraries, or the provisioned SDK is missing, the build fails and says how to provide it. Releases use this mode (see [Releasing](#releasing)).
 
 Tool lookup:
 
 - CMake is the first `cmake.exe` in an absolute `PATH` entry, or the absolute path in `HUDHUD_CMAKE`.
-- Visual Studio is found with `vswhere`.
-- If a required component is missing, the build fails and names it. Nothing is ever installed.
+- Visual Studio is found with `vswhere`. For a build of record, `HUDHUD_VS_INSTALL` names the instance.
+- For a build of record, `HUDHUD_WINDOWS_SDK` is the directory that `provision-sdk` wrote; its `hudhud-sdk.json` must name this pin.
+- If something required is missing, the build fails and names it. `build.mjs` never installs anything.
+
+To provision the pinned SDK on a Windows machine (every download is checked against the pin's size and sha256 before anything runs):
+
+```sh
+node scripts/addon/toolchain.mjs provision-sdk --downloads C:\hvdl --out C:\hvsdk
+```
+
+It downloads the pin's 9 MSIs and their 38 cabinets, 316 MB from Microsoft's Visual Studio CDN, and unpacks them with an administrative install (`msiexec /a`). That is extraction only: nothing is installed or registered, and it needs no administrator rights. It does nothing when the directory already holds this pin's SDK.
 
 The build is reproducible: two builds of the same source with the same toolchain give the same sha256.
 
@@ -100,13 +121,21 @@ The Windows test suites load the staged addon with the digest from its `SHA256SU
 
 The invariant: the bytes a release publishes equal its release record, `release/<release>/manifest.json`, and every rebuild must reproduce that record (plan §6.3). `<release>` is the version of `@hudhudjs/win32-job-x64`, which is versioned by its record, apart from the library packages; a release tag `v<version>` names the version of `hudhudjs`, `@hudhudjs/core`, `@hudhudjs/claude-code` and `@hudhudjs/conformance` and ships the record that the core's digest table names (ADR-0004, ADR-0014 amendment 10). The workflow is [`.github/workflows/addon-prebuild.yml`](../../.github/workflows/addon-prebuild.yml); its tool is `scripts/addon/manifest.mjs`.
 
-1. **Phase 1, CI record.** Dispatch the workflow (`workflow_dispatch`, input `release`) on the commit to release. It builds x64 and arm64 on `windows-2025` with `build.mjs --toolset-of-record`, after the Visual Studio installer has added any component of the toolset of record that the image lacks, and with the record's exact CMake (`cmakeVersion`), downloaded from Kitware's release of that version, checked against Kitware's SHA-256 list and passed through `HUDHUD_CMAKE`, so an image update of CMake cannot block a release. `test-x64` requires the toolchain of record (`manifest.mjs check-toolchain`) so that the record check runs, then runs the addon tests of plan §6.5 on the x64 build, including the containment suites with the pinned CLI. `manifest` writes the candidate record as the artifact `addon-record` (`manifest.json`, `SHA256SUMS`, `toolchain.json`, in exactly the committed format). The run log prints all three files.
-2. **Independent local build.** On a Windows machine with the toolset of record (`manifest.mjs components --arch <arch>` prints its component ids):
+1. **Phase 1, CI record.** Dispatch the workflow (`workflow_dispatch`, input `release`) on the commit to release. It builds x64 and arm64 on `windows-2022` with `build.mjs --toolset-of-record`, using:
+   - the image's Visual Studio Enterprise 2022 17.14 instance, chosen explicitly with vswhere and passed as `HUDHUD_VS_INSTALL`; nothing is installed into it;
+   - the pinned Windows SDK (`toolchain.mjs provision-sdk`, into `C:\hvsdk`), never the image's SDK;
+   - the record's exact CMake (`cmakeVersion`), downloaded from Kitware's release of that version, checked against Kitware's SHA-256 list and passed through `HUDHUD_CMAKE`.
+
+   See [Pinned inputs](#pinned-inputs) for why. `test-x64` requires the toolchain of record (`manifest.mjs check-toolchain`) so that the record check runs, then runs the addon tests of plan §6.5 on the x64 build, including the containment suites with the pinned CLI. `manifest` writes the candidate record as the artifact `addon-record` (`manifest.json`, `SHA256SUMS`, `toolchain.json`, in exactly the committed format). The run log prints all three files.
+
+2. **Independent local build.** On a Windows machine with a Visual Studio 2022 17.14 instance or Build Tools that holds the record's MSVC toolset and Spectre libraries, and the pinned SDK provisioned (see [Build](#build)):
 
    ```sh
    node native/win32-job/build.mjs --toolset-of-record --arch x64
    node native/win32-job/build.mjs --toolset-of-record --arch arm64
    ```
+
+   Set `HUDHUD_WINDOWS_SDK` to the provisioned directory first.
 
 3. **Compare.** Download `addon-record` from the run, then:
 
@@ -114,7 +143,7 @@ The invariant: the bytes a release publishes equal its release record, `release/
    node scripts/addon/manifest.mjs compare --manifest <download>/manifest.json
    ```
 
-   It prints `MATCH` or `MISMATCH` per architecture, with the local and CI sha256 and size. A difference in a toolchain field that can change the bytes is a `TOOLCHAIN MISMATCH`; a different `generator` is reported as information only. It exits 0 only when every architecture matches in bytes and toolchain. On a mismatch, stop: nothing is committed.
+   It prints `MATCH` or `MISMATCH` per architecture, with the local and CI sha256 and size. A difference in a toolchain field that can change the bytes is a `TOOLCHAIN MISMATCH`; a different `generator` is reported as information only. On a `MISMATCH` it also names every input whose sha256 differs between the two builds, or that only one of them read. It exits 0 only when every architecture matches in bytes and toolchain. On a mismatch, stop: nothing is committed.
 
 4. **Commit the record and the table.** Copy the three files into `native/win32-job/release/<release>/`, then regenerate the table from them and commit both:
 
@@ -124,10 +153,39 @@ The invariant: the bytes a release publishes equal its release record, `release/
 
 5. **Version.** Add the changesets and bump the versions (`pnpm changeset`, then `pnpm changeset version`): `@hudhudjs/win32-job-x64` must come out at `<release>`, and the library group at the version the tag will name. The core's optional dependency on `@hudhudjs/win32-job-x64` is `workspace:*`, so `pnpm pack` writes the platform package's exact version into it.
 6. **Tag.** Push `v<version>` (the library group's version) on the commit that holds the record, the table and the versions. A later library release that keeps this addon needs no new record: it ships the same record and addon version.
-7. **Phase 2, verification.** The tag runs [`release.yml`](../../.github/workflows/release.yml), which calls this workflow again (`workflow_call`, `phase: verify`; ADR-0014 amendment 12). Each build must reproduce the record the core's digest table names (`manifest.mjs verify`: sha256 and size per architecture). `release-verify` stages both builds, builds the core, packs every package, and hashes the packed bytes again (`node scripts/check-tarball.mjs --release-tag v<version>`). The `.node` and `SHA256SUMS` in each platform tarball and the digest table in the core's tarball (source and compiled `dist` module) must equal the record, and the core's optional dependency must name the packed x64 version. The tag must name the packed version of every library package, the x64 package must be packed at `<release>`, the published packages must not be private, no changeset may be left unconsumed, and every published package must name the repository in `repository`, `homepage` and `bugs`. Every failure names both values. It keeps the tarballs of the published packages, runs the full tarball check over exactly those tarballs (`check-tarball.mjs --tarballs`), the staged x64 package included, and uploads them as `release-tarballs`.
+7. **Phase 2, verification.** The tag runs [`release.yml`](../../.github/workflows/release.yml), which calls this workflow again (`workflow_call`, `phase: verify`; ADR-0014 amendment 12). Each build, with the same pinned inputs, must reproduce the record the core's digest table names (`manifest.mjs verify`: sha256 and size per architecture). On a mismatch, `verify` names every input that differs from the record's identity, in the log and in the job summary. `release-verify` stages both builds, builds the core, packs every package, and hashes the packed bytes again (`node scripts/check-tarball.mjs --release-tag v<version>`). The `.node` and `SHA256SUMS` in each platform tarball and the digest table in the core's tarball (source and compiled `dist` module) must equal the record, and the core's optional dependency must name the packed x64 version. The tag must name the packed version of every library package, the x64 package must be packed at `<release>`, the published packages must not be private, no changeset may be left unconsumed, and every published package must name the repository in `repository`, `homepage` and `bugs`. Every failure names both values. It keeps the tarballs of the published packages, runs the full tarball check over exactly those tarballs (`check-tarball.mjs --tarballs`), the staged x64 package included, and uploads them as `release-tarballs`.
 8. **Publish.** `release.yml` publishes those tarballs with npm trusted publishing and provenance, after a gate on the tagged commit and the owner's approval of its environment: `@hudhudjs/win32-job-x64` first and `@hudhudjs/core` second, so that the core's exact optional dependency always resolves, then `@hudhudjs/claude-code`, `@hudhudjs/conformance` and `hudhudjs`. `@hudhudjs/win32-job-arm64` stays private (K17). Release binaries come only from this CI build of record; a local build is never published (ADR-0015 item 12). The release runbook is in the release checklist, docs/plan/v1-release-checklist.md §7.
 
 The workflow holds `contents: read` only and references no secret, so the tag run has no write token; only `release.yml`'s publish job, after it, holds `id-token: write`. It reads and writes no cache, and it keeps its artifacts for 3 days (`release-tarballs` 7).
+
+### Pinned inputs
+
+Why. The release dry run of 2026-10-25 (run 40161785779) did not reproduce the record: x64 gave `4a39d9ae…` instead of `fbe7d9ad…`, and arm64 gave `0c798238…` instead of `a38a74a0…`. Every version field was the same as the record's. The cause was the runner image: between 20261007.264 and 20261021.278 it moved the machine-wide Windows SDK from servicing build 10.1.26100.8249 to 10.1.26100.9457, and both builds are installed under the same `10.0.26100.0` directory. The evidence:
+
+- The two x64 binaries differ only in the hint fields of the KERNEL32 import table, plus the timestamp, PDB GUID and repro hash that `/Brepro` derives from the content. The hints moved by +5 because the 9457 `kernel32.lib` was generated from a `kernel32.dll` with five more exports.
+- For arm64, the 9457 `libucrt.lib` also changes the UCRT locale data, so `.data` shrinks by 16 bytes and the code moves.
+- The proof: the record's own objects, relinked with the 9457 `kernel32.lib` (x64), or with the 9457 `kernel32.lib` and `libucrt.lib` (arm64), give exactly the CI's bytes.
+
+What is pinned, and what is not.
+
+- **Windows SDK: pinned.** The machine-wide SDK cannot simply be installed at another build, because an installer does not downgrade a newer servicing build that is already there. So the SDK is never installed: its MSIs are unpacked into a directory of our own, and the FileTracker logs show every SDK file the compiler and the linker read coming from that directory. `toolchain-pin.json` names the SDK's 9 MSIs and 38 cabinets, each with its URL, size and sha256. They come from package `Win11SDK_10.0.26100` version 10.0.26100.15 of the Visual Studio 17.14 catalog, and their MSI `ProductVersion` is 10.1.26100.7705. They are the MSIs the build needs: the headers, the libraries of both architectures, the MSBuild props, `SDKManifest.xml`, and `rc.exe`, which CMake's compiler check uses.
+- **MSVC: not pinned, chosen explicitly and watched.** The MSVC toolset comes from the image's Visual Studio Enterprise 2022 17.14 instance. That instance's licence is the basis for redistributing the static runtime (ADR-0015 item 12), and a separate Build Tools instance would change that basis. The MSVC 14.44 packages (tools 14.44.35229, runtime 14.44.35226) were byte-identical in the Visual Studio 17.14.41, 17.14.42 and 18.11.1 catalogs. The identity names any change of their files.
+
+The evidence: with the pinned 10.1.26100.7705 directory, a local build reproduces `fbe7d9ad…` and `a38a74a0…`. On the same machine, a directory unpacked from the 9457 payloads gives exactly the CI's `4a39d9ae…` and `0c798238…`. The build reads only the SDK it is pointed at.
+
+Changing the pin. A new pin is a new toolset of record, so it needs a new release record (the steps above). The build of an existing record keeps its pin. Steps:
+
+1. Take the new payloads (URL, size and sha256) from a Visual Studio channel catalog.
+2. Unpack the SDK locally with `provision-sdk` and rebuild.
+3. Compare the bytes and the identity with the record.
+
+The weekly [addon canary](../../.github/workflows/addon-canary.yml) runs `build` against the current record. It shows within a week, before a tag does, and names the inputs involved:
+
+- a pinned download that changes or disappears;
+- an MSVC change in the image;
+- an image without the Enterprise 17.14 instance.
+
+The 0.1.0 record's identity was added after the record was made, before the release (the record is unpublished). It is the identity of the local builds with the pinned SDK, on Build Tools 17.14.41, whose MSVC packages are the same as the image's Enterprise 17.14.41. These builds reproduce the record's bytes. The original CI build used the image's SDK 10.1.26100.8249 and Visual Studio 18.10.3, and gave the same bytes.
 
 ## Security properties
 

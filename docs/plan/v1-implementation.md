@@ -1504,6 +1504,32 @@ FX-F (a random property failure, and the Dependabot pins), as built:
   None of the allowed names disables a prompt or a safety check or re-routes traffic from the process environment.
 - Open: the macOS runs (the bump PR's FULL run for 2.1.310 and the darwin sets of the pin's era; weekly canary dispatches for 2.1.304 to 2.1.309).
 
+#### fix/addon-toolchain-pin: the addon release build reproduces its record whatever the image (2026-10-25), as built
+
+- **Symptom.** The release dry run 40161785779 failed `manifest.mjs verify` on both architectures: x64 `4a39d9ae…` instead of the record's `fbe7d9ad…`, arm64 `0c798238…` instead of `a38a74a0…`. Every toolchain field was the same as the record's: MSVC 14.44.35207, cl 19.44.35229, SDK 10.0.26100.0, CMake 4.4.4. The dry run of 2026-10-18 (39160315966) had reproduced the record on image 20261007.264.1 with Visual Studio 18.10.3; this one ran on 20261021.278.1 with 18.11.1.
+- **Root cause.** The image readmes give the machine-wide Windows SDK as 10.1.26100.8249 before and 10.1.26100.9457 after. Both builds are installed in the same `10.0.26100.0` directory.
+  - **x64.** `dumpbin` shows the two binaries differ only in 161 bytes: the content-derived timestamp, the PDB GUID and the repro hash (`/Brepro`), and the hint of every KERNEL32 import, each +5. Over the whole import library, 1353 hints moved by +5, one by +1, and 42 stayed. `.text` is identical.
+  - **arm64.** The 9457 `libucrt.lib` also changes the UCRT locale data (`nlsdata.obj`, `localeconv.obj`, `mbctype.obj`), so `.data` shrinks by 0x10 bytes and every address after it moves (2718 bytes).
+  - **Proof.** The record's objects, relinked on this host with the 9457 `kernel32.lib` (x64), or with the 9457 `kernel32.lib` and `libucrt.lib` (arm64), give exactly the CI's bytes. With the host's libraries they give the record's.
+  - **Ruled out.** The MSVC packages (tools 14.44.35229, runtime 14.44.35226) have the same payload sha256 in the host's 17.14.41 catalog and in the 18.11.1 catalog.
+  - **The host.** It has Build Tools 17.14.41, SDK 10.1.26100.7705, link 14.44.35229.0 and the Spectre libraries of 14.44.35226, and reproduces the record.
+- **Fix.** All of it is in ADR-0014 amendment 14.
+  - **Pin.** `native/win32-job/toolchain-pin.json` pins the Windows SDK 10.1.26100.7705 payloads: 9 MSIs and their 38 cabinets, 316 MB, from package `Win11SDK_10.0.26100` version 10.0.26100.15 of the Visual Studio 17.14 catalog. These 9 MSIs are the smallest set that builds, found by building with fewer: `SDKManifest.xml` anchors `WindowsSdkDir` in `UAP.props`, and `rc.exe` is needed by CMake's compiler check.
+  - **Tool.** `scripts/addon/toolchain.mjs provision-sdk` (logic in `scripts/lib/addon-pin.mjs`).
+  - **Build.** `build.mjs --toolset-of-record` takes the Visual Studio instance at `HUDHUD_VS_INSTALL`, else the only one that holds the record's toolset, and points MSBuild and CMake at the provisioned SDK. Each build records its input identity (`scripts/lib/addon-identity.mjs`), and `manifest.mjs verify`/`compare` print the differing inputs on a mismatch.
+  - **Workflows.** The build job runs on `windows-2022` and names the image's Visual Studio Enterprise 2022 17.14 instance; the old step that installed components into the image's instance is gone. The weekly `addon-canary.yml` calls `addon-prebuild.yml` with `phase: canary`.
+  - **Record.** The 0.1.0 record gained `identity` for both architectures, from the pinned local builds. The digests, `SHA256SUMS` and the digest table did not change.
+- **Evaluated and not adopted: pinning MSVC with a fixed-version Build Tools instance.** It was prototyped, not run on CI: the 17.14.41 bootstrapper's sha256 (`37bb0fb4…`) equals the hash its download URL names, and selecting the instance by product and exact build was unit-tested. It is not adopted because ADR-0015 item 12 (owner ruling 2026-10-18) bases the redistribution of the static MSVC runtime on the runner image's Visual Studio Enterprise installation, and the Build Tools licence has no Distributable Code grant of its own. Pinning MSVC that way needs an owner ruling first.
+- **Verification (local, Windows 11, Build Tools 17.14.41, whose MSVC packages are the same as the image's Enterprise 17.14.41).**
+  - `provision-sdk` from the pin took 15 s with the payloads already downloaded. `build.mjs --toolset-of-record` with `HUDHUD_WINDOWS_SDK` gives `fbe7d9ad…` and `a38a74a0…`, the FileTracker logs show every SDK read from the provisioned directory, and two rebuilds give identical identities (129 inputs for x64, 135 for arm64).
+  - The same build against a directory unpacked from the 9457 payloads, under a throw-away pin, gives exactly the failed run's `4a39d9ae…` and `0c798238…`. `verify` then names the SDK build, `kernel32.lib`, `libucrt.lib`, `uuid.lib`, `runtimeobject.lib` (arm64) and four changed headers.
+  - `pnpm check` on Windows: see the branch report. scripts/lib is at 100 % coverage.
+- **Open.**
+  - CI proof: a phase 1 dispatch on the branch, a release dry run and a canary dispatch (release checklist 2.7).
+  - Measure the SDK step and the build job on the first run and re-size their timeouts (K15).
+  - A pin change is manual (README "Pinned inputs").
+  - Owner: whether MSVC should be pinned too, by a fixed-version Build Tools or Enterprise instance; that changes the licensing basis of ADR-0015 item 12.
+
 ### 5.10 Summary table
 
 | Wave | Tasks (parallel) | Model mix | Ends with |
