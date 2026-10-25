@@ -25,7 +25,15 @@ import { bashMarker, mockMarker } from '../sandbox.js';
 import { runScenario, type SessionContext } from '../session.js';
 import { sessionEvidence, TURN_MS, waitForDescendant } from './common.js';
 
-const TOOL_COMMAND = 'sleep 45';
+/**
+ * The Bash tool's long foreground workload. From CLI 2.1.310 the Bash tool
+ * refuses a foreground command whose first statement is `sleep N` with
+ * N >= 25 (`Blocked: standalone sleep N`, so no process starts; macOS gate
+ * run 40161690394), and it reads only the first statement, so the no-op
+ * `true` keeps the same `sleep` child of the tool's shell on every version
+ * of the tested window (as `foregroundSleep` in the integration tests).
+ */
+const TOOL_COMMAND = 'true && sleep 45';
 const EXIT_MS = 10_000;
 /** Allowed distance between the spawn and the `lstart` value (1 s resolution, clock skew). */
 const START_TOLERANCE_MS = 5_000;

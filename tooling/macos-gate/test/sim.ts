@@ -976,7 +976,21 @@ export class SimCli {
       hidden ? '(zsh)' : '/bin/zsh',
       this.flags.sharedGroup !== true,
     );
-    if (pending.command.startsWith('sleep')) {
+    // CLI 2.1.310: a foreground command whose first statement is `sleep N`
+    // with N >= 25 is refused before any process starts.
+    const seconds = /^sleep (\d+)/.exec(pending.command)?.[1];
+    if (seconds !== undefined && Number(seconds) >= 25) {
+      this.sim.remove(shell.pid);
+      this.child.emit({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', content: `Blocked: standalone sleep ${seconds}` }],
+        },
+      });
+      this.result(true, 'Tool refused.');
+      return;
+    }
+    if (/^(true && )?sleep/.test(pending.command)) {
       this.tool = shell;
       this.sim.addProcess(shell.pid, hidden ? '(sleep)' : '/bin/sleep', false, shell.pgid);
       return;
